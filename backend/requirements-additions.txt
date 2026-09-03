@@ -1,0 +1,6 @@
+# Add these to your backend's requirements.txt / pyproject.toml.
+# Versions are minimums — pin exact versions to match whatever the rest
+# of your backend already uses if you have other SQLAlchemy dependents.
+
+sqlalchemy[asyncio]>=2.0
+asyncpg>=0.29

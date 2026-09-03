@@ -1,0 +1,53 @@
+<svg viewBox="0 0 700 380" xmlns="http://www.w3.org/2000/svg" font-family="Arial, sans-serif">
+  <defs>
+    <marker id="ar" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L7,3 z" fill="#1A3364"/>
+    </marker>
+  </defs>
+  <rect width="700" height="380" fill="#EAEAF4"/>
+  <text x="350" y="30" text-anchor="middle" font-size="18" font-weight="bold" fill="#1A3364">Candlestick Anatomy</text>
+
+  <text x="200" y="60" text-anchor="middle" font-size="14" font-weight="bold" fill="#15803d">Bullish (Close &gt; Open)</text>
+  <line x1="200" y1="80" x2="200" y2="270" stroke="#15803d" stroke-width="2"/>
+  <rect x="175" y="140" width="50" height="90" fill="#bbf7d0" stroke="#15803d" stroke-width="2"/>
+
+  <line x1="230" y1="90" x2="280" y2="90" stroke="#1A3364" stroke-width="1.5" marker-end="url(#ar)"/>
+  <text x="285" y="94" font-size="12" fill="#1A3364">High</text>
+
+  <line x1="230" y1="140" x2="280" y2="140" stroke="#1A3364" stroke-width="1.5" marker-end="url(#ar)"/>
+  <text x="285" y="144" font-size="12" fill="#1A3364">Close (top of body)</text>
+
+  <line x1="230" y1="230" x2="280" y2="230" stroke="#1A3364" stroke-width="1.5" marker-end="url(#ar)"/>
+  <text x="285" y="234" font-size="12" fill="#1A3364">Open (bottom of body)</text>
+
+  <line x1="230" y1="260" x2="280" y2="260" stroke="#1A3364" stroke-width="1.5" marker-end="url(#ar)"/>
+  <text x="285" y="264" font-size="12" fill="#1A3364">Low</text>
+
+  <text x="150" y="110" font-size="11" fill="#333" text-anchor="end">Upper wick</text>
+  <line x1="155" y1="107" x2="195" y2="95" stroke="#666" stroke-width="1"/>
+  <text x="150" y="255" font-size="11" fill="#333" text-anchor="end">Lower wick</text>
+  <line x1="155" y1="252" x2="195" y2="250" stroke="#666" stroke-width="1"/>
+  <text x="200" y="185" font-size="11" fill="#15803d" text-anchor="middle" font-weight="bold">BODY</text>
+
+  <text x="520" y="60" text-anchor="middle" font-size="14" font-weight="bold" fill="#b91c1c">Bearish (Close &lt; Open)</text>
+  <line x1="520" y1="80" x2="520" y2="270" stroke="#b91c1c" stroke-width="2"/>
+  <rect x="495" y="130" width="50" height="90" fill="#fecaca" stroke="#b91c1c" stroke-width="2"/>
+
+  <line x1="470" y1="90" x2="440" y2="90" stroke="#1A3364" stroke-width="1.5" marker-end="url(#ar)"/>
+  <text x="435" y="94" font-size="12" fill="#1A3364" text-anchor="end">High</text>
+
+  <line x1="470" y1="130" x2="440" y2="130" stroke="#1A3364" stroke-width="1.5" marker-end="url(#ar)"/>
+  <text x="435" y="134" font-size="12" fill="#1A3364" text-anchor="end">Open (top of body)</text>
+
+  <line x1="470" y1="220" x2="440" y2="220" stroke="#1A3364" stroke-width="1.5" marker-end="url(#ar)"/>
+  <text x="435" y="224" font-size="12" fill="#1A3364" text-anchor="end">Close (bottom of body)</text>
+
+  <line x1="470" y1="260" x2="440" y2="260" stroke="#1A3364" stroke-width="1.5" marker-end="url(#ar)"/>
+  <text x="435" y="264" font-size="12" fill="#1A3364" text-anchor="end">Low</text>
+
+  <text x="520" y="175" font-size="11" fill="#b91c1c" text-anchor="middle" font-weight="bold">BODY</text>
+
+  <rect x="130" y="300" width="440" height="50" rx="6" fill="#FFF3E0" stroke="#FF7A00"/>
+  <text x="350" y="320" text-anchor="middle" font-size="12" fill="#7a3e00" font-weight="bold">Body = net result (open to close)</text>
+  <text x="350" y="338" text-anchor="middle" font-size="12" fill="#7a3e00">Wick = price reached, then rejected, before the close</text>
+</svg>

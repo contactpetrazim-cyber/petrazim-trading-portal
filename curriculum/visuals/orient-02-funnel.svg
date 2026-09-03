@@ -1,0 +1,22 @@
+<svg viewBox="0 0 700 420" xmlns="http://www.w3.org/2000/svg" font-family="Arial, sans-serif">
+  <rect width="700" height="420" fill="#EAEAF4"/>
+  <text x="350" y="30" text-anchor="middle" font-size="18" font-weight="bold" fill="#1A3364">Signal &#8594; Setup &#8594; Trade</text>
+
+  <polygon points="120,60 580,60 460,180 240,180" fill="#c7d5ec" stroke="#1A3364" stroke-width="2"/>
+  <polygon points="240,180 460,180 400,280 300,280" fill="#93b3dd" stroke="#1A3364" stroke-width="2"/>
+  <polygon points="300,280 400,280 375,360 325,360" fill="#FF7A00" stroke="#1A3364" stroke-width="2"/>
+
+  <text x="350" y="105" text-anchor="middle" font-size="15" font-weight="bold" fill="#1A3364">SIGNALS</text>
+  <text x="350" y="125" text-anchor="middle" font-size="11" fill="#1A3364">BOS - CHoCH - FVG - Sweep</text>
+  <text x="350" y="140" text-anchor="middle" font-size="11" fill="#1A3364">raw technical events — input, not decision</text>
+
+  <text x="350" y="215" text-anchor="middle" font-size="15" font-weight="bold" fill="#0f2547">SETUPS</text>
+  <text x="350" y="233" text-anchor="middle" font-size="11" fill="#0f2547">all of one bot's confirmations present</text>
+  <text x="350" y="248" text-anchor="middle" font-size="11" fill="#0f2547">most signals are filtered out here</text>
+
+  <text x="350" y="315" text-anchor="middle" font-size="14" font-weight="bold" fill="#5c2c00">TRADES</text>
+  <text x="350" y="332" text-anchor="middle" font-size="10" fill="#5c2c00">risk-approved, sized, executed</text>
+
+  <rect x="90" y="380" width="520" height="30" rx="6" fill="#FFF3E0" stroke="#FF7A00"/>
+  <text x="350" y="400" text-anchor="middle" font-size="12" fill="#7a3e00">Even a fully-confirmed setup can be correctly rejected at the risk-engine gate.</text>
+</svg>

@@ -1,0 +1,65 @@
+"""
+This is a DIFFRENCE FILE, not a drop-in replacement — it shows exactly
+what to add to your existing frontend/src/App.tsx (from the v2 build)
+to wire in the v3 login + role-based routing, without disturbing your
+existing Dashboard/Trades/Bots routes (those stay as the Trader's
+console, unchanged).
+"""
+
+# --- ADD these imports to the top of App.tsx ---
+
+# import { LoginPage } from './pages/LoginPage';
+# import { ManagerConsolePage } from './pages/ManagerConsolePage';
+# import { PartnerConsolePage } from './pages/PartnerConsolePage';
+# import { AdminConsolePage } from './pages/AdminConsolePage';
+# import { ProtectedRoute } from './components/ProtectedRoute';
+
+# --- WRAP your existing Trader routes (Dashboard/Trades/Bots) like this ---
+#
+# Before (v2):
+#   <Route path="/" element={<DashboardPage />} />
+#
+# After (v3):
+#   <Route path="/login" element={<LoginPage />} />
+#
+#   <Route path="/dashboard" element={
+#     <ProtectedRoute allowedRoles={['trader']}>
+#       <DashboardPage />
+#     </ProtectedRoute>
+#   } />
+#   <Route path="/trades" element={
+#     <ProtectedRoute allowedRoles={['trader']}>
+#       <TradesPage />
+#     </ProtectedRoute>
+#   } />
+#   <Route path="/bots" element={
+#     <ProtectedRoute allowedRoles={['trader']}>
+#       <BotsPage />
+#     </ProtectedRoute>
+#   } />
+#
+#   <Route path="/manager" element={
+#     <ProtectedRoute allowedRoles={['fund_manager']}>
+#       <ManagerConsolePage />
+#     </ProtectedRoute>
+#   } />
+#   <Route path="/partner" element={
+#     <ProtectedRoute allowedRoles={['partner']}>
+#       <PartnerConsolePage />
+#     </ProtectedRoute>
+#   } />
+#   <Route path="/admin" element={
+#     <ProtectedRoute allowedRoles={['admin', 'super_admin']}>
+#       <AdminConsolePage />
+#     </ProtectedRoute>
+#   } />
+#
+#   {/* root now redirects to /login instead of straight to the dashboard */}
+#   <Route path="/" element={<Navigate to="/login" replace />} />
+#
+# --- NOTE ---
+# Your existing /analytics and /risk routes (currently pointing at
+# DashboardPage as placeholders) and /settings (pointing at BotsPage)
+# should get the same ProtectedRoute wrapper with allowedRoles={['trader']}
+# once you copy this pattern across — not changed here to keep this
+# diff focused on the new v3 pieces only.

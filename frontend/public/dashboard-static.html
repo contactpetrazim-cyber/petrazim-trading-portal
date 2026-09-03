@@ -1,0 +1,267 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SMC Trading Engine — Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'smc-dark': '#0a0e1a',
+                        'smc-card': '#111827',
+                        'smc-border': '#1f2937',
+                        'smc-accent': '#3b82f6',
+                        'smc-success': '#10b981',
+                        'smc-danger': '#ef4444',
+                        'smc-warning': '#f59e0b',
+                        'smc-long': '#22c55e',
+                        'smc-short': '#ef4444',
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { background-color: #0a0e1a; color: #ffffff; font-family: 'Inter', sans-serif; }
+        .glass { background: rgba(17, 24, 39, 0.8); backdrop-filter: blur(10px); }
+        .glow-green { box-shadow: 0 0 20px rgba(16, 185, 129, 0.3); }
+        .glow-red { box-shadow: 0 0 20px rgba(239, 68, 68, 0.3); }
+        .animate-pulse-slow { animation: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+        @keyframes slideIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .slide-in { animation: slideIn 0.3s ease-out; }
+    </style>
+</head>
+<body class="min-h-screen">
+    <!-- Header -->
+    <header class="fixed top-0 left-0 right-0 h-16 glass border-b border-smc-border z-50">
+        <div class="max-w-7xl mx-auto px-4 h-full flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <svg class="w-8 h-8 text-smc-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                </svg>
+                <h1 class="text-xl font-bold">SMC <span class="text-smc-accent">Trading Engine</span></h1>
+            </div>
+            <div class="flex items-center gap-4">
+                <div class="flex items-center gap-2">
+                    <div class="w-2 h-2 rounded-full bg-smc-success animate-pulse"></div>
+                    <span class="text-sm text-gray-400">Live</span>
+                </div>
+                <span class="text-sm text-gray-500">v1.0.0</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="pt-20 pb-8 px-4 max-w-7xl mx-auto">
+        <!-- Stats Grid -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            <div class="bg-smc-card border border-smc-border rounded-xl p-5 slide-in" style="animation-delay: 0.1s">
+                <div class="flex items-start justify-between">
+                    <div>
+                        <p class="text-sm text-gray-400">Today's Trades</p>
+                        <p class="text-2xl font-bold mt-1" id="stat-trades">0</p>
+                        <p class="text-xs text-gray-500 mt-1">0% win rate</p>
+                    </div>
+                    <div class="p-2 bg-blue-500/10 rounded-lg">
+                        <svg class="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+                        </svg>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-smc-card border border-smc-border rounded-xl p-5 slide-in" style="animation-delay: 0.2s">
+                <div class="flex items-start justify-between">
+                    <div>
+                        <p class="text-sm text-gray-400">Daily P&L</p>
+                        <p class="text-2xl font-bold mt-1 text-smc-success" id="stat-pnl">$0.00</p>
+                        <p class="text-xs text-gray-500 mt-1">Net realized profit</p>
+                    </div>
+                    <div class="p-2 bg-emerald-500/10 rounded-lg">
+                        <svg class="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                        </svg>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-smc-card border border-smc-border rounded-xl p-5 slide-in" style="animation-delay: 0.3s">
+                <div class="flex items-start justify-between">
+                    <div>
+                        <p class="text-sm text-gray-400">Active Trades</p>
+                        <p class="text-2xl font-bold mt-1" id="stat-active">0</p>
+                        <p class="text-xs text-gray-500 mt-1">Currently in market</p>
+                    </div>
+                    <div class="p-2 bg-purple-500/10 rounded-lg">
+                        <svg class="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/>
+                        </svg>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-smc-card border border-smc-border rounded-xl p-5 slide-in" style="animation-delay: 0.4s">
+                <div class="flex items-start justify-between">
+                    <div>
+                        <p class="text-sm text-gray-400">Pending Approvals</p>
+                        <p class="text-2xl font-bold mt-1 text-smc-warning" id="stat-pending">0</p>
+                        <p class="text-xs text-gray-500 mt-1">Human-in-the-Loop</p>
+                    </div>
+                    <div class="p-2 bg-amber-500/10 rounded-lg">
+                        <svg class="w-5 h-5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+                        </svg>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bot Status -->
+        <div class="bg-smc-card border border-smc-border rounded-xl p-6 mb-6 slide-in" style="animation-delay: 0.5s">
+            <h2 class="text-lg font-bold mb-4 flex items-center gap-2">
+                <svg class="w-5 h-5 text-smc-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"/>
+                </svg>
+                Bot Status
+            </h2>
+            <div class="grid grid-cols-1 md:grid-cols-5 gap-3" id="bot-grid">
+                <!-- Bots will be populated by JavaScript -->
+            </div>
+        </div>
+
+        <!-- Live Signals -->
+        <div class="bg-smc-card border border-smc-border rounded-xl p-6 mb-6 slide-in" style="animation-delay: 0.6s">
+            <h2 class="text-lg font-bold mb-4 flex items-center gap-2">
+                <svg class="w-5 h-5 text-smc-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                </svg>
+                Live Signals
+            </h2>
+            <div id="signals-list" class="space-y-3">
+                <p class="text-gray-500 text-center py-8">Waiting for signals...</p>
+            </div>
+        </div>
+
+        <!-- Recent Trades -->
+        <div class="bg-smc-card border border-smc-border rounded-xl p-6 slide-in" style="animation-delay: 0.7s">
+            <h2 class="text-lg font-bold mb-4">Recent Trades</h2>
+            <div id="trades-list" class="space-y-2">
+                <p class="text-gray-500 text-center py-8">No trades yet</p>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // Bot configuration
+        const bots = [
+            { id: 'bot_1', name: 'Macro Swing', style: 'Damir/Brooks', status: 'active', mode: 'HITL', winRate: 72, trades: 45 },
+            { id: 'bot_2', name: 'OB Reversal', style: 'ICT Core', status: 'active', mode: 'Auto', winRate: 65, trades: 78 },
+            { id: 'bot_3', name: 'FVG Expansion', style: 'Photon', status: 'active', mode: 'HITL', winRate: 58, trades: 62 },
+            { id: 'bot_4', name: 'Volume Sweep', style: 'Wyckoff', status: 'active', mode: 'Auto', winRate: 61, trades: 34 },
+            { id: 'bot_5', name: 'Jeafx SMC', style: 'Jeafx', status: 'active', mode: 'HITL', winRate: 75, trades: 28 },
+        ];
+
+        // Render bots
+        function renderBots() {
+            const grid = document.getElementById('bot-grid');
+            grid.innerHTML = bots.map(bot => `
+                <div class="bg-white/5 border border-smc-border rounded-lg p-4 hover:border-smc-accent/50 transition-colors cursor-pointer">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-xs font-bold text-smc-accent">${bot.id.replace('bot_', 'B')}</span>
+                        <span class="px-2 py-0.5 rounded-full text-xs ${bot.status === 'active' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-gray-500/10 text-gray-400'}">${bot.status === 'active' ? 'Active' : 'Paused'}</span>
+                    </div>
+                    <h3 class="font-bold text-sm">${bot.name}</h3>
+                    <p class="text-xs text-gray-400 mb-2">${bot.style}</p>
+                    <div class="flex items-center justify-between text-xs">
+                        <span class="text-gray-400">${bot.trades} trades</span>
+                        <span class="${bot.winRate >= 60 ? 'text-emerald-400' : 'text-amber-400'}">${bot.winRate}% WR</span>
+                    </div>
+                    <div class="mt-2 text-xs">
+                        <span class="px-2 py-0.5 rounded ${bot.mode === 'Auto' ? 'bg-purple-500/10 text-purple-400' : 'bg-amber-500/10 text-amber-400'}">${bot.mode}</span>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // Demo signals
+        const demoSignals = [
+            { bot: 'Jeafx SMC', symbol: 'BTCUSDT', direction: 'long', entry: 43250.50, sl: 42800, tp: 45200, confidence: 88, rr: 4.5 },
+            { bot: 'OB Reversal', symbol: 'EURUSD', direction: 'short', entry: 1.0850, sl: 1.0875, tp: 1.0775, confidence: 82, rr: 3.0 },
+        ];
+
+        function renderSignals() {
+            const list = document.getElementById('signals-list');
+            list.innerHTML = demoSignals.map((sig, i) => `
+                <div class="flex items-center justify-between p-4 bg-white/5 rounded-lg border border-transparent hover:border-smc-accent/30 transition-colors slide-in" style="animation-delay: ${i * 0.1}s">
+                    <div class="flex items-center gap-4">
+                        <div class="px-2.5 py-1 rounded-lg text-xs font-bold ${sig.direction === 'long' ? 'bg-smc-long/10 text-smc-long' : 'bg-smc-short/10 text-smc-short'}">
+                            ${sig.direction.toUpperCase()}
+                        </div>
+                        <div>
+                            <div class="font-bold">${sig.symbol}</div>
+                            <div class="text-xs text-gray-400">${sig.bot}</div>
+                        </div>
+                        <div class="hidden md:flex items-center gap-4 text-sm font-mono">
+                            <div>Entry: ${sig.entry.toLocaleString()}</div>
+                            <div class="text-red-400">SL: ${sig.sl.toLocaleString()}</div>
+                            <div class="text-emerald-400">TP: ${sig.tp.toLocaleString()}</div>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-4">
+                        <div class="text-right">
+                            <div class="text-sm font-bold">${sig.confidence}% Confidence</div>
+                            <div class="text-xs text-gray-400">${sig.rr}:1 R:R</div>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <button onclick="approveSignal(${i})" class="px-3 py-1.5 bg-emerald-500/20 text-emerald-400 rounded-lg text-sm font-medium hover:bg-emerald-500/30 transition-colors">Approve</button>
+                            <button onclick="rejectSignal(${i})" class="px-3 py-1.5 bg-red-500/20 text-red-400 rounded-lg text-sm font-medium hover:bg-red-500/30 transition-colors">Reject</button>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function approveSignal(index) {
+            alert('Signal approved! Trade will be executed.');
+            demoSignals.splice(index, 1);
+            renderSignals();
+            updateStats();
+        }
+
+        function rejectSignal(index) {
+            alert('Signal rejected.');
+            demoSignals.splice(index, 1);
+            renderSignals();
+        }
+
+        function updateStats() {
+            document.getElementById('stat-trades').textContent = '12';
+            document.getElementById('stat-pnl').textContent = '+$245.50';
+            document.getElementById('stat-active').textContent = '3';
+            document.getElementById('stat-pending').textContent = demoSignals.length;
+        }
+
+        // Initialize
+        renderBots();
+        renderSignals();
+        updateStats();
+
+        // Simulate live updates
+        setInterval(() => {
+            const stat = document.getElementById('stat-pnl');
+            const current = parseFloat(stat.textContent.replace(/[^0-9.-]/g, '')) || 0;
+            const change = (Math.random() - 0.4) * 10;
+            stat.textContent = (change >= 0 ? '+$' : '-$') + Math.abs(current + change).toFixed(2);
+        }, 5000);
+    </script>
+</body>
+</html>
