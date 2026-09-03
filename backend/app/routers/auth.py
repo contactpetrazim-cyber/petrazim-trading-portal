@@ -189,3 +189,28 @@ async def google_login(req: GoogleLoginRequest, db: AsyncSession = Depends(get_d
 @router.get("/me", response_model=UserProfileResponse)
 async def me(user: User = Depends(get_current_user)):
     return _to_profile(user)
+
+
+class LearningStatsResponse(BaseModel):
+    xp: int
+    current_streak_days: int
+    stages_complete: int
+    stages_total: int
+
+
+@router.get("/learning-stats", response_model=LearningStatsResponse)
+async def learning_stats(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Backs the corporate home page's stats grid — real numbers, not
+    decorative placeholders. Every field is genuinely 0 for an account
+    with no learning activity yet (no UserLearningStats row, no
+    StageCompletion rows), since the Learn progression engine that
+    would write to them isn't built yet either (MERGE_MANIFEST.md's
+    "still queued" list). Shares its query with the access-expiry
+    gate's own progress snapshot (core/access_gate.py) rather than a
+    second copy."""
+    from app.core.access_gate import learner_progress_snapshot
+    snapshot = await learner_progress_snapshot(db, user.id)
+    return LearningStatsResponse(
+        xp=snapshot["xp"], current_streak_days=snapshot["current_streak_days"],
+        stages_complete=snapshot["stages_complete"], stages_total=snapshot["stages_total"],
+    )

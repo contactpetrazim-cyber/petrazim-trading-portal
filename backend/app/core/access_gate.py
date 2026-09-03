@@ -30,7 +30,15 @@ from app.models.curriculum import LearningTrack, StageCompletion, TrackStage, Us
 from app.models.user import User
 
 
-async def _progress_snapshot(db: AsyncSession, user_id) -> dict:
+async def learner_progress_snapshot(db: AsyncSession, user_id) -> dict:
+    """Public (not underscore-prefixed) on purpose — also called by
+    GET /auth/learning-stats (routers/auth.py) for the corporate home
+    page's stats grid, so both places share one query instead of two
+    copies drifting apart. Every field defaults to 0 for a brand-new
+    account with no UserLearningStats row yet, exactly as intended:
+    these numbers are real, not decorative, and simply start at 0
+    until the (not yet built) Learn progression engine writes to
+    them."""
     total_stages = (await db.execute(select(func.count(TrackStage.id)))).scalar() or 0
     stages_complete = (await db.execute(
         select(func.count(StageCompletion.id)).where(StageCompletion.user_id == user_id)
@@ -64,6 +72,7 @@ async def _progress_snapshot(db: AsyncSession, user_id) -> dict:
         "stages_complete": stages_complete, "stages_total": total_stages,
         "tracks_complete": tracks_complete, "tracks_total": total_tracks,
         "xp": stats.total_xp if stats else 0,
+        "current_streak_days": stats.current_streak_days if stats else 0,
     }
 
 
@@ -117,5 +126,5 @@ async def require_active_access(
         .limit(1)
     )).scalar_one_or_none()
 
-    progress = await _progress_snapshot(db, user.id)
+    progress = await learner_progress_snapshot(db, user.id)
     raise AccessExpiredError(most_recent_expired.expires_at if most_recent_expired else None, progress)
