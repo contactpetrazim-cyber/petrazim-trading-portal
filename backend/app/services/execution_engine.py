@@ -28,11 +28,17 @@ class ExecutionEngine:
 
         # Initialize broker clients — only exchanges with a configured
         # API key are wired up; everything else stays in paper mode.
+        # Each routes its signed calls through its own Fixie static-IP
+        # proxy when one is set (BINGX_PROXY_URL etc.) — most exchanges
+        # require whitelisting a fixed IP for a trading-enabled key,
+        # which Render's own (dynamic) egress IP can't satisfy.
         self.brokers = {}
         if self.settings.BINGX_API_KEY:
             self.brokers["bingx"] = BingXBroker(
                 self.settings.BINGX_API_KEY,
-                self.settings.BINGX_SECRET
+                self.settings.BINGX_SECRET,
+                proxy=self.settings.BINGX_PROXY_URL or None,
+                backup_proxy=self.settings.BINGX_BACKUP_PROXY_URL or None,
             )
         if self.settings.TRADELOCKER_API_KEY:
             self.brokers["tradelocker"] = TradeLockerBroker(
@@ -43,17 +49,23 @@ class ExecutionEngine:
         if self.settings.BINANCE_API_KEY:
             self.brokers["binance"] = BinanceBroker(
                 self.settings.BINANCE_API_KEY,
-                self.settings.BINANCE_SECRET
+                self.settings.BINANCE_SECRET,
+                proxy=self.settings.BINANCE_PROXY_URL or None,
+                backup_proxy=self.settings.BINANCE_BACKUP_PROXY_URL or None,
             )
         if self.settings.BYBIT_API_KEY:
             self.brokers["bybit"] = BybitBroker(
                 self.settings.BYBIT_API_KEY,
-                self.settings.BYBIT_SECRET
+                self.settings.BYBIT_SECRET,
+                proxy=self.settings.BYBIT_PROXY_URL or None,
+                backup_proxy=self.settings.BYBIT_BACKUP_PROXY_URL or None,
             )
         if self.settings.MEXC_API_KEY:
             self.brokers["mexc"] = MexcBroker(
                 self.settings.MEXC_API_KEY,
-                self.settings.MEXC_SECRET
+                self.settings.MEXC_SECRET,
+                proxy=self.settings.MEXC_PROXY_URL or None,
+                backup_proxy=self.settings.MEXC_BACKUP_PROXY_URL or None,
             )
 
     async def process_signal(self, signal: BotSignal, mode: str = "human_in_loop", db: Optional[AsyncSession] = None) -> Dict:

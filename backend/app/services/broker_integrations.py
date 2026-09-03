@@ -15,6 +15,30 @@ import structlog
 
 logger = structlog.get_logger()
 
+_FAILOVER_EXCEPTIONS = (httpx.ConnectError, httpx.ConnectTimeout, httpx.ProxyError, httpx.ReadTimeout)
+
+
+async def _send_with_failover(primary_client: httpx.AsyncClient, backup_client: Optional[httpx.AsyncClient], method: str, url: str, **kwargs):
+    """
+    Every broker below whitelists both Fixie IP pools (ventoux +
+    criterium) on the exchange side, so a request can safely go out
+    through either — this tries the primary proxy first and, only on a
+    connection-level failure (the proxy itself unreachable, not an
+    application error the exchange returned), retries once through the
+    backup. An exchange rejecting the request (bad signature, invalid
+    symbol, insufficient balance, ...) is not retried here — only the
+    transport actually failing.
+    """
+    client_method = getattr(primary_client, method)
+    try:
+        return await client_method(url, **kwargs)
+    except _FAILOVER_EXCEPTIONS as e:
+        if backup_client is None:
+            raise
+        logger.warning("proxy_failover_triggered", url=url, error=str(e))
+        return await getattr(backup_client, method)(url, **kwargs)
+
+
 class BingXBroker:
     """
     BingX API Client
@@ -32,11 +56,12 @@ class BingXBroker:
 
     BASE_URL = "https://open-api.bingx.com"
 
-    def __init__(self, api_key: str, api_secret: str, demo: bool = True):
+    def __init__(self, api_key: str, api_secret: str, demo: bool = True, proxy: Optional[str] = None, backup_proxy: Optional[str] = None):
         self.api_key = api_key
         self.api_secret = api_secret
         self.demo = demo
-        self.client = httpx.AsyncClient(timeout=30.0)
+        self.client = httpx.AsyncClient(timeout=30.0, proxy=proxy or None)
+        self.backup_client = httpx.AsyncClient(timeout=30.0, proxy=backup_proxy) if backup_proxy else None
 
     def _generate_signature(self, payload: str) -> str:
         """Generate HMAC SHA256 signature."""
@@ -77,11 +102,11 @@ class BingXBroker:
 
         try:
             if method == "GET":
-                response = await self.client.get(url, headers=headers)
+                response = await _send_with_failover(self.client, self.backup_client, "get", url, headers=headers)
             elif method == "POST":
-                response = await self.client.post(url, headers=headers, json=body)
+                response = await _send_with_failover(self.client, self.backup_client, "post", url, headers=headers, json=body)
             elif method == "DELETE":
-                response = await self.client.delete(url, headers=headers)
+                response = await _send_with_failover(self.client, self.backup_client, "delete", url, headers=headers)
             else:
                 raise ValueError(f"Unsupported method: {method}")
 
@@ -107,7 +132,7 @@ class BingXBroker:
         endpoint = "/openApi/swap/v2/quote/price"
         params = {"symbol": symbol.replace("/", "-").upper()}
         try:
-            response = await self.client.get(f"{self.BASE_URL}{endpoint}", params=params)
+            response = await _send_with_failover(self.client, self.backup_client, "get", f"{self.BASE_URL}{endpoint}", params=params)
             data = response.json()
             if data.get("code") != 0:
                 return {"success": False, "error": data.get("msg")}
@@ -232,12 +257,12 @@ class TradeLockerBroker:
 
     BASE_URL = "https://api.tradelocker.com"
 
-    def __init__(self, api_key: str, api_secret: str, account_id: Optional[str] = None):
+    def __init__(self, api_key: str, api_secret: str, account_id: Optional[str] = None, proxy: Optional[str] = None):
         self.api_key = api_key
         self.api_secret = api_secret
         self.account_id = account_id
         self.access_token = None
-        self.client = httpx.AsyncClient(timeout=30.0)
+        self.client = httpx.AsyncClient(timeout=30.0, proxy=proxy or None)
 
     async def authenticate(self) -> bool:
         """Authenticate and get access token."""
@@ -428,11 +453,12 @@ class BinanceBroker:
 
     BASE_URL = "https://fapi.binance.com"
 
-    def __init__(self, api_key: str, api_secret: str, demo: bool = True):
+    def __init__(self, api_key: str, api_secret: str, demo: bool = True, proxy: Optional[str] = None, backup_proxy: Optional[str] = None):
         self.api_key = api_key
         self.api_secret = api_secret
         self.demo = demo
-        self.client = httpx.AsyncClient(timeout=30.0)
+        self.client = httpx.AsyncClient(timeout=30.0, proxy=proxy or None)
+        self.backup_client = httpx.AsyncClient(timeout=30.0, proxy=backup_proxy) if backup_proxy else None
 
     def _sign(self, query_string: str) -> str:
         return hmac.new(self.api_secret.encode(), query_string.encode(), hashlib.sha256).hexdigest()
@@ -449,11 +475,11 @@ class BinanceBroker:
         url = f"{self.BASE_URL}{endpoint}"
         try:
             if method == "GET":
-                response = await self.client.get(url, params=params, headers=headers)
+                response = await _send_with_failover(self.client, self.backup_client, "get", url, params=params, headers=headers)
             elif method == "POST":
-                response = await self.client.post(url, params=params, headers=headers)
+                response = await _send_with_failover(self.client, self.backup_client, "post", url, params=params, headers=headers)
             elif method == "DELETE":
-                response = await self.client.delete(url, params=params, headers=headers)
+                response = await _send_with_failover(self.client, self.backup_client, "delete", url, params=params, headers=headers)
             else:
                 raise ValueError(f"Unsupported method: {method}")
 
@@ -469,7 +495,8 @@ class BinanceBroker:
     async def get_ticker_price(self, symbol: str) -> Dict:
         """Public, unsigned last-price lookup."""
         try:
-            response = await self.client.get(
+            response = await _send_with_failover(
+                self.client, self.backup_client, "get",
                 f"{self.BASE_URL}/fapi/v1/ticker/price",
                 params={"symbol": symbol.replace("/", "").replace("-", "").upper()}
             )
@@ -595,11 +622,12 @@ class BybitBroker:
     BASE_URL = "https://api.bybit.com"
     RECV_WINDOW = "5000"
 
-    def __init__(self, api_key: str, api_secret: str, demo: bool = True):
+    def __init__(self, api_key: str, api_secret: str, demo: bool = True, proxy: Optional[str] = None, backup_proxy: Optional[str] = None):
         self.api_key = api_key
         self.api_secret = api_secret
         self.demo = demo
-        self.client = httpx.AsyncClient(timeout=30.0)
+        self.client = httpx.AsyncClient(timeout=30.0, proxy=proxy or None)
+        self.backup_client = httpx.AsyncClient(timeout=30.0, proxy=backup_proxy) if backup_proxy else None
 
     def _sign(self, timestamp: str, payload: str) -> str:
         raw = f"{timestamp}{self.api_key}{self.RECV_WINDOW}{payload}"
@@ -627,9 +655,9 @@ class BybitBroker:
 
         try:
             if method == "GET":
-                response = await self.client.get(url, params=params, headers=headers)
+                response = await _send_with_failover(self.client, self.backup_client, "get", url, params=params, headers=headers)
             elif method == "POST":
-                response = await self.client.post(url, headers=headers, content=query_string)
+                response = await _send_with_failover(self.client, self.backup_client, "post", url, headers=headers, content=query_string)
             else:
                 raise ValueError(f"Unsupported method: {method}")
 
@@ -646,7 +674,8 @@ class BybitBroker:
         """Public, unsigned last-price lookup."""
         symbol_clean = symbol.replace("/", "").replace("-", "").upper()
         try:
-            response = await self.client.get(
+            response = await _send_with_failover(
+                self.client, self.backup_client, "get",
                 f"{self.BASE_URL}/v5/market/tickers",
                 params={"category": "linear", "symbol": symbol_clean}
             )
@@ -762,11 +791,12 @@ class MexcBroker:
 
     BASE_URL = "https://contract.mexc.com"
 
-    def __init__(self, api_key: str, api_secret: str, demo: bool = True):
+    def __init__(self, api_key: str, api_secret: str, demo: bool = True, proxy: Optional[str] = None, backup_proxy: Optional[str] = None):
         self.api_key = api_key
         self.api_secret = api_secret
         self.demo = demo
-        self.client = httpx.AsyncClient(timeout=30.0)
+        self.client = httpx.AsyncClient(timeout=30.0, proxy=proxy or None)
+        self.backup_client = httpx.AsyncClient(timeout=30.0, proxy=backup_proxy) if backup_proxy else None
 
     def _sign(self, timestamp: str, param_string: str) -> str:
         raw = f"{self.api_key}{timestamp}{param_string}"
@@ -791,9 +821,9 @@ class MexcBroker:
 
         try:
             if method == "GET":
-                response = await self.client.get(url, params=params, headers=headers)
+                response = await _send_with_failover(self.client, self.backup_client, "get", url, params=params, headers=headers)
             elif method == "POST":
-                response = await self.client.post(url, headers=headers, content=param_string or "{}")
+                response = await _send_with_failover(self.client, self.backup_client, "post", url, headers=headers, content=param_string or "{}")
             else:
                 raise ValueError(f"Unsupported method: {method}")
 
@@ -820,7 +850,8 @@ class MexcBroker:
     async def get_ticker_price(self, symbol: str) -> Dict:
         """Public, unsigned last-price lookup."""
         try:
-            response = await self.client.get(
+            response = await _send_with_failover(
+                self.client, self.backup_client, "get",
                 f"{self.BASE_URL}/api/v1/contract/ticker",
                 params={"symbol": self._mexc_symbol(symbol)}
             )

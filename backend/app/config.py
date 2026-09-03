@@ -50,6 +50,31 @@ class Settings(BaseSettings):
     MEXC_API_KEY: str = ""
     MEXC_SECRET: str = ""
 
+    # Fixie static-IP proxies — most exchanges require whitelisting a
+    # fixed IP for a trading-enabled API key, which a free PaaS host's
+    # own (dynamic) egress IP can't satisfy. Each exchange's private
+    # (signed) calls route through its own proxy below when set; public
+    # market-data calls (data_ingestion.py's candle fetching) are
+    # unaffected — they don't need whitelisting and would blow through
+    # Fixie's small monthly quota if they were routed through it too.
+    # Format: http://fixie:<password>@<host>.usefixie.com:80
+    #
+    # Each exchange also gets a *_BACKUP_PROXY_URL — since all 4 Fixie
+    # IPs (both the ventoux and criterium pools) are whitelisted on
+    # every exchange, a request can fail over to the backup pool
+    # automatically (see broker_integrations.py's _send_with_failover)
+    # if the primary one has an outage, rather than that exchange's
+    # trading simply stopping.
+    BYBIT_PROXY_URL: str = ""
+    BYBIT_BACKUP_PROXY_URL: str = ""
+    BINGX_PROXY_URL: str = ""
+    BINGX_BACKUP_PROXY_URL: str = ""
+    BINANCE_PROXY_URL: str = ""
+    BINANCE_BACKUP_PROXY_URL: str = ""
+    MEXC_PROXY_URL: str = ""
+    MEXC_BACKUP_PROXY_URL: str = ""
+    MT5_PROXY_URL: str = ""
+
     # Cross-exchange price sanity guard — see broker_integrations.py /
     # execution_engine.py docstrings. A signal's entry price (often
     # computed against whichever exchange fed the bot's candles) is

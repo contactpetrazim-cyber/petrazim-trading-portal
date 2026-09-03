@@ -37,6 +37,18 @@ _BROKER_CLASSES = {
     "tradelocker": TradeLockerBroker,
 }
 
+# Same Fixie static-IP proxies (primary + backup) per exchange as the
+# global-key brokers in execution_engine.py — the exchange's IP
+# whitelist is per-account-key, not per our internal bot/credential
+# split, so every credential for a given exchange goes out through
+# that exchange's same whitelisted IPs.
+_PROXY_SETTINGS = {
+    "bingx": ("BINGX_PROXY_URL", "BINGX_BACKUP_PROXY_URL"),
+    "binance": ("BINANCE_PROXY_URL", "BINANCE_BACKUP_PROXY_URL"),
+    "bybit": ("BYBIT_PROXY_URL", "BYBIT_BACKUP_PROXY_URL"),
+    "mexc": ("MEXC_PROXY_URL", "MEXC_BACKUP_PROXY_URL"),
+}
+
 
 def _get_fernet() -> Fernet:
     if not settings.CREDENTIALS_ENCRYPTION_KEY:
@@ -96,4 +108,8 @@ async def build_broker_client(db: AsyncSession, bot_id: str, exchange: str):
     if exchange == "tradelocker":
         account_id = decrypt_secret(credential.account_id_encrypted) if credential.account_id_encrypted else None
         return broker_cls(api_key, api_secret, account_id)
-    return broker_cls(api_key, api_secret)
+
+    proxy_setting, backup_proxy_setting = _PROXY_SETTINGS.get(exchange, (None, None))
+    proxy = getattr(settings, proxy_setting, "") if proxy_setting else ""
+    backup_proxy = getattr(settings, backup_proxy_setting, "") if backup_proxy_setting else ""
+    return broker_cls(api_key, api_secret, proxy=proxy or None, backup_proxy=backup_proxy or None)
