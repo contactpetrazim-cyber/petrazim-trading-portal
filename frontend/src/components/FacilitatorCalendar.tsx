@@ -21,8 +21,19 @@ interface DayAvailability {
  * booking dialog when they tap an otherwise-available slot, since
  * eligibility is ultimately enforced server-side anyway (this is UX,
  * not the real gate).
+ *
+ * `dark` only reaches the calendar strip and the eligibility banner —
+ * the booking modal stays plain white regardless, matching every
+ * other "decision moment" card in this app (AccessExpiredGate,
+ * LoginCardStyleB, PortalSelectionCard all do the same).
  */
-export function FacilitatorCalendar({ userTier }: { userTier: 'essential' | 'professional' | 'executive' | null }) {
+export function FacilitatorCalendar({
+  userTier,
+  dark = false,
+}: {
+  userTier: 'essential' | 'professional' | 'executive' | null;
+  dark?: boolean;
+}) {
   const [strip, setStrip] = useState<DayAvailability[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<{ day: string; band: string } | null>(null);
@@ -70,16 +81,16 @@ export function FacilitatorCalendar({ userTier }: { userTier: 'essential' | 'pro
     }
   }
 
-  if (loading) return <p className="text-sm text-gray-400">Loading calendar…</p>;
+  if (loading) return <p className={`text-sm ${dark ? 'text-white/40' : 'text-gray-400'}`}>Loading calendar…</p>;
 
   return (
     <div>
       {!eligible && (
-        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4 flex items-start gap-3">
-          <Lock size={18} className="text-amber-600 shrink-0 mt-0.5" />
+        <div className={`rounded-xl p-4 mb-4 flex items-start gap-3 border ${dark ? 'bg-amber-500/10 border-amber-500/30' : 'bg-amber-50 border-amber-200'}`}>
+          <Lock size={18} className={`shrink-0 mt-0.5 ${dark ? 'text-amber-400' : 'text-amber-600'}`} />
           <div>
-            <div className="text-sm font-medium text-amber-800">Professional/Executive feature</div>
-            <div className="text-xs text-amber-700 mt-1">
+            <div className={`text-sm font-medium ${dark ? 'text-amber-300' : 'text-amber-800'}`}>Professional/Executive feature</div>
+            <div className={`text-xs mt-1 ${dark ? 'text-amber-300/70' : 'text-amber-700'}`}>
               Facilitator sessions are available on Professional and Executive tiers. Upgrade to book time
               with a facilitator, Fund Manager, or Partner.
             </div>
@@ -93,8 +104,8 @@ export function FacilitatorCalendar({ userTier }: { userTier: 'essential' | 'pro
       <div className="overflow-x-auto">
         <div className="flex gap-2 pb-2" style={{ minWidth: `${strip.length * 92}px` }}>
           {strip.map((d) => (
-            <div key={d.day} className="w-20 shrink-0 bg-white rounded-xl border border-corporate-bg p-2 text-center">
-              <div className="text-[10px] text-gray-500 mb-2">
+            <div key={d.day} className={`w-20 shrink-0 rounded-xl border p-2 text-center ${dark ? 'bg-corporate-surface-dark border-corporate-border-dark' : 'bg-white border-corporate-bg'}`}>
+              <div className={`text-[10px] mb-2 ${dark ? 'text-white/40' : 'text-gray-500'}`}>
                 {new Date(d.day).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
               </div>
               <div className="space-y-1">
@@ -108,10 +119,10 @@ export function FacilitatorCalendar({ userTier }: { userTier: 'essential' | 'pro
                       onClick={() => isAvailable && openSlot(d.day, band)}
                       className={`w-full text-[10px] py-1.5 rounded-md font-medium transition-colors ${
                         isBooked
-                          ? 'bg-gray-100 text-gray-400 line-through'
+                          ? dark ? 'bg-white/5 text-white/30 line-through' : 'bg-gray-100 text-gray-400 line-through'
                           : isAvailable
                           ? 'bg-corporate-accent/10 text-corporate-accent hover:bg-corporate-accent hover:text-white'
-                          : 'bg-gray-50 text-gray-300 cursor-not-allowed'
+                          : dark ? 'bg-white/5 text-white/20 cursor-not-allowed' : 'bg-gray-50 text-gray-300 cursor-not-allowed'
                       }`}
                     >
                       {BAND_LABELS[band]}

@@ -22,7 +22,7 @@ interface ConnectorStatus {
  * is the UI entry point; the actual OAuth handshake is a separate
  * backend piece to build once real API credentials are available.
  */
-export function ConnectorCards() {
+export function ConnectorCards({ dark = false }: { dark?: boolean }) {
   const [connectors, setConnectors] = useState<ConnectorStatus[]>([]);
 
   useEffect(() => {
@@ -37,18 +37,18 @@ export function ConnectorCards() {
       {connectors.map((c) => {
         const meta = CONNECTOR_LABELS[c.connector_type] || { label: c.connector_type, description: '' };
         return (
-          <div key={c.connector_type} className="bg-white rounded-2xl border border-corporate-bg p-4">
+          <div key={c.connector_type} className={`rounded-2xl border p-4 ${dark ? 'bg-corporate-surface-dark border-corporate-border-dark' : 'bg-white border-corporate-bg'}`}>
             <div className="flex items-center gap-2 mb-2">
               {c.is_connected ? (
                 <CheckCircle2 size={16} className="text-emerald-500" />
               ) : (
-                <Circle size={16} className="text-gray-300" />
+                <Circle size={16} className={dark ? 'text-white/20' : 'text-gray-300'} />
               )}
-              <span className="text-sm font-semibold text-corporate-text-on-bg">{meta.label}</span>
+              <span className={`text-sm font-semibold ${dark ? 'text-white' : 'text-corporate-text-on-bg'}`}>{meta.label}</span>
             </div>
-            <p className="text-xs text-gray-500 mb-3">{meta.description}</p>
+            <p className={`text-xs mb-3 ${dark ? 'text-white/40' : 'text-gray-500'}`}>{meta.description}</p>
             {c.is_connected ? (
-              <p className="text-xs text-emerald-600">Connected — {c.connected_account_label}</p>
+              <p className="text-xs text-emerald-500">Connected — {c.connected_account_label}</p>
             ) : (
               <button className="text-xs font-medium text-white bg-corporate-hero px-3 py-1.5 rounded-lg">
                 Connect
