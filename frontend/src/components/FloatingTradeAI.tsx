@@ -73,7 +73,7 @@ export function FloatingTradeAI({
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleSend()}
               placeholder="Ask Trade AI…"
-              className="flex-1 text-sm px-3 py-2 rounded-lg border border-gray-200 outline-none focus:border-corporate-accent"
+              className="flex-1 text-sm px-3 py-2 rounded-lg border border-gray-200 text-corporate-text-on-bg outline-none focus:border-corporate-accent"
             />
             <button
               onClick={handleSend}

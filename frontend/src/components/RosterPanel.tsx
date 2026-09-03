@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { UserPlus, Trash2, X } from 'lucide-react';
+import { useAuth } from '../hooks/useAuth';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
@@ -19,6 +20,7 @@ interface RosterEntry {
  * see only their own roster).
  */
 export function RosterPanel() {
+  const { token } = useAuth();
   const [roster, setRoster] = useState<RosterEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [inviteOpen, setInviteOpen] = useState(false);
@@ -30,7 +32,9 @@ export function RosterPanel() {
   async function loadRoster() {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/roster`, { credentials: 'include' });
+      const res = await fetch(`${API_BASE}/roster`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       if (res.ok) setRoster(await res.json());
     } finally {
       setLoading(false);
@@ -44,8 +48,7 @@ export function RosterPanel() {
     try {
       const res = await fetch(`${API_BASE}/roster/invite`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ email: inviteEmail, full_name: inviteName }),
       });
       if (!res.ok) {
@@ -61,7 +64,10 @@ export function RosterPanel() {
   }
 
   async function detach(traderId: string) {
-    await fetch(`${API_BASE}/roster/assign/${traderId}`, { method: 'DELETE', credentials: 'include' });
+    await fetch(`${API_BASE}/roster/assign/${traderId}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    });
     loadRoster();
   }
 
@@ -117,10 +123,10 @@ export function RosterPanel() {
               <>
                 <label className="text-xs font-medium text-gray-500 block mb-1">Full name</label>
                 <input value={inviteName} onChange={(e) => setInviteName(e.target.value)}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mb-3 outline-none focus:border-corporate-accent" />
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mb-3 text-corporate-text-on-bg outline-none focus:border-corporate-accent" />
                 <label className="text-xs font-medium text-gray-500 block mb-1">Email</label>
                 <input value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} type="email"
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mb-4 outline-none focus:border-corporate-accent" />
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mb-4 text-corporate-text-on-bg outline-none focus:border-corporate-accent" />
                 {error && <p className="text-xs text-red-500 mb-3">{error}</p>}
                 <button
                   onClick={submitInvite}

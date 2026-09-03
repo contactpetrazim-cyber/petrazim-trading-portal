@@ -108,7 +108,7 @@ export function LoginPage() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="Email"
-              className="w-full bg-white border border-blue-100 rounded-xl px-3.5 py-2.5 text-sm mb-2 outline-none focus:border-[#005FB8]"
+              className="w-full bg-white text-[#141a33] border border-blue-100 rounded-xl px-3.5 py-2.5 text-sm mb-2 outline-none focus:border-[#005FB8]"
             />
             <input
               type="password"
@@ -116,7 +116,7 @@ export function LoginPage() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Password"
-              className="w-full bg-white border border-blue-100 rounded-xl px-3.5 py-2.5 text-sm outline-none focus:border-[#005FB8]"
+              className="w-full bg-white text-[#141a33] border border-blue-100 rounded-xl px-3.5 py-2.5 text-sm outline-none focus:border-[#005FB8]"
             />
           </div>
 

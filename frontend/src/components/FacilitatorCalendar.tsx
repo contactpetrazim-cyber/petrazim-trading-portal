@@ -154,7 +154,7 @@ export function FacilitatorCalendar({
                   value={topic}
                   onChange={(e) => setTopic(e.target.value)}
                   placeholder="What would you like to cover?"
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mb-4 outline-none focus:border-corporate-accent"
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mb-4 text-corporate-text-on-bg outline-none focus:border-corporate-accent"
                 />
                 {error && <p className="text-xs text-red-500 mb-3">{error}</p>}
                 <button

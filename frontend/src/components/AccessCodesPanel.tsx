@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Ticket, CheckCircle2, Circle } from 'lucide-react';
+import { useAuth } from '../hooks/useAuth';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
@@ -18,6 +19,7 @@ interface IssuedSeat {
  * the Academy status update flagged for its own AccessCodesPanel.
  */
 export function AccessCodesPanel() {
+  const { token } = useAuth();
   const [codes, setCodes] = useState<IssuedSeat[]>([]);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
@@ -27,7 +29,9 @@ export function AccessCodesPanel() {
   async function loadCodes() {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/payments/corporate/my-codes`, { credentials: 'include' });
+      const res = await fetch(`${API_BASE}/payments/corporate/my-codes`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       if (res.ok) setCodes(await res.json());
     } finally {
       setLoading(false);
@@ -41,8 +45,7 @@ export function AccessCodesPanel() {
     try {
       const res = await fetch(`${API_BASE}/payments/corporate/generate-seats`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ tier, seat_count: seatCount }),
       });
       if (res.ok) loadCodes();
@@ -71,14 +74,14 @@ export function AccessCodesPanel() {
           <input
             type="number" min={1} max={500} value={seatCount}
             onChange={(e) => setSeatCount(Number(e.target.value))}
-            className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm"
+            className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-corporate-text-on-bg"
           />
         </div>
         <div className="flex-1">
           <label className="text-xs text-gray-500 block mb-1">Tier</label>
           <select
             value={tier} onChange={(e) => setTier(e.target.value as any)}
-            className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm"
+            className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-corporate-text-on-bg"
           >
             <option value="essential">Essential</option>
             <option value="professional">Professional</option>

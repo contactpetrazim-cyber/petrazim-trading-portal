@@ -217,7 +217,7 @@ export function PaymentsPage() {
                       min={t.corporate_min_seats}
                       value={seats}
                       onChange={(e) => setSeatCounts((s) => ({ ...s, [t.tier]: Math.max(t.corporate_min_seats!, Number(e.target.value) || 0) }))}
-                      className={`w-24 text-sm px-2 py-1.5 rounded-lg border ${dark ? 'bg-corporate-nav-dark border-corporate-border-dark text-white' : 'border-[#dcdce8]'}`}
+                      className={`w-24 text-sm px-2 py-1.5 rounded-lg border ${dark ? 'bg-corporate-nav-dark border-corporate-border-dark text-white' : 'border-[#dcdce8] text-corporate-text-on-bg'}`}
                     />
                   )}
                 </div>
