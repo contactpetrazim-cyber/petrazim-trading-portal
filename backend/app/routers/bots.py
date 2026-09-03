@@ -8,6 +8,7 @@ from app.models.bot import BotConfig, BotStatus, ExecutionMode
 from app.models.user import User, UserRole
 from app.core.auth import get_current_user
 from app.models.trade import Trade, TradeStatus
+from app.services.roster_access import user_can_manage_trader
 from app.schemas import BotConfigCreate, BotConfigResponse, BotToggle, BotExchangeUpdate, BotMetricsUpdate
 import structlog
 
@@ -15,20 +16,24 @@ router = APIRouter(prefix="/bots", tags=["bots"])
 logger = structlog.get_logger()
 
 # Admin/Super Admin see every bot (same principle as roster.py's
-# get_roster) — everyone else only ever sees or touches their own.
+# get_roster) — everyone else only ever sees or touches their own,
+# with one exception: a Fund Manager/Partner may also manage a bot
+# belonging to a Trader on their own roster (user_can_manage_trader) —
+# this is what actually lets a Manager adjust a Trader's risk settings
+# from the Manager console, not just view them.
 STAFF_ROLES = (UserRole.ADMIN, UserRole.SUPER_ADMIN)
 
 
 async def _get_owned_bot(bot_id: str, user: User, db: AsyncSession) -> BotConfig:
     """Fetch a bot and enforce ownership — 404s rather than 403s on a
-    bot that exists but isn't the caller's, so this doesn't leak which
-    bot_ids exist to a probing Trader."""
+    bot that exists but isn't the caller's (or a roster trader's), so
+    this doesn't leak which bot_ids exist to a probing Trader."""
     query = select(BotConfig).where(BotConfig.bot_id == bot_id)
     result = await db.execute(query)
     bot = result.scalar_one_or_none()
     if not bot:
         raise HTTPException(status_code=404, detail="Bot not found")
-    if bot.user_id != user.id and user.role not in STAFF_ROLES:
+    if bot.user_id != user.id and not await user_can_manage_trader(user, bot.user_id, db):
         raise HTTPException(status_code=404, detail="Bot not found")
     return bot
 

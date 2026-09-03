@@ -62,6 +62,35 @@ export const botsApi = {
   getPerformance: (botId: string) => api.get<BotPerformance>(`/bots/${botId}/performance`).then(r => r.data),
 };
 
+export interface TraderBotSummary {
+  bot_id: string;
+  bot_name: string;
+  status: string;
+  risk_per_trade: number;
+  max_daily_trades: number;
+  max_concurrent_trades: number;
+  max_portfolio_exposure: number;
+  min_rr_ratio: number;
+  active_trades: number;
+  trades_today: number;
+}
+
+export interface TraderOverview {
+  trader_user_id: string;
+  full_name: string;
+  email: string;
+  status: string;
+  bots: TraderBotSummary[];
+  daily_pnl: number;
+  total_trades_today: number;
+  total_active_trades: number;
+  open_risk_exposure_pct: number;
+}
+
+export const rosterApi = {
+  getOverview: (traderId: string) => api.get<TraderOverview>(`/roster/${traderId}/overview`).then(r => r.data),
+};
+
 export const webhookApi = {
   sendAlert: (payload: any) => api.post<{
     success: boolean;

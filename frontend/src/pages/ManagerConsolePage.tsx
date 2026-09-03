@@ -1,23 +1,24 @@
 import { RoleBadge } from '../components/RoleBadge';
 import { RosterPanel } from '../components/RosterPanel';
 import { AccessCodesPanel } from '../components/AccessCodesPanel';
+import { TraderOversightPanel } from '../components/TraderOversightPanel';
 import { useAuth } from '../hooks/useAuth';
 import { useThemeStore } from '../hooks/useTheme';
 
 /**
- * Fund Manager console — roster + access codes are real. Per-trader
- * oversight (emotions, risk, trade amounts) is still queued — it
- * needs Trade/BotConfig to carry a user_id first (they currently
- * don't; dashboard/trades/bots have no per-user scoping at all), so
- * "which trader placed this trade" isn't answerable yet. Not
- * something to bolt on here without that foundation underneath it.
+ * Fund Manager console — roster + access codes, same as
+ * PartnerConsolePage, plus real per-trader oversight
+ * (TraderOversightPanel) that Partner doesn't have: this is the
+ * "Manager should have everything the investor has and more" ask.
+ * Built on the ownership work that made Trade/BotConfig.user_id real
+ * (bots.py's ownership gate now also lets a Manager/Partner edit a
+ * bot belonging to a Trader on their own roster, not just view it).
  *
- * No longer owns its own min-h-screen/bg wrapper — same fix as
- * PartnerConsolePage/MeetingsPage/SiteMapPage: fighting
- * CorporateLayout's background left this page (and the logo/nav it
- * never had) stuck outside the shared shell entirely. Now mounted
- * inside CorporateLayout in App.tsx and reads the same theme store,
- * threaded into RosterPanel/AccessCodesPanel.
+ * Nav ("how to get back and select portal of interest") comes from
+ * CorporateLayout, which this page is mounted inside (App.tsx) —
+ * TopNav's Settings panel already has "Switch Portal", and BottomNav
+ * gets you back to any area. Both existed before this file; the gap
+ * was this page never being wrapped in that shell at all.
  */
 export function ManagerConsolePage() {
   const { user } = useAuth();
@@ -30,12 +31,13 @@ export function ManagerConsolePage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className={`text-2xl font-bold ${dark ? 'text-white' : 'text-corporate-text-on-bg'}`}>Fund Manager Console</h1>
-          <p className={`text-sm mt-1 ${dark ? 'text-white/40' : 'text-gray-500'}`}>Manage your Traders and corporate access seats.</p>
+          <p className={`text-sm mt-1 ${dark ? 'text-white/40' : 'text-gray-500'}`}>Manage your Traders, their risk, and corporate access seats.</p>
         </div>
         <RoleBadge user={user} />
       </div>
 
       <RosterPanel dark={dark} />
+      <TraderOversightPanel dark={dark} />
       <AccessCodesPanel dark={dark} />
     </div>
   );

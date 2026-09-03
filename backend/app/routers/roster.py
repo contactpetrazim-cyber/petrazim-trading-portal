@@ -10,6 +10,7 @@ trusts a role claim from the request body, only from the verified JWT.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -17,10 +18,13 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.auth import hash_password, require_role
+from app.core.auth import hash_password, require_role, get_current_user
 from app.database import get_db
 from app.models.roster import RosterAssignment
 from app.models.user import User, UserRole, UserStatus
+from app.models.bot import BotConfig
+from app.models.trade import Trade, TradeStatus
+from app.services.roster_access import user_can_manage_trader
 
 router = APIRouter(prefix="/roster", tags=["roster"])
 
@@ -149,3 +153,78 @@ async def get_roster(
         )
         for assignment, trader in rows
     ]
+
+
+class TraderBotSummary(BaseModel):
+    bot_id: str
+    bot_name: str
+    status: str
+    risk_per_trade: float
+    max_daily_trades: int
+    max_concurrent_trades: int
+    max_portfolio_exposure: float
+    min_rr_ratio: float
+    active_trades: int
+    trades_today: int
+
+
+class TraderOverview(BaseModel):
+    trader_user_id: str
+    full_name: str
+    email: str
+    status: str
+    bots: List[TraderBotSummary]
+    daily_pnl: float
+    total_trades_today: int
+    total_active_trades: int
+    open_risk_exposure_pct: float
+
+
+@router.get("/{trader_id}/overview", response_model=TraderOverview)
+async def trader_overview(
+    trader_id: str,
+    db: AsyncSession = Depends(get_db),
+    manager: User = Depends(get_current_user),
+):
+    """Real per-trader oversight for the Manager console: that
+    Trader's bots with their actual risk settings, today's trade
+    count/P&L, open exposure. Only for a Trader on the caller's own
+    roster (or Admin/Super Admin) — this is the "manage risks, trade
+    amounts for all traders" feature; PATCH /bots/{id}/metrics already
+    accepts edits from this same caller (see bots.py's ownership gate,
+    which now also allows a Manager/Partner with this trader on their
+    roster), so this page can both show and change these numbers.
+    """
+    if not await user_can_manage_trader(manager, trader_id, db):
+        raise HTTPException(status_code=404, detail="Trader not found")
+
+    trader = (await db.execute(select(User).where(User.id == trader_id))).scalar_one_or_none()
+    if not trader:
+        raise HTTPException(status_code=404, detail="Trader not found")
+
+    bots = (await db.execute(select(BotConfig).where(BotConfig.user_id == trader_id))).scalars().all()
+
+    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    all_trades = (await db.execute(select(Trade).where(Trade.user_id == trader_id))).scalars().all()
+    today_trades = [t for t in all_trades if t.created_at >= today_start]
+    active_trades = [t for t in all_trades if t.status == TradeStatus.ACTIVE]
+
+    bot_summaries = []
+    for bot in bots:
+        bot_active = [t for t in active_trades if t.bot_id == bot.bot_id]
+        bot_today = [t for t in today_trades if t.bot_id == bot.bot_id]
+        bot_summaries.append(TraderBotSummary(
+            bot_id=bot.bot_id, bot_name=bot.bot_name, status=bot.status.value,
+            risk_per_trade=bot.risk_per_trade, max_daily_trades=bot.max_daily_trades,
+            max_concurrent_trades=bot.max_concurrent_trades, max_portfolio_exposure=bot.max_portfolio_exposure,
+            min_rr_ratio=bot.min_rr_ratio, active_trades=len(bot_active), trades_today=len(bot_today),
+        ))
+
+    return TraderOverview(
+        trader_user_id=str(trader.id), full_name=trader.full_name, email=trader.email,
+        status=trader.status.value, bots=bot_summaries,
+        daily_pnl=round(sum(t.realized_pnl or 0 for t in today_trades), 2),
+        total_trades_today=len(today_trades),
+        total_active_trades=len(active_trades),
+        open_risk_exposure_pct=round(sum(t.risk_percent or 0 for t in active_trades), 2),
+    )
