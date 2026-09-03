@@ -5,7 +5,7 @@ from sqlalchemy import select
 from typing import List
 from app.database import get_db
 from app.models.bot import BotConfig, BotStatus, ExecutionMode
-from app.schemas import BotConfigCreate, BotConfigResponse, BotToggle
+from app.schemas import BotConfigCreate, BotConfigResponse, BotToggle, BotExchangeUpdate
 import structlog
 
 router = APIRouter(prefix="/bots", tags=["bots"])
@@ -33,7 +33,8 @@ async def create_bot(config: BotConfigCreate, db: AsyncSession = Depends(get_db)
         min_rr_ratio=config.min_rr_ratio,
         execution_mode=ExecutionMode(config.execution_mode),
         use_trailing_stop=config.use_trailing_stop,
-        strategy_params=config.strategy_params or {}
+        strategy_params=config.strategy_params or {},
+        exchange=config.exchange
     )
 
     db.add(bot)
@@ -91,6 +92,32 @@ async def set_execution_mode(
     await db.commit()
 
     return {"success": True, "bot_id": bot_id, "mode": mode}
+
+@router.patch("/{bot_id}/exchange")
+async def set_bot_exchange(
+    bot_id: str,
+    update: BotExchangeUpdate,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Pin which exchange this bot executes on (and which live ticker the
+    cross-exchange price-deviation guard checks against — see
+    execution_engine.py::_check_price_deviation). Changeable anytime:
+    it's read straight from the DB on every incoming signal for this
+    bot, so this takes effect on the very next trade, no restart or
+    redeploy needed.
+    """
+    query = select(BotConfig).where(BotConfig.bot_id == bot_id)
+    result = await db.execute(query)
+    bot = result.scalar_one_or_none()
+
+    if not bot:
+        raise HTTPException(status_code=404, detail="Bot not found")
+
+    bot.exchange = update.exchange
+    await db.commit()
+
+    return {"success": True, "bot_id": bot_id, "exchange": update.exchange}
 
 @router.get("/{bot_id}/performance")
 async def bot_performance(bot_id: str, db: AsyncSession = Depends(get_db)):

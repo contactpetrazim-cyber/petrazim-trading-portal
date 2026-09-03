@@ -28,6 +28,11 @@ class BotSignal:
     risk_percent: float
     reasoning: str
     timestamp: datetime
+    # Which exchange to execute this signal on — see BotConfig.exchange
+    # and execution_engine.py's _check_price_deviation. Optional so the
+    # five bot classes above (which don't set it) keep working; None
+    # falls back to execution_engine's symbol-based guess.
+    preferred_broker: Optional[str] = None
 
 # =============================================================================
 # BOT 1: Pure Macro Swing Structure Bot (Damir/Brooks Style)

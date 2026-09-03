@@ -107,6 +107,7 @@ class BotConfigCreate(BaseModel):
     execution_mode: Literal["human_in_loop", "fully_autonomous"] = "human_in_loop"
     use_trailing_stop: bool = True
     strategy_params: Optional[Dict] = {}
+    exchange: Optional[Literal["bingx", "binance", "bybit", "mexc", "tradelocker"]] = None
 
 class BotConfigResponse(BaseModel):
     id: UUID
@@ -118,6 +119,7 @@ class BotConfigResponse(BaseModel):
     symbols: List[str]
     risk_per_trade: float
     max_daily_trades: int
+    exchange: Optional[str] = None
     created_at: datetime
 
     class Config:
@@ -126,6 +128,9 @@ class BotConfigResponse(BaseModel):
 class BotToggle(BaseModel):
     bot_id: str
     active: bool
+
+class BotExchangeUpdate(BaseModel):
+    exchange: Literal["bingx", "binance", "bybit", "mexc", "tradelocker"]
 
 # =============================================================================
 # DASHBOARD / ANALYTICS SCHEMAS

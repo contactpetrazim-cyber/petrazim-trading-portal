@@ -17,9 +17,13 @@ accidentally taking real payments before this has been reviewed.
 
 from __future__ import annotations
 
+import json
 import os
+import uuid
 from dataclasses import dataclass
 from typing import Literal, Optional, Protocol
+
+import httpx
 
 
 @dataclass
@@ -85,32 +89,151 @@ class PaystackClient:
                 "test mode until payments have been reviewed and approved."
             )
 
+    BASE_URL = "https://api.paystack.co"
+
     def create_checkout(
         self, amount: float, currency: str, description: str, customer_email: str
     ) -> CheckoutSession:
-        raise NotImplementedError(
-            "Wire this to Paystack's /transaction/initialize REST endpoint "
-            "(httpx.post, already in requirements.txt) once PAYSTACK_SECRET_KEY is set."
+        # Paystack amounts are in the currency's smallest unit (kobo for
+        # NGN, cents for USD) — hence * 100.
+        response = httpx.post(
+            f"{self.BASE_URL}/transaction/initialize",
+            headers={"Authorization": f"Bearer {self.api_key}"},
+            json={
+                "email": customer_email,
+                "amount": round(amount * 100),
+                "currency": currency.upper(),
+            },
+            timeout=30.0,
+        )
+        data = response.json()
+        if not data.get("status"):
+            raise RuntimeError(f"Paystack checkout initialization failed: {data.get('message')}")
+
+        result = data["data"]
+        return CheckoutSession(
+            provider="paystack",
+            checkout_url=result["authorization_url"],
+            reference=result["reference"],
+            amount=amount,
+            currency=currency.upper(),
         )
 
     def verify_payment(self, reference: str) -> bool:
-        raise NotImplementedError("Wire to Paystack's /transaction/verify/{reference} endpoint.")
+        response = httpx.get(
+            f"{self.BASE_URL}/transaction/verify/{reference}",
+            headers={"Authorization": f"Bearer {self.api_key}"},
+            timeout=30.0,
+        )
+        data = response.json()
+        return bool(data.get("status")) and data.get("data", {}).get("status") == "success"
 
 
-def get_payment_client(provider: Literal["stripe", "paystack"]) -> PaymentProviderClient:
-    """Currency routing, matching the Academy pattern: Paystack handles both
-    NGN and USD; Stripe is USD-only. Route NGN to Paystack automatically."""
+class IvoryPayClient:
+    """
+    IvoryPay — crypto/fiat payment rails, alternative to Paystack for
+    the NGN/crypto side. Written against IvoryPay's documented API
+    (https://ivorypay.gitbook.io/ivorypay-api-documentation,
+    merchant-endpoints/transactions and transactions/collections
+    pages) — not exercised against a live account in this session.
+
+    NOTE: the docs show a full example response for FIAT/API mode
+    (bank transfer details) and CRYPTO/API mode (wallet address), but
+    not for CHECKOUT mode's response shape specifically. The checkout
+    URL field name below (`checkoutUrl`, falling back to a couple of
+    likely alternates) needs confirming against a real CHECKOUT-mode
+    response before relying on it — the reference/verify flow is
+    documented precisely and should be correct as written.
+    """
+
+    BASE_URL = "https://api.ivorypay.io/api/v1"
+
+    def __init__(self):
+        self.api_key = os.environ.get("IVORYPAY_SECRET_KEY", "")
+        if not self.api_key:
+            raise RuntimeError(
+                "IVORYPAY_SECRET_KEY not set. Get a test-mode key (sk_test_...) "
+                "from your IvoryPay dashboard before using this client."
+            )
+        if self.api_key.startswith("sk_live_"):
+            raise RuntimeError(
+                "A LIVE IvoryPay key was detected. This client is restricted to "
+                "test mode until payments have been reviewed and approved."
+            )
+
+    def create_checkout(
+        self, amount: float, currency: str, description: str, customer_email: str
+    ) -> CheckoutSession:
+        reference = str(uuid.uuid4())
+        response = httpx.post(
+            f"{self.BASE_URL}/transactions",
+            headers={"Authorization": self.api_key, "Content-Type": "application/json"},
+            json={
+                "amount": amount,
+                "email": customer_email,
+                "type": "FIAT",
+                "mode": "CHECKOUT",
+                "baseFiat": currency.upper(),
+                "crypto": "USDT",
+                "reference": reference,
+                # IvoryPay validates this as "valid JSON or null" — a
+                # bare string like "Smoke test" is rejected (confirmed
+                # against their sandbox), so wrap it.
+                "metadata": json.dumps({"description": description}),
+            },
+            timeout=30.0,
+        )
+        data = response.json()
+        if not data.get("success"):
+            raise RuntimeError(f"IvoryPay checkout initialization failed: {data.get('message')}")
+
+        result = data["data"]
+        # Confirmed against IvoryPay's sandbox: CHECKOUT mode nests the
+        # URL under collectionDetails, not at the top level.
+        checkout_url = result.get("collectionDetails", {}).get("checkoutUrl")
+        if not checkout_url:
+            raise RuntimeError(
+                "IvoryPay returned no checkout URL field this client recognises "
+                f"— raw response: {result}. Their response shape may have changed; "
+                "check collectionDetails.checkoutUrl against IvoryPay's current docs."
+            )
+
+        return CheckoutSession(
+            provider="ivorypay",
+            checkout_url=checkout_url,
+            reference=result.get("reference", reference),
+            amount=amount,
+            currency=currency.upper(),
+        )
+
+    def verify_payment(self, reference: str) -> bool:
+        response = httpx.get(
+            f"{self.BASE_URL}/business/transactions/{reference}",
+            headers={"Authorization": self.api_key},
+            timeout=30.0,
+        )
+        data = response.json()
+        return bool(data.get("success")) and data.get("data", {}).get("status") == "SUCCESS"
+
+
+def get_payment_client(provider: Literal["stripe", "paystack", "ivorypay"]) -> PaymentProviderClient:
+    """Currency routing, matching the Academy pattern: Paystack/IvoryPay
+    handle both NGN and USD; Stripe is USD-only. Route NGN to Paystack
+    automatically."""
     if provider == "stripe":
         return StripeClient()
     if provider == "paystack":
         return PaystackClient()
+    if provider == "ivorypay":
+        return IvoryPayClient()
     raise ValueError(f"Unknown payment provider: {provider}")
 
 
 def recommend_provider(currency: str) -> Literal["stripe", "paystack"]:
-    """NGN can only go through Paystack; USD can go through either — default
-    to Paystack for USD too when the customer is likely Nigeria-based, since
-    it's cheaper there, but this is a router-level decision, not hardcoded here."""
+    """NGN can only go through Paystack (or IvoryPay, via explicit
+    override); USD can go through either — default to Paystack for USD
+    too when the customer is likely Nigeria-based, since it's cheaper
+    there, but this is a router-level decision, not hardcoded here."""
     if currency.upper() == "NGN":
         return "paystack"
     return "stripe"

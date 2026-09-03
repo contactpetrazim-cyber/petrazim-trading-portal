@@ -1,0 +1,35 @@
+name: Keep Supabase project active
+
+# Supabase's free tier pauses a project after 7 days with no API/DB
+# activity — a real, separate issue from Render's 15-minute backend
+# sleep above. Pausing doesn't delete data, but it does mean the next
+# real request has to wait for someone to manually un-pause it from the
+# Supabase dashboard, which isn't automatic the way Render's wake-on-
+# request is. Running this once a day keeps it comfortably inside that
+# 7-day window forever, for free, with no dashboard clicking needed.
+#
+# Setup (one-time): Settings -> Secrets and variables -> Actions -> New
+# repository secret, twice:
+#   SUPABASE_URL          e.g. https://xxxxx.supabase.co
+#   SUPABASE_ANON_KEY      the project's anon/public API key
+# Both are on the Supabase dashboard under Project Settings -> API.
+on:
+  schedule:
+    - cron: '0 6 * * *'   # once a day, 06:00 UTC
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Supabase REST API
+        run: |
+          if [ -z "${{ secrets.SUPABASE_URL }}" ] || [ -z "${{ secrets.SUPABASE_ANON_KEY }}" ]; then
+            echo "SUPABASE_URL / SUPABASE_ANON_KEY secrets not set yet — add them in repo Settings > Secrets and variables > Actions once the Supabase project exists. Skipping."
+            exit 0
+          fi
+          curl -sf --max-time 25 "${{ secrets.SUPABASE_URL }}/rest/v1/" \
+            -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}" \
+            && echo "Supabase responded — project active." \
+            || echo "No response — check the project isn't already paused (Supabase dashboard shows this, and a paused project needs one manual un-pause click to recover, this workflow can't do that part)."

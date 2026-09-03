@@ -69,6 +69,7 @@ class ExecutionEngine:
             "lot_size": signal.lot_size,
             "risk_percent": signal.risk_percent,
             "risk_amount": signal.lot_size * abs(signal.entry_price - signal.stop_loss),
+            "preferred_broker": signal.preferred_broker,
             "strategy_type": signal.bot_name,
             "confidence": signal.confidence,
             "reasoning": signal.reasoning,

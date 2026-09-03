@@ -52,7 +52,7 @@ class CheckoutRequest(BaseModel):
     duration_pass_type: Optional[DurationPassType] = None
     tier: Optional[AccessTier] = None
     seat_count: int = 1
-    provider_override: Optional[Literal["stripe", "paystack"]] = None
+    provider_override: Optional[Literal["stripe", "paystack", "ivorypay"]] = None
 
 
 class CheckoutResponse(BaseModel):

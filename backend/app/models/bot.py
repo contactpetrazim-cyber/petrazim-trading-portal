@@ -32,6 +32,16 @@ class BotConfig(Base):
     symbols = Column(JSON, default=list)  # ["BTCUSDT", "EURUSD"]
     timeframes = Column(JSON, default=list)  # ["1D", "4H", "1H", "15M"]
 
+    # Which exchange this bot's orders execute on — "bingx", "binance",
+    # "bybit", "mexc", or "tradelocker". Pinning this (rather than
+    # letting execution_engine guess from the symbol) is what the
+    # cross-exchange price-deviation guard depends on: it fetches its
+    # sanity-check ticker from exactly this exchange. Changeable anytime
+    # via PATCH /bots/{bot_id}/exchange — takes effect on the very next
+    # signal for this bot, since it's read fresh from the DB each time,
+    # never cached.
+    exchange = Column(String(20), nullable=True)
+
     # Risk Parameters
     risk_per_trade = Column(Float, default=1.0)
     max_daily_trades = Column(Integer, default=10)

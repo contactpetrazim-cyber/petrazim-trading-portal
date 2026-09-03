@@ -60,6 +60,17 @@ class Settings(BaseSettings):
 
     class Config:
         env_file = ".env"
+        # Several services (payments.py, telegram.py, fireflies.py, the
+        # Google Calendar connector, ...) read their own env vars
+        # directly via os.environ rather than through this Settings
+        # class — deliberately, so their existence isn't tied to a
+        # Settings field for every third-party key. Without this,
+        # pydantic-settings raises "Extra inputs are not permitted" for
+        # every one of those and the app fails to even start the moment
+        # a real deploy sets the full env var list from
+        # docs/MERGE_AND_DEPLOY_GUIDE.md — most of which aren't (and
+        # shouldn't need to be) declared as fields here.
+        extra = "ignore"
 
 @lru_cache()
 def get_settings() -> Settings:
