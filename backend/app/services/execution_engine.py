@@ -8,7 +8,9 @@ from datetime import datetime
 import structlog
 from app.config import get_settings
 from app.core.bot_strategies import BotSignal
-from app.services.broker_integrations import BingXBroker, TradeLockerBroker
+from app.services.broker_integrations import (
+    BingXBroker, TradeLockerBroker, BinanceBroker, BybitBroker, MexcBroker,
+)
 
 logger = structlog.get_logger()
 settings = get_settings()
@@ -22,7 +24,8 @@ class ExecutionEngine:
         self.active_trades: List[Dict] = []
         self.daily_trade_count = 0
 
-        # Initialize broker clients
+        # Initialize broker clients — only exchanges with a configured
+        # API key are wired up; everything else stays in paper mode.
         self.brokers = {}
         if self.settings.BINGX_API_KEY:
             self.brokers["bingx"] = BingXBroker(
@@ -34,6 +37,21 @@ class ExecutionEngine:
                 self.settings.TRADELOCKER_API_KEY,
                 self.settings.TRADELOCKER_SECRET,
                 self.settings.TRADELOCKER_ACCOUNT_ID
+            )
+        if self.settings.BINANCE_API_KEY:
+            self.brokers["binance"] = BinanceBroker(
+                self.settings.BINANCE_API_KEY,
+                self.settings.BINANCE_SECRET
+            )
+        if self.settings.BYBIT_API_KEY:
+            self.brokers["bybit"] = BybitBroker(
+                self.settings.BYBIT_API_KEY,
+                self.settings.BYBIT_SECRET
+            )
+        if self.settings.MEXC_API_KEY:
+            self.brokers["mexc"] = MexcBroker(
+                self.settings.MEXC_API_KEY,
+                self.settings.MEXC_SECRET
             )
 
     async def process_signal(self, signal: BotSignal, mode: str = "human_in_loop") -> Dict:
@@ -109,17 +127,42 @@ class ExecutionEngine:
 
     async def _execute_broker_order(self, trade: Dict) -> Dict:
         """Execute order via configured broker."""
-        broker = self._determine_broker(trade["symbol"])
+        broker = self._determine_broker(trade["symbol"], trade.get("preferred_broker"))
 
         try:
+            if broker in self.brokers:
+                # Cross-exchange price sanity guard — a signal's
+                # entry_price was computed off whatever exchange fed the
+                # bot's candles (see data_ingestion.py), which is not
+                # guaranteed to be THIS broker. Refuse to fire blind if
+                # the two disagree by more than the configured
+                # tolerance; a bad SL/TP/entry from a stale or
+                # foreign-exchange price is worse than a skipped trade.
+                guard_result = await self._check_price_deviation(broker, trade)
+                if not guard_result["ok"]:
+                    logger.error("price_deviation_guard_blocked", trade_id=trade["trade_id"], **guard_result)
+                    return {
+                        "success": False,
+                        "error": "price_deviation_guard",
+                        "message": (
+                            f"Blocked: signal entry {guard_result['signal_price']} vs live "
+                            f"{broker} price {guard_result['live_price']} differ by "
+                            f"{guard_result['deviation_pct']:.3f}% (tolerance "
+                            f"{self.settings.PRICE_DEVIATION_TOLERANCE_PCT}%). Re-check the "
+                            f"bot's data source against its execution exchange."
+                        ),
+                    }
+
             if broker == "bingx" and "bingx" in self.brokers:
                 return await self._execute_bingx(trade)
             elif broker == "tradelocker" and "tradelocker" in self.brokers:
                 return await self._execute_tradelocker(trade)
-            elif broker == "binance":
+            elif broker == "binance" and "binance" in self.brokers:
                 return await self._execute_binance(trade)
-            elif broker == "bybit":
+            elif broker == "bybit" and "bybit" in self.brokers:
                 return await self._execute_bybit(trade)
+            elif broker == "mexc" and "mexc" in self.brokers:
+                return await self._execute_mexc(trade)
             elif broker == "metatrader":
                 return await self._execute_metatrader(trade)
             else:
@@ -133,14 +176,60 @@ class ExecutionEngine:
             logger.error("broker_execution_failed", error=str(e), trade_id=trade["trade_id"])
             return {"success": False, "error": str(e)}
 
-    def _determine_broker(self, symbol: str) -> str:
-        """Route to appropriate broker based on symbol."""
+    async def _check_price_deviation(self, broker: str, trade: Dict) -> Dict:
+        """
+        Pull a live ticker straight from the execution broker and
+        compare it to the signal's entry_price. Returns {"ok": True}
+        when there's no live price to check against (paper mode, or a
+        broker without a ticker method) rather than blocking trades a
+        price check can't actually run for.
+        """
+        signal_price = trade.get("entry_price")
+        client = self.brokers.get(broker)
+        if not client or signal_price is None or not hasattr(client, "get_ticker_price"):
+            return {"ok": True}
+
+        ticker = await client.get_ticker_price(trade["symbol"])
+        if not ticker.get("success"):
+            # Can't verify — fail open with a warning rather than
+            # blocking every trade whenever a ticker call has a hiccup.
+            logger.warning("price_check_unavailable", broker=broker, error=ticker.get("error"))
+            return {"ok": True}
+
+        live_price = ticker["price"]
+        deviation_pct = abs(live_price - signal_price) / live_price * 100 if live_price else 0.0
+        ok = deviation_pct <= self.settings.PRICE_DEVIATION_TOLERANCE_PCT
+        return {
+            "ok": ok,
+            "signal_price": signal_price,
+            "live_price": live_price,
+            "deviation_pct": deviation_pct,
+        }
+
+    def _determine_broker(self, symbol: str, preferred_broker: Optional[str] = None) -> str:
+        """
+        Route to the appropriate broker.
+
+        `preferred_broker` lets a bot config pin exactly which exchange
+        it trades on (BotConfig.strategy_params["preferred_broker"]) —
+        set this explicitly rather than relying on the symbol heuristic
+        below whenever the bot's data source and execution venue need
+        to be the same exchange (see _check_price_deviation): if a bot
+        pulls candles from Binance, its trades should also execute on
+        Binance, not silently land on whichever broker this heuristic
+        guesses from the symbol string.
+        """
+        if preferred_broker and preferred_broker in self.brokers:
+            return preferred_broker
+
         symbol_upper = symbol.upper()
 
-        # BingX: Crypto pairs (BTCUSDT, ETHUSDT, etc.)
+        # Crypto pairs (BTCUSDT, ETHUSDT, etc.) — prefer whichever
+        # configured crypto broker is available, in a fixed order.
         if "USDT" in symbol_upper or "USD" in symbol_upper:
-            if "bingx" in self.brokers:
-                return "bingx"
+            for candidate in ("bingx", "binance", "bybit", "mexc"):
+                if candidate in self.brokers:
+                    return candidate
             return "binance"
 
         # TradeLocker: Forex and prop firm accounts
@@ -205,10 +294,76 @@ class ExecutionEngine:
         return result
 
     async def _execute_binance(self, trade: Dict) -> Dict:
-        return {"success": True, "order_id": f"BIN_{trade['trade_id']}", "broker": "binance"}
+        """Execute via Binance USDT-M Futures."""
+        broker = self.brokers["binance"]
+        side = "BUY" if trade["direction"] == "long" else "SELL"
+        order_type = "LIMIT" if trade.get("entry_type") == "limit" else "MARKET"
+
+        result = await broker.place_order(
+            symbol=trade["symbol"],
+            side=side,
+            order_type=order_type,
+            quantity=trade["lot_size"],
+            price=trade.get("entry_price"),
+            stop_loss=trade.get("stop_loss"),
+            take_profit=trade.get("take_profit")
+        )
+        if result["success"]:
+            return {
+                "success": True,
+                "order_id": result["order_id"],
+                "broker": "binance",
+                "message": f"Binance order placed: {result['status']}"
+            }
+        return result
 
     async def _execute_bybit(self, trade: Dict) -> Dict:
-        return {"success": True, "order_id": f"BYB_{trade['trade_id']}", "broker": "bybit"}
+        """Execute via Bybit V5 (linear/USDT perpetuals)."""
+        broker = self.brokers["bybit"]
+        side = "BUY" if trade["direction"] == "long" else "SELL"
+        order_type = "LIMIT" if trade.get("entry_type") == "limit" else "MARKET"
+
+        result = await broker.place_order(
+            symbol=trade["symbol"],
+            side=side,
+            order_type=order_type,
+            quantity=trade["lot_size"],
+            price=trade.get("entry_price"),
+            stop_loss=trade.get("stop_loss"),
+            take_profit=trade.get("take_profit")
+        )
+        if result["success"]:
+            return {
+                "success": True,
+                "order_id": result["order_id"],
+                "broker": "bybit",
+                "message": f"Bybit order placed: {result['status']}"
+            }
+        return result
+
+    async def _execute_mexc(self, trade: Dict) -> Dict:
+        """Execute via MEXC Futures (contract)."""
+        broker = self.brokers["mexc"]
+        side = "BUY" if trade["direction"] == "long" else "SELL"
+        order_type = "LIMIT" if trade.get("entry_type") == "limit" else "MARKET"
+
+        result = await broker.place_order(
+            symbol=trade["symbol"],
+            side=side,
+            order_type=order_type,
+            quantity=trade["lot_size"],
+            price=trade.get("entry_price"),
+            stop_loss=trade.get("stop_loss"),
+            take_profit=trade.get("take_profit")
+        )
+        if result["success"]:
+            return {
+                "success": True,
+                "order_id": result["order_id"],
+                "broker": "mexc",
+                "message": f"MEXC order placed: {result['status']}"
+            }
+        return result
 
     async def _execute_metatrader(self, trade: Dict) -> Dict:
         return {"success": True, "order_id": f"MT_{trade['trade_id']}", "broker": "metatrader"}

@@ -4,6 +4,7 @@ import { Search } from 'lucide-react';
 import { FEATURE_AREAS } from '../config/featureRegistry';
 import { PetrazimLogo } from './PetrazimLogo';
 import { GlobalSearchModal } from './GlobalSearchModal';
+import { BackendStatusBadge } from './BackendStatusBadge';
 
 /**
  * TopNav — the 7 tabs (Learn / Practise / Trade / Insights / Tools /
@@ -41,6 +42,10 @@ export function TopNav() {
                 </Link>
               );
             })}
+          </div>
+
+          <div className="hidden lg:block">
+            <BackendStatusBadge />
           </div>
 
           <button

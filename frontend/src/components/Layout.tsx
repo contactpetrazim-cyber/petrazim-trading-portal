@@ -13,6 +13,7 @@ import {
   Zap
 } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
+import { BackendStatusBadge } from './BackendStatusBadge';
 
 const navItems = [
   { path: '/', label: 'Dashboard', icon: LayoutDashboard },
@@ -44,6 +45,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
         </div>
 
         <div className="flex items-center gap-4">
+          {/* Backend sleep/wake status — separate from the WS connection
+              below: the backend can be reachable but the socket dropped,
+              or vice versa while it's waking up. */}
+          <BackendStatusBadge />
+
           {/* Connection Status */}
           <div className="flex items-center gap-2 text-sm">
             <div className={`w-2 h-2 rounded-full ${wsConnected ? 'bg-smc-success animate-pulse' : 'bg-smc-danger'}`} />

@@ -1,0 +1,32 @@
+name: Keep backend awake
+
+# Render's free web service tier sleeps after ~15 minutes idle. Pinging
+# every 10 minutes never lets it go idle that long, so it never sleeps —
+# and since a month is ~730 hours and Render's free tier includes 750
+# instance-hours/month, keeping ONE service alive 24/7 this way still
+# fits inside the free tier. This is the standard, well-known workaround
+# for sleeping free-tier hosts; it needs no paid plan and nothing on the
+# Render side.
+#
+# Setup (one-time): Settings -> Secrets and variables -> Actions ->
+# New repository secret -> name it RENDER_BACKEND_URL -> value is your
+# deployed backend's URL (e.g. https://petrazim-backend.onrender.com,
+# no trailing slash).
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping /health
+        run: |
+          if [ -z "${{ secrets.RENDER_BACKEND_URL }}" ]; then
+            echo "RENDER_BACKEND_URL secret not set yet — add it in repo Settings > Secrets and variables > Actions once the backend is deployed. Skipping."
+            exit 0
+          fi
+          curl -sf --max-time 25 "${{ secrets.RENDER_BACKEND_URL }}/health" \
+            && echo "Backend responded — awake." \
+            || echo "No response (likely mid-wake from a prior gap) — next run in 10 min will retry."

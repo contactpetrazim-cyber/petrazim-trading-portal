@@ -46,6 +46,18 @@ class Settings(BaseSettings):
     TRADELOCKER_SECRET: str = ""
     TRADELOCKER_ACCOUNT_ID: str = ""
 
+    # MEXC (Crypto futures)
+    MEXC_API_KEY: str = ""
+    MEXC_SECRET: str = ""
+
+    # Cross-exchange price sanity guard — see broker_integrations.py /
+    # execution_engine.py docstrings. A signal's entry price (often
+    # computed against whichever exchange fed the bot's candles) is
+    # checked against a live ticker pulled from the ACTUAL execution
+    # broker immediately before an order fires; if they disagree by
+    # more than this percentage, the trade is flagged instead of sent.
+    PRICE_DEVIATION_TOLERANCE_PCT: float = 0.25
+
     class Config:
         env_file = ".env"
 

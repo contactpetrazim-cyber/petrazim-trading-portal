@@ -1,0 +1,100 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0
+//@version=5
+strategy("Petrazim Bot 1 — Macro Swing Structure", shorttitle = "Petrazim Bot1", overlay = true,
+  default_qty_type = strategy.percent_of_equity, default_qty_value = 1, calc_on_every_tick = false)
+
+// =============================================================================
+// Bot 1 — Pure Macro Swing Structure (Damir/Brooks style)
+// =============================================================================
+// Simplified, chart-side mirror of
+// backend/app/core/bot_strategies.py::MacroSwingStructureBot — same idea
+// (trade confirmed structure breaks, enter on the pullback, wide stop,
+// 5:1 target), reduced to fit one timeframe of Pine data instead of the
+// backend's real 1D+4H multi-timeframe read. Treat this as a second,
+// visual/alert-only opinion, NOT a replacement for the backend bot, which
+// already runs this logic (with real MTF alignment) directly off exchange
+// data — see docs/TRADINGVIEW_BOUNDARY_TABLE.md for why the two are
+// deliberately independent.
+//
+// SETUP:
+//   1. Paste this into Pine Editor → Add to Chart, on your intended symbol
+//      and a higher timeframe (4H or 1D, to match the bot's own style).
+//   2. Click the Alerts (clock) icon → Create Alert.
+//   3. Condition: this script → "Petrazim Bot1 signal".
+//   4. Webhook URL: https://<your-backend-domain>/webhook/tradingview
+//   5. Message: leave the default — it already sends the JSON below.
+//
+// TradingView gives no way to do steps 2-4 except by hand in its own UI;
+// there is no API that can do this for you (see the boundary table doc).
+// =============================================================================
+
+grp = "Bot 1 Settings"
+swingLeft   = input.int(5, "Swing Lookback (left)", group = grp, minval = 1)
+swingRight  = input.int(5, "Swing Lookback (right)", group = grp, minval = 1)
+rrRatio     = input.float(5.0, "Reward:Risk ratio", group = grp, minval = 1.0, step = 0.5)
+pullbackPct = input.float(50.0, "Entry retracement into break range (%)", group = grp, minval = 10, maxval = 90)
+botId       = input.string("bot_1_macro_swing", "bot_id (must match backend BotConfig.bot_id)", group = grp)
+
+swingHigh = ta.pivothigh(high, swingLeft, swingRight)
+swingLow  = ta.pivotlow(low, swingLeft, swingRight)
+
+var float lastSwingHigh = na
+var float lastSwingLow  = na
+var float armedEntry    = na
+var float armedStop     = na
+var float armedTarget   = na
+var string armedSide    = na  // "buy" or "sell"
+
+if not na(swingHigh)
+    lastSwingHigh := swingHigh
+if not na(swingLow)
+    lastSwingLow := swingLow
+
+bullBreak = not na(lastSwingHigh) and ta.crossover(close, lastSwingHigh)
+bearBreak = not na(lastSwingLow) and ta.crossunder(close, lastSwingLow)
+
+// On a confirmed break, arm a pullback entry into the break's range
+// rather than chasing the breakout candle itself — matches the backend
+// bot's "entry on retracement to 50% of expansion" rule.
+if bullBreak
+    breakRange = close - lastSwingHigh
+    armedEntry  := close - breakRange * (pullbackPct / 100)
+    armedStop   := lastSwingLow
+    armedTarget := armedEntry + (armedEntry - armedStop) * rrRatio
+    armedSide   := "buy"
+
+if bearBreak
+    breakRange = lastSwingLow - close
+    armedEntry  := close + breakRange * (pullbackPct / 100)
+    armedStop   := lastSwingHigh
+    armedTarget := armedEntry - (armedStop - armedEntry) * rrRatio
+    armedSide   := "sell"
+
+// Fire once price actually pulls back into the armed zone.
+longTrigger  = armedSide == "buy"  and low  <= armedEntry and strategy.position_size == 0
+shortTrigger = armedSide == "sell" and high >= armedEntry and strategy.position_size == 0
+
+if longTrigger
+    strategy.entry("Bot1Long", strategy.long, stop = armedEntry)
+    strategy.exit("Bot1LongExit", "Bot1Long", stop = armedStop, limit = armedTarget)
+
+if shortTrigger
+    strategy.entry("Bot1Short", strategy.short, stop = armedEntry)
+    strategy.exit("Bot1ShortExit", "Bot1Short", stop = armedStop, limit = armedTarget)
+
+// ---------------------------------------------------------------------------
+// Webhook payload — field names match TradingViewWebhook exactly
+// (backend/app/schemas/__init__.py). {{ticker}}/{{interval}} are
+// TradingView placeholders filled in at alert-fire time.
+// ---------------------------------------------------------------------------
+if longTrigger or shortTrigger
+    side = longTrigger ? "buy" : "sell"
+    payload = '{"bot_id":"' + botId + '","pair":"{{ticker}}","action":"' + side +
+      '","entry":' + str.tostring(armedEntry) + ',"stop_loss":' + str.tostring(armedStop) +
+      ',"take_profit":' + str.tostring(armedTarget) +
+      ',"timeframe":"{{interval}}","structure_type":"BOS","fvg_present":false,"liquidity_swept":false}'
+    alert(payload, alert.freq_once_per_bar_close)
+
+plot(armedEntry, title = "Armed Entry", color = color.new(color.yellow, 40), style = plot.style_circles)
+plot(armedStop, title = "Armed Stop", color = color.new(color.red, 40), style = plot.style_circles)
+plot(armedTarget, title = "Armed Target", color = color.new(color.teal, 40), style = plot.style_circles)

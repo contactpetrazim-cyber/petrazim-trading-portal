@@ -1,0 +1,164 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0
+//@version=5
+indicator("Petrazim SMC Master Engine", shorttitle="Petrazim SMC", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500)
+
+// =============================================================================
+// Petrazim SMC Master Engine — visual reference only
+// =============================================================================
+// This is the PAID/free chart-side companion to the bots that already run
+// inside the Petrazim backend (backend/app/core/smc_algorithms.py). It draws
+// what the bots' MarketStructureDetector / ZoneDetector / FVGDetector /
+// LiquidityDetector see, so you can eyeball a setup on your own chart.
+//
+// It does NOT feed the bots — the backend already pulls its own candles
+// directly from exchanges (CCXT / yfinance, see data_ingestion.py) and runs
+// this same logic server-side independent of TradingView. This script is
+// for your own visual confirmation, and as the source for the Bot*.pine
+// ALERT scripts in this folder, which are the only files that actually
+// send anything to the webhook.
+//
+// TradingView gives no API to install this for you — paste this file's
+// contents into Pine Editor → "Add to Chart" once, on any symbol/timeframe.
+// =============================================================================
+
+// ---------------------------------------------------------------------------
+// Inputs
+// ---------------------------------------------------------------------------
+grp_structure = "Market Structure"
+swingLeft   = input.int(5, "Swing Lookback (left)", group = grp_structure, minval = 1)
+swingRight  = input.int(5, "Swing Lookback (right)", group = grp_structure, minval = 1)
+showBOSCHoCH = input.bool(true, "Show BOS / CHoCH labels", group = grp_structure)
+
+grp_zones = "Order Blocks"
+showOrderBlocks = input.bool(true, "Show Order Blocks", group = grp_zones)
+obLookback      = input.int(50, "Order Block max age (bars)", group = grp_zones, minval = 10)
+bullOBColor     = input.color(color.new(color.teal, 80), "Bullish OB", group = grp_zones)
+bearOBColor     = input.color(color.new(color.maroon, 80), "Bearish OB", group = grp_zones)
+
+grp_fvg = "Fair Value Gaps"
+showFVG   = input.bool(true, "Show Fair Value Gaps", group = grp_fvg)
+fvgMinPct = input.float(0.0, "Min gap size (% of price)", group = grp_fvg, minval = 0.0, step = 0.01)
+bullFVGColor = input.color(color.new(color.blue, 82), "Bullish FVG", group = grp_fvg)
+bearFVGColor = input.color(color.new(color.purple, 82), "Bearish FVG", group = grp_fvg)
+
+grp_liq = "Liquidity"
+showLiquidity  = input.bool(true, "Show Equal Highs/Lows (liquidity)", group = grp_liq)
+liqTolerancePct = input.float(0.05, "Equal-level tolerance (%)", group = grp_liq, minval = 0.0, step = 0.01)
+
+// ---------------------------------------------------------------------------
+// Swing structure (pivots)
+// ---------------------------------------------------------------------------
+swingHigh = ta.pivothigh(high, swingLeft, swingRight)
+swingLow  = ta.pivotlow(low, swingLeft, swingRight)
+
+var float lastSwingHigh = na
+var float lastSwingLow  = na
+var bool  trendUp       = na  // last confirmed structure direction
+
+if not na(swingHigh)
+    lastSwingHigh := swingHigh
+    label.new(bar_index[swingRight], swingHigh, "H", style = label.style_label_down,
+      color = color.new(color.gray, 100), textcolor = color.gray, size = size.tiny, yloc = yloc.abovebar)
+
+if not na(swingLow)
+    lastSwingLow := swingLow
+    label.new(bar_index[swingRight], swingLow, "L", style = label.style_label_up,
+      color = color.new(color.gray, 100), textcolor = color.gray, size = size.tiny, yloc = yloc.belowbar)
+
+// ---------------------------------------------------------------------------
+// BOS / CHoCH — a close beyond the last confirmed swing, labelled by
+// whether it continues (BOS) or reverses (CHoCH) the prior direction.
+// ---------------------------------------------------------------------------
+bullBreak = not na(lastSwingHigh) and ta.crossover(close, lastSwingHigh)
+bearBreak = not na(lastSwingLow) and ta.crossunder(close, lastSwingLow)
+
+if bullBreak
+    isBOS = trendUp == true or na(trendUp)
+    if showBOSCHoCH
+        label.new(bar_index, high, isBOS ? "BOS" : "CHoCH",
+          style = label.style_label_down, color = color.new(color.lime, 20),
+          textcolor = color.black, size = size.small)
+    trendUp := true
+    lastSwingHigh := na  // consumed — wait for the next pivot before re-triggering
+
+if bearBreak
+    isBOS = trendUp == false or na(trendUp)
+    if showBOSCHoCH
+        label.new(bar_index, low, isBOS ? "BOS" : "CHoCH",
+          style = label.style_label_up, color = color.new(color.red, 20),
+          textcolor = color.white, size = size.small)
+    trendUp := false
+    lastSwingLow := na
+
+// ---------------------------------------------------------------------------
+// Order blocks — simplified: the last opposite-colour candle immediately
+// before a break of structure, boxed from its high to its low.
+// ---------------------------------------------------------------------------
+if showOrderBlocks and (bullBreak or bearBreak)
+    // Walk back from the break to find the origin candle
+    int originOffset = na
+    if bullBreak
+        for i = 1 to obLookback
+            if close[i] < open[i]  // last bearish candle = bullish OB origin
+                originOffset := i
+                break
+    else
+        for i = 1 to obLookback
+            if close[i] > open[i]  // last bullish candle = bearish OB origin
+                originOffset := i
+                break
+
+    if not na(originOffset)
+        boxTop = high[originOffset]
+        boxBot = low[originOffset]
+        box.new(bar_index[originOffset], boxTop, bar_index + 20, boxBot,
+          border_color = bullBreak ? color.teal : color.maroon,
+          bgcolor = bullBreak ? bullOBColor : bearOBColor,
+          extend = extend.none)
+
+// ---------------------------------------------------------------------------
+// Fair Value Gaps — classic 3-candle imbalance.
+// ---------------------------------------------------------------------------
+bullFVG = low - high[2]
+bearFVG = low[2] - high
+
+if showFVG and bullFVG > 0 and (bullFVG / close * 100) >= fvgMinPct
+    box.new(bar_index[2], high[2], bar_index, low,
+      border_color = color.blue, bgcolor = bullFVGColor, extend = extend.none)
+
+if showFVG and bearFVG > 0 and (bearFVG / close * 100) >= fvgMinPct
+    box.new(bar_index[2], low[2], bar_index, high,
+      border_color = color.purple, bgcolor = bearFVGColor, extend = extend.none)
+
+// ---------------------------------------------------------------------------
+// Liquidity — equal highs / equal lows within tolerance, drawn as a
+// dotted line once two pivots line up (the kind of level bots treat as a
+// resting-liquidity target for a sweep).
+// ---------------------------------------------------------------------------
+var float prevSwingHighForLiq = na
+var float prevSwingLowForLiq  = na
+
+if showLiquidity and not na(swingHigh)
+    if not na(prevSwingHighForLiq) and math.abs(swingHigh - prevSwingHighForLiq) / swingHigh * 100 <= liqTolerancePct
+        line.new(bar_index[swingRight] - 20, swingHigh, bar_index[swingRight] + 5, swingHigh,
+          color = color.new(color.yellow, 40), style = line.style_dotted, width = 1)
+        label.new(bar_index[swingRight], swingHigh, "EQH", style = label.style_label_down,
+          color = color.new(color.yellow, 100), textcolor = color.orange, size = size.tiny, yloc = yloc.abovebar)
+    prevSwingHighForLiq := swingHigh
+
+if showLiquidity and not na(swingLow)
+    if not na(prevSwingLowForLiq) and math.abs(swingLow - prevSwingLowForLiq) / swingLow * 100 <= liqTolerancePct
+        line.new(bar_index[swingRight] - 20, swingLow, bar_index[swingRight] + 5, swingLow,
+          color = color.new(color.yellow, 40), style = line.style_dotted, width = 1)
+        label.new(bar_index[swingRight], swingLow, "EQL", style = label.style_label_up,
+          color = color.new(color.yellow, 100), textcolor = color.orange, size = size.tiny, yloc = yloc.belowbar)
+    prevSwingLowForLiq := swingLow
+
+// ---------------------------------------------------------------------------
+// Alert conditions — for a lightweight "just tell me when structure
+// breaks" alert; the actual trade-signal alerts live in the Bot*.pine
+// strategy scripts in this same folder (they encode the full webhook
+// JSON body, this indicator does not).
+// ---------------------------------------------------------------------------
+alertcondition(bullBreak, title = "Bullish BOS/CHoCH", message = "Petrazim: bullish structure break on {{ticker}} {{interval}}")
+alertcondition(bearBreak, title = "Bearish BOS/CHoCH", message = "Petrazim: bearish structure break on {{ticker}} {{interval}}")
