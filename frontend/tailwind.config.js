@@ -17,20 +17,31 @@ export default {
         'smc-warning': '#f59e0b',
         'smc-long': '#22c55e',
         'smc-short': '#ef4444',
-        // Corporate palette (Learn/Insights/Community/Explore/nav chrome)
-        // merged in from tailwind.config.corporate-extend.js — see MERGE_MANIFEST.md
+        // Corporate palette (Learn/Insights/Community/Explore/nav chrome).
+        // Reconciled against petrazim_preview_v13_FINAL.jsx (the final
+        // reference — see config/theme.ts for the full rationale):
+        // hero/accent are now the brand-blue gradient's middle stop,
+        // not flat navy; accent is no longer orange, which the
+        // reference explicitly retires as a button color.
         corporate: {
           bg: '#EAEAF4',
-          hero: '#1A3364',
+          hero: '#005FB8',
+          'hero-deep': '#003876',
+          'hero-teal': '#00829B',
           'hero-light': '#26417d',
-          accent: '#FF7A00',
-          'accent-hover': '#e66d00',
+          accent: '#005FB8',
+          'accent-hover': '#004a94',
+          'accent-orange-retired': '#FF7A00', // reference only — no longer used for buttons/active states
           'text-on-hero': '#FFFFFF',
           'text-on-bg': '#1A1A2E',
+          'nav-dark': '#0f1424',
+          'surface-dark': '#161b2e',
+          'border-dark': '#2a3150',
         },
       },
       fontFamily: {
         mono: ['JetBrains Mono', 'monospace'],
+        display: ['Sora', 'sans-serif'],
       }
     },
   },

@@ -1,6 +1,9 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { TopNav } from './components/TopNav';
+import { BottomNav } from './components/BottomNav';
+import { FloatingTradeAI } from './components/FloatingTradeAI';
+import { useThemeStore } from './hooks/useTheme';
 import { DashboardPage } from './pages/Dashboard';
 import { TradesPage } from './pages/Trades';
 import { BotsPage } from './pages/Bots';
@@ -16,16 +19,26 @@ import { MeetingsPage } from './pages/MeetingsPage';
 import { ProtectedRoute } from './components/ProtectedRoute';
 
 /**
- * CorporateLayout — wraps the newer "corporate" pages (TopNav's 7-tab
- * nav + light theme) that were built as standalone components but
- * never mounted under a shared shell. The Trader console keeps its
- * own dark Layout (sidebar) unchanged below.
+ * CorporateLayout — wraps the newer "corporate" pages: a slim TopNav
+ * ribbon (logo + search + settings), the 8-area BottomNav tab bar, and
+ * the floating Trade AI bubble, all shared across every page mounted
+ * here rather than each page owning its own copy. Reconciled against
+ * petrazim_preview_v13_FINAL.jsx — including the site-wide light/dark
+ * toggle (useThemeStore), which this layout is what actually applies
+ * to the page background; individual pages opt into dark-aware
+ * styling via the same store. The Trader console keeps its own dark
+ * Layout (sidebar) unchanged below — deliberately untouched by this
+ * toggle, see config/theme.ts.
  */
 function CorporateLayout({ children }: { children: React.ReactNode }) {
+  const { theme } = useThemeStore();
+  const dark = theme === 'dark';
   return (
-    <div className="min-h-screen bg-corporate-bg">
+    <div className={`min-h-screen pb-20 transition-colors duration-300 ${dark ? 'bg-smc-dark' : 'bg-corporate-bg'}`}>
       <TopNav />
-      {children}
+      <main className="max-w-5xl mx-auto px-5 py-8">{children}</main>
+      <BottomNav />
+      <FloatingTradeAI />
     </div>
   );
 }

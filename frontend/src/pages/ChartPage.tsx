@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { TradingViewChart } from '../components/TradingViewChart';
-import { FloatingTradeAI } from '../components/FloatingTradeAI';
 
 const SYMBOLS = [
   { label: 'BTC/USDT', value: 'BINANCE:BTCUSDT' },
@@ -13,8 +12,8 @@ const SYMBOLS = [
  * ChartPage — the split-screen layout from your reference: live
  * TradingView frame on the left, Trade AI accessible via the floating
  * icon (per your spec: "just a floating chat icon", not a fixed side
- * panel — reusing FloatingTradeAI rather than building a second,
- * competing chat surface).
+ * panel). FloatingTradeAI itself is mounted once, globally, by
+ * CorporateLayout — not per-page — so it doesn't need repeating here.
  */
 export function ChartPage() {
   const [symbol, setSymbol] = useState(SYMBOLS[0].value);
@@ -38,8 +37,6 @@ export function ChartPage() {
       <div className="flex-1">
         <TradingViewChart symbol={symbol} interval="60" theme="dark" />
       </div>
-
-      <FloatingTradeAI />
     </div>
   );
 }

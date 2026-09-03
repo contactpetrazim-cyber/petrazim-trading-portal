@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Search, X } from 'lucide-react';
 import { FEATURE_AREAS, searchFeatures } from '../config/featureRegistry';
+import { useThemeStore } from '../hooks/useTheme';
 
 /**
  * GlobalSearchModal — searches across ALL 7 feature areas at once
@@ -12,6 +13,8 @@ import { FEATURE_AREAS, searchFeatures } from '../config/featureRegistry';
 export function GlobalSearchModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [query, setQuery] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
+  const { theme } = useThemeStore();
+  const dark = theme === 'dark';
 
   useEffect(() => {
     if (open) {
@@ -38,36 +41,39 @@ export function GlobalSearchModal({ open, onClose }: { open: boolean; onClose: (
   const areaLabel = (id: string) => FEATURE_AREAS.find((a) => a.id === id)?.label ?? id;
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/50 flex items-start justify-center pt-24 px-4">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden">
-        <div className="flex items-center gap-3 px-4 py-3 border-b border-corporate-bg">
-          <Search size={18} className="text-corporate-hero/60" />
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-start justify-center pt-24 px-4" onClick={onClose}>
+      <div
+        className={`rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden ${dark ? 'bg-corporate-surface-dark' : 'bg-white'}`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className={`flex items-center gap-3 px-4 py-4 border-b ${dark ? 'border-corporate-border-dark' : 'border-corporate-bg'}`}>
+          <Search size={18} className="text-corporate-hero" />
           <input
             ref={inputRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search Learn, Practise, Trade, Insights, Tools, Community, Explore…"
-            className="flex-1 outline-none text-sm text-corporate-text-on-bg placeholder:text-gray-400"
+            className={`flex-1 outline-none text-sm bg-transparent ${dark ? 'text-white placeholder:text-white/30' : 'text-corporate-text-on-bg placeholder:text-gray-400'}`}
           />
           <button onClick={onClose} aria-label="Close search">
-            <X size={18} className="text-gray-400 hover:text-gray-600" />
+            <X size={18} className={dark ? 'text-white/40 hover:text-white/70' : 'text-gray-400 hover:text-gray-600'} />
           </button>
         </div>
 
         <div className="max-h-96 overflow-y-auto">
           {query && results.length === 0 && (
-            <p className="text-sm text-gray-500 px-4 py-6 text-center">No matches for "{query}"</p>
+            <p className={`text-sm px-4 py-6 text-center ${dark ? 'text-white/40' : 'text-gray-500'}`}>No matches for "{query}"</p>
           )}
           {results.map((r) => (
             <Link
               key={r.id}
               to={r.route}
               onClick={onClose}
-              className="flex items-start justify-between gap-3 px-4 py-3 hover:bg-corporate-bg transition-colors"
+              className={`flex items-start justify-between gap-3 px-4 py-3 transition-colors ${dark ? 'hover:bg-white/5' : 'hover:bg-corporate-bg'}`}
             >
               <div>
-                <div className="text-sm font-medium text-corporate-text-on-bg">{r.label}</div>
-                <div className="text-xs text-gray-500 mt-0.5">{r.description}</div>
+                <div className={`text-sm font-medium ${dark ? 'text-white' : 'text-corporate-text-on-bg'}`}>{r.label}</div>
+                <div className={`text-xs mt-0.5 ${dark ? 'text-white/40' : 'text-gray-500'}`}>{r.description}</div>
               </div>
               <span className="text-xs font-medium text-corporate-accent shrink-0 pt-0.5">
                 {areaLabel(r.area)}
@@ -75,7 +81,7 @@ export function GlobalSearchModal({ open, onClose }: { open: boolean; onClose: (
             </Link>
           ))}
           {!query && (
-            <p className="text-xs text-gray-400 px-4 py-4 text-center">
+            <p className={`text-xs px-4 py-4 text-center ${dark ? 'text-white/30' : 'text-gray-400'}`}>
               Start typing to search across every area of the platform.
             </p>
           )}

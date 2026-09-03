@@ -14,6 +14,10 @@ import { ChevronDown } from 'lucide-react';
  * since hover-expand on mobile has no equivalent gesture — click
  * always works everywhere, hover is a desktop enhancement layered on
  * top, not a replacement for it.
+ *
+ * Reconciled against petrazim_preview_v13_FINAL.jsx: `dark` support
+ * (this card appears on pages inside the site-wide theme toggle) and
+ * the icon rendered in a tinted circular chip rather than bare.
  */
 export function FoldedCard({
   title,
@@ -22,6 +26,7 @@ export function FoldedCard({
   children,
   defaultOpen = false,
   expandOnHover = false,
+  dark = false,
 }: {
   title: string;
   summary?: string;
@@ -29,6 +34,7 @@ export function FoldedCard({
   children: ReactNode;
   defaultOpen?: boolean;
   expandOnHover?: boolean;
+  dark?: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen);
   const [hovering, setHovering] = useState(false);
@@ -37,33 +43,41 @@ export function FoldedCard({
 
   return (
     <div
-      className="bg-white rounded-xl border border-corporate-bg overflow-hidden transition-shadow hover:shadow-md"
+      className={`rounded-2xl border overflow-hidden transition-shadow ${
+        dark
+          ? 'bg-corporate-surface-dark border-corporate-border-dark'
+          : 'bg-white border-[#dcdce8] hover:shadow-[0_8px_30px_rgba(15,45,110,0.08)]'
+      }`}
       onMouseEnter={() => expandOnHover && setHovering(true)}
       onMouseLeave={() => expandOnHover && setHovering(false)}
     >
       <button
         onClick={() => setOpen((o) => !o)}
-        className="w-full flex items-center gap-3 p-4 text-left"
+        className="w-full flex items-center gap-3 p-5 text-left"
         aria-expanded={isOpen}
       >
-        {icon && <span className="text-corporate-hero shrink-0">{icon}</span>}
+        {icon && (
+          <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 bg-corporate-hero/10 text-corporate-hero">
+            {icon}
+          </span>
+        )}
         <div className="flex-1 min-w-0">
-          <div className="font-medium text-corporate-text-on-bg">{title}</div>
+          <div className={`font-semibold ${dark ? 'text-white' : 'text-corporate-text-on-bg'}`}>{title}</div>
           {summary && !isOpen && (
-            <div className="text-xs text-gray-500 truncate mt-0.5">{summary}</div>
+            <div className={`text-xs mt-0.5 truncate ${dark ? 'text-white/40' : 'text-[#7c839c]'}`}>{summary}</div>
           )}
         </div>
         <ChevronDown
           size={18}
-          className={`text-gray-400 shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+          className={`shrink-0 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''} ${dark ? 'text-white/30' : 'text-[#9aa0b8]'}`}
         />
       </button>
 
       <div
-        className={`grid transition-all duration-200 ease-out ${isOpen ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}
+        className={`grid transition-all duration-300 ease-out ${isOpen ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}
       >
         <div className="overflow-hidden">
-          <div className="px-4 pb-4">{children}</div>
+          <div className="px-5 pb-5">{children}</div>
         </div>
       </div>
     </div>

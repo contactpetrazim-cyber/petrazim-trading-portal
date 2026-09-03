@@ -35,7 +35,9 @@ export function FloatingTradeAI({
   }
 
   return (
-    <div className="fixed bottom-6 right-6 z-50">
+    // bottom-24 (not bottom-6) to clear BottomNav, which is fixed at
+    // the very bottom of every CorporateLayout page.
+    <div className="fixed bottom-24 right-5 z-40">
       {open && (
         <div className="mb-3 w-80 bg-white rounded-xl shadow-2xl overflow-hidden flex flex-col" style={{ height: 420 }}>
           <div className="bg-corporate-hero text-white px-4 py-3 flex items-center justify-between">

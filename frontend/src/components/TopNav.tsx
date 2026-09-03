@@ -1,83 +1,59 @@
 import { useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
-import { Search } from 'lucide-react';
-import { FEATURE_AREAS } from '../config/featureRegistry';
+import { Link } from 'react-router-dom';
+import { Search, Settings } from 'lucide-react';
 import { PetrazimLogo } from './PetrazimLogo';
 import { GlobalSearchModal } from './GlobalSearchModal';
+import { SettingsPanel } from './SettingsPanel';
 import { BackendStatusBadge } from './BackendStatusBadge';
+import { useThemeStore } from '../hooks/useTheme';
 
 /**
- * TopNav — the 7 tabs (Learn / Practise / Trade / Insights / Tools /
- * Community / Explore), logo, and search trigger. Corporate palette
- * (hero navy background, orange active-tab indicator). Each tab links
- * to that area's landing page — individual features within an area
- * are reached via that area's own page or via search.
+ * TopNav — slim ribbon: logo, search, settings gear. Reconciled
+ * against petrazim_preview_v13_FINAL.jsx: the 8 area tabs moved OUT
+ * of the top bar and into BottomNav (a mobile-app-style tab bar) —
+ * the top ribbon is logo + utility icons only now, not inline nav
+ * links. White in light mode, matching the logo's own background;
+ * dark navy in dark mode.
  */
 export function TopNav() {
   const [searchOpen, setSearchOpen] = useState(false);
-  const location = useLocation();
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const { theme, setTheme } = useThemeStore();
+  const dark = theme === 'dark';
 
   return (
     <>
-      <nav className="bg-corporate-hero sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto px-4 flex items-center justify-between h-20">
-          <Link to="/" className="flex items-center">
+      <nav className={`sticky top-0 z-40 border-b ${dark ? 'bg-corporate-nav-dark border-corporate-border-dark' : 'bg-white border-[#e8e8f0]'}`}>
+        <div className="max-w-5xl mx-auto px-5 flex items-center justify-between" style={{ height: 84 }}>
+          <Link to="/dashboard" className="flex items-center">
             <PetrazimLogo height={60} />
           </Link>
 
-          <div className="hidden md:flex items-center gap-1">
-            {FEATURE_AREAS.map((area) => {
-              const isActive = location.pathname.startsWith(`/${area.id}`);
-              return (
-                <Link
-                  key={area.id}
-                  to={`/${area.id}`}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    isActive
-                      ? 'bg-corporate-accent text-white'
-                      : 'text-white/80 hover:text-white hover:bg-white/10'
-                  }`}
-                >
-                  {area.label}
-                </Link>
-              );
-            })}
-          </div>
-
           <div className="hidden lg:block">
-            <BackendStatusBadge />
+            <BackendStatusBadge dark={dark} />
           </div>
 
-          <button
-            onClick={() => setSearchOpen(true)}
-            aria-label="Search all features"
-            className="flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white px-3 py-2 rounded-lg text-sm transition-colors"
-          >
-            <Search size={16} />
-            <span className="hidden sm:inline">Search</span>
-          </button>
-        </div>
-
-        {/* Mobile tab row */}
-        <div className="md:hidden flex overflow-x-auto gap-1 px-4 pb-3 -mt-1">
-          {FEATURE_AREAS.map((area) => {
-            const isActive = location.pathname.startsWith(`/${area.id}`);
-            return (
-              <Link
-                key={area.id}
-                to={`/${area.id}`}
-                className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
-                  isActive ? 'bg-corporate-accent text-white' : 'bg-white/10 text-white/80'
-                }`}
-              >
-                {area.label}
-              </Link>
-            );
-          })}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setSearchOpen(true)}
+              aria-label="Search all features"
+              className={`w-10 h-10 rounded-lg flex items-center justify-center transition-colors text-corporate-hero ${dark ? 'hover:bg-white/10' : 'hover:bg-corporate-bg'}`}
+            >
+              <Search size={17} />
+            </button>
+            <button
+              onClick={() => setSettingsOpen(true)}
+              aria-label="Open settings"
+              className={`w-10 h-10 rounded-lg flex items-center justify-center transition-colors text-corporate-hero ${dark ? 'hover:bg-white/10' : 'hover:bg-corporate-bg'}`}
+            >
+              <Settings size={17} />
+            </button>
+          </div>
         </div>
       </nav>
 
       <GlobalSearchModal open={searchOpen} onClose={() => setSearchOpen(false)} />
+      <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} theme={theme} setTheme={setTheme} dark={dark} />
     </>
   );
 }
