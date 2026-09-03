@@ -4,6 +4,7 @@ import { LogIn } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { PetrazimLogo } from '../components/PetrazimLogo';
 import { PortalSelectionCard, PortalOption } from '../components/PortalSelectionCard';
+import { GoogleSignInButton } from '../components/GoogleSignInButton';
 import { HERO_GRADIENT } from '../config/theme';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -20,17 +21,18 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
  * route, not a stacked demo card, so there's nothing beneath it to
  * dim.
  *
- * The reference's "Continue with Google" button is left out on
- * purpose — Google OAuth's call flow isn't wired up on the backend
- * yet (MERGE_MANIFEST.md's "still queued" list), and shipping a
- * button that does nothing when clicked is exactly the kind of
- * demo-only affordance the handover says to remove, not add.
+ * "Continue with Google" is now real (POST /auth/google, backend
+ * verifies the ID token and finds-or-creates the user) rather than
+ * the decorative button this page shipped without at first — see
+ * GoogleSignInButton for how it stays invisible until a Client ID is
+ * actually configured, instead of showing a button that would fail.
  *
- * On success, calls GET /auth/available-portals: a role with more
- * than one console (Fund Manager, Partner, Admin, Super Admin) sees
- * the real PortalSelectionCard next; a Trader — who only ever has one
- * option — skips straight to their dashboard, same as the backend's
- * own needs_portal_selection() logic intends.
+ * Both login paths funnel through handlePostLogin: calls
+ * GET /auth/available-portals — a role with more than one console
+ * (Fund Manager, Partner, Admin, Super Admin) sees the real
+ * PortalSelectionCard next; a Trader — who only ever has one option —
+ * skips straight to their dashboard, same as the backend's own
+ * needs_portal_selection() logic intends.
  */
 export function LoginPage() {
   const [email, setEmail] = useState('');
@@ -40,6 +42,22 @@ export function LoginPage() {
   const [portals, setPortals] = useState<PortalOption[] | null>(null);
   const { setAuth } = useAuth();
   const navigate = useNavigate();
+
+  async function handlePostLogin(data: { access_token: string; user: any }) {
+    setAuth(data.access_token, data.user);
+
+    const portalsRes = await fetch(`${API_URL}/auth/available-portals`, {
+      headers: { Authorization: `Bearer ${data.access_token}` },
+    });
+    if (portalsRes.ok) {
+      const portalsData = await portalsRes.json();
+      if (portalsData.needs_selection) {
+        setPortals(portalsData.portals);
+        return;
+      }
+    }
+    navigate(data.user.landing_route);
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -55,20 +73,7 @@ export function LoginPage() {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.detail || 'Login failed');
       }
-      const data = await res.json();
-      setAuth(data.access_token, data.user);
-
-      const portalsRes = await fetch(`${API_URL}/auth/available-portals`, {
-        headers: { Authorization: `Bearer ${data.access_token}` },
-      });
-      if (portalsRes.ok) {
-        const portalsData = await portalsRes.json();
-        if (portalsData.needs_selection) {
-          setPortals(portalsData.portals);
-          return;
-        }
-      }
-      navigate(data.user.landing_route);
+      await handlePostLogin(await res.json());
     } catch (err: any) {
       setError(err.message || 'Something went wrong');
     } finally {
@@ -120,12 +125,14 @@ export function LoginPage() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full flex items-center justify-center gap-2 text-white font-semibold py-3.5 rounded-xl transition-opacity disabled:opacity-60"
+            className="w-full flex items-center justify-center gap-2 text-white font-semibold py-3.5 rounded-xl mb-3 transition-opacity disabled:opacity-60"
             style={{ background: HERO_GRADIENT }}
           >
             <LogIn size={17} /> {loading ? 'Signing in…' : 'Sign In'}
           </button>
         </form>
+
+        <GoogleSignInButton onSuccess={handlePostLogin} onError={setError} />
 
         <p className="text-xs text-gray-400 mt-4">
           Trader · Fund Manager · Partner · Admin — same login, routed automatically.

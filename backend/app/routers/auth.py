@@ -14,10 +14,13 @@ tiers and payment are part of this same v3 spec.
 
 from __future__ import annotations
 
+import secrets
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.concurrency import run_in_threadpool
 
 from app.core.auth import create_access_token, get_current_user, hash_password, verify_password
 from app.database import get_db
@@ -37,6 +40,10 @@ class RegisterRequest(BaseModel):
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
+
+
+class GoogleLoginRequest(BaseModel):
+    credential: str  # the signed ID token JWT from Google Identity Services' button
 
 
 class UserProfileResponse(BaseModel):
@@ -93,6 +100,81 @@ async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
     user = (await db.execute(select(User).where(User.email == req.email))).scalar_one_or_none()
     if user is None or not verify_password(req.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Incorrect email or password")
+    if user.status == UserStatus.SUSPENDED:
+        raise HTTPException(status_code=403, detail="Account suspended — contact an administrator")
+
+    from datetime import datetime, timezone
+    user.last_login_at = datetime.now(timezone.utc)
+    await db.commit()
+
+    token = create_access_token(user)
+    return LoginResponse(access_token=token, user=_to_profile(user))
+
+
+@router.get("/google/client-id")
+async def google_client_id():
+    """The frontend calls this to decide whether to render the
+    "Continue with Google" button at all, and what Client ID to
+    initialize Google Identity Services with — the Client ID is public
+    by design (it's embedded in every Google sign-in page's HTML), so
+    there's nothing sensitive being handed back here."""
+    from app.config import get_settings
+    client_id = get_settings().GOOGLE_CLIENT_ID
+    return {"client_id": client_id or None}
+
+
+@router.post("/google", response_model=LoginResponse)
+async def google_login(req: GoogleLoginRequest, db: AsyncSession = Depends(get_db)):
+    """"Continue with Google" — verifies the ID token Google Identity
+    Services' button already signed (client-side, no page redirect,
+    no client secret needed) against Google's own public keys and this
+    app's Client ID, then finds-or-creates a User by the token's
+    verified email and issues our normal JWT — same response shape as
+    POST /auth/login, so the frontend's post-login flow (including the
+    portal-selection step) doesn't need a separate code path.
+
+    A first-time Google sign-in creates a PENDING account, identical to
+    POST /auth/register — Google verifying someone's email is not the
+    same thing as this platform granting trading/console access, and
+    the same payment/activation gate applies either way.
+    """
+    from app.config import get_settings
+    from google.auth.transport import requests as google_requests
+    from google.oauth2 import id_token as google_id_token
+
+    settings = get_settings()
+    if not settings.GOOGLE_CLIENT_ID:
+        raise HTTPException(status_code=503, detail="Google sign-in is not configured on this server")
+
+    try:
+        idinfo = await run_in_threadpool(
+            google_id_token.verify_oauth2_token,
+            req.credential, google_requests.Request(), settings.GOOGLE_CLIENT_ID,
+        )
+    except ValueError:
+        raise HTTPException(status_code=401, detail="Invalid Google credential")
+
+    if not idinfo.get("email_verified"):
+        raise HTTPException(status_code=401, detail="Google account email is not verified")
+    email = idinfo["email"]
+
+    user = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
+    if user is None:
+        user = User(
+            email=email,
+            full_name=idinfo.get("name") or email.split("@")[0],
+            # Google-only accounts have no password of their own — a
+            # random, never-shown, never-usable hash fills the (non-
+            # nullable) column rather than leaving it a guessable
+            # constant. They can still set a real password later via a
+            # password-reset flow, same as any account.
+            hashed_password=hash_password(secrets.token_urlsafe(32)),
+            role=UserRole.TRADER, status=UserStatus.PENDING,
+        )
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+
     if user.status == UserStatus.SUSPENDED:
         raise HTTPException(status_code=403, detail="Account suspended — contact an administrator")
 

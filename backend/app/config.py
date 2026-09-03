@@ -28,6 +28,19 @@ class Settings(BaseSettings):
     # Webhook
     WEBHOOK_SECRET: str = "tv-webhook-secret"
 
+    # "Continue with Google" login (routers/auth.py POST /auth/google).
+    # This is the OAuth 2.0 Client ID from Google Cloud Console ->
+    # APIs & Services -> Credentials -> "OAuth client ID" (Web
+    # application type) — NOT a client secret, since the frontend uses
+    # Google Identity Services' button flow (a signed ID token posted
+    # here for server-side verification), which needs no secret or
+    # redirect URI, only this ID and the site's origin added under
+    # "Authorized JavaScript origins". Empty by default: the endpoint
+    # returns 503 (not a crash) until this is set, so the frontend can
+    # detect "not configured yet" and hide the button rather than
+    # showing one that 500s.
+    GOOGLE_CLIENT_ID: str = ""
+
     # Broker API Keys
     # Binance
     BINANCE_API_KEY: str = ""
