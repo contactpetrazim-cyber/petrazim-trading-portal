@@ -1,42 +1,47 @@
 import { useNavigate } from 'react-router-dom';
 import { ArrowRight } from 'lucide-react';
+import { HERO_GRADIENT } from '../config/theme';
+
+function threeD(background: string) {
+  // Same "keycap" 3D button treatment as the design handover's
+  // Section 5 — a solid bottom edge for depth, dropping 2px and
+  // losing its shadow on :active to fake a physical button press.
+  // Only ever used on this card's button, per that section.
+  return {
+    background,
+    boxShadow: '0 4px 0 0 rgba(0,0,0,0.15), 0 6px 14px rgba(0,0,0,0.12)',
+  };
+}
 
 /**
- * StartHereCard — the prominent onboarding entry point for first-time
- * visitors. "Start Here · Register → Pay → Access Trading." Only
- * render this when onboarding.current_step !== 'complete' — once
- * someone's through the flow, this card should disappear rather than
- * nag a returning trader (same principle as the Academy's registration
- * card auto-hiding post-enrollment).
+ * StartHereCard — reconciled against petrazim_preview_v13_FINAL.jsx's
+ * "Start Here" card (Section 9 of the design handover): HERO_GRADIENT
+ * background, radial glow, the "Register -> Pay -> Join Community ->
+ * Trade" flow line, and the 3D "Begin registration ->" button. The
+ * version this replaces predated the design handover and didn't match
+ * it (flat corporate-hero fill, no 3D button, "Access Trading" instead
+ * of the reference's exact flow wording) — kept its one real behavior,
+ * navigating to /onboarding.
  */
 export function StartHereCard() {
   const navigate = useNavigate();
 
   return (
-    <button
-      onClick={() => navigate('/onboarding')}
-      className="w-full text-left bg-corporate-hero rounded-2xl p-6 md:p-8 relative overflow-hidden group hover:opacity-95 transition-opacity"
-    >
-      <div className="relative z-10">
-        <span className="inline-block bg-corporate-accent text-white text-xs font-semibold px-3 py-1 rounded-full mb-3">
-          NEW HERE?
-        </span>
-        <h2 className="text-2xl md:text-3xl font-bold text-white mb-2">Start Here</h2>
-        <div className="flex items-center flex-wrap gap-x-2 gap-y-1 text-white/90 text-sm md:text-base font-medium">
-          <span>Register</span>
-          <ArrowRight size={16} />
-          <span>Pay</span>
-          <ArrowRight size={16} />
-          <span>Access Trading</span>
+    <div id="start-here" className="rounded-3xl p-8 md:p-10 relative overflow-hidden" style={{ background: HERO_GRADIENT }}>
+      <div className="relative z-10 max-w-xl">
+        <h2 className="text-3xl md:text-4xl font-extrabold text-white mb-3 font-display">Start Here</h2>
+        <div className="flex items-center flex-wrap gap-x-2 gap-y-1.5 text-white/85 text-[15px] font-semibold mb-4">
+          <span>Register</span><ArrowRight size={15} /><span>Pay</span><ArrowRight size={15} /><span>Join Community</span><ArrowRight size={15} /><span>Trade</span>
         </div>
-        <p className="text-white/60 text-sm mt-3 max-w-md">
-          Three quick steps — registration, secure payment, and community access —
-          then you're in.
-        </p>
+        <button
+          onClick={() => navigate('/onboarding')}
+          className="text-white font-semibold text-sm px-6 py-3 rounded-xl transition-all active:translate-y-0.5 active:shadow-none"
+          style={threeD(HERO_GRADIENT)}
+        >
+          Begin registration →
+        </button>
       </div>
-
-      {/* Decorative background element, purely visual */}
-      <div className="absolute -right-8 -bottom-8 w-40 h-40 rounded-full bg-corporate-accent/20 group-hover:scale-110 transition-transform" />
-    </button>
+      <div className="absolute -right-10 -bottom-16 w-64 h-64 rounded-full" style={{ background: 'radial-gradient(circle, rgba(255,255,255,0.15), transparent 70%)' }} />
+    </div>
   );
 }

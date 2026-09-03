@@ -20,15 +20,15 @@ export interface FeatureEntry {
   keywords?: string[];
 }
 
-export const FEATURE_AREAS: { id: FeatureArea; label: string }[] = [
-  { id: 'learn', label: 'Learn' },
-  { id: 'practise', label: 'Practise' },
-  { id: 'trade', label: 'Trade' },
-  { id: 'insights', label: 'Insights' },
-  { id: 'tradingview', label: 'TradingView' },
-  { id: 'tools', label: 'Tools' },
-  { id: 'community', label: 'Community' },
-  { id: 'explore', label: 'Explore' },
+export const FEATURE_AREAS: { id: FeatureArea; label: string; description: string }[] = [
+  { id: 'learn', label: 'Learn', description: 'Structured tracks for market structure, each bot’s own methodology, and trading psychology.' },
+  { id: 'practise', label: 'Practise', description: 'Scored drills, spaced-recall review, and gamified paper-trading challenges.' },
+  { id: 'trade', label: 'Trade', description: 'Your live signal panel, trade approvals, and bot configuration.' },
+  { id: 'insights', label: 'Insights', description: 'Monte Carlo forecasts, weekly coach reviews, and the go-live validation gate.' },
+  { id: 'tradingview', label: 'TradingView', description: 'Your own TradingView account and charts, embedded in the Petrazim frame.' },
+  { id: 'tools', label: 'Tools', description: 'Risk-of-ruin, prop-firm odds, correlation, journal review, and payout tools.' },
+  { id: 'community', label: 'Community', description: 'The Telegram community and booking time with a facilitator or manager.' },
+  { id: 'explore', label: 'Explore', description: 'The probability coach, strategy marketplace, white-label service, and signal API.' },
 ];
 
 export const FEATURE_REGISTRY: FeatureEntry[] = [

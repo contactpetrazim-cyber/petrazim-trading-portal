@@ -14,6 +14,13 @@ import { useThemeStore } from '../hooks/useTheme';
  * the top ribbon is logo + utility icons only now, not inline nav
  * links. White in light mode, matching the logo's own background;
  * dark navy in dark mode.
+ *
+ * The logo links to /home (CorporateHomePage) rather than /dashboard
+ * — the reference's own "click the logo -> the dashboard view"
+ * behavior, but /dashboard in this real app is the separate, already-
+ * live Trader console (a different page entirely from the corporate
+ * shell TopNav lives in), so pointing here at the corporate home is
+ * the faithful equivalent rather than a literal path match.
  */
 export function TopNav() {
   const [searchOpen, setSearchOpen] = useState(false);
@@ -25,7 +32,7 @@ export function TopNav() {
     <>
       <nav className={`sticky top-0 z-40 border-b ${dark ? 'bg-corporate-nav-dark border-corporate-border-dark' : 'bg-white border-[#e8e8f0]'}`}>
         <div className="max-w-5xl mx-auto px-5 flex items-center justify-between" style={{ height: 84 }}>
-          <Link to="/dashboard" className="flex items-center">
+          <Link to="/home" className="flex items-center">
             <PetrazimLogo height={60} />
           </Link>
 

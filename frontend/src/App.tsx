@@ -16,6 +16,8 @@ import { TradingViewFramePage } from './pages/TradingViewFramePage';
 import { ChartPage } from './pages/ChartPage';
 import { SiteMapPage } from './pages/SiteMapPage';
 import { MeetingsPage } from './pages/MeetingsPage';
+import { CorporateHomePage } from './pages/CorporateHomePage';
+import { AreaPage } from './pages/AreaPage';
 import { ProtectedRoute } from './components/ProtectedRoute';
 
 /**
@@ -101,13 +103,23 @@ function App() {
         } />
 
         {/* Corporate-nav pages (TopNav shell) */}
+        <Route path="/home" element={<CorporateLayout><CorporateHomePage /></CorporateLayout>} />
         <Route path="/tradingview" element={<CorporateLayout><TradingViewFramePage /></CorporateLayout>} />
         <Route path="/chart" element={<CorporateLayout><ChartPage /></CorporateLayout>} />
         <Route path="/sitemap" element={<CorporateLayout><SiteMapPage /></CorporateLayout>} />
         <Route path="/meetings" element={<CorporateLayout><MeetingsPage /></CorporateLayout>} />
 
-        {/* Fallback — most FEATURE_REGISTRY areas (Learn/Practise/Insights/Tools/
-            Explore landing pages) have no page component built yet; see
+        {/* The 8 BottomNav area landing pages (Section 9 of the design
+            handover — PageHeader + content, per area). TradingView already
+            has its own dedicated page above; the other 7 previously had no
+            route at all, so every BottomNav tab except TradingView fell
+            through to the sitemap fallback below. */}
+        {(['learn', 'practise', 'trade', 'insights', 'tools', 'community', 'explore'] as const).map((area) => (
+          <Route key={area} path={`/${area}`} element={<CorporateLayout><AreaPage area={area} /></CorporateLayout>} />
+        ))}
+
+        {/* Fallback — most FEATURE_REGISTRY *sub*-features (e.g. /learn/basics,
+            /tools/risk-of-ruin) have no page component built yet; see
             MERGE_MANIFEST.md "still queued" notes. Route to the Site Map
             instead of a blank screen until those land. */}
         <Route path="*" element={<Navigate to="/sitemap" replace />} />
