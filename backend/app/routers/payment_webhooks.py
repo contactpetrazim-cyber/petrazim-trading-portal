@@ -34,7 +34,7 @@ from fastapi import APIRouter, HTTPException, Request
 from sqlalchemy import select
 
 from app.database import AsyncSessionLocal
-from app.models.access import DURATION_PASS_CATALOGUE, Payment, PaymentStatus, UserAccess
+from app.models.access import ACCESS_TIER_CATALOGUE, DURATION_PASS_CATALOGUE, Payment, PaymentStatus, UserAccess
 
 router = APIRouter(prefix="/payments/webhook", tags=["payments"])
 
@@ -61,9 +61,16 @@ def _verify_paystack_signature(payload: bytes, signature_header: str) -> bool:
 
 
 async def _grant_access_for_payment(payment: Payment) -> UserAccess:
+    # Was hardcoded to 30 days for every tier purchase — wrong for
+    # Essential (3 days) and Professional (7 days), only coincidentally
+    # right for Executive. Now looks up the tier actually purchased;
+    # 30 days remains the fallback only for the (should-be-impossible)
+    # case of neither a duration pass nor a tier being set.
     duration_hours = 24 * 30
     if payment.duration_pass_type:
         duration_hours = DURATION_PASS_CATALOGUE[payment.duration_pass_type]["hours"]
+    elif payment.tier_purchased and ACCESS_TIER_CATALOGUE[payment.tier_purchased]["duration_hours"] is not None:
+        duration_hours = ACCESS_TIER_CATALOGUE[payment.tier_purchased]["duration_hours"]
 
     now = datetime.now(timezone.utc)
     return UserAccess(

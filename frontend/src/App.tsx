@@ -18,6 +18,7 @@ import { SiteMapPage } from './pages/SiteMapPage';
 import { MeetingsPage } from './pages/MeetingsPage';
 import { CorporateHomePage } from './pages/CorporateHomePage';
 import { AreaPage } from './pages/AreaPage';
+import { PaymentsPage } from './pages/PaymentsPage';
 import { ProtectedRoute } from './components/ProtectedRoute';
 
 /**
@@ -108,6 +109,7 @@ function App() {
         <Route path="/chart" element={<CorporateLayout><ChartPage /></CorporateLayout>} />
         <Route path="/sitemap" element={<CorporateLayout><SiteMapPage /></CorporateLayout>} />
         <Route path="/meetings" element={<CorporateLayout><MeetingsPage /></CorporateLayout>} />
+        <Route path="/payments" element={<CorporateLayout><PaymentsPage /></CorporateLayout>} />
 
         {/* The 8 BottomNav area landing pages (Section 9 of the design
             handover — PageHeader + content, per area). TradingView already

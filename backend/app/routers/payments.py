@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.auth import get_current_user
 from app.database import get_db
 from app.models.access import (
-    DURATION_PASS_CATALOGUE, AccessCode, AccessTier, CodeType,
+    ACCESS_TIER_CATALOGUE, DURATION_PASS_CATALOGUE, AccessCode, AccessTier, CodeType,
     DurationPassType, Payment, PaymentProvider, PaymentStatus, UserAccess,
 )
 from app.models.user import User
@@ -47,10 +47,35 @@ async def get_duration_passes():
     ]
 
 
+class TierOption(BaseModel):
+    tier: str
+    label: str
+    duration_hours: Optional[int]
+    individual_ngn: int
+    individual_usd: Optional[int]
+    corporate_ngn_per_seat: Optional[int]
+    corporate_flat_fee_ngn: Optional[int]
+    corporate_min_seats: Optional[int]
+    features: List[str]
+
+
+@router.get("/pricing/tiers", response_model=List[TierOption])
+async def get_tiers():
+    return [
+        TierOption(tier=t.value, label=v["label"], duration_hours=v["duration_hours"],
+                   individual_ngn=v["individual_ngn"], individual_usd=v["individual_usd"],
+                   corporate_ngn_per_seat=v["corporate_ngn_per_seat"],
+                   corporate_flat_fee_ngn=v["corporate_flat_fee_ngn"],
+                   corporate_min_seats=v["corporate_min_seats"], features=v["features"])
+        for t, v in ACCESS_TIER_CATALOGUE.items()
+    ]
+
+
 class CheckoutRequest(BaseModel):
     currency: Literal["NGN", "USD"]
     duration_pass_type: Optional[DurationPassType] = None
     tier: Optional[AccessTier] = None
+    is_corporate: bool = False
     seat_count: int = 1
     provider_override: Optional[Literal["stripe", "paystack", "ivorypay"]] = None
 
@@ -71,19 +96,38 @@ async def start_checkout(
 ):
     if req.duration_pass_type is None and req.tier is None:
         raise HTTPException(status_code=400, detail="Specify either duration_pass_type or tier")
+    if req.seat_count < 1:
+        raise HTTPException(status_code=400, detail="seat_count must be at least 1")
 
     if req.duration_pass_type is not None:
         catalogue_entry = DURATION_PASS_CATALOGUE[req.duration_pass_type]
         unit_price = catalogue_entry["ngn"] if req.currency == "NGN" else catalogue_entry["usd"]
+        amount = unit_price * req.seat_count
         description = catalogue_entry["label"]
     else:
-        raise HTTPException(
-            status_code=501,
-            detail="Full-tier subscription pricing (vs. duration passes) isn't in the "
-                   "catalogue yet — add tier prices when those are finalized.",
-        )
+        tier_entry = ACCESS_TIER_CATALOGUE[req.tier]
+        if req.currency != "NGN":
+            # Every tier's real pricing (from the live training portal
+            # this was copied from) is NGN-only, Community's $2 excepted
+            # — no invented USD figure for Essential/Professional/
+            # Executive, see models/access.py's own comment on why.
+            if req.tier != AccessTier.COMMUNITY or tier_entry["individual_usd"] is None:
+                raise HTTPException(status_code=400, detail=f"{tier_entry['label']} is only available in NGN")
+            amount = tier_entry["individual_usd"] * req.seat_count
+        elif req.is_corporate:
+            if tier_entry["corporate_min_seats"] is None:
+                raise HTTPException(status_code=400, detail=f"{tier_entry['label']} has no corporate rate")
+            if req.seat_count < tier_entry["corporate_min_seats"]:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Corporate {tier_entry['label']} requires at least "
+                           f"{tier_entry['corporate_min_seats']} seats — use the individual rate below that.",
+                )
+            amount = tier_entry["corporate_ngn_per_seat"] * req.seat_count + tier_entry["corporate_flat_fee_ngn"]
+        else:
+            amount = tier_entry["individual_ngn"] * req.seat_count
+        description = f"{tier_entry['label']}{' (Corporate)' if req.is_corporate else ''}"
 
-    amount = unit_price * req.seat_count
     provider = req.provider_override or recommend_provider(req.currency)
 
     try:
@@ -100,7 +144,15 @@ async def start_checkout(
     payment = Payment(
         user_id=user.id, provider=PaymentProvider(provider), provider_reference=session.reference,
         status=PaymentStatus.PENDING, amount=amount, currency=req.currency,
-        duration_pass_type=req.duration_pass_type, seat_count=req.seat_count,
+        duration_pass_type=req.duration_pass_type,
+        # tier_purchased was never set here before — dead code as long as
+        # the tier branch above 501'd, but payment_webhooks.py's
+        # _grant_access_for_payment reads payment.tier_purchased to grant
+        # the right access tier, so a real tier checkout needs this set
+        # (falls back to the duration pass's own catalogued tier when
+        # this was a duration-pass purchase instead).
+        tier_purchased=req.tier or (DURATION_PASS_CATALOGUE[req.duration_pass_type]["tier"] if req.duration_pass_type else None),
+        seat_count=req.seat_count,
     )
     db.add(payment)
     await db.commit()

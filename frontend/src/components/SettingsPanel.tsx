@@ -14,14 +14,16 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 /**
  * SettingsPanel — slide-over from the gear icon in TopNav, per
  * petrazim_preview_v13_FINAL.jsx. The six items match the reference
- * exactly. Three are functionally real: the theme toggle (wired to
- * useTheme), "Facilitator Sessions" (links to /meetings), and "Switch
- * Portal" (fetches the current user's real GET /auth/available-portals
- * list and opens the real PortalSelectionCard — the reference's
- * hardcoded four-portal demo, backed by data here). The remaining
- * three (Select Access and Pay, Ask Trading Coach, Backup and Offline,
- * Quick Links) are informational rows only, same as the reference —
- * this doesn't invent navigation the design didn't specify.
+ * exactly. Four are functionally real: the theme toggle (wired to
+ * useTheme), "Select Access and Pay" (links to /payments, the real
+ * checkout page), "Facilitator Sessions" (links to /meetings), and
+ * "Switch Portal" (fetches the current user's real
+ * GET /auth/available-portals list and opens the real
+ * PortalSelectionCard — the reference's hardcoded four-portal demo,
+ * backed by data here). The remaining three (Ask Trading Coach,
+ * Backup and Offline, Quick Links) are informational rows only, same
+ * as the reference — this doesn't invent navigation the design didn't
+ * specify.
  */
 export function SettingsPanel({
   open,
@@ -53,7 +55,7 @@ export function SettingsPanel({
   }
 
   const items: { icon: typeof CreditCard; label: string; detail: string; to?: string; onClick?: () => void }[] = [
-    { icon: CreditCard, label: 'Select Access and Pay', detail: 'Choose a tier or duration pass' },
+    { icon: CreditCard, label: 'Select Access and Pay', detail: 'Choose a tier or duration pass', to: '/payments' },
     { icon: GraduationCap, label: 'Ask Trading Coach', detail: 'Open Trade AI' },
     { icon: CalendarClock, label: 'Facilitator Sessions', detail: 'Book time with a Manager or Partner (Tier 2/3)', to: '/meetings' },
     { icon: LayoutGrid, label: 'Switch Portal', detail: 'Trader / Fund Manager / Partner / Admin — jump to a console you have access to', onClick: openSwitchPortal },
