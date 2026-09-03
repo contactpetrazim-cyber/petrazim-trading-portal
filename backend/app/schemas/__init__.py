@@ -46,8 +46,10 @@ class TradeResponse(BaseModel):
     lot_size: float
     risk_percent: float
     realized_pnl: float
+    unrealized_pnl: float = 0.0
     bot_id: str
     strategy_type: str
+    user_id: Optional[UUID] = None
     created_at: datetime
 
     class Config:
@@ -120,6 +122,7 @@ class BotConfigResponse(BaseModel):
     risk_per_trade: float
     max_daily_trades: int
     exchange: Optional[str] = None
+    user_id: Optional[UUID] = None
     created_at: datetime
 
     class Config:

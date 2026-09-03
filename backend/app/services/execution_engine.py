@@ -143,10 +143,22 @@ class ExecutionEngine:
 
     async def _persist_trade(self, db: AsyncSession, trade_data: Dict) -> None:
         """Insert the real Trade row a drafted/executing signal produces."""
+        from sqlalchemy import select
         from app.models.trade import Trade, TradeDirection  # local import: avoids a circular import at module load
+        from app.models.bot import BotConfig
+
+        # A trade has no owner of its own in the request — it's drafted
+        # from a TradingView signal, not a direct user API call — so it
+        # inherits its owning bot's user_id. Left None if the bot itself
+        # has none (pre-ownership bot) or doesn't exist; see
+        # migrations/008_bot_trade_ownership.sql.
+        bot_config = (await db.execute(
+            select(BotConfig).where(BotConfig.bot_id == trade_data["bot_id"])
+        )).scalar_one_or_none()
 
         trade = Trade(
             trade_id=trade_data["trade_id"],
+            user_id=bot_config.user_id if bot_config else None,
             bot_id=trade_data["bot_id"],
             bot_name=trade_data["bot_name"],
             strategy_type=trade_data["strategy_type"],

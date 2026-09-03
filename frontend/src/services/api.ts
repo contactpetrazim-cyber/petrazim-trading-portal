@@ -1,6 +1,7 @@
 
 import axios from 'axios';
 import { Trade, BotConfig, DashboardStats, SignalPreview, PerformanceSummary } from '../types';
+import { useAuthStore } from '../hooks/useAuth';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -9,6 +10,19 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+});
+
+// dashboard/trades/bots (the Trader console) now require auth on every
+// route — see routers/dashboard.py, trades.py, bots.py — so every
+// request through this client needs a Bearer token. Read straight from
+// the zustand store rather than a prop/hook: this module is imported
+// by plain .then()-chained API objects below, outside any component.
+api.interceptors.request.use((config) => {
+  const token = useAuthStore.getState().token;
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
 });
 
 export const dashboardApi = {

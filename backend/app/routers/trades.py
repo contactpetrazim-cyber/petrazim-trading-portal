@@ -6,6 +6,8 @@ from typing import Dict, List, Optional
 from datetime import datetime, timedelta
 from app.database import get_db
 from app.models.trade import Trade, TradeLog, TradeStatus, TradeDirection
+from app.models.user import User, UserRole
+from app.core.auth import get_current_user
 from app.schemas import TradeCreate, TradeResponse, TradeApproval
 from app.services.execution_engine import ExecutionEngine
 import structlog
@@ -13,6 +15,30 @@ import structlog
 router = APIRouter(prefix="/trades", tags=["trades"])
 logger = structlog.get_logger()
 engine = ExecutionEngine()
+
+# Same principle as bots.py/roster.py: Admin/Super Admin see every
+# trade, everyone else only their own (a trade's owner is the Trader
+# who owns the bot that placed it — set once, at creation time, in
+# execution_engine.py::_persist_trade).
+STAFF_ROLES = (UserRole.ADMIN, UserRole.SUPER_ADMIN)
+
+
+def _scope_to_owner(query, user: User):
+    if user.role not in STAFF_ROLES:
+        query = query.where(Trade.user_id == user.id)
+    return query
+
+
+async def _get_owned_trade(trade_id: str, user: User, db: AsyncSession) -> Trade:
+    query = select(Trade).where(Trade.trade_id == trade_id)
+    result = await db.execute(query)
+    trade = result.scalar_one_or_none()
+    if not trade:
+        raise HTTPException(status_code=404, detail="Trade not found")
+    if trade.user_id != user.id and user.role not in STAFF_ROLES:
+        raise HTTPException(status_code=404, detail="Trade not found")
+    return trade
+
 
 @router.get("/", response_model=List[TradeResponse])
 async def list_trades(
@@ -22,10 +48,11 @@ async def list_trades(
     direction: Optional[str] = Query(None),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
-    """List all trades with filtering."""
-    query = select(Trade)
+    """List the caller's own trades with filtering (Admin/Super Admin see all)."""
+    query = _scope_to_owner(select(Trade), user)
 
     if status:
         query = query.where(Trade.status == status)
@@ -43,9 +70,9 @@ async def list_trades(
     return trades
 
 @router.get("/pending-approvals", response_model=List[TradeResponse])
-async def pending_approvals(db: AsyncSession = Depends(get_db)):
+async def pending_approvals(db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
     """Get all trades awaiting manual approval (Human-in-the-Loop)."""
-    query = select(Trade).where(
+    query = _scope_to_owner(select(Trade), user).where(
         and_(
             Trade.status == TradeStatus.PENDING,
             Trade.requires_approval == True
@@ -58,9 +85,11 @@ async def pending_approvals(db: AsyncSession = Depends(get_db)):
 @router.post("/approve", response_model=Dict)
 async def approve_trade(
     approval: TradeApproval,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
-    """Approve or reject a pending trade."""
+    """Approve or reject a pending trade — must be the caller's own trade (or Admin/Super Admin)."""
+    await _get_owned_trade(approval.trade_id, user, db)
     result = await engine.approve_trade(
         approval.trade_id,
         approval.approved,
@@ -70,18 +99,20 @@ async def approve_trade(
     return result
 
 @router.get("/active", response_model=List[TradeResponse])
-async def active_trades(db: AsyncSession = Depends(get_db)):
+async def active_trades(db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
     """Get currently active (open) trades."""
-    query = select(Trade).where(Trade.status == TradeStatus.ACTIVE).order_by(Trade.created_at.desc())
+    query = _scope_to_owner(select(Trade), user).where(
+        Trade.status == TradeStatus.ACTIVE
+    ).order_by(Trade.created_at.desc())
     result = await db.execute(query)
     return result.scalars().all()
 
 @router.get("/stats/today")
-async def today_stats(db: AsyncSession = Depends(get_db)):
+async def today_stats(db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
     """Get today's trading statistics."""
     today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
 
-    query = select(Trade).where(Trade.created_at >= today_start)
+    query = _scope_to_owner(select(Trade), user).where(Trade.created_at >= today_start)
     result = await db.execute(query)
     trades = result.scalars().all()
 
@@ -100,20 +131,14 @@ async def today_stats(db: AsyncSession = Depends(get_db)):
     }
 
 @router.get("/{trade_id}", response_model=TradeResponse)
-async def get_trade(trade_id: str, db: AsyncSession = Depends(get_db)):
+async def get_trade(trade_id: str, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
     """Get detailed trade information."""
-    query = select(Trade).where(Trade.trade_id == trade_id)
-    result = await db.execute(query)
-    trade = result.scalar_one_or_none()
-
-    if not trade:
-        raise HTTPException(status_code=404, detail="Trade not found")
-
-    return trade
+    return await _get_owned_trade(trade_id, user, db)
 
 @router.get("/{trade_id}/logs")
-async def get_trade_logs(trade_id: str, db: AsyncSession = Depends(get_db)):
+async def get_trade_logs(trade_id: str, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
     """Get execution logs for a trade."""
+    await _get_owned_trade(trade_id, user, db)
     query = select(TradeLog).where(TradeLog.trade_id == trade_id).order_by(TradeLog.timestamp.desc())
     result = await db.execute(query)
     return result.scalars().all()

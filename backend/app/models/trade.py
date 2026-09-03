@@ -37,6 +37,13 @@ class Trade(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     trade_id = Column(String(50), unique=True, nullable=False, index=True)
 
+    # Owning Trader — set from the bot's own owner at trade-creation
+    # time (execution_engine.py::_persist_trade), not from the request,
+    # since trades are drafted from TradingView signals, not a direct
+    # user API call. Nullable for the same reason as BotConfig.user_id:
+    # see migrations/008_bot_trade_ownership.sql.
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True, index=True)
+
     # Bot & Strategy
     bot_id = Column(String(50), nullable=False, index=True)
     bot_name = Column(String(100))

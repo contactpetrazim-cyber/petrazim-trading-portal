@@ -7,19 +7,38 @@ from typing import Dict, List
 from app.database import get_db
 from app.models.trade import Trade, TradeStatus
 from app.models.bot import BotConfig, BotStatus
+from app.models.user import User, UserRole
+from app.core.auth import get_current_user
 from app.schemas import DashboardStats, PerformanceSummary
 import structlog
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 logger = structlog.get_logger()
 
+# Same principle as trades.py/bots.py: Admin/Super Admin see the whole
+# platform's numbers, everyone else only their own.
+STAFF_ROLES = (UserRole.ADMIN, UserRole.SUPER_ADMIN)
+
+
+def _scope_trades(query, user: User):
+    if user.role not in STAFF_ROLES:
+        query = query.where(Trade.user_id == user.id)
+    return query
+
+
+def _scope_bots(query, user: User):
+    if user.role not in STAFF_ROLES:
+        query = query.where(BotConfig.user_id == user.id)
+    return query
+
+
 @router.get("/stats", response_model=DashboardStats)
-async def dashboard_stats(db: AsyncSession = Depends(get_db)):
-    """Get real-time dashboard statistics."""
+async def dashboard_stats(db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+    """Get real-time dashboard statistics for the caller (Admin/Super Admin see the whole platform)."""
     today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
 
     # Today's trades
-    trades_query = select(Trade).where(Trade.created_at >= today_start)
+    trades_query = _scope_trades(select(Trade), user).where(Trade.created_at >= today_start)
     result = await db.execute(trades_query)
     today_trades = result.scalars().all()
 
@@ -28,19 +47,19 @@ async def dashboard_stats(db: AsyncSession = Depends(get_db)):
     pnl = sum(t.realized_pnl or 0 for t in today_trades)
 
     # Active trades
-    active_query = select(Trade).where(Trade.status == TradeStatus.ACTIVE)
+    active_query = _scope_trades(select(Trade), user).where(Trade.status == TradeStatus.ACTIVE)
     result = await db.execute(active_query)
     active = len(result.scalars().all())
 
     # Pending approvals
-    pending_query = select(Trade).where(
+    pending_query = _scope_trades(select(Trade), user).where(
         and_(Trade.status == TradeStatus.PENDING, Trade.requires_approval == True)
     )
     result = await db.execute(pending_query)
     pending = len(result.scalars().all())
 
     # Active bots
-    bots_query = select(BotConfig).where(BotConfig.status == BotStatus.ACTIVE)
+    bots_query = _scope_bots(select(BotConfig), user).where(BotConfig.status == BotStatus.ACTIVE)
     result = await db.execute(bots_query)
     active_bots = len(result.scalars().all())
 
@@ -57,7 +76,8 @@ async def dashboard_stats(db: AsyncSession = Depends(get_db)):
 @router.get("/performance")
 async def performance_summary(
     period: str = "7d",  # 1d, 7d, 30d, 90d
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> List[PerformanceSummary]:
     """Get performance summary for specified period."""
     # Map period to timedelta
@@ -71,7 +91,7 @@ async def performance_summary(
     delta = period_map.get(period, timedelta(days=7))
     start_date = datetime.utcnow() - delta
 
-    query = select(Trade).where(
+    query = _scope_trades(select(Trade), user).where(
         and_(
             Trade.created_at >= start_date,
             Trade.status == TradeStatus.CLOSED
@@ -106,7 +126,7 @@ async def performance_summary(
     )]
 
 @router.get("/signals/preview")
-async def signal_preview() -> List[Dict]:
+async def signal_preview(user: User = Depends(get_current_user)) -> List[Dict]:
     """Get current signal previews from all active bots."""
     # In production: run bot analysis on current market data
     # Return preview signals for dashboard display
@@ -115,12 +135,13 @@ async def signal_preview() -> List[Dict]:
 @router.get("/equity-curve")
 async def equity_curve(
     days: int = 30,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
     """Get equity curve data for charting."""
     start_date = datetime.utcnow() - timedelta(days=days)
 
-    query = select(Trade).where(
+    query = _scope_trades(select(Trade), user).where(
         and_(
             Trade.created_at >= start_date,
             Trade.status.in_([TradeStatus.CLOSED, TradeStatus.ACTIVE])

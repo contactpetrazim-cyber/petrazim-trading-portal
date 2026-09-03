@@ -1,5 +1,5 @@
 
-from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, JSON, Enum
+from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, JSON, Enum, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID
 from app.database import Base
 import uuid
@@ -23,6 +23,12 @@ class BotConfig(Base):
     bot_id = Column(String(50), unique=True, nullable=False, index=True)
     bot_name = Column(String(100), nullable=False)
     bot_type = Column(String(50), nullable=False)
+
+    # Owning Trader. Nullable — pre-existing bots (none, as of the
+    # migration that added this column) have no owner; every bot
+    # created from here on gets it set from the authenticated caller
+    # (routers/bots.py::create_bot). See migrations/008_bot_trade_ownership.sql.
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True, index=True)
 
     # Status
     status = Column(Enum(BotStatus), default=BotStatus.ACTIVE)
