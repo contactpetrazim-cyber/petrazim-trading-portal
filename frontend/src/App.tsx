@@ -7,6 +7,7 @@ import { useThemeStore } from './hooks/useTheme';
 import { DashboardPage } from './pages/Dashboard';
 import { TradesPage } from './pages/Trades';
 import { BotsPage } from './pages/Bots';
+import { RiskPage } from './pages/RiskPage';
 import { LoginPage } from './pages/LoginPage';
 import { ManagerConsolePage } from './pages/ManagerConsolePage';
 import { PartnerConsolePage } from './pages/PartnerConsolePage';
@@ -77,7 +78,7 @@ function App() {
         } />
         <Route path="/risk" element={
           <ProtectedRoute allowedRoles={['trader']}>
-            <Layout><DashboardPage /></Layout>
+            <Layout><RiskPage /></Layout>
           </ProtectedRoute>
         } />
         <Route path="/settings" element={

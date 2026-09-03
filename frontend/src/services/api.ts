@@ -1,6 +1,6 @@
 
 import axios from 'axios';
-import { Trade, BotConfig, DashboardStats, SignalPreview, PerformanceSummary } from '../types';
+import { Trade, BotConfig, BotPerformance, BotMetricsUpdate, DashboardStats, SignalPreview, PerformanceSummary } from '../types';
 import { useAuthStore } from '../hooks/useAuth';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -33,7 +33,7 @@ export const dashboardApi = {
 };
 
 export const tradesApi = {
-  getTrades: (params?: { status?: string; bot_id?: string; symbol?: string }) => 
+  getTrades: (params?: { status?: string; bot_id?: string; symbol?: string; direction?: string; limit?: number; offset?: number }) =>
     api.get<Trade[]>('/trades/', { params }).then(r => r.data),
   getPendingApprovals: () => api.get<Trade[]>('/trades/pending-approvals').then(r => r.data),
   approveTrade: (tradeId: string, approved: boolean, notes?: string) =>
@@ -47,11 +47,19 @@ export const tradesApi = {
 export const botsApi = {
   getBots: () => api.get<BotConfig[]>('/bots/').then(r => r.data),
   getBot: (botId: string) => api.get<BotConfig>(`/bots/${botId}`).then(r => r.data),
+  createBot: (config: {
+    bot_id: string; bot_name: string; bot_type: string; symbols: string[];
+    timeframes?: string[]; risk_per_trade?: number; max_daily_trades?: number;
+    max_concurrent_trades?: number; min_rr_ratio?: number;
+    execution_mode?: 'human_in_loop' | 'fully_autonomous'; use_trailing_stop?: boolean;
+  }) => api.post<BotConfig>('/bots/', config).then(r => r.data),
   toggleBot: (botId: string, active: boolean) =>
     api.patch(`/bots/${botId}/toggle`, { bot_id: botId, active }).then(r => r.data),
   setMode: (botId: string, mode: 'human_in_loop' | 'fully_autonomous') =>
     api.patch(`/bots/${botId}/mode?mode=${mode}`).then(r => r.data),
-  getPerformance: (botId: string) => api.get(`/bots/${botId}/performance`).then(r => r.data),
+  updateMetrics: (botId: string, update: BotMetricsUpdate) =>
+    api.patch<BotConfig>(`/bots/${botId}/metrics`, update).then(r => r.data),
+  getPerformance: (botId: string) => api.get<BotPerformance>(`/bots/${botId}/performance`).then(r => r.data),
 };
 
 export const webhookApi = {

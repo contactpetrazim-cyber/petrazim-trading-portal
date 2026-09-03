@@ -1,25 +1,71 @@
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { TradeRow } from '../components/TradeRow';
-import { Filter, Search, Download } from 'lucide-react';
+import { tradesApi } from '../services/api';
+import { Trade } from '../types';
+import { Filter, Search, Download, RefreshCw } from 'lucide-react';
 
-const mockTrades = [
-  { id: '1', trade_id: 'TRD_001', symbol: 'BTCUSDT', direction: 'long', status: 'closed', entry_price: 42000, stop_loss: 41500, take_profit: 45000, lot_size: 0.05, risk_percent: 1, realized_pnl: 150, bot_id: 'bot_5', strategy_type: 'Jeafx SMC Specialist', created_at: '2024-01-15T10:30:00Z', requires_approval: false },
-  { id: '2', trade_id: 'TRD_002', symbol: 'EURUSD', direction: 'short', status: 'active', entry_price: 1.0850, stop_loss: 1.0875, take_profit: 1.0775, lot_size: 0.02, risk_percent: 1, realized_pnl: 0, bot_id: 'bot_2', strategy_type: 'HF Order Block Reversal', created_at: '2024-01-15T14:20:00Z', requires_approval: false },
-  { id: '3', trade_id: 'TRD_003', symbol: 'ETHUSDT', direction: 'long', status: 'pending', entry_price: 2500, stop_loss: 2450, take_profit: 2700, lot_size: 0.1, risk_percent: 1, realized_pnl: 0, bot_id: 'bot_3', strategy_type: 'FVG Expansion', created_at: '2024-01-15T16:45:00Z', requires_approval: true },
-  { id: '4', trade_id: 'TRD_004', symbol: 'GBPUSD', direction: 'long', status: 'closed', entry_price: 1.2650, stop_loss: 1.2600, take_profit: 1.2800, lot_size: 0.03, risk_percent: 1.5, realized_pnl: -45, bot_id: 'bot_1', strategy_type: 'Pure Macro Swing', created_at: '2024-01-14T09:00:00Z', requires_approval: false },
-  { id: '5', trade_id: 'TRD_005', symbol: 'SOLUSDT', direction: 'short', status: 'active', entry_price: 98.50, stop_loss: 102.00, take_profit: 88.00, lot_size: 0.2, risk_percent: 1, realized_pnl: 0, bot_id: 'bot_4', strategy_type: 'Volume & Liquidity Sweep', created_at: '2024-01-15T11:10:00Z', requires_approval: false },
-];
-
+/**
+ * TradesPage — "Trade Management". Was a static array of 5 mock
+ * trades with no API call at all; now backed by GET /trades/ (now
+ * real and user-scoped as of the ownership work — see
+ * routers/trades.py). Filter/search run server-side (status/symbol
+ * query params) rather than filtering an already-fetched page, so
+ * they keep working once a trader has more than one page of history.
+ * Approve/Reject were wired on TradeRow but never passed a handler
+ * here — they're real now, via POST /trades/approve.
+ */
 export function TradesPage() {
+  const [trades, setTrades] = useState<Trade[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState('all');
   const [search, setSearch] = useState('');
 
-  const filteredTrades = mockTrades.filter(trade => {
-    if (filter !== 'all' && trade.status !== filter) return false;
-    if (search && !trade.symbol.toLowerCase().includes(search.toLowerCase())) return false;
-    return true;
-  });
+  async function loadTrades() {
+    setLoading(true);
+    setError(null);
+    try {
+      const params: { status?: string; symbol?: string } = {};
+      if (filter !== 'all') params.status = filter;
+      if (search) params.symbol = search.toUpperCase();
+      setTrades(await tradesApi.getTrades(params));
+    } catch (e: any) {
+      setError('Could not load trades.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    const t = setTimeout(loadTrades, 300); // debounce the search input
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filter, search]);
+
+  async function handleApprove(tradeId: string) {
+    await tradesApi.approveTrade(tradeId, true);
+    loadTrades();
+  }
+
+  async function handleReject(tradeId: string) {
+    await tradesApi.approveTrade(tradeId, false);
+    loadTrades();
+  }
+
+  function exportCsv() {
+    const header = 'trade_id,symbol,direction,status,entry_price,stop_loss,take_profit,lot_size,realized_pnl,unrealized_pnl,bot_id,created_at';
+    const rows = trades.map((t) =>
+      [t.trade_id, t.symbol, t.direction, t.status, t.entry_price, t.stop_loss, t.take_profit, t.lot_size, t.realized_pnl, t.unrealized_pnl, t.bot_id, t.created_at].join(',')
+    );
+    const blob = new Blob([[header, ...rows].join('\n')], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `trades_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 
   return (
     <div className="space-y-6">
@@ -28,10 +74,19 @@ export function TradesPage() {
           <h2 className="text-2xl font-bold">Trade Management</h2>
           <p className="text-gray-400 text-sm mt-1">Monitor, approve, and analyze all trades</p>
         </div>
-        <button className="flex items-center gap-2 px-4 py-2 bg-smc-accent/10 text-smc-accent rounded-lg hover:bg-smc-accent/20 transition-colors">
-          <Download size={16} />
-          Export CSV
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={loadTrades} className="p-2 text-gray-400 hover:text-white transition-colors" title="Refresh">
+            <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+          </button>
+          <button
+            onClick={exportCsv}
+            disabled={trades.length === 0}
+            className="flex items-center gap-2 px-4 py-2 bg-smc-accent/10 text-smc-accent rounded-lg hover:bg-smc-accent/20 transition-colors disabled:opacity-40"
+          >
+            <Download size={16} />
+            Export CSV
+          </button>
+        </div>
       </div>
 
       {/* Filters */}
@@ -54,8 +109,8 @@ export function TradesPage() {
               key={f}
               onClick={() => setFilter(f)}
               className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                filter === f 
-                  ? 'bg-smc-accent text-white' 
+                filter === f
+                  ? 'bg-smc-accent text-white'
                   : 'bg-smc-card border border-smc-border text-gray-400 hover:text-white'
               }`}
             >
@@ -65,16 +120,18 @@ export function TradesPage() {
         </div>
       </div>
 
+      {error && <div className="text-sm text-red-400">{error}</div>}
+
       {/* Trade List */}
       <div className="space-y-2">
-        {filteredTrades.map((trade) => (
-          <TradeRow key={trade.id} trade={trade as any} />
+        {trades.map((trade) => (
+          <TradeRow key={trade.trade_id} trade={trade} onApprove={handleApprove} onReject={handleReject} />
         ))}
       </div>
 
-      {filteredTrades.length === 0 && (
+      {!loading && trades.length === 0 && (
         <div className="text-center py-12 text-gray-400">
-          No trades found matching your criteria.
+          {search || filter !== 'all' ? 'No trades found matching your criteria.' : 'No trades yet — they\'ll show up here as your bots trade.'}
         </div>
       )}
     </div>

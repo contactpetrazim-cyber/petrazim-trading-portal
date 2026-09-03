@@ -119,8 +119,13 @@ class BotConfigResponse(BaseModel):
     status: str
     execution_mode: str
     symbols: List[str]
+    timeframes: List[str]
     risk_per_trade: float
     max_daily_trades: int
+    max_concurrent_trades: int
+    max_portfolio_exposure: float
+    min_rr_ratio: float
+    use_trailing_stop: bool
     exchange: Optional[str] = None
     user_id: Optional[UUID] = None
     created_at: datetime
@@ -134,6 +139,21 @@ class BotToggle(BaseModel):
 
 class BotExchangeUpdate(BaseModel):
     exchange: Literal["bingx", "binance", "bybit", "mexc", "tradelocker", "metatrader"]
+
+class BotMetricsUpdate(BaseModel):
+    """The editable risk/entry metrics a Trader can tune on their own
+    bot from the Bots or Risk Management pages — everything here maps
+    1:1 to a BotConfig column already present in the model but never
+    exposed for editing (only toggle/mode/exchange had their own
+    endpoint before this)."""
+    risk_per_trade: Optional[float] = Field(None, ge=0.1, le=25.0)
+    max_daily_trades: Optional[int] = Field(None, ge=1, le=200)
+    max_concurrent_trades: Optional[int] = Field(None, ge=1, le=50)
+    max_portfolio_exposure: Optional[float] = Field(None, ge=0.1, le=100.0)
+    min_rr_ratio: Optional[float] = Field(None, ge=0.1, le=20.0)
+    use_trailing_stop: Optional[bool] = None
+    symbols: Optional[List[str]] = None
+    timeframes: Optional[List[str]] = None
 
 # =============================================================================
 # DASHBOARD / ANALYTICS SCHEMAS

@@ -69,10 +69,16 @@ export function TradeRow({ trade, onApprove, onReject }: TradeRowProps) {
             {trade.status.toUpperCase()}
           </div>
 
-          {/* P&L */}
+          {/* P&L — realized once closed, live unrealized while active */}
           {trade.status === 'closed' && (
             <div className={`text-right font-mono font-bold ${trade.realized_pnl > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
               {trade.realized_pnl > 0 ? '+' : ''}{trade.realized_pnl.toFixed(2)}
+            </div>
+          )}
+          {trade.status === 'active' && (
+            <div className={`text-right font-mono font-bold ${trade.unrealized_pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+              {trade.unrealized_pnl >= 0 ? '+' : ''}{trade.unrealized_pnl.toFixed(2)}
+              <span className="block text-[10px] font-normal text-gray-500">unrealized</span>
             </div>
           )}
 

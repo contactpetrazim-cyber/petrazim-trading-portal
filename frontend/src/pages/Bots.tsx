@@ -1,183 +1,334 @@
 
-import { useState } from 'react';
-import { Bot, Play, Pause, Settings, TrendingUp, Shield, AlertTriangle } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Bot, Play, Pause, Settings, TrendingUp, Save, Plus, X } from 'lucide-react';
+import { botsApi } from '../services/api';
+import { BotConfig, BotPerformance, BotMetricsUpdate } from '../types';
 
-const botConfigs = [
-  {
-    id: 'bot_1',
-    name: 'Pure Macro Swing',
-    style: 'Damir/Brooks',
-    status: 'active',
-    mode: 'human_in_loop',
-    symbols: ['EURUSD', 'GBPUSD', 'XAUUSD'],
-    timeframes: ['1D', '4H'],
-    risk: 1.5,
-    rr: 5.0,
-    trades: 45,
-    winRate: 72,
-    description: 'Major structural transitions, trend continuity, multi-week trend breaks.',
-  },
-  {
-    id: 'bot_2',
-    name: 'HF Order Block Reversal',
-    style: 'ICT Core Mentorship',
-    status: 'active',
-    mode: 'fully_autonomous',
-    symbols: ['EURUSD', 'USDJPY', 'BTCUSDT'],
-    timeframes: ['4H', '1H', '15M'],
-    risk: 1.0,
-    rr: 3.0,
-    trades: 78,
-    winRate: 65,
-    description: 'Internal liquidity sweeps, rapid premium/discount adjustments, early CHoCH entries.',
-  },
-  {
-    id: 'bot_3',
-    name: 'FVG Expansion & Fill',
-    style: 'Photon/Phantom',
-    status: 'active',
-    mode: 'human_in_loop',
-    symbols: ['ETHUSDT', 'BTCUSDT', 'SOLUSDT'],
-    timeframes: ['1H', '15M'],
-    risk: 1.0,
-    rr: 4.0,
-    trades: 62,
-    winRate: 58,
-    description: 'High-momentum plays targeting unmitigated institutional imbalances.',
-  },
-  {
-    id: 'bot_4',
-    name: 'Volume & Liquidity Sweep',
-    style: 'Dalton/Weis/Wyckoff',
-    status: 'active',
-    mode: 'fully_autonomous',
-    symbols: ['XAUUSD', 'USOIL', 'SPX500'],
-    timeframes: ['4H', '1H'],
-    risk: 1.0,
-    rr: 3.0,
-    trades: 34,
-    winRate: 61,
-    description: 'Auction Market Theory, accumulation/distribution, Spring/Upthrust patterns.',
-  },
-  {
-    id: 'bot_5',
-    name: 'Jeafx SMC Specialist',
-    style: 'Jeafx',
-    status: 'active',
-    mode: 'human_in_loop',
-    symbols: ['BTCUSDT', 'ETHUSDT', 'EURUSD'],
-    timeframes: ['1H', '15M', '5M'],
-    risk: 1.0,
-    rr: 5.0,
-    trades: 28,
-    winRate: 75,
-    description: 'Mechanical supply/demand, rapid liquidity purges, explosive structural breaks.',
-  },
-];
+/**
+ * BotsPage — "Bot Configuration". Was 5 hardcoded bots with dead
+ * buttons (Start/Pause/Switch mode had no onClick at all) and no way
+ * to change a single metric. Now:
+ *   - real bots from GET /bots/ (owned by the logged-in Trader; see
+ *     routers/bots.py's ownership scoping)
+ *   - real per-bot win-rate/trades/profit-factor from GET
+ *     /bots/{id}/performance (used to always return zeros — now
+ *     computed from actual closed trades)
+ *   - Start/Pause and the mode switch actually call the backend
+ *   - risk_per_trade, max_daily_trades, max_concurrent_trades,
+ *     max_portfolio_exposure, and min_rr_ratio are editable inline and
+ *     saved via the new PATCH /bots/{id}/metrics
+ *   - a bot can actually be created — every real account starts with
+ *     zero bots, and there was no way to add one from this page
+ */
+
+const emptyNewBot = { bot_id: '', bot_name: '', bot_type: 'smc', symbols: '' };
 
 export function BotsPage() {
+  const [bots, setBots] = useState<BotConfig[]>([]);
+  const [performance, setPerformance] = useState<Record<string, BotPerformance>>({});
+  const [loading, setLoading] = useState(true);
   const [selectedBot, setSelectedBot] = useState<string | null>(null);
+  const [editing, setEditing] = useState<BotMetricsUpdate | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [showCreate, setShowCreate] = useState(false);
+  const [newBot, setNewBot] = useState(emptyNewBot);
+  const [createError, setCreateError] = useState<string | null>(null);
+
+  async function loadBots() {
+    setLoading(true);
+    try {
+      const data = await botsApi.getBots();
+      setBots(data);
+      const perfEntries = await Promise.all(
+        data.map(async (b) => [b.bot_id, await botsApi.getPerformance(b.bot_id).catch(() => null)] as const)
+      );
+      const perfMap: Record<string, BotPerformance> = {};
+      for (const [id, perf] of perfEntries) if (perf) perfMap[id] = perf;
+      setPerformance(perfMap);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { loadBots(); }, []);
+
+  function openBot(bot: BotConfig) {
+    if (selectedBot === bot.bot_id) {
+      setSelectedBot(null);
+      setEditing(null);
+      return;
+    }
+    setSelectedBot(bot.bot_id);
+    setEditing({
+      risk_per_trade: bot.risk_per_trade,
+      max_daily_trades: bot.max_daily_trades,
+      max_concurrent_trades: bot.max_concurrent_trades,
+      max_portfolio_exposure: bot.max_portfolio_exposure,
+      min_rr_ratio: bot.min_rr_ratio,
+      use_trailing_stop: bot.use_trailing_stop,
+    });
+  }
+
+  async function toggleBot(bot: BotConfig) {
+    await botsApi.toggleBot(bot.bot_id, bot.status !== 'active');
+    loadBots();
+  }
+
+  async function switchMode(bot: BotConfig) {
+    const next = bot.execution_mode === 'fully_autonomous' ? 'human_in_loop' : 'fully_autonomous';
+    await botsApi.setMode(bot.bot_id, next);
+    loadBots();
+  }
+
+  async function saveMetrics(botId: string) {
+    if (!editing) return;
+    setSaving(true);
+    try {
+      await botsApi.updateMetrics(botId, editing);
+      await loadBots();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function createBot() {
+    setCreateError(null);
+    if (!newBot.bot_id || !newBot.bot_name || !newBot.symbols) {
+      setCreateError('Bot ID, name, and at least one symbol are required.');
+      return;
+    }
+    try {
+      await botsApi.createBot({
+        bot_id: newBot.bot_id.trim(),
+        bot_name: newBot.bot_name.trim(),
+        bot_type: newBot.bot_type,
+        symbols: newBot.symbols.split(',').map((s) => s.trim().toUpperCase()).filter(Boolean),
+      });
+      setShowCreate(false);
+      setNewBot(emptyNewBot);
+      loadBots();
+    } catch (e: any) {
+      setCreateError(e?.response?.data?.detail || 'Could not create bot.');
+    }
+  }
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold">Bot Configuration</h2>
-        <p className="text-gray-400 text-sm mt-1">Manage your 5 SMC trading bots</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold">Bot Configuration</h2>
+          <p className="text-gray-400 text-sm mt-1">
+            {bots.length > 0 ? `Manage your ${bots.length} SMC trading bot${bots.length === 1 ? '' : 's'}` : 'No bots configured yet'}
+          </p>
+        </div>
+        <button
+          onClick={() => setShowCreate(true)}
+          className="flex items-center gap-2 px-4 py-2 bg-smc-accent text-white rounded-lg text-sm font-medium hover:bg-smc-accent/90 transition-colors"
+        >
+          <Plus size={16} /> New Bot
+        </button>
       </div>
+
+      {loading && <p className="text-gray-400 text-sm">Loading…</p>}
+
+      {!loading && bots.length === 0 && (
+        <div className="text-center py-16 text-gray-400 bg-smc-card border border-smc-border rounded-xl">
+          No bots yet — create one to start trading.
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {botConfigs.map((bot) => (
-          <div 
-            key={bot.id}
-            className={`bg-smc-card border rounded-xl p-6 transition-all cursor-pointer ${
-              selectedBot === bot.id 
-                ? 'border-smc-accent ring-1 ring-smc-accent/30' 
-                : 'border-smc-border hover:border-smc-accent/30'
-            }`}
-            onClick={() => setSelectedBot(selectedBot === bot.id ? null : bot.id)}
-          >
-            <div className="flex items-start justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-smc-accent/10 flex items-center justify-center">
-                  <Bot className="text-smc-accent" size={20} />
+        {bots.map((bot) => {
+          const perf = performance[bot.bot_id];
+          return (
+            <div
+              key={bot.bot_id}
+              className={`bg-smc-card border rounded-xl p-6 transition-all cursor-pointer ${
+                selectedBot === bot.bot_id
+                  ? 'border-smc-accent ring-1 ring-smc-accent/30'
+                  : 'border-smc-border hover:border-smc-accent/30'
+              }`}
+              onClick={() => openBot(bot)}
+            >
+              <div className="flex items-start justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-smc-accent/10 flex items-center justify-center">
+                    <Bot className="text-smc-accent" size={20} />
+                  </div>
+                  <div>
+                    <h3 className="font-bold">{bot.bot_name}</h3>
+                    <p className="text-xs text-gray-400">{bot.bot_type}</p>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="font-bold">{bot.name}</h3>
-                  <p className="text-xs text-gray-400">{bot.style} Style</p>
-                </div>
-              </div>
 
-              <div className="flex items-center gap-2">
-                <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                  bot.status === 'active' 
-                    ? 'bg-emerald-500/10 text-emerald-400' 
-                    : 'bg-gray-500/10 text-gray-400'
-                }`}>
-                  {bot.status === 'active' ? 'Active' : 'Paused'}
-                </span>
-                <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                  bot.mode === 'fully_autonomous'
-                    ? 'bg-purple-500/10 text-purple-400'
-                    : 'bg-amber-500/10 text-amber-400'
-                }`}>
-                  {bot.mode === 'fully_autonomous' ? 'Auto' : 'HITL'}
-                </span>
-              </div>
-            </div>
-
-            <p className="text-sm text-gray-400 mt-3">{bot.description}</p>
-
-            <div className="grid grid-cols-4 gap-3 mt-4">
-              <div className="text-center p-2 bg-white/5 rounded-lg">
-                <div className="text-lg font-bold">{bot.winRate}%</div>
-                <div className="text-xs text-gray-400">Win Rate</div>
-              </div>
-              <div className="text-center p-2 bg-white/5 rounded-lg">
-                <div className="text-lg font-bold">{bot.trades}</div>
-                <div className="text-xs text-gray-400">Trades</div>
-              </div>
-              <div className="text-center p-2 bg-white/5 rounded-lg">
-                <div className="text-lg font-bold">{bot.rr}:1</div>
-                <div className="text-xs text-gray-400">R:R</div>
-              </div>
-              <div className="text-center p-2 bg-white/5 rounded-lg">
-                <div className="text-lg font-bold">{bot.risk}%</div>
-                <div className="text-xs text-gray-400">Risk</div>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2 mt-4 text-xs text-gray-400">
-              <TrendingUp size={12} />
-              <span>{bot.symbols.join(', ')}</span>
-            </div>
-
-            {selectedBot === bot.id && (
-              <div className="mt-4 pt-4 border-t border-smc-border space-y-3">
                 <div className="flex items-center gap-2">
-                  <Settings size={14} className="text-gray-400" />
-                  <span className="text-sm font-medium">Quick Actions</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button className="flex-1 px-3 py-2 bg-emerald-500/10 text-emerald-400 rounded-lg text-sm font-medium hover:bg-emerald-500/20 transition-colors">
-                    <Play size={14} className="inline mr-1" /> Start
-                  </button>
-                  <button className="flex-1 px-3 py-2 bg-amber-500/10 text-amber-400 rounded-lg text-sm font-medium hover:bg-amber-500/20 transition-colors">
-                    <Pause size={14} className="inline mr-1" /> Pause
-                  </button>
-                  <button className="flex-1 px-3 py-2 bg-purple-500/10 text-purple-400 rounded-lg text-sm font-medium hover:bg-purple-500/20 transition-colors">
-                    {bot.mode === 'fully_autonomous' ? 'Switch to HITL' : 'Switch to Auto'}
-                  </button>
-                </div>
-
-                <div className="flex items-center gap-2 p-2 bg-amber-500/5 border border-amber-500/20 rounded-lg">
-                  <AlertTriangle size={14} className="text-amber-400" />
-                  <span className="text-xs text-amber-400">Changing bot settings requires strategy restart</span>
+                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                    bot.status === 'active' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-gray-500/10 text-gray-400'
+                  }`}>
+                    {bot.status === 'active' ? 'Active' : 'Paused'}
+                  </span>
+                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                    bot.execution_mode === 'fully_autonomous' ? 'bg-purple-500/10 text-purple-400' : 'bg-amber-500/10 text-amber-400'
+                  }`}>
+                    {bot.execution_mode === 'fully_autonomous' ? 'Auto' : 'HITL'}
+                  </span>
                 </div>
               </div>
-            )}
-          </div>
-        ))}
+
+              <div className="grid grid-cols-4 gap-3 mt-4">
+                <div className="text-center p-2 bg-white/5 rounded-lg">
+                  <div className="text-lg font-bold">{perf ? `${perf.win_rate}%` : '—'}</div>
+                  <div className="text-xs text-gray-400">Win Rate</div>
+                </div>
+                <div className="text-center p-2 bg-white/5 rounded-lg">
+                  <div className="text-lg font-bold">{perf ? perf.total_trades : '—'}</div>
+                  <div className="text-xs text-gray-400">Trades</div>
+                </div>
+                <div className="text-center p-2 bg-white/5 rounded-lg">
+                  <div className="text-lg font-bold">{bot.min_rr_ratio}:1</div>
+                  <div className="text-xs text-gray-400">Min R:R</div>
+                </div>
+                <div className="text-center p-2 bg-white/5 rounded-lg">
+                  <div className="text-lg font-bold">{bot.risk_per_trade}%</div>
+                  <div className="text-xs text-gray-400">Risk</div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 mt-4 text-xs text-gray-400">
+                <TrendingUp size={12} />
+                <span>{bot.symbols.join(', ')}</span>
+              </div>
+
+              {selectedBot === bot.bot_id && editing && (
+                <div className="mt-4 pt-4 border-t border-smc-border space-y-4" onClick={(e) => e.stopPropagation()}>
+                  <div className="flex items-center gap-2">
+                    <Settings size={14} className="text-gray-400" />
+                    <span className="text-sm font-medium">Quick Actions</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => toggleBot(bot)}
+                      className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                        bot.status === 'active'
+                          ? 'bg-amber-500/10 text-amber-400 hover:bg-amber-500/20'
+                          : 'bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20'
+                      }`}
+                    >
+                      {bot.status === 'active'
+                        ? <><Pause size={14} className="inline mr-1" /> Pause</>
+                        : <><Play size={14} className="inline mr-1" /> Start</>}
+                    </button>
+                    <button
+                      onClick={() => switchMode(bot)}
+                      className="flex-1 px-3 py-2 bg-purple-500/10 text-purple-400 rounded-lg text-sm font-medium hover:bg-purple-500/20 transition-colors"
+                    >
+                      {bot.execution_mode === 'fully_autonomous' ? 'Switch to HITL' : 'Switch to Auto'}
+                    </button>
+                  </div>
+
+                  <div>
+                    <div className="text-sm font-medium mb-2">Risk Metrics</div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <label className="text-xs text-gray-400">
+                        Risk per trade (%)
+                        <input
+                          type="number" step="0.1" min="0.1" max="25"
+                          value={editing.risk_per_trade}
+                          onChange={(e) => setEditing({ ...editing, risk_per_trade: Number(e.target.value) })}
+                          className="w-full mt-1 bg-smc-bg border border-smc-border rounded-lg px-2 py-1.5 text-sm text-white"
+                        />
+                      </label>
+                      <label className="text-xs text-gray-400">
+                        Min R:R
+                        <input
+                          type="number" step="0.1" min="0.1" max="20"
+                          value={editing.min_rr_ratio}
+                          onChange={(e) => setEditing({ ...editing, min_rr_ratio: Number(e.target.value) })}
+                          className="w-full mt-1 bg-smc-bg border border-smc-border rounded-lg px-2 py-1.5 text-sm text-white"
+                        />
+                      </label>
+                      <label className="text-xs text-gray-400">
+                        Max daily trades
+                        <input
+                          type="number" step="1" min="1" max="200"
+                          value={editing.max_daily_trades}
+                          onChange={(e) => setEditing({ ...editing, max_daily_trades: Number(e.target.value) })}
+                          className="w-full mt-1 bg-smc-bg border border-smc-border rounded-lg px-2 py-1.5 text-sm text-white"
+                        />
+                      </label>
+                      <label className="text-xs text-gray-400">
+                        Max concurrent trades
+                        <input
+                          type="number" step="1" min="1" max="50"
+                          value={editing.max_concurrent_trades}
+                          onChange={(e) => setEditing({ ...editing, max_concurrent_trades: Number(e.target.value) })}
+                          className="w-full mt-1 bg-smc-bg border border-smc-border rounded-lg px-2 py-1.5 text-sm text-white"
+                        />
+                      </label>
+                      <label className="text-xs text-gray-400 col-span-2">
+                        Max portfolio exposure (%)
+                        <input
+                          type="number" step="0.5" min="0.1" max="100"
+                          value={editing.max_portfolio_exposure}
+                          onChange={(e) => setEditing({ ...editing, max_portfolio_exposure: Number(e.target.value) })}
+                          className="w-full mt-1 bg-smc-bg border border-smc-border rounded-lg px-2 py-1.5 text-sm text-white"
+                        />
+                      </label>
+                      <label className="flex items-center gap-2 text-xs text-gray-400 col-span-2 mt-1">
+                        <input
+                          type="checkbox"
+                          checked={!!editing.use_trailing_stop}
+                          onChange={(e) => setEditing({ ...editing, use_trailing_stop: e.target.checked })}
+                        />
+                        Use trailing stop
+                      </label>
+                    </div>
+                    <button
+                      onClick={() => saveMetrics(bot.bot_id)}
+                      disabled={saving}
+                      className="w-full mt-3 flex items-center justify-center gap-2 px-3 py-2 bg-smc-accent text-white rounded-lg text-sm font-medium disabled:opacity-50"
+                    >
+                      <Save size={14} /> {saving ? 'Saving…' : 'Save metrics'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
+
+      {showCreate && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => setShowCreate(false)}>
+          <div className="bg-smc-card border border-smc-border rounded-xl p-6 w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold">New Bot</h3>
+              <button onClick={() => setShowCreate(false)}><X size={18} className="text-gray-400" /></button>
+            </div>
+            <div className="space-y-3">
+              <label className="text-xs text-gray-400 block">
+                Bot ID (unique, e.g. bot_smc_1)
+                <input value={newBot.bot_id} onChange={(e) => setNewBot({ ...newBot, bot_id: e.target.value })}
+                  className="w-full mt-1 bg-smc-bg border border-smc-border rounded-lg px-3 py-2 text-sm text-white" />
+              </label>
+              <label className="text-xs text-gray-400 block">
+                Name
+                <input value={newBot.bot_name} onChange={(e) => setNewBot({ ...newBot, bot_name: e.target.value })}
+                  className="w-full mt-1 bg-smc-bg border border-smc-border rounded-lg px-3 py-2 text-sm text-white" />
+              </label>
+              <label className="text-xs text-gray-400 block">
+                Symbols (comma-separated, e.g. BTCUSDT, EURUSD)
+                <input value={newBot.symbols} onChange={(e) => setNewBot({ ...newBot, symbols: e.target.value })}
+                  className="w-full mt-1 bg-smc-bg border border-smc-border rounded-lg px-3 py-2 text-sm text-white" />
+              </label>
+              {createError && <p className="text-xs text-red-400">{createError}</p>}
+              <button onClick={createBot} className="w-full bg-smc-accent text-white font-medium py-2.5 rounded-lg text-sm">
+                Create bot
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

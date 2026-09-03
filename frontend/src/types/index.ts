@@ -11,8 +11,10 @@ export interface Trade {
   lot_size: number;
   risk_percent: number;
   realized_pnl: number;
+  unrealized_pnl: number;
   bot_id: string;
   strategy_type: string;
+  user_id?: string | null;
   created_at: string;
   requires_approval: boolean;
 }
@@ -25,9 +27,35 @@ export interface BotConfig {
   status: string;
   execution_mode: string;
   symbols: string[];
+  timeframes: string[];
   risk_per_trade: number;
   max_daily_trades: number;
+  max_concurrent_trades: number;
+  max_portfolio_exposure: number;
+  min_rr_ratio: number;
+  use_trailing_stop: boolean;
+  exchange?: string | null;
+  user_id?: string | null;
   created_at: string;
+}
+
+export interface BotPerformance {
+  bot_id: string;
+  total_trades: number;
+  win_rate: number;
+  profit_factor: number;
+  average_r: number;
+}
+
+export interface BotMetricsUpdate {
+  risk_per_trade?: number;
+  max_daily_trades?: number;
+  max_concurrent_trades?: number;
+  max_portfolio_exposure?: number;
+  min_rr_ratio?: number;
+  use_trailing_stop?: boolean;
+  symbols?: string[];
+  timeframes?: string[];
 }
 
 export interface DashboardStats {

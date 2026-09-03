@@ -7,7 +7,8 @@ from app.database import get_db
 from app.models.bot import BotConfig, BotStatus, ExecutionMode
 from app.models.user import User, UserRole
 from app.core.auth import get_current_user
-from app.schemas import BotConfigCreate, BotConfigResponse, BotToggle, BotExchangeUpdate
+from app.models.trade import Trade, TradeStatus
+from app.schemas import BotConfigCreate, BotConfigResponse, BotToggle, BotExchangeUpdate, BotMetricsUpdate
 import structlog
 
 router = APIRouter(prefix="/bots", tags=["bots"])
@@ -125,17 +126,54 @@ async def set_bot_exchange(
 
     return {"success": True, "bot_id": bot_id, "exchange": update.exchange}
 
+@router.patch("/{bot_id}/metrics", response_model=BotConfigResponse)
+async def update_bot_metrics(
+    bot_id: str,
+    update: BotMetricsUpdate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Edit a bot's risk/entry metrics — risk per trade, daily/
+    concurrent trade caps, portfolio exposure cap, min R:R, trailing
+    stop, symbols, timeframes. The gap this closes: only toggle/mode/
+    exchange had their own PATCH before; every other BotConfig field
+    was set once at creation and never editable again."""
+    bot = await _get_owned_bot(bot_id, user, db)
+
+    for field, value in update.model_dump(exclude_unset=True).items():
+        setattr(bot, field, value)
+
+    await db.commit()
+    await db.refresh(bot)
+    return bot
+
 @router.get("/{bot_id}/performance")
 async def bot_performance(
     bot_id: str, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)
 ):
-    """Get performance metrics for a specific bot."""
+    """Get real performance metrics for a specific bot, computed from
+    its own closed trades — this used to be a stub that always
+    returned zeros regardless of actual trade history."""
     await _get_owned_bot(bot_id, user, db)
-    # In production: query analytics tables
+
+    query = select(Trade).where(Trade.bot_id == bot_id, Trade.status == TradeStatus.CLOSED)
+    result = await db.execute(query)
+    trades = result.scalars().all()
+
+    total = len(trades)
+    if total == 0:
+        return {"bot_id": bot_id, "total_trades": 0, "win_rate": 0.0, "profit_factor": 0.0, "average_r": 0.0}
+
+    wins = [t for t in trades if (t.realized_pnl or 0) > 0]
+    losses = [t for t in trades if (t.realized_pnl or 0) < 0]
+    gross_profit = sum(t.realized_pnl or 0 for t in wins)
+    gross_loss = abs(sum(t.realized_pnl or 0 for t in losses))
+    r_multiples = [t.r_multiple for t in trades if t.r_multiple is not None]
+
     return {
         "bot_id": bot_id,
-        "total_trades": 0,
-        "win_rate": 0.0,
-        "profit_factor": 0.0,
-        "average_r": 0.0
+        "total_trades": total,
+        "win_rate": round(len(wins) / total * 100, 2),
+        "profit_factor": round(gross_profit / gross_loss, 2) if gross_loss > 0 else 0.0,
+        "average_r": round(sum(r_multiples) / len(r_multiples), 2) if r_multiples else 0.0,
     }
