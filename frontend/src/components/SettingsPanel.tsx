@@ -1,19 +1,27 @@
-import { Link } from 'react-router-dom';
+import { useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   X, CreditCard, GraduationCap, CalendarClock, LayoutGrid,
   HardDriveDownload, Link2, ChevronRight, Sun, Moon,
 } from 'lucide-react';
 import { HERO_GRADIENT } from '../config/theme';
 import type { ThemeName } from '../hooks/useTheme';
+import { useAuth } from '../hooks/useAuth';
+import { PortalSelectionCard, PortalOption } from './PortalSelectionCard';
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 /**
  * SettingsPanel — slide-over from the gear icon in TopNav, per
  * petrazim_preview_v13_FINAL.jsx. The six items match the reference
- * exactly; only "Facilitator Sessions" links anywhere real (/meetings
- * already exists) — the rest are informational entries in the
- * reference itself (no onClick beyond the panel opening), so this
- * doesn't invent navigation the design didn't specify. Theme toggle is
- * the one functionally real control, wired to useTheme.
+ * exactly. Three are functionally real: the theme toggle (wired to
+ * useTheme), "Facilitator Sessions" (links to /meetings), and "Switch
+ * Portal" (fetches the current user's real GET /auth/available-portals
+ * list and opens the real PortalSelectionCard — the reference's
+ * hardcoded four-portal demo, backed by data here). The remaining
+ * three (Select Access and Pay, Ask Trading Coach, Backup and Offline,
+ * Quick Links) are informational rows only, same as the reference —
+ * this doesn't invent navigation the design didn't specify.
  */
 export function SettingsPanel({
   open,
@@ -28,13 +36,27 @@ export function SettingsPanel({
   setTheme: (t: ThemeName) => void;
   dark: boolean;
 }) {
+  const navigate = useNavigate();
+  const { token } = useAuth();
+  const [switchPortals, setSwitchPortals] = useState<PortalOption[] | null>(null);
+
   if (!open) return null;
 
-  const items: { icon: typeof CreditCard; label: string; detail: string; to?: string }[] = [
+  async function openSwitchPortal() {
+    if (!token) return;
+    const res = await fetch(`${API_URL}/auth/available-portals`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    setSwitchPortals(data.portals);
+  }
+
+  const items: { icon: typeof CreditCard; label: string; detail: string; to?: string; onClick?: () => void }[] = [
     { icon: CreditCard, label: 'Select Access and Pay', detail: 'Choose a tier or duration pass' },
     { icon: GraduationCap, label: 'Ask Trading Coach', detail: 'Open Trade AI' },
     { icon: CalendarClock, label: 'Facilitator Sessions', detail: 'Book time with a Manager or Partner (Tier 2/3)', to: '/meetings' },
-    { icon: LayoutGrid, label: 'Switch Portal', detail: 'Trader / Fund Manager / Partner / Admin — jump to a console you have access to' },
+    { icon: LayoutGrid, label: 'Switch Portal', detail: 'Trader / Fund Manager / Partner / Admin — jump to a console you have access to', onClick: openSwitchPortal },
     { icon: HardDriveDownload, label: 'Backup and Offline', detail: 'Manage local data and sync' },
     { icon: Link2, label: 'Quick Links', detail: 'Shortcuts to frequent pages' },
   ];
@@ -92,11 +114,23 @@ export function SettingsPanel({
             return it.to ? (
               <Link key={i} to={it.to} onClick={onClose} className={className}>{content}</Link>
             ) : (
-              <button key={i} className={className}>{content}</button>
+              <button key={i} onClick={it.onClick} className={className}>{content}</button>
             );
           })}
         </div>
       </div>
+
+      {switchPortals && (
+        <PortalSelectionCard
+          portals={switchPortals}
+          onClose={() => setSwitchPortals(null)}
+          onSelect={(route) => {
+            setSwitchPortals(null);
+            onClose();
+            navigate(route);
+          }}
+        />
+      )}
     </div>
   );
 }

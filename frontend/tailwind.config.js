@@ -33,7 +33,14 @@ export default {
           'accent-hover': '#004a94',
           'accent-orange-retired': '#FF7A00', // reference only — no longer used for buttons/active states
           'text-on-hero': '#FFFFFF',
-          'text-on-bg': '#1A1A2E',
+          // Was #1A1A2E — a fourth near-identical-but-wrong dark navy,
+          // the same class of drift the design handover explicitly
+          // warns about for blues ("three near-identical blues that
+          // didn't quite match"). petrazim_preview_v13_FINAL.jsx's
+          // body-text token is #141a33 everywhere; this is used by 16
+          // files via text-corporate-text-on-bg, so this one fix
+          // cascades correctly instead of needing 16 separate edits.
+          'text-on-bg': '#141a33',
           'nav-dark': '#0f1424',
           'surface-dark': '#161b2e',
           'border-dark': '#2a3150',
