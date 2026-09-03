@@ -74,6 +74,7 @@ export function PaymentsPage() {
   const [codeResult, setCodeResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [paymentsMode, setPaymentsMode] = useState<'test' | 'live' | null>(null);
 
   useEffect(() => {
     fetch(`${API_URL}/payments/pricing/duration-passes`).then((r) => r.json()).then(setPasses).catch(() => {});
@@ -81,6 +82,12 @@ export function PaymentsPage() {
     if (token) {
       fetch(`${API_URL}/payments/access-status`, { headers: { Authorization: `Bearer ${token}` } })
         .then((r) => (r.ok ? r.json() : null)).then(setStatus).catch(() => {});
+      // Test mode routes checkout through a simulated page instead of a
+      // real gateway — see routers/payments.py's GET/PATCH /payments/mode
+      // and TestPaymentClient. This banner is the only thing telling a
+      // Trader "no real card will be charged here."
+      fetch(`${API_URL}/payments/mode`, { headers: { Authorization: `Bearer ${token}` } })
+        .then((r) => (r.ok ? r.json() : null)).then((d) => d && setPaymentsMode(d.mode)).catch(() => {});
     }
   }, [token]);
 
@@ -138,6 +145,14 @@ export function PaymentsPage() {
   return (
     <div>
       <PageHeader title="Select Access and Pay" subtitle="Duration passes for a quick session, or a full tier for ongoing access — same pricing as the training portal." />
+
+      {paymentsMode === 'test' && (
+        <div className={`rounded-2xl p-4 mb-6 border ${dark ? 'bg-amber-500/10 border-amber-500/30' : 'bg-amber-50 border-amber-200'}`}>
+          <p className={`text-sm font-medium ${dark ? 'text-amber-300' : 'text-amber-700'}`}>
+            TEST MODE — checkout below opens a simulated payment page. No real gateway or card is involved; you'll be able to choose Success or Failure there to test what happens either way.
+          </p>
+        </div>
+      )}
 
       {status?.has_active_access && (
         <div className={`rounded-2xl p-4 mb-6 border ${dark ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-emerald-50 border-emerald-200'}`}>

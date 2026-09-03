@@ -122,6 +122,12 @@ class Settings(BaseSettings):
     #   python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
     CREDENTIALS_ENCRYPTION_KEY: str = ""
 
+    # Where the Test-mode simulated checkout page (routers/payments.py)
+    # sends a user back to after Simulate Success/Failure — the real
+    # frontend origin, so this works the same way a real gateway's
+    # redirect-back would.
+    FRONTEND_URL: str = "https://trade.petrazim.online"
+
     class Config:
         env_file = ".env"
         # Several services (payments.py, telegram.py, fireflies.py, the

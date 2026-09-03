@@ -162,4 +162,9 @@ class Payment(Base):
     tier_purchased = Column(Enum(AccessTier), nullable=True)
     duration_pass_type = Column(Enum(DurationPassType), nullable=True)
     seat_count = Column(Integer, nullable=True)
+    # True when this checkout ran through TestPaymentClient (Test mode
+    # — see routers/payments.py's GET/PATCH /payments/mode) rather than
+    # a real gateway. Keeps simulated payments visibly distinct from
+    # real ones in this same table, rather than a separate one.
+    is_test = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)

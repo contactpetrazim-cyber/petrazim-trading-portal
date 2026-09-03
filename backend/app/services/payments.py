@@ -216,6 +216,44 @@ class IvoryPayClient:
         return bool(data.get("success")) and data.get("data", {}).get("status") == "SUCCESS"
 
 
+class TestPaymentClient:
+    """Payments Test mode (see routers/payments.py's GET/PATCH
+    /payments/mode) — needs no API key at all, because it never calls
+    a real gateway. `create_checkout` points the user at this
+    backend's own simulated-checkout page instead of Stripe/Paystack,
+    where they can click "Simulate Success" or "Simulate Failure" —
+    the second one is what actually lets you test the paywall gate
+    (access-status staying false, AccessExpiredGate staying up)
+    without needing a real card decline from a real provider.
+
+    `verify_payment` reads the Payment row directly rather than
+    calling out anywhere — this IS the source of truth for a
+    simulated payment, there's no external system to ask.
+    """
+
+    def __init__(self, base_url: str):
+        self.base_url = base_url.rstrip("/")
+
+    def create_checkout(
+        self, amount: float, currency: str, description: str, customer_email: str
+    ) -> CheckoutSession:
+        reference = f"TEST_{uuid.uuid4().hex[:16]}"
+        return CheckoutSession(
+            provider="test",
+            checkout_url=f"{self.base_url}/payments/test-checkout/{reference}",
+            reference=reference,
+            amount=amount,
+            currency=currency.upper(),
+        )
+
+    def verify_payment(self, reference: str) -> bool:
+        # Not used in the test-mode flow — routers/payments.py's
+        # test-checkout completion endpoint updates the Payment row
+        # directly instead of polling this, since there's no external
+        # gateway to verify against.
+        raise NotImplementedError("Test-mode payments are confirmed via /payments/test-checkout, not verify_payment.")
+
+
 def get_payment_client(provider: Literal["stripe", "paystack", "ivorypay"]) -> PaymentProviderClient:
     """Currency routing, matching the Academy pattern: Paystack/IvoryPay
     handle both NGN and USD; Stripe is USD-only. Route NGN to Paystack
