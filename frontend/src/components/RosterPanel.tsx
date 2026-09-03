@@ -2,6 +2,18 @@ import { useEffect, useState } from 'react';
 import { UserPlus, Trash2, X } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 
+/**
+ * RosterPanel — invite/assign/detach Traders. Mounted on
+ * ManagerConsolePage, PartnerConsolePage, and AdminConsolePage — same
+ * component, backend scopes the data per the caller's role
+ * automatically (see roster.py: Admin sees everyone, Manager/Partner
+ * see only their own roster). `dark` follows the same prop-driven
+ * pattern as ConnectorCards/FacilitatorCalendar — the invite modal
+ * itself stays plain white on purpose, matching every other
+ * "decision moment" card in this app (AccessExpiredGate, LoginCardStyleB,
+ * PortalSelectionCard, FacilitatorCalendar's booking modal).
+ */
+
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
 interface RosterEntry {
@@ -19,7 +31,7 @@ interface RosterEntry {
  * automatically (see roster.py: Admin sees everyone, Manager/Partner
  * see only their own roster).
  */
-export function RosterPanel() {
+export function RosterPanel({ dark = false }: { dark?: boolean }) {
   const { token } = useAuth();
   const [roster, setRoster] = useState<RosterEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -80,9 +92,9 @@ export function RosterPanel() {
   }
 
   return (
-    <div className="bg-white rounded-2xl border border-corporate-bg p-5">
+    <div className={`rounded-2xl border p-5 ${dark ? 'bg-corporate-surface-dark border-corporate-border-dark' : 'bg-white border-corporate-bg'}`}>
       <div className="flex items-center justify-between mb-4">
-        <h3 className="font-semibold text-corporate-text-on-bg">Roster</h3>
+        <h3 className={`font-semibold ${dark ? 'text-white' : 'text-corporate-text-on-bg'}`}>Roster</h3>
         <button
           onClick={() => setInviteOpen(true)}
           className="flex items-center gap-1.5 text-xs font-medium text-white bg-corporate-hero px-3 py-1.5 rounded-lg"
@@ -92,16 +104,16 @@ export function RosterPanel() {
       </div>
 
       {loading ? (
-        <p className="text-sm text-gray-400">Loading…</p>
+        <p className={`text-sm ${dark ? 'text-white/40' : 'text-gray-400'}`}>Loading…</p>
       ) : roster.length === 0 ? (
-        <p className="text-sm text-gray-400">No traders on your roster yet.</p>
+        <p className={`text-sm ${dark ? 'text-white/40' : 'text-gray-400'}`}>No traders on your roster yet.</p>
       ) : (
         <div className="space-y-2">
           {roster.map((r) => (
-            <div key={r.trader_user_id} className="flex items-center justify-between p-3 bg-corporate-bg rounded-lg">
+            <div key={r.trader_user_id} className={`flex items-center justify-between p-3 rounded-lg ${dark ? 'bg-corporate-nav-dark' : 'bg-corporate-bg'}`}>
               <div>
-                <div className="text-sm font-medium text-corporate-text-on-bg">{r.full_name}</div>
-                <div className="text-xs text-gray-500">{r.email} · {r.status}</div>
+                <div className={`text-sm font-medium ${dark ? 'text-white' : 'text-corporate-text-on-bg'}`}>{r.full_name}</div>
+                <div className={`text-xs ${dark ? 'text-white/40' : 'text-gray-500'}`}>{r.email} · {r.status}</div>
               </div>
               <button onClick={() => detach(r.trader_user_id)} className="text-gray-400 hover:text-red-500">
                 <Trash2 size={15} />

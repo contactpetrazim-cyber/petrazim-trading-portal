@@ -18,6 +18,13 @@ interface UserRow {
  * Super Admin; create/change-role/remove actions only render (and only
  * succeed server-side) for the seeded Super Admin — matches
  * require_super_admin() on the backend, not just require_role(ADMIN).
+ *
+ * Deliberately keeps its own dark smc-* palette rather than following
+ * the corporate light theme — same documented exception as the Trade
+ * console (config/theme.ts): an internal ops tool, not a first-time
+ * visitor surface. Still mounted inside CorporateLayout in App.tsx
+ * (like every other console) purely for the shared logo/nav — that
+ * part was missing entirely before, not a styling choice.
  */
 export function AdminConsolePage() {
   const { user, token } = useAuth();
@@ -47,7 +54,7 @@ export function AdminConsolePage() {
   if (!user) return null;
 
   return (
-    <div className="min-h-screen bg-smc-dark text-white p-6">
+    <div className="bg-smc-dark text-white rounded-2xl p-6 -mx-5 md:mx-0">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold">

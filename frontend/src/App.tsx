@@ -86,20 +86,23 @@ function App() {
           </ProtectedRoute>
         } />
 
-        {/* Role consoles */}
+        {/* Role consoles — mounted inside CorporateLayout (like every other
+            corporate-shell page) so they get the real logo, the site-wide
+            light/dark toggle, and BottomNav/Settings' "Switch Portal" nav.
+            They previously rendered bare, with none of that. */}
         <Route path="/manager" element={
           <ProtectedRoute allowedRoles={['fund_manager']}>
-            <ManagerConsolePage />
+            <CorporateLayout><ManagerConsolePage /></CorporateLayout>
           </ProtectedRoute>
         } />
         <Route path="/partner" element={
           <ProtectedRoute allowedRoles={['partner']}>
-            <PartnerConsolePage />
+            <CorporateLayout><PartnerConsolePage /></CorporateLayout>
           </ProtectedRoute>
         } />
         <Route path="/admin" element={
           <ProtectedRoute allowedRoles={['admin', 'super_admin']}>
-            <AdminConsolePage />
+            <CorporateLayout><AdminConsolePage /></CorporateLayout>
           </ProtectedRoute>
         } />
 
