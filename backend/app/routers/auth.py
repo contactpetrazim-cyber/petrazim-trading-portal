@@ -194,6 +194,7 @@ async def me(user: User = Depends(get_current_user)):
 class LearningStatsResponse(BaseModel):
     xp: int
     current_streak_days: int
+    longest_streak_days: int
     stages_complete: int
     stages_total: int
 
@@ -212,5 +213,6 @@ async def learning_stats(user: User = Depends(get_current_user), db: AsyncSessio
     snapshot = await learner_progress_snapshot(db, user.id)
     return LearningStatsResponse(
         xp=snapshot["xp"], current_streak_days=snapshot["current_streak_days"],
+        longest_streak_days=snapshot["longest_streak_days"],
         stages_complete=snapshot["stages_complete"], stages_total=snapshot["stages_total"],
     )

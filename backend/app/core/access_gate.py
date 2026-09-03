@@ -73,6 +73,7 @@ async def learner_progress_snapshot(db: AsyncSession, user_id) -> dict:
         "tracks_complete": tracks_complete, "tracks_total": total_tracks,
         "xp": stats.total_xp if stats else 0,
         "current_streak_days": stats.current_streak_days if stats else 0,
+        "longest_streak_days": stats.longest_streak_days if stats else 0,
     }
 
 

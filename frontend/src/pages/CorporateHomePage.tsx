@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Compass, TrendingUp, Award, Flame, LineChart } from 'lucide-react';
+import { Compass } from 'lucide-react';
 import { HERO_GRADIENT } from '../config/theme';
 import { FEATURE_AREAS } from '../config/featureRegistry';
 import { StartHereCard } from '../components/StartHereCard';
@@ -49,7 +49,9 @@ export function CorporateHomePage() {
   const firstName = user?.full_name?.split(' ')[0];
 
   const [botStats, setBotStats] = useState({ active: 0, total: 0 });
-  const [learningStats, setLearningStats] = useState({ xp: 0, streak: 0, masteryPct: 0 });
+  const [learningStats, setLearningStats] = useState({
+    xp: 0, streak: 0, longestStreak: 0, masteryPct: 0, stagesComplete: 0, stagesTotal: 0,
+  });
 
   useEffect(() => {
     fetch(`${API_URL}/bots/`)
@@ -69,17 +71,37 @@ export function CorporateHomePage() {
         setLearningStats({
           xp: s.xp,
           streak: s.current_streak_days,
+          longestStreak: s.longest_streak_days,
           masteryPct: s.stages_total > 0 ? Math.round((s.stages_complete / s.stages_total) * 100) : 0,
+          stagesComplete: s.stages_complete,
+          stagesTotal: s.stages_total,
         });
       })
       .catch(() => {});
   }, [token]);
 
+  // Big-number-first cards, one semantic color each — restyled to match
+  // the card style you shared (bold number top, plain-weight label,
+  // small muted detail line), applied to the same 4 real metrics rather
+  // than the reference screenshot's exact set (its "Modules completed"
+  // concept isn't a thing this backend tracks — no fabricated stat).
   const stats = [
-    { label: 'Overall mastery', value: `${learningStats.masteryPct}%`, icon: TrendingUp },
-    { label: 'Experience', value: `${learningStats.xp} XP`, icon: Award },
-    { label: 'Learning streak', value: `${learningStats.streak} days`, icon: Flame },
-    { label: 'Active bots', value: `${botStats.active} / ${botStats.total}`, icon: LineChart },
+    {
+      label: 'Overall mastery', value: `${learningStats.masteryPct}%`, color: '#005FB8',
+      detail: `${learningStats.stagesComplete} of ${learningStats.stagesTotal} stages validated`,
+    },
+    {
+      label: 'Active bots', value: `${botStats.active}/${botStats.total}`, color: '#059669',
+      detail: botStats.total > 0 ? `${botStats.total} bot${botStats.total === 1 ? '' : 's'} configured` : 'None configured yet',
+    },
+    {
+      label: 'Experience', value: `${learningStats.xp} XP`, color: '#D97706',
+      detail: 'Earned across every track',
+    },
+    {
+      label: 'Learning streak', value: `${learningStats.streak} days`, color: null,
+      detail: learningStats.longestStreak > 0 ? `Longest streak: ${learningStats.longestStreak} days` : 'Consistency drives retention',
+    },
   ];
 
   return (
@@ -117,18 +139,16 @@ export function CorporateHomePage() {
         <div className="absolute -right-10 -bottom-16 w-64 h-64 rounded-full" style={{ background: 'radial-gradient(circle, rgba(255,255,255,0.12), transparent 70%)' }} />
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {stats.map((s, i) => {
-          const Icon = s.icon;
-          return (
-            <div key={i} className={`rounded-2xl p-4 border ${dark ? 'bg-corporate-surface-dark border-corporate-border-dark' : 'bg-white border-[#dcdce8]'}`}>
-              <div className={`flex items-center gap-2 text-xs font-medium mb-1.5 ${dark ? 'text-white/40' : 'text-[#7c839c]'}`}>
-                <Icon size={13} /> {s.label}
-              </div>
-              <div className="text-2xl font-extrabold font-display" style={{ color: dark ? '#fff' : '#005FB8' }}>{s.value}</div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {stats.map((s, i) => (
+          <div key={i} className={`rounded-3xl p-6 border ${dark ? 'bg-corporate-surface-dark border-corporate-border-dark' : 'bg-white border-[#dcdce8]'}`}>
+            <div className="text-4xl font-extrabold font-display mb-2" style={{ color: s.color ?? (dark ? '#fff' : '#141a33') }}>
+              {s.value}
             </div>
-          );
-        })}
+            <div className={`text-base font-medium mb-1 ${dark ? 'text-white' : 'text-corporate-text-on-bg'}`}>{s.label}</div>
+            <div className={`text-sm ${dark ? 'text-white/40' : 'text-[#7c839c]'}`}>{s.detail}</div>
+          </div>
+        ))}
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 max-w-2xl mx-auto">
