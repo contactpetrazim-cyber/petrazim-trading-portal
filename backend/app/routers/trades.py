@@ -64,7 +64,8 @@ async def approve_trade(
     result = await engine.approve_trade(
         approval.trade_id,
         approval.approved,
-        approval.notes or ""
+        approval.notes or "",
+        db
     )
     return result
 

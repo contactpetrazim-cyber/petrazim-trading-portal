@@ -6,11 +6,13 @@ Execution Engine: Updated with BingX and TradeLocker support
 from typing import Optional, Dict, List
 from datetime import datetime
 import structlog
+from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.core.bot_strategies import BotSignal
 from app.services.broker_integrations import (
     BingXBroker, TradeLockerBroker, BinanceBroker, BybitBroker, MexcBroker,
 )
+from app.services.broker_credentials import build_broker_client
 
 logger = structlog.get_logger()
 settings = get_settings()
@@ -54,8 +56,15 @@ class ExecutionEngine:
                 self.settings.MEXC_SECRET
             )
 
-    async def process_signal(self, signal: BotSignal, mode: str = "human_in_loop") -> Dict:
-        """Process a bot signal into a trade action."""
+    async def process_signal(self, signal: BotSignal, mode: str = "human_in_loop", db: Optional[AsyncSession] = None) -> Dict:
+        """
+        Process a bot signal into a trade action. `db` is optional (a
+        live DB session enables per-bot broker credentials — see
+        _get_broker_client — and is threaded through from the caller,
+        e.g. webhook_processor.py or market_scanner.py; without it,
+        every bot shares the single global-key broker per exchange,
+        which still works fine for a single-account setup).
+        """
 
         trade_data = {
             "trade_id": f"TRD_{signal.bot_id}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}",
@@ -79,6 +88,21 @@ class ExecutionEngine:
             "execution_mode": mode
         }
 
+        # Also persist to the real `trades` table whenever a DB session
+        # is available (webhook and market_scanner callers always pass
+        # one). Without this, process_signal only ever wrote to this
+        # instance's in-memory pending_trades list — invisible to
+        # GET /trades/pending-approvals (which reads the Trade table)
+        # and to POST /trades/approve when it runs in a different
+        # ExecutionEngine instance (the webhook router and the trades
+        # router each construct their own). That gap meant every
+        # webhook-drafted trade was, in practice, unapprovable and
+        # invisible on the dashboard — a real problem now that
+        # market_scanner.py can generate many more signals than the
+        # rare manual webhook ever did.
+        if db is not None:
+            await self._persist_trade(db, trade_data)
+
         if mode == "human_in_loop":
             self.pending_trades.append(trade_data)
             logger.info("trade_drafted", trade_id=trade_data["trade_id"], bot=signal.bot_name, symbol=signal.symbol)
@@ -89,16 +113,95 @@ class ExecutionEngine:
                 "message": f"Trade drafted: {signal.symbol} {signal.direction} @ {signal.entry_price}"
             }
         else:
-            result = await self._execute_broker_order(trade_data)
+            result = await self._execute_broker_order(trade_data, db)
             if result["success"]:
                 trade_data["status"] = "active"
                 trade_data["broker_order_id"] = result.get("order_id")
                 self.active_trades.append(trade_data)
                 self.daily_trade_count += 1
+                if db is not None:
+                    await self._update_trade_after_execution(db, trade_data["trade_id"], result)
             return result
 
-    async def approve_trade(self, trade_id: str, approved: bool, notes: str = "") -> Dict:
-        """Manual approval handler."""
+    async def _persist_trade(self, db: AsyncSession, trade_data: Dict) -> None:
+        """Insert the real Trade row a drafted/executing signal produces."""
+        from app.models.trade import Trade, TradeDirection  # local import: avoids a circular import at module load
+
+        trade = Trade(
+            trade_id=trade_data["trade_id"],
+            bot_id=trade_data["bot_id"],
+            bot_name=trade_data["bot_name"],
+            strategy_type=trade_data["strategy_type"],
+            symbol=trade_data["symbol"],
+            direction=TradeDirection.LONG if trade_data["direction"] == "long" else TradeDirection.SHORT,
+            entry_price=trade_data["entry_price"],
+            stop_loss=trade_data["stop_loss"],
+            take_profit_1=trade_data["take_profit"],
+            lot_size=trade_data["lot_size"],
+            risk_percent=trade_data["risk_percent"],
+            risk_amount=trade_data["risk_amount"],
+            reasoning_log=trade_data.get("reasoning", ""),
+            requires_approval=trade_data["requires_approval"],
+            broker_name=trade_data.get("preferred_broker"),
+        )
+        db.add(trade)
+        await db.commit()
+
+    async def _update_trade_after_execution(self, db: AsyncSession, trade_id: str, result: Dict) -> None:
+        from sqlalchemy import select
+        from app.models.trade import Trade, TradeStatus
+
+        row = (await db.execute(select(Trade).where(Trade.trade_id == trade_id))).scalar_one_or_none()
+        if row:
+            row.status = TradeStatus.ACTIVE
+            row.entry_timestamp = datetime.utcnow()
+            row.broker_order_id = str(result.get("order_id", ""))
+            row.broker_name = result.get("broker", row.broker_name)
+            await db.commit()
+
+    async def approve_trade(self, trade_id: str, approved: bool, notes: str = "", db: Optional[AsyncSession] = None) -> Dict:
+        """
+        Manual approval handler. Checks the real Trade table first (the
+        source of truth once a DB session is available — see
+        process_signal's note above on why the in-memory list alone
+        isn't reliable across router instances or a restart), falling
+        back to the in-memory list only when no `db` is given.
+        """
+        from sqlalchemy import select
+        from app.models.trade import Trade, TradeStatus
+
+        if db is not None:
+            row = (await db.execute(select(Trade).where(Trade.trade_id == trade_id))).scalar_one_or_none()
+            if not row:
+                return {"success": False, "message": "Trade not found"}
+
+            if approved:
+                trade = {
+                    "trade_id": row.trade_id, "bot_id": row.bot_id, "symbol": row.symbol,
+                    "direction": "long" if row.direction.value == "long" else "short",
+                    "entry_price": row.entry_price, "stop_loss": row.stop_loss,
+                    "take_profit": row.take_profit_1, "lot_size": row.lot_size,
+                    "preferred_broker": row.broker_name,
+                }
+                result = await self._execute_broker_order(trade, db)
+                if result["success"]:
+                    row.status = TradeStatus.ACTIVE
+                    row.entry_timestamp = datetime.utcnow()
+                    row.approved_at = datetime.utcnow()
+                    row.approval_notes = notes
+                    row.broker_order_id = str(result.get("order_id", ""))
+                    row.broker_name = result.get("broker", row.broker_name)
+                    await db.commit()
+                    self.daily_trade_count += 1
+                    return {"success": True, "message": "Trade approved and executed", "trade_id": trade_id}
+                return {"success": False, "message": f"Approval granted but execution failed: {result.get('error')}"}
+            else:
+                row.status = TradeStatus.CANCELLED
+                row.approval_notes = notes
+                await db.commit()
+                return {"success": True, "message": "Trade rejected", "trade_id": trade_id}
+
+        # No DB session — legacy in-memory-only path.
         trade = None
         for t in self.pending_trades:
             if t["trade_id"] == trade_id:
@@ -109,7 +212,7 @@ class ExecutionEngine:
             return {"success": False, "message": "Trade not found"}
 
         if approved:
-            result = await self._execute_broker_order(trade)
+            result = await self._execute_broker_order(trade, db)
             if result["success"]:
                 trade["status"] = "active"
                 trade["approved_at"] = datetime.utcnow()
@@ -126,12 +229,31 @@ class ExecutionEngine:
             self.pending_trades.remove(trade)
             return {"success": True, "message": "Trade rejected", "trade_id": trade_id}
 
-    async def _execute_broker_order(self, trade: Dict) -> Dict:
+    async def _get_broker_client(self, broker: str, bot_id: Optional[str], db: Optional[AsyncSession]):
+        """
+        A bot-specific credential (see broker_credentials.py, one of
+        your 4-6 sub-accounts per exchange) wins when one exists;
+        otherwise falls back to the single global-key client for that
+        exchange (self.brokers, from BINANCE_API_KEY etc.) so a bot
+        with no credential row of its own keeps working exactly as
+        before. Returns None if neither exists (-> paper mode).
+        """
+        if db is not None and bot_id is not None:
+            try:
+                credential_client = await build_broker_client(db, bot_id, broker)
+                if credential_client is not None:
+                    return credential_client
+            except Exception as e:
+                logger.error("per_bot_credential_lookup_failed", bot_id=bot_id, broker=broker, error=str(e))
+        return self.brokers.get(broker)
+
+    async def _execute_broker_order(self, trade: Dict, db: Optional[AsyncSession] = None) -> Dict:
         """Execute order via configured broker."""
         broker = self._determine_broker(trade["symbol"], trade.get("preferred_broker"))
+        client = await self._get_broker_client(broker, trade.get("bot_id"), db) if broker != "paper" else None
 
         try:
-            if broker in self.brokers:
+            if client is not None:
                 # Cross-exchange price sanity guard — a signal's
                 # entry_price was computed off whatever exchange fed the
                 # bot's candles (see data_ingestion.py), which is not
@@ -139,7 +261,7 @@ class ExecutionEngine:
                 # the two disagree by more than the configured
                 # tolerance; a bad SL/TP/entry from a stale or
                 # foreign-exchange price is worse than a skipped trade.
-                guard_result = await self._check_price_deviation(broker, trade)
+                guard_result = await self._check_price_deviation(client, broker, trade)
                 if not guard_result["ok"]:
                     logger.error("price_deviation_guard_blocked", trade_id=trade["trade_id"], **guard_result)
                     return {
@@ -154,16 +276,16 @@ class ExecutionEngine:
                         ),
                     }
 
-            if broker == "bingx" and "bingx" in self.brokers:
-                return await self._execute_bingx(trade)
-            elif broker == "tradelocker" and "tradelocker" in self.brokers:
-                return await self._execute_tradelocker(trade)
-            elif broker == "binance" and "binance" in self.brokers:
-                return await self._execute_binance(trade)
-            elif broker == "bybit" and "bybit" in self.brokers:
-                return await self._execute_bybit(trade)
-            elif broker == "mexc" and "mexc" in self.brokers:
-                return await self._execute_mexc(trade)
+            if broker == "bingx" and client is not None:
+                return await self._execute_bingx(trade, client)
+            elif broker == "tradelocker" and client is not None:
+                return await self._execute_tradelocker(trade, client)
+            elif broker == "binance" and client is not None:
+                return await self._execute_binance(trade, client)
+            elif broker == "bybit" and client is not None:
+                return await self._execute_bybit(trade, client)
+            elif broker == "mexc" and client is not None:
+                return await self._execute_mexc(trade, client)
             elif broker == "metatrader":
                 return await self._execute_metatrader(trade)
             else:
@@ -177,7 +299,7 @@ class ExecutionEngine:
             logger.error("broker_execution_failed", error=str(e), trade_id=trade["trade_id"])
             return {"success": False, "error": str(e)}
 
-    async def _check_price_deviation(self, broker: str, trade: Dict) -> Dict:
+    async def _check_price_deviation(self, client, broker: str, trade: Dict) -> Dict:
         """
         Pull a live ticker straight from the execution broker and
         compare it to the signal's entry_price. Returns {"ok": True}
@@ -186,7 +308,6 @@ class ExecutionEngine:
         price check can't actually run for.
         """
         signal_price = trade.get("entry_price")
-        client = self.brokers.get(broker)
         if not client or signal_price is None or not hasattr(client, "get_ticker_price"):
             return {"ok": True}
 
@@ -220,7 +341,11 @@ class ExecutionEngine:
         Binance, not silently land on whichever broker this heuristic
         guesses from the symbol string.
         """
-        if preferred_broker and preferred_broker in self.brokers:
+        if preferred_broker:
+            # Trust an explicit pin even if there's no *global* key for
+            # it — a per-bot credential (broker_credentials.py) might
+            # be the only thing configured for this exchange, and
+            # _get_broker_client checks that separately.
             return preferred_broker
 
         symbol_upper = symbol.upper()
@@ -242,10 +367,8 @@ class ExecutionEngine:
         # Default
         return "paper"
 
-    async def _execute_bingx(self, trade: Dict) -> Dict:
+    async def _execute_bingx(self, trade: Dict, broker) -> Dict:
         """Execute via BingX."""
-        broker = self.brokers["bingx"]
-
         side = "BUY" if trade["direction"] == "long" else "SELL"
         order_type = "LIMIT" if trade.get("entry_type") == "limit" else "MARKET"
 
@@ -268,10 +391,8 @@ class ExecutionEngine:
             }
         return result
 
-    async def _execute_tradelocker(self, trade: Dict) -> Dict:
+    async def _execute_tradelocker(self, trade: Dict, broker) -> Dict:
         """Execute via TradeLocker."""
-        broker = self.brokers["tradelocker"]
-
         side = "buy" if trade["direction"] == "long" else "sell"
         order_type = "limit" if trade.get("entry_type") == "limit" else "market"
 
@@ -294,9 +415,8 @@ class ExecutionEngine:
             }
         return result
 
-    async def _execute_binance(self, trade: Dict) -> Dict:
+    async def _execute_binance(self, trade: Dict, broker) -> Dict:
         """Execute via Binance USDT-M Futures."""
-        broker = self.brokers["binance"]
         side = "BUY" if trade["direction"] == "long" else "SELL"
         order_type = "LIMIT" if trade.get("entry_type") == "limit" else "MARKET"
 
@@ -318,9 +438,8 @@ class ExecutionEngine:
             }
         return result
 
-    async def _execute_bybit(self, trade: Dict) -> Dict:
+    async def _execute_bybit(self, trade: Dict, broker) -> Dict:
         """Execute via Bybit V5 (linear/USDT perpetuals)."""
-        broker = self.brokers["bybit"]
         side = "BUY" if trade["direction"] == "long" else "SELL"
         order_type = "LIMIT" if trade.get("entry_type") == "limit" else "MARKET"
 
@@ -342,9 +461,8 @@ class ExecutionEngine:
             }
         return result
 
-    async def _execute_mexc(self, trade: Dict) -> Dict:
+    async def _execute_mexc(self, trade: Dict, broker) -> Dict:
         """Execute via MEXC Futures (contract)."""
-        broker = self.brokers["mexc"]
         side = "BUY" if trade["direction"] == "long" else "SELL"
         order_type = "LIMIT" if trade.get("entry_type") == "limit" else "MARKET"
 

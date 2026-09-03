@@ -58,6 +58,24 @@ class Settings(BaseSettings):
     # more than this percentage, the trade is flagged instead of sent.
     PRICE_DEVIATION_TOLERANCE_PCT: float = 0.25
 
+    # Autonomous market scanner (market_scanner.py) — the loop that lets
+    # bots read the market themselves instead of waiting on a
+    # TradingView Pine alert. Off by default: it makes real API calls
+    # to real exchanges every cycle even in "paper" mode, so it's an
+    # opt-in once you're ready to test it, not a silent default.
+    MARKET_SCANNER_ENABLED: bool = False
+    MARKET_SCANNER_INTERVAL_SECONDS: int = 300
+    MARKET_SCANNER_DEFAULT_EXCHANGE: str = "binance"
+    # Used only for position-sizing math when a bot has no live broker
+    # balance to read (paper mode, or no credential configured yet).
+    MARKET_SCANNER_DEFAULT_ACCOUNT_BALANCE: float = 10000.0
+
+    # Per-bot broker credentials (models/broker_credential.py) are
+    # encrypted at rest with this key rather than the JWT SECRET_KEY,
+    # so rotating one doesn't affect the other. Generate with:
+    #   python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+    CREDENTIALS_ENCRYPTION_KEY: str = ""
+
     class Config:
         env_file = ".env"
         # Several services (payments.py, telegram.py, fireflies.py, the

@@ -25,8 +25,11 @@ from app.routers.chart_layouts import router as chart_layouts_router
 from app.routers.facilitator import router as facilitator_router
 from app.routers.roster import router as roster_router
 from app.routers.portals import router as portals_router
+from app.routers.broker_credentials import router as broker_credentials_router
 from app.database import engine, Base
 from app.db.session import engine as legacy_engine, Base as LegacyBase
+from app.services.execution_engine import ExecutionEngine
+from app.services.market_scanner import MarketScanner
 
 settings = get_settings()
 logger = structlog.get_logger()
@@ -70,7 +73,20 @@ async def lifespan(app: FastAPI):
     async with legacy_engine.begin() as conn:
         await conn.run_sync(LegacyBase.metadata.create_all)
 
+    # Autonomous market scanner — off by default (MARKET_SCANNER_ENABLED).
+    # See market_scanner.py's module docstring for what this does and
+    # why it's opt-in.
+    scanner = None
+    if settings.MARKET_SCANNER_ENABLED:
+        scanner = MarketScanner(ExecutionEngine())
+        scanner.start()
+    else:
+        logger.info("market_scanner_disabled", note="set MARKET_SCANNER_ENABLED=true to turn on autonomous scanning")
+
     yield
+
+    if scanner is not None:
+        await scanner.stop()
 
     logger.info("app_shutdown")
     await engine.dispose()
@@ -121,6 +137,7 @@ app.include_router(chart_layouts_router)
 app.include_router(facilitator_router)
 app.include_router(roster_router)
 app.include_router(portals_router)
+app.include_router(broker_credentials_router)
 
 # Phase-1 analytics engines — routers ship without their own prefix
 app.include_router(monte_carlo_router, prefix="/api/monte-carlo", tags=["monte-carlo"])

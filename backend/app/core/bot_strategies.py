@@ -91,8 +91,14 @@ class MacroSwingStructureBot:
 
         # Determine macro trend
         recent_swings = sorted(swings_1d, key=lambda x: x.timestamp)[-4:]
-        highs = [s for s in recent_swings if s.structure_type == SwingPoint.structure_type and \
-               s.structure_type.name == "SWING_HIGH"]
+        # (the `s.structure_type == SwingPoint.structure_type` clause this
+        # line used to also check was comparing an instance's field
+        # against the same name looked up on the class itself, which
+        # doesn't exist as a class attribute — SwingPoint.structure_type
+        # is a per-instance dataclass field, not a class-level default.
+        # AttributeError, every single call, confirmed live via the
+        # market scanner — the real filter was always just this half.)
+        highs = [s for s in recent_swings if s.structure_type.name == "SWING_HIGH"]
         lows = [s for s in recent_swings if s.structure_type.name == "SWING_LOW"]
 
         if not highs or not lows:

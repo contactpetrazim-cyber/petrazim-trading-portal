@@ -115,7 +115,7 @@ class WebhookProcessor:
             }
 
         # Process through execution engine
-        result = await self.execution_engine.process_signal(signal, execution_mode)
+        result = await self.execution_engine.process_signal(signal, execution_mode, db)
 
         # Enrich response
         result["execution_mode"] = execution_mode

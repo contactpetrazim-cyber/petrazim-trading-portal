@@ -7,11 +7,26 @@ Supports: CCXT (Binance, Bybit), Yahoo Finance, CSV files, WebSocket feeds.
 
 from typing import List, Optional, Dict, AsyncGenerator
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import asyncio
 import aiohttp
 import pandas as pd
 from app.core.smc_algorithms import Candle
+
+
+def to_ccxt_symbol(symbol: str) -> str:
+    """
+    "BTCUSDT" (TradingView/BotConfig convention, no separator) ->
+    "BTC/USDT" (ccxt convention, required). A symbol that already has a
+    "/" is returned unchanged.
+    """
+    if "/" in symbol:
+        return symbol.upper()
+    symbol = symbol.upper()
+    for quote in ("USDT", "USDC", "BUSD", "USD"):
+        if symbol.endswith(quote) and len(symbol) > len(quote):
+            return f"{symbol[:-len(quote)]}/{quote}"
+    return symbol
 
 @dataclass
 class DataSourceConfig:
@@ -52,26 +67,44 @@ class MarketDataIngestion:
 
         Timeframe mapping:
         - "1m", "5m", "15m", "1h", "4h", "1d"
+
+        NOTE: this used to instantiate plain `ccxt` (the synchronous
+        package) and call `ex.fetch_ohlcv(...)` with no `await` inside
+        this `async def` — a blocking network call that freezes the
+        entire asyncio event loop (every other request, every
+        websocket) for as long as the exchange takes to respond. Fixed
+        to use `ccxt.async_support`, ccxt's actual asyncio-native
+        variant, so this is now genuinely non-blocking. Also: the
+        symbol normalization line computed `ccxt_symbol` but then
+        never used it, passing the original (wrong-format) `symbol` to
+        fetch_ohlcv — and the direction was backwards anyway (it
+        stripped "/" rather than inserting one). ccxt requires
+        "BTC/USDT", not "BTCUSDT"; see to_ccxt_symbol() above.
         """
+        import ccxt.async_support as ccxt_async
+
         try:
-            import ccxt
+            exchange_class = getattr(ccxt_async, exchange)
+        except AttributeError:
+            raise ValueError(f"Unknown ccxt exchange id: {exchange!r}")
 
-            ex = getattr(ccxt, exchange)({
-                'enableRateLimit': True,
-            })
-
-            # Convert symbol format
-            ccxt_symbol = symbol.replace("/", "")
-
-            # Fetch OHLCV
+        ex = exchange_class({'enableRateLimit': True})
+        try:
+            ccxt_symbol = to_ccxt_symbol(symbol)
             since_ms = int(since.timestamp() * 1000) if since else None
-            ohlcv = ex.fetch_ohlcv(symbol, timeframe, since=since_ms, limit=limit)
+            ohlcv = await ex.fetch_ohlcv(ccxt_symbol, timeframe, since=since_ms, limit=limit)
 
             candles = []
             for data in ohlcv:
                 timestamp_ms, open_p, high_p, low_p, close_p, volume = data
                 candles.append(Candle(
-                    timestamp=datetime.fromtimestamp(timestamp_ms / 1000),
+                    # Naive-but-UTC, matching every other timestamp in
+                    # this codebase (smc_algorithms.py etc. use
+                    # datetime.utcnow()) — an aware datetime here would
+                    # raise "can't compare offset-naive and
+                    # offset-aware datetimes" the moment it's compared
+                    # against one of those.
+                    timestamp=datetime.fromtimestamp(timestamp_ms / 1000, tz=timezone.utc).replace(tzinfo=None),
                     open=float(open_p),
                     high=float(high_p),
                     low=float(low_p),
@@ -81,10 +114,10 @@ class MarketDataIngestion:
 
             return candles
 
-        except ImportError:
-            raise ImportError("CCXT not installed. Run: pip install ccxt")
         except Exception as e:
             raise Exception(f"Failed to fetch from {exchange}: {str(e)}")
+        finally:
+            await ex.close()
 
     async def fetch_historical_yahoo(self,
                                      symbol: str,

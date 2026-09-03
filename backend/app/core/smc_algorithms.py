@@ -61,6 +61,15 @@ class Zone:
     touches: List[Dict] = field(default_factory=list)
     fib_level: Optional[float] = None
     classification: Optional[str] = None  # premium, discount, equilibrium
+    # Both written by check_mitigation() below (zone.test_count += 1,
+    # zone.last_test_timestamp = ...) but never declared as fields —
+    # every zone touch raised AttributeError. Confirmed live: the
+    # market scanner's first real run crashed here, since nothing
+    # before it had ever actually called this path against real
+    # candles (bot_strategies.py's Bot 5 also reads test_count, to
+    # filter for zones tested at most once).
+    test_count: int = 0
+    last_test_timestamp: Optional[datetime] = None
 
 @dataclass
 class FairValueGap:
