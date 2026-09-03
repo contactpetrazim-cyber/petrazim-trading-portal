@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.core.bot_strategies import BotSignal
 from app.services.broker_integrations import (
-    BingXBroker, TradeLockerBroker, BinanceBroker, BybitBroker, MexcBroker,
+    BingXBroker, TradeLockerBroker, BinanceBroker, BybitBroker, MexcBroker, MetaApiBroker,
 )
 from app.services.broker_credentials import build_broker_client
 
@@ -66,6 +66,12 @@ class ExecutionEngine:
                 self.settings.MEXC_SECRET,
                 proxy=self.settings.MEXC_PROXY_URL or None,
                 backup_proxy=self.settings.MEXC_BACKUP_PROXY_URL or None,
+            )
+        if self.settings.METAAPI_TOKEN and self.settings.METAAPI_ACCOUNT_ID:
+            self.brokers["metatrader"] = MetaApiBroker(
+                self.settings.METAAPI_TOKEN,
+                self.settings.METAAPI_ACCOUNT_ID,
+                self.settings.METAAPI_REGION,
             )
 
     async def process_signal(self, signal: BotSignal, mode: str = "human_in_loop", db: Optional[AsyncSession] = None) -> Dict:
@@ -298,8 +304,8 @@ class ExecutionEngine:
                 return await self._execute_bybit(trade, client)
             elif broker == "mexc" and client is not None:
                 return await self._execute_mexc(trade, client)
-            elif broker == "metatrader":
-                return await self._execute_metatrader(trade)
+            elif broker == "metatrader" and client is not None:
+                return await self._execute_metatrader(trade, client)
             else:
                 return {
                     "success": True,
@@ -496,8 +502,35 @@ class ExecutionEngine:
             }
         return result
 
-    async def _execute_metatrader(self, trade: Dict) -> Dict:
-        return {"success": True, "order_id": f"MT_{trade['trade_id']}", "broker": "metatrader"}
+    async def _execute_metatrader(self, trade: Dict, broker) -> Dict:
+        """
+        Execute via MT4/MT5 (MetaApi.cloud). This used to be a stub that
+        fabricated a fake success with no real broker call at all —
+        replaced now that MetaApiBroker exists (see
+        broker_integrations.py for prerequisites: it needs a MetaApi
+        account with your real MT4/5 login connected and deployed there
+        first).
+        """
+        side = "BUY" if trade["direction"] == "long" else "SELL"
+        order_type = "LIMIT" if trade.get("entry_type") == "limit" else "MARKET"
+
+        result = await broker.place_order(
+            symbol=trade["symbol"],
+            side=side,
+            order_type=order_type,
+            quantity=trade["lot_size"],
+            price=trade.get("entry_price"),
+            stop_loss=trade.get("stop_loss"),
+            take_profit=trade.get("take_profit")
+        )
+        if result["success"]:
+            return {
+                "success": True,
+                "order_id": result["order_id"],
+                "broker": "metatrader",
+                "message": f"MT4/5 order placed: {result['status']}"
+            }
+        return result
 
     async def close_trade(self, trade_id: str, exit_price: float, exit_type: str) -> Dict:
         """Close an active trade."""

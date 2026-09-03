@@ -28,8 +28,12 @@ jobs:
             echo "SUPABASE_URL / SUPABASE_ANON_KEY secrets not set yet — add them in repo Settings > Secrets and variables > Actions once the Supabase project exists. Skipping."
             exit 0
           fi
-          curl -sf --max-time 25 "${{ secrets.SUPABASE_URL }}/rest/v1/" \
+          # /rest/v1/ (PostgREST root) rejects the anon key with 401 —
+          # it's restricted to the service_role key, confirmed live.
+          # /auth/v1/health is the right target: public, works with the
+          # anon key, returns 200, and still counts as real project
+          # activity for Supabase's own inactivity tracking.
+          curl -sf --max-time 25 "${{ secrets.SUPABASE_URL }}/auth/v1/health" \
             -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
-            -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}" \
             && echo "Supabase responded — project active." \
             || echo "No response — check the project isn't already paused (Supabase dashboard shows this, and a paused project needs one manual un-pause click to recover, this workflow can't do that part)."

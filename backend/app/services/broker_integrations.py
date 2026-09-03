@@ -945,3 +945,136 @@ class MexcBroker:
         return await self._request("POST", "/api/v1/private/position/change_leverage", {
             "symbol": self._mexc_symbol(symbol), "leverage": leverage, "openType": 2,
         })
+
+
+# =============================================================================
+# MT4/MT5 BROKER INTEGRATION (via MetaApi.cloud)
+# =============================================================================
+
+class MetaApiBroker:
+    """
+    MT4/MT5 client via MetaApi.cloud (https://metaapi.cloud) — the
+    standard third-party bridge for programmatic MT4/5 trading, since
+    neither platform exposes a public REST API of its own. Endpoint
+    shapes confirmed against MetaApi's live docs and a real (401,
+    correctly-structured) response from their actual host — not
+    guessed — but no real MT4/5 account was available to test an
+    actual trade in this session.
+
+    PREREQUISITES (yours to set up, not something any code can do for
+    you): 1) a MetaApi.cloud account, 2) inside it, add your real MT4/5
+    login (broker server + login + password) as a "trading account" —
+    this is the one-time step that actually connects to your broker,
+    done once via MetaApi's own dashboard or provisioning API, and 3)
+    wait for that account to show as "deployed". That gives you the
+    `account_id` and API `token` this class needs.
+
+    NOTE ON IP WHITELISTING: unlike the other 4 brokers, this class
+    does not call your broker directly — MetaApi's own cloud servers
+    connect to your broker's MT4/5 terminal, and this class only calls
+    MetaApi's REST API (authenticated by token, not by IP). Your Fixie
+    proxy IPs are only relevant here if your broker separately
+    restricts terminal/API access by IP on MetaApi's connecting side —
+    check with your broker, since that's a different whitelist than
+    the crypto exchanges use.
+    """
+
+    def __init__(self, token: str, account_id: str, region: str = "new-york"):
+        self.token = token
+        self.account_id = account_id
+        self.base_url = f"https://mt-client-api-v1.{region}.agiliumtrade.ai/users/current/accounts/{account_id}"
+        self.client = httpx.AsyncClient(timeout=30.0)
+
+    async def _request(self, method: str, path: str, json_body: Dict = None, params: Dict = None) -> Dict:
+        headers = {"auth-token": self.token, "Content-Type": "application/json"}
+        url = f"{self.base_url}{path}"
+        try:
+            if method == "GET":
+                response = await self.client.get(url, headers=headers, params=params)
+            elif method == "POST":
+                response = await self.client.post(url, headers=headers, json=json_body)
+            else:
+                raise ValueError(f"Unsupported method: {method}")
+
+            data = response.json()
+            if response.status_code >= 400:
+                logger.error("metaapi_error", status=response.status_code, error=data)
+                return {"success": False, "error": data.get("message", str(data))}
+            return {"success": True, "data": data}
+        except Exception as e:
+            logger.error("metaapi_request_failed", error=str(e))
+            return {"success": False, "error": str(e)}
+
+    async def get_ticker_price(self, symbol: str) -> Dict:
+        """Public-ish (still auth-token'd) current bid/ask for a symbol."""
+        result = await self._request("GET", f"/symbols/{symbol}/current-price")
+        if result["success"]:
+            price_data = result["data"]
+            mid = (price_data.get("bid", 0) + price_data.get("ask", 0)) / 2
+            return {"success": True, "price": mid}
+        return result
+
+    async def place_order(self,
+                         symbol: str,
+                         side: str,  # BUY or SELL
+                         order_type: str,  # MARKET or LIMIT
+                         quantity: float,
+                         price: Optional[float] = None,
+                         stop_loss: Optional[float] = None,
+                         take_profit: Optional[float] = None) -> Dict:
+        action_type = (
+            ("ORDER_TYPE_BUY" if side.upper() == "BUY" else "ORDER_TYPE_SELL")
+            if order_type.upper() == "MARKET" else
+            ("ORDER_TYPE_BUY_LIMIT" if side.upper() == "BUY" else "ORDER_TYPE_SELL_LIMIT")
+        )
+        body = {"actionType": action_type, "symbol": symbol, "volume": quantity}
+        if order_type.upper() == "LIMIT" and price:
+            body["openPrice"] = price
+        if stop_loss:
+            body["stopLoss"] = stop_loss
+        if take_profit:
+            body["takeProfit"] = take_profit
+
+        result = await self._request("POST", "/trade", body)
+        if result["success"]:
+            data = result["data"]
+            logger.info("metaapi_order_placed", symbol=symbol, side=side, order_id=data.get("orderId"))
+            return {
+                "success": True,
+                "order_id": data.get("orderId") or data.get("positionId"),
+                "symbol": symbol,
+                "status": data.get("stringCode", "NEW"),
+            }
+        return result
+
+    async def close_position(self, symbol: str, side: str, position_id: Optional[str] = None) -> Dict:
+        """
+        MetaApi closes by positionId, not by symbol/side like the crypto
+        brokers — if position_id isn't supplied, looks up the first open
+        position on this symbol.
+        """
+        if not position_id:
+            positions = await self.get_position(symbol)
+            if not positions["success"] or not positions.get("data"):
+                return {"success": False, "error": "No open position found to close"}
+            position_id = positions["data"][0]["id"]
+        return await self._request("POST", "/trade", {"actionType": "POSITION_CLOSE_ID", "positionId": position_id})
+
+    async def get_position(self, symbol: str) -> Dict:
+        result = await self._request("GET", "/positions")
+        if result["success"]:
+            positions = [p for p in result["data"] if p.get("symbol") == symbol]
+            return {"success": True, "data": positions}
+        return result
+
+    async def get_balance(self) -> Dict:
+        result = await self._request("GET", "/account-information")
+        if result["success"]:
+            info = result["data"]
+            return {
+                "success": True,
+                "balance": float(info.get("balance", 0)),
+                "equity": float(info.get("equity", 0)),
+                "available_balance": float(info.get("freeMargin", 0)),
+            }
+        return result

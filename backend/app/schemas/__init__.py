@@ -107,7 +107,7 @@ class BotConfigCreate(BaseModel):
     execution_mode: Literal["human_in_loop", "fully_autonomous"] = "human_in_loop"
     use_trailing_stop: bool = True
     strategy_params: Optional[Dict] = {}
-    exchange: Optional[Literal["bingx", "binance", "bybit", "mexc", "tradelocker"]] = None
+    exchange: Optional[Literal["bingx", "binance", "bybit", "mexc", "tradelocker", "metatrader"]] = None
 
 class BotConfigResponse(BaseModel):
     id: UUID
@@ -130,7 +130,7 @@ class BotToggle(BaseModel):
     active: bool
 
 class BotExchangeUpdate(BaseModel):
-    exchange: Literal["bingx", "binance", "bybit", "mexc", "tradelocker"]
+    exchange: Literal["bingx", "binance", "bybit", "mexc", "tradelocker", "metatrader"]
 
 # =============================================================================
 # DASHBOARD / ANALYTICS SCHEMAS

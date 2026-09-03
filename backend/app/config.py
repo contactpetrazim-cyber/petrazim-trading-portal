@@ -50,6 +50,14 @@ class Settings(BaseSettings):
     MEXC_API_KEY: str = ""
     MEXC_SECRET: str = ""
 
+    # MT4/MT5 via MetaApi.cloud (broker_integrations.py::MetaApiBroker) —
+    # METAAPI_ACCOUNT_ID/METAAPI_REGION come from MetaApi's own dashboard
+    # after you've connected your real MT4/5 login there; neither MT4
+    # nor MT5 has a public API of its own, MetaApi is the standard bridge.
+    METAAPI_TOKEN: str = ""
+    METAAPI_ACCOUNT_ID: str = ""
+    METAAPI_REGION: str = "new-york"
+
     # Fixie static-IP proxies — most exchanges require whitelisting a
     # fixed IP for a trading-enabled API key, which a free PaaS host's
     # own (dynamic) egress IP can't satisfy. Each exchange's private
