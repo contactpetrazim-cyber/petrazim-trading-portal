@@ -2,18 +2,6 @@ import { useEffect, useState } from 'react';
 import { UserPlus, Trash2, X } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 
-/**
- * RosterPanel — invite/assign/detach Traders. Mounted on
- * ManagerConsolePage, PartnerConsolePage, and AdminConsolePage — same
- * component, backend scopes the data per the caller's role
- * automatically (see roster.py: Admin sees everyone, Manager/Partner
- * see only their own roster). `dark` follows the same prop-driven
- * pattern as ConnectorCards/FacilitatorCalendar — the invite modal
- * itself stays plain white on purpose, matching every other
- * "decision moment" card in this app (AccessExpiredGate, LoginCardStyleB,
- * PortalSelectionCard, FacilitatorCalendar's booking modal).
- */
-
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
 interface RosterEntry {
@@ -26,12 +14,19 @@ interface RosterEntry {
 
 /**
  * RosterPanel — invite/assign/detach Traders. Mounted on
- * ManagerConsolePage, PartnerConsolePage, and AdminConsolePage — same
- * component, backend scopes the data per the caller's role
- * automatically (see roster.py: Admin sees everyone, Manager/Partner
- * see only their own roster).
+ * ManagerConsolePage and PartnerConsolePage — same component, backend
+ * scopes the data per the caller's role automatically (see roster.py:
+ * Admin sees everyone, Manager/Partner see only their own roster).
+ *
+ * Styled to the trader dashboard's own smc-* palette, not a
+ * corporate-dark lookalike — both consoles now mount inside the same
+ * Layout the Trader console uses (see App.tsx), so this needed to
+ * match it exactly, not just approximate it. The invite modal stays
+ * plain white on purpose — every "decision moment" card in this app
+ * does (AccessExpiredGate, LoginCardStyleB, PortalSelectionCard,
+ * FacilitatorCalendar's booking modal).
  */
-export function RosterPanel({ dark = false }: { dark?: boolean }) {
+export function RosterPanel() {
   const { token } = useAuth();
   const [roster, setRoster] = useState<RosterEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -92,30 +87,30 @@ export function RosterPanel({ dark = false }: { dark?: boolean }) {
   }
 
   return (
-    <div className={`rounded-2xl border p-5 ${dark ? 'bg-corporate-surface-dark border-corporate-border-dark' : 'bg-white border-corporate-bg'}`}>
+    <div className="bg-smc-card border border-smc-border rounded-xl p-6">
       <div className="flex items-center justify-between mb-4">
-        <h3 className={`font-semibold ${dark ? 'text-white' : 'text-corporate-text-on-bg'}`}>Roster</h3>
+        <h3 className="text-lg font-bold">Roster</h3>
         <button
           onClick={() => setInviteOpen(true)}
-          className="flex items-center gap-1.5 text-xs font-medium text-white bg-corporate-hero px-3 py-1.5 rounded-lg"
+          className="flex items-center gap-1.5 text-xs font-medium text-white bg-smc-accent px-3 py-1.5 rounded-lg hover:bg-smc-accent/90 transition-colors"
         >
           <UserPlus size={14} /> Invite Trader
         </button>
       </div>
 
       {loading ? (
-        <p className={`text-sm ${dark ? 'text-white/40' : 'text-gray-400'}`}>Loading…</p>
+        <p className="text-sm text-gray-400">Loading…</p>
       ) : roster.length === 0 ? (
-        <p className={`text-sm ${dark ? 'text-white/40' : 'text-gray-400'}`}>No traders on your roster yet.</p>
+        <p className="text-sm text-gray-400">No traders on your roster yet.</p>
       ) : (
         <div className="space-y-2">
           {roster.map((r) => (
-            <div key={r.trader_user_id} className={`flex items-center justify-between p-3 rounded-lg ${dark ? 'bg-corporate-nav-dark' : 'bg-corporate-bg'}`}>
+            <div key={r.trader_user_id} className="flex items-center justify-between p-3 bg-white/5 rounded-lg">
               <div>
-                <div className={`text-sm font-medium ${dark ? 'text-white' : 'text-corporate-text-on-bg'}`}>{r.full_name}</div>
-                <div className={`text-xs ${dark ? 'text-white/40' : 'text-gray-500'}`}>{r.email} · {r.status}</div>
+                <div className="text-sm font-medium">{r.full_name}</div>
+                <div className="text-xs text-gray-400">{r.email} · {r.status}</div>
               </div>
-              <button onClick={() => detach(r.trader_user_id)} className="text-gray-400 hover:text-red-500">
+              <button onClick={() => detach(r.trader_user_id)} className="text-gray-400 hover:text-smc-danger transition-colors">
                 <Trash2 size={15} />
               </button>
             </div>
@@ -135,15 +130,15 @@ export function RosterPanel({ dark = false }: { dark?: boolean }) {
               <>
                 <label className="text-xs font-medium text-gray-500 block mb-1">Full name</label>
                 <input value={inviteName} onChange={(e) => setInviteName(e.target.value)}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mb-3 text-corporate-text-on-bg outline-none focus:border-corporate-accent" />
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mb-3 text-corporate-text-on-bg outline-none focus:border-smc-accent" />
                 <label className="text-xs font-medium text-gray-500 block mb-1">Email</label>
                 <input value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} type="email"
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mb-4 text-corporate-text-on-bg outline-none focus:border-corporate-accent" />
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mb-4 text-corporate-text-on-bg outline-none focus:border-smc-accent" />
                 {error && <p className="text-xs text-red-500 mb-3">{error}</p>}
                 <button
                   onClick={submitInvite}
                   disabled={!inviteEmail || !inviteName}
-                  className="w-full bg-corporate-accent text-white font-medium py-2.5 rounded-lg text-sm disabled:opacity-50"
+                  className="w-full bg-smc-accent text-white font-medium py-2.5 rounded-lg text-sm disabled:opacity-50"
                 >
                   Send invite
                 </button>
@@ -154,10 +149,10 @@ export function RosterPanel({ dark = false }: { dark?: boolean }) {
                   Trader account created for <b>{inviteResult.email}</b>. Share this one-time password —
                   it won't be shown again:
                 </p>
-                <div className="bg-corporate-bg rounded-lg p-3 font-mono text-sm text-center mb-4">
+                <div className="bg-gray-100 rounded-lg p-3 font-mono text-sm text-center mb-4">
                   {inviteResult.temporary_password}
                 </div>
-                <button onClick={closeInvite} className="w-full bg-corporate-hero text-white font-medium py-2.5 rounded-lg text-sm">
+                <button onClick={closeInvite} className="w-full bg-smc-accent text-white font-medium py-2.5 rounded-lg text-sm">
                   Done
                 </button>
               </div>

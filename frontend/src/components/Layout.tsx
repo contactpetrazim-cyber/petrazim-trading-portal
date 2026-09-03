@@ -1,32 +1,66 @@
 
+import { useState } from 'react';
 import { useAppStore } from '../hooks/useStore';
-import { 
-  LayoutDashboard, 
-  TrendingUp, 
-  Bot, 
-  Settings, 
-  Bell, 
+import {
+  LayoutDashboard,
+  TrendingUp,
+  Bot,
+  Settings as SettingsIcon,
+  Bell,
   Menu,
   X,
   Activity,
   Shield,
-  Zap
+  LucideIcon,
 } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { BackendStatusBadge } from './BackendStatusBadge';
+import { PetrazimLogo } from './PetrazimLogo';
+import { SettingsPanel } from './SettingsPanel';
+import { useThemeStore } from '../hooks/useTheme';
 
-const navItems = [
-  { path: '/', label: 'Dashboard', icon: LayoutDashboard },
+export interface NavItem {
+  path: string;
+  label: string;
+  icon: LucideIcon;
+}
+
+const TRADER_NAV_ITEMS: NavItem[] = [
+  { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { path: '/trades', label: 'Trades', icon: TrendingUp },
   { path: '/bots', label: 'Bots', icon: Bot },
   { path: '/analytics', label: 'Analytics', icon: Activity },
   { path: '/risk', label: 'Risk Management', icon: Shield },
-  { path: '/settings', label: 'Settings', icon: Settings },
+  { path: '/settings', label: 'Settings', icon: SettingsIcon },
 ];
 
-export function Layout({ children }: { children: React.ReactNode }) {
+/**
+ * Layout — the Trader console's dark terminal shell. Now the shared
+ * shell for every portal (Trader/Manager/Partner/Admin), not just the
+ * Trader's: "let every portal follow the style and formatting and
+ * colour theme of the trader dashboard" means literally this
+ * component, not a lookalike. `navItems` lets each portal supply its
+ * own (Trader's five-item sidebar stays the default, so this page
+ * needed zero changes at its own three call sites).
+ *
+ * Also fixes a real, separate gap while unifying this: the header
+ * was still the pre-launch "SMC Trading Engine" placeholder branding
+ * (a lightning icon + text), never swapped for the real Petrazim
+ * logo like TopNav's corporate-shell header already was — "use the
+ * correct Petrazim logo on all portals, copy the trader portal" only
+ * half-worked as an instruction while the trader portal itself hadn't
+ * been fixed either.
+ *
+ * The settings gear (new) opens the same SettingsPanel the corporate
+ * shell uses, forced dark — this is what gives every portal mounted
+ * here the "Switch Portal" nav ("how to get back and select portal of
+ * interest"), consistently, rather than each portal inventing its own.
+ */
+export function Layout({ children, navItems = TRADER_NAV_ITEMS }: { children: React.ReactNode; navItems?: NavItem[] }) {
   const { sidebarOpen, toggleSidebar, wsConnected, stats } = useAppStore();
   const location = useLocation();
+  const { theme, setTheme } = useThemeStore();
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   return (
     <div className="min-h-screen bg-smc-dark text-white font-sans">
@@ -36,12 +70,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
           <button onClick={toggleSidebar} className="p-2 hover:bg-smc-border rounded-lg transition-colors">
             {sidebarOpen ? <X size={20} /> : <Menu size={20} />}
           </button>
-          <div className="flex items-center gap-2">
-            <Zap className="text-smc-accent" size={24} />
-            <h1 className="text-lg font-bold tracking-tight">
-              SMC <span className="text-smc-accent">Trading Engine</span>
-            </h1>
-          </div>
+          <Link to="/home" className="flex items-center">
+            <PetrazimLogo height={34} />
+          </Link>
         </div>
 
         <div className="flex items-center gap-4">
@@ -66,9 +97,13 @@ export function Layout({ children }: { children: React.ReactNode }) {
             </div>
           )}
 
-          <div className="text-sm text-gray-400">
-            v1.0.0
-          </div>
+          <button
+            onClick={() => setSettingsOpen(true)}
+            aria-label="Open settings"
+            className="w-9 h-9 rounded-lg flex items-center justify-center text-smc-accent hover:bg-white/5 transition-colors"
+          >
+            <SettingsIcon size={17} />
+          </button>
         </div>
       </header>
 
@@ -85,8 +120,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 key={item.path}
                 to={item.path}
                 className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all ${
-                  isActive 
-                    ? 'bg-smc-accent/10 text-smc-accent border border-smc-accent/20' 
+                  isActive
+                    ? 'bg-smc-accent/10 text-smc-accent border border-smc-accent/20'
                     : 'text-gray-400 hover:bg-smc-border hover:text-white'
                 }`}
               >
@@ -101,21 +136,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
             );
           })}
         </nav>
-
-        {/* Bot Status Summary */}
-        <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-smc-border">
-          <div className="text-xs text-gray-500 mb-2">Active Bots</div>
-          <div className="flex items-center gap-2">
-            <div className="flex -space-x-2">
-              {[1,2,3,4,5].map(i => (
-                <div key={i} className="w-6 h-6 rounded-full bg-smc-accent/20 border border-smc-accent/50 flex items-center justify-center text-xs text-smc-accent">
-                  B{i}
-                </div>
-              ))}
-            </div>
-            <span className="text-sm text-gray-400">5/5 Active</span>
-          </div>
-        </div>
       </aside>
 
       {/* Main Content */}
@@ -124,6 +144,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
           {children}
         </div>
       </main>
+
+      <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} theme={theme} setTheme={setTheme} dark />
     </div>
   );
 }

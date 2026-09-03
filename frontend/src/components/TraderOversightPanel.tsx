@@ -19,6 +19,9 @@ interface RosterEntry {
  * now allows a Manager/Partner to edit a bot belonging to a Trader on
  * their own roster, not just view it (see user_can_manage_trader).
  *
+ * Styled to the trader dashboard's own smc-* palette (see RosterPanel's
+ * docstring for why) rather than a separate corporate-dark palette.
+ *
  * Deliberately doesn't include an "emotions" metric: there's no real
  * data source for trader psychology anywhere in this backend (no
  * journal, no mood log, nothing) — inventing a number for it would be
@@ -27,7 +30,7 @@ interface RosterEntry {
  * default to 0 rather than invent a number). A real version of this
  * needs a trade-journal/mood-log feature to read from first.
  */
-export function TraderOversightPanel({ dark = false }: { dark?: boolean }) {
+export function TraderOversightPanel() {
   const [roster, setRoster] = useState<RosterEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -84,107 +87,103 @@ export function TraderOversightPanel({ dark = false }: { dark?: boolean }) {
     }
   }
 
-  const surface = dark ? 'bg-corporate-surface-dark border-corporate-border-dark' : 'bg-white border-corporate-bg';
-  const text = dark ? 'text-white' : 'text-corporate-text-on-bg';
-  const muted = dark ? 'text-white/40' : 'text-gray-500';
-  const rowBg = dark ? 'bg-corporate-nav-dark' : 'bg-corporate-bg';
-  const inputCls = `w-full mt-1 rounded-lg px-2 py-1.5 text-sm ${dark ? 'bg-corporate-surface-dark border-corporate-border-dark text-white' : 'border border-gray-200 text-corporate-text-on-bg'}`;
+  const inputCls = 'w-full mt-1 bg-smc-dark border border-smc-border rounded-lg px-2 py-1.5 text-sm text-white';
 
   return (
-    <div className={`rounded-2xl border p-5 ${surface}`}>
+    <div className="bg-smc-card border border-smc-border rounded-xl p-6">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
-          <Users size={16} className="text-corporate-hero" />
-          <h3 className={`font-semibold ${text}`}>Trader Oversight</h3>
+          <Users size={16} className="text-smc-accent" />
+          <h3 className="text-lg font-bold">Trader Oversight</h3>
         </div>
-        <p className={`text-xs ${muted}`}>Real risk, exposure, and trade activity per Trader</p>
+        <p className="text-xs text-gray-400">Real risk, exposure, and trade activity per Trader</p>
       </div>
 
       {loading ? (
-        <p className={`text-sm ${muted}`}>Loading…</p>
+        <p className="text-sm text-gray-400">Loading…</p>
       ) : roster.length === 0 ? (
-        <p className={`text-sm ${muted}`}>No traders on your roster yet.</p>
+        <p className="text-sm text-gray-400">No traders on your roster yet.</p>
       ) : (
         <div className="space-y-2">
           {roster.map((r) => (
-            <div key={r.trader_user_id} className={`rounded-lg ${rowBg}`}>
+            <div key={r.trader_user_id} className="rounded-lg bg-white/5">
               <button
                 onClick={() => toggleTrader(r.trader_user_id)}
                 className="w-full flex items-center justify-between p-3 text-left"
               >
                 <div>
-                  <div className={`text-sm font-medium ${text}`}>{r.full_name}</div>
-                  <div className={`text-xs ${muted}`}>{r.email}</div>
+                  <div className="text-sm font-medium">{r.full_name}</div>
+                  <div className="text-xs text-gray-400">{r.email}</div>
                 </div>
-                {expandedId === r.trader_user_id ? <ChevronUp size={16} className={muted} /> : <ChevronDown size={16} className={muted} />}
+                {expandedId === r.trader_user_id ? <ChevronUp size={16} className="text-gray-400" /> : <ChevronDown size={16} className="text-gray-400" />}
               </button>
 
               {expandedId === r.trader_user_id && (
                 <div className="px-3 pb-3">
                   {overviewLoading ? (
-                    <p className={`text-xs ${muted}`}>Loading…</p>
+                    <p className="text-xs text-gray-400">Loading…</p>
                   ) : overview && overview.trader_user_id === r.trader_user_id ? (
                     <div className="space-y-3">
                       <div className="grid grid-cols-3 gap-2">
-                        <div className={`text-center p-2 rounded-lg ${dark ? 'bg-corporate-surface-dark' : 'bg-white'}`}>
-                          <div className={`text-sm font-bold ${overview.daily_pnl >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
+                        <div className="text-center p-2 rounded-lg bg-smc-dark">
+                          <div className={`text-sm font-bold ${overview.daily_pnl >= 0 ? 'text-smc-success' : 'text-smc-danger'}`}>
                             {overview.daily_pnl >= 0 ? '+' : ''}{overview.daily_pnl.toFixed(2)}
                           </div>
-                          <div className={`text-[10px] ${muted}`}>Today's P&L</div>
+                          <div className="text-[10px] text-gray-400">Today's P&L</div>
                         </div>
-                        <div className={`text-center p-2 rounded-lg ${dark ? 'bg-corporate-surface-dark' : 'bg-white'}`}>
-                          <div className={`text-sm font-bold ${text}`}>{overview.total_active_trades}</div>
-                          <div className={`text-[10px] ${muted}`}>Active trades</div>
+                        <div className="text-center p-2 rounded-lg bg-smc-dark">
+                          <div className="text-sm font-bold">{overview.total_active_trades}</div>
+                          <div className="text-[10px] text-gray-400">Active trades</div>
                         </div>
-                        <div className={`text-center p-2 rounded-lg ${dark ? 'bg-corporate-surface-dark' : 'bg-white'}`}>
-                          <div className={`text-sm font-bold ${text}`}>{overview.open_risk_exposure_pct.toFixed(1)}%</div>
-                          <div className={`text-[10px] ${muted}`}>Open exposure</div>
+                        <div className="text-center p-2 rounded-lg bg-smc-dark">
+                          <div className="text-sm font-bold">{overview.open_risk_exposure_pct.toFixed(1)}%</div>
+                          <div className="text-[10px] text-gray-400">Open exposure</div>
                         </div>
                       </div>
 
                       {overview.bots.length === 0 ? (
-                        <p className={`text-xs ${muted}`}>No bots configured for this trader yet.</p>
+                        <p className="text-xs text-gray-400">No bots configured for this trader yet.</p>
                       ) : (
                         <div className="space-y-2">
                           {overview.bots.map((bot) => (
-                            <div key={bot.bot_id} className={`rounded-lg p-3 ${dark ? 'bg-corporate-surface-dark' : 'bg-white'}`}>
+                            <div key={bot.bot_id} className="rounded-lg p-3 bg-smc-dark">
                               <div className="flex items-center justify-between">
                                 <div>
-                                  <div className={`text-sm font-medium ${text}`}>{bot.bot_name}</div>
-                                  <div className={`text-xs ${muted}`}>
+                                  <div className="text-sm font-medium">{bot.bot_name}</div>
+                                  <div className="text-xs text-gray-400">
                                     {bot.active_trades}/{bot.max_concurrent_trades} concurrent · {bot.trades_today}/{bot.max_daily_trades} today
                                   </div>
                                 </div>
                                 <button
                                   onClick={() => startEditBot(bot)}
-                                  className="text-xs font-medium text-corporate-hero px-2.5 py-1 rounded-lg bg-corporate-hero/10 hover:bg-corporate-hero/20"
+                                  className="text-xs font-medium text-smc-accent px-2.5 py-1 rounded-lg bg-smc-accent/10 hover:bg-smc-accent/20"
                                 >
                                   {editingBotId === bot.bot_id ? 'Cancel' : 'Edit'}
                                 </button>
                               </div>
 
                               {editingBotId === bot.bot_id && editing && (
-                                <div className="mt-3 pt-3 border-t border-corporate-bg/20">
+                                <div className="mt-3 pt-3 border-t border-smc-border">
                                   <div className="grid grid-cols-2 gap-2">
-                                    <label className={`text-xs ${muted}`}>
+                                    <label className="text-xs text-gray-400">
                                       Risk/trade (%)
                                       <input type="number" step="0.1" min="0.1" max="25" value={editing.risk_per_trade}
                                         onChange={(e) => setEditing({ ...editing, risk_per_trade: Number(e.target.value) })}
                                         className={inputCls} />
                                     </label>
-                                    <label className={`text-xs ${muted}`}>
+                                    <label className="text-xs text-gray-400">
                                       Min R:R
                                       <input type="number" step="0.1" min="0.1" max="20" value={editing.min_rr_ratio}
                                         onChange={(e) => setEditing({ ...editing, min_rr_ratio: Number(e.target.value) })}
                                         className={inputCls} />
                                     </label>
-                                    <label className={`text-xs ${muted}`}>
+                                    <label className="text-xs text-gray-400">
                                       Max daily trades
                                       <input type="number" step="1" min="1" max="200" value={editing.max_daily_trades}
                                         onChange={(e) => setEditing({ ...editing, max_daily_trades: Number(e.target.value) })}
                                         className={inputCls} />
                                     </label>
-                                    <label className={`text-xs ${muted}`}>
+                                    <label className="text-xs text-gray-400">
                                       Max concurrent
                                       <input type="number" step="1" min="1" max="50" value={editing.max_concurrent_trades}
                                         onChange={(e) => setEditing({ ...editing, max_concurrent_trades: Number(e.target.value) })}
@@ -194,7 +193,7 @@ export function TraderOversightPanel({ dark = false }: { dark?: boolean }) {
                                   <button
                                     onClick={() => saveBotMetrics(bot.bot_id, r.trader_user_id)}
                                     disabled={saving}
-                                    className="w-full mt-2 flex items-center justify-center gap-2 px-3 py-2 bg-corporate-hero text-white rounded-lg text-xs font-medium disabled:opacity-50"
+                                    className="w-full mt-2 flex items-center justify-center gap-2 px-3 py-2 bg-smc-accent text-white rounded-lg text-xs font-medium disabled:opacity-50"
                                   >
                                     <Save size={12} /> {saving ? 'Saving…' : 'Save'}
                                   </button>
