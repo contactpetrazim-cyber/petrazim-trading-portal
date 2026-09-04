@@ -48,12 +48,12 @@ Status legend: [DONE] authored this batch, [ ] mapped, not yet authored
 - [DONE] C3-06 Why Not Every Pool Is Tradable
 
 ## CORE 4 — SUPPLY, DEMAND & ZONES (C4)
-- [ ] C4-01 Supply and Demand, Origin of Displacement
-- [ ] C4-02 Order Blocks — Bullish and Bearish
-- [ ] C4-03 Breaker Blocks and Mitigation Blocks
-- [ ] C4-04 Fresh / Tested / Mitigated / Invalid Zones
-- [ ] C4-05 Zone Boundaries — Body vs. Full-Range vs. Wick-Inclusive
-- [ ] C4-06 Zone Age, Zone Quality, Confluence
+- [DONE] C4-01 Supply and Demand, Origin of Displacement
+- [DONE] C4-02 Order Blocks — Bullish and Bearish
+- [DONE] C4-03 Breaker Blocks and Mitigation Blocks
+- [DONE] C4-04 Fresh / Tested / Mitigated / Invalid Zones
+- [DONE] C4-05 Zone Boundaries — Body vs. Full-Range vs. Wick-Inclusive
+- [DONE] C4-06 Zone Age, Zone Quality, Confluence
 
 ## CORE 5 — FAIR VALUE GAPS & IMBALANCE (C5)
 - [ ] C5-01 What Imbalance Means, FVG Formation
