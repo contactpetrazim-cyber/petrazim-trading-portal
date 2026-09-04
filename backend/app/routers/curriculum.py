@@ -13,6 +13,12 @@ that endpoint layer.
 Auth: gated on require_active_access, like every other content route —
 Learn is a paid feature same as Trade or Insights.
 
+GET /lessons/{lesson_id} was added after the fact: every other Learn
+endpoint (stats, tracks, mastery, awards) surfaced progression
+metadata, but nothing ever returned a lesson's actual content_body —
+the practice/quiz/game endpoints each parse out one small subsection,
+never the full authored lesson. See that endpoint's own docstring.
+
 Two numbers on LearningStatsBar aren't in any source document, so
 they're a reasonable default rather than an extracted spec:
   - "Level" — no leveling curve is specified anywhere; this uses
@@ -103,6 +109,17 @@ class TrackDetailResponse(BaseModel):
     category: str
     mastery_level: str
     stages: List[StageResponse]
+
+
+class LessonResponse(BaseModel):
+    id: str
+    track_id: str
+    track_title: str
+    stage_number: int
+    stage_title: str
+    title: str
+    content_body: str
+    estimated_minutes: int
 
 
 class QuizSubmitRequest(BaseModel):
@@ -312,6 +329,49 @@ async def get_track(
     return TrackDetailResponse(
         id=str(track.id), title=track.title, description=track.description,
         category=track.category.value, mastery_level=mastery.value, stages=stage_out,
+    )
+
+
+@router.get("/lessons/{lesson_id}", response_model=LessonResponse)
+async def get_lesson(
+    lesson_id: str, db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access),
+):
+    """The one gap left after every other Learn endpoint: nothing has
+    ever returned a lesson's actual content_body. LearnTrackPage could
+    only ever show the stage list (locked/complete/XP) and hand a
+    lesson_id off to the practice/quiz/game endpoints, which each
+    parse out one small subsection (Practice Drill, Mini Quiz) — the
+    full authored teaching content (Core Teaching, Worked Example,
+    Key Takeaways, etc.) was never fetchable at all. Gated by the same
+    locked-sequence rule as everything else: viewable once the stage's
+    predecessor is complete, or forever after this stage itself is
+    complete — never fully locked out after the fact."""
+    lesson = (await db.execute(select(Lesson).where(Lesson.id == lesson_id))).scalar_one_or_none()
+    if lesson is None:
+        raise HTTPException(status_code=404, detail="Lesson not found")
+
+    stage = (await db.execute(
+        select(TrackStage).where(TrackStage.lesson_id == lesson.id)
+    )).scalar_one_or_none()
+    if stage is None:
+        raise HTTPException(status_code=404, detail="Lesson has no stage")
+
+    track = (await db.execute(
+        select(LearningTrack).where(LearningTrack.id == lesson.track_id)
+    )).scalar_one_or_none()
+    if track is None:
+        raise HTTPException(status_code=404, detail="Track not found")
+
+    completed_numbers = await _completed_stage_numbers(db, user.id, lesson.track_id)
+    unlock = can_attempt_stage(stage.stage_number, completed_numbers)
+    if not unlock.can_attempt and stage.stage_number not in completed_numbers:
+        raise HTTPException(status_code=403, detail=unlock.reason)
+
+    return LessonResponse(
+        id=str(lesson.id), track_id=str(lesson.track_id), track_title=track.title,
+        stage_number=stage.stage_number, stage_title=stage.title,
+        title=lesson.title, content_body=lesson.content_body or "",
+        estimated_minutes=lesson.estimated_minutes,
     )
 
 

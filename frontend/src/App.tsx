@@ -21,6 +21,7 @@ import { CorporateHomePage } from './pages/CorporateHomePage';
 import { AreaPage } from './pages/AreaPage';
 import { LearnPage } from './pages/LearnPage';
 import { LearnTrackPage } from './pages/LearnTrackPage';
+import { LessonPage } from './pages/LessonPage';
 import { MasteryOverviewPage } from './pages/MasteryOverviewPage';
 import { AwardsPage } from './pages/AwardsPage';
 import { PracticeDrillsPage } from './pages/PracticeDrillsPage';
@@ -148,6 +149,7 @@ function App() {
             engines with zero frontend before this). */}
         <Route path="/learn" element={<CorporateLayout><LearnPage /></CorporateLayout>} />
         <Route path="/learn/tracks/:trackId" element={<CorporateLayout><LearnTrackPage /></CorporateLayout>} />
+        <Route path="/learn/tracks/:trackId/lessons/:lessonId" element={<CorporateLayout><LessonPage /></CorporateLayout>} />
 
         {/* Site Map's five Learn sub-links — previously all unregistered
             routes that fell through to the sitemap redirect below, so

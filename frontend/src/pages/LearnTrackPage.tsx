@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, CheckCircle2, Lock } from 'lucide-react';
+import { ArrowLeft, BookOpen, CheckCircle2, Lock } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
 import { useThemeStore } from '../hooks/useTheme';
 import { useAuth } from '../hooks/useAuth';
@@ -38,6 +38,12 @@ interface TrackDetail {
  * high quiz score alone is deliberately not enough without the
  * practice-rep minimum too, so a stage can report exactly why it
  * won't complete yet instead of silently failing.
+ *
+ * "Read lesson" links to LessonPage — the actual authored content —
+ * whenever a stage has a lesson and is either already unlocked or
+ * already completed; GET /curriculum/lessons/{id} enforces the same
+ * gate server-side, so this check is a convenience, not the real
+ * access control.
  */
 export function LearnTrackPage() {
   const { trackId } = useParams<{ trackId: string }>();
@@ -136,6 +142,16 @@ export function LearnTrackPage() {
                   : s.lock_reason}
               </div>
             </div>
+            {s.lesson_id && (s.can_attempt || s.completed) && (
+              <Link
+                to={`/learn/tracks/${trackId}/lessons/${s.lesson_id}`}
+                className={`shrink-0 inline-flex items-center gap-1 text-xs font-semibold px-3 py-1.5 rounded-lg border ${
+                  dark ? 'border-white/15 text-white/80 hover:bg-white/5' : 'border-corporate-bg text-corporate-text-on-bg hover:bg-corporate-bg'
+                }`}
+              >
+                <BookOpen size={13} /> Read lesson
+              </Link>
+            )}
             {!s.completed && s.can_attempt && (
               <button
                 onClick={() => completeStage(s.id)}
