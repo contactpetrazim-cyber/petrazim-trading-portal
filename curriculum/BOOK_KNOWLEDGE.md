@@ -257,7 +257,7 @@ between you and ruin on a bad sample.
 
 ---
 
-## Cross-Framework Synthesis
+## BOOK-06 — Cross-Framework Synthesis
 
 A genuinely useful way to hold all five frameworks (plus SMC) in mind
 at once is to notice that they are answering different questions about

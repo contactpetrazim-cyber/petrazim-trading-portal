@@ -137,8 +137,12 @@ TrackCategory value).
 - [DONE] OF-11 Capstone — Full Order Flow Read
 
 ## BOOK KNOWLEDGE (BOOK)
-- [ ] Brooks, Dalton, Weis, Wyckoff, Douglas — original-language summaries,
-  no reproduced text, plus BOOK-SYNTHESIS cross-framework mapping.
+- [DONE] BOOK-01 Al Brooks — Price Action in Context
+- [DONE] BOOK-02 James Dalton — Auction Market Theory
+- [DONE] BOOK-03 Richard Wyckoff — The Historical Foundation
+- [DONE] BOOK-04 David Weis — Wyckoff's Method, Modernized
+- [DONE] BOOK-05 Mark Douglas — The Psychology of Probabilistic Thinking
+- [DONE] BOOK-06 Cross-Framework Synthesis
 
 ## MARKET REGIMES (REGIME), BOT SELECTION (SELECT)
 - [ ] 12 regimes; regime-to-bot matrix, confidence matrix, no-trade matrix.
@@ -162,5 +166,5 @@ TrackCategory value).
 
 Authoring order from here (matches the brief's own 17-phase plan):
 Core 0-2 remainder -> Core 3-5 -> Core 6-10 (incl. Psychology, done)
--> Bot 1-5 -> Book Knowledge -> Practice/Drills -> Quiz Bank -> Flashcards ->
-Games/Visuals -> Capstones -> final QA pass.
+-> Bot 1-5 -> Book Knowledge (done) -> Practice/Drills -> Quiz Bank ->
+Flashcards -> Games/Visuals -> Capstones -> final QA pass.

@@ -9,9 +9,10 @@ CORE_1_MARKET_BASICS.md, CORE_2_MARKET_STRUCTURE.md,
 CORE_3_LIQUIDITY.md, CORE_4_SUPPLY_DEMAND_ZONES.md,
 CORE_5_FAIR_VALUE_GAPS.md, CORE_6_PREMIUM_DISCOUNT.md,
 CORE_7_MULTI_TIMEFRAME.md, CORE_8_RISK_MANAGEMENT.md,
-CORE_9_TRADE_MANAGEMENT.md, CORE_10_TRADING_PSYCHOLOGY.md, and each
-bot's own file listed in BOT_LESSON_FILES below, e.g.
-BOT_1_MACRO_SWING_STRUCTURE.md) — nothing here invents lesson content.
+CORE_9_TRADE_MANAGEMENT.md, CORE_10_TRADING_PSYCHOLOGY.md,
+ORDER_FLOW_TRADING.md, BOOK_KNOWLEDGE.md, and each bot's own file
+listed in BOT_LESSON_FILES below, e.g. BOT_1_MACRO_SWING_STRUCTURE.md)
+— nothing here invents lesson content.
 
 Two kinds of stage get created, matching the content map's own
 [DONE] / [ ] status legend:
@@ -181,6 +182,15 @@ PSY_STAGES = [
     (10, "PSY-10", "Psychology Capstone"),
 ]
 
+BOOK_STAGES = [
+    (1, "BOOK-01", "Al Brooks — Price Action in Context"),
+    (2, "BOOK-02", "James Dalton — Auction Market Theory"),
+    (3, "BOOK-03", "Richard Wyckoff — The Historical Foundation"),
+    (4, "BOOK-04", "David Weis — Wyckoff's Method, Modernized"),
+    (5, "BOOK-05", "Mark Douglas — The Psychology of Probabilistic Thinking"),
+    (6, "BOOK-06", "Cross-Framework Synthesis"),
+]
+
 OF_STAGES = [
     (1, "OF-01", "Concept — What Order Flow Actually Is"),
     (2, "OF-02", "Reading the Tape — Time & Sales and Aggressor Side"),
@@ -260,6 +270,9 @@ TRACKS = [
     {"title": "Order Flow Trading", "category": TrackCategory.ADVANCED,
      "description": "The transaction-level view of price — tape reading, volume profile, delta, and the manipulation patterns every candle-only view misses.",
      "stages": OF_STAGES},
+    {"title": "Book Knowledge", "category": TrackCategory.ADVANCED,
+     "description": "Original-language summaries of Brooks, Dalton, Wyckoff, Weis, and Douglas, plus a cross-framework synthesis tying each one back to this platform's own SMC vocabulary.",
+     "stages": BOOK_STAGES},
 ]
 
 
@@ -276,10 +289,11 @@ async def seed_curriculum():
     core9_lessons = parse_authored_lessons(CURRICULUM_DIR / "CORE_9_TRADE_MANAGEMENT.md")
     psy_lessons = parse_authored_lessons(CURRICULUM_DIR / "CORE_10_TRADING_PSYCHOLOGY.md")
     of_lessons = parse_authored_lessons(CURRICULUM_DIR / "ORDER_FLOW_TRADING.md")
+    book_lessons = parse_authored_lessons(CURRICULUM_DIR / "BOOK_KNOWLEDGE.md")
     authored = {
         **orient_lessons, **core1_lessons, **core2_lessons, **core3_lessons,
         **core4_lessons, **core5_lessons, **core6_lessons, **core7_lessons,
-        **core8_lessons, **core9_lessons, **psy_lessons, **of_lessons,
+        **core8_lessons, **core9_lessons, **psy_lessons, **of_lessons, **book_lessons,
     }
     for bot_id, filename in BOT_LESSON_FILES.items():
         authored.update(parse_authored_lessons(CURRICULUM_DIR / filename))
