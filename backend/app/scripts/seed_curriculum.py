@@ -9,13 +9,15 @@ CORE_1_MARKET_BASICS.md, CORE_2_MARKET_STRUCTURE.md,
 CORE_3_LIQUIDITY.md, CORE_4_SUPPLY_DEMAND_ZONES.md,
 CORE_5_FAIR_VALUE_GAPS.md, CORE_6_PREMIUM_DISCOUNT.md,
 CORE_7_MULTI_TIMEFRAME.md, CORE_8_RISK_MANAGEMENT.md,
-CORE_9_TRADE_MANAGEMENT.md) — nothing here invents lesson content.
+CORE_9_TRADE_MANAGEMENT.md, CORE_10_TRADING_PSYCHOLOGY.md) — nothing
+here invents lesson content.
 
 Two kinds of stage get created, matching the content map's own
 [DONE] / [ ] status legend:
   - AUTHORED stages: real content_body, parsed directly out of the
-    ten .md files that have full lessons written (PART_0, CORE_1,
-    CORE_2, CORE_3, CORE_4, CORE_5, CORE_6, CORE_7, CORE_8, CORE_9).
+    eleven .md files that have full lessons written (PART_0, CORE_1,
+    CORE_2, CORE_3, CORE_4, CORE_5, CORE_6, CORE_7, CORE_8, CORE_9,
+    CORE_10).
     The parser (not a hand-copied string) is the intentional choice —
     it means the seeded content can never silently drift from the
     actual .md file, and re-running this script after an edit to
@@ -85,19 +87,19 @@ def parse_authored_lessons(md_path: Path) -> dict[str, dict]:
 ORIENT_STAGES = [
     (1, "ORIENT-01", "What Honest Gap Is (and Isn't)"),
     (2, "ORIENT-02", "Trading vs. Gambling, Signal vs. Setup vs. Trade"),
-    (3, None, "Framework vs. Proven Edge — Why Probability Matters"),
-    (4, None, "Why Losses Are Normal, Why Risk Management Beats Being Right"),
-    (5, None, "How to Use Learn / Practise / Mastery — a Learner's Map"),
-    (6, None, "How the Five Bots Relate to One Another"),
+    (3, "ORIENT-03", "Framework vs. Proven Edge — Why Probability Matters"),
+    (4, "ORIENT-04", "Why Losses Are Normal, Why Risk Management Beats Being Right"),
+    (5, "ORIENT-05", "How to Use Learn / Practise / Mastery — a Learner's Map"),
+    (6, "ORIENT-06", "How the Five Bots Relate to One Another"),
 ]
 
 CORE1_STAGES = [
     (1, "C1-01", "What a Market Is — Buyers, Sellers, Price, Bid/Ask, Spread"),
     (2, "C1-02", "Candlestick Anatomy — Open, High, Low, Close, Body, Wick"),
     (3, "C1-03", "Bullish vs. Bearish Candles, Momentum, Expansion & Contraction"),
-    (4, None, "Liquidity and Volatility — First Look"),
-    (5, None, "Timeframes and Chart Navigation"),
-    (6, None, "Sessions, Market Open/Close, Gaps"),
+    (4, "C1-04", "Liquidity and Volatility — First Look"),
+    (5, "C1-05", "Timeframes and Chart Navigation"),
+    (6, "C1-06", "Sessions, Market Open/Close, Gaps"),
 ]
 
 CORE2_STAGES = [
@@ -166,16 +168,16 @@ CORE9_STAGES = [
 ]
 
 PSY_STAGES = [
-    (1, None, "Emotional Regulation Under Live Risk"),
-    (2, None, "Cognitive Errors — Confirmation Bias, Recency, Overconfidence"),
-    (3, None, "Behavioural Discipline — Following Your Own Rules Under Pressure"),
-    (4, None, "Process Psychology — Plan, Observe, Decide, Execute, Record, Review, Improve"),
-    (5, None, "Pre-Trade Checklist Discipline"),
-    (6, None, "Post-Trade Review Without Self-Deception"),
-    (7, None, "Detectors — Impulse, Revenge Trading, FOMO"),
-    (8, None, "Confidence Calibration — Matching Certainty to Actual Edge"),
-    (9, None, "Shutdown Protocol — Recognizing When to Stop for the Day"),
-    (10, None, "Psychology Capstone"),
+    (1, "PSY-01", "Emotional Regulation Under Live Risk"),
+    (2, "PSY-02", "Cognitive Errors — Confirmation Bias, Recency, Overconfidence"),
+    (3, "PSY-03", "Behavioural Discipline — Following Your Own Rules Under Pressure"),
+    (4, "PSY-04", "Process Psychology — Plan, Observe, Decide, Execute, Record, Review, Improve"),
+    (5, "PSY-05", "Pre-Trade Checklist Discipline"),
+    (6, "PSY-06", "Post-Trade Review Without Self-Deception"),
+    (7, "PSY-07", "Detectors — Impulse, Revenge Trading, FOMO"),
+    (8, "PSY-08", "Confidence Calibration — Matching Certainty to Actual Edge"),
+    (9, "PSY-09", "Shutdown Protocol — Recognizing When to Stop for the Day"),
+    (10, "PSY-10", "Psychology Capstone"),
 ]
 
 BOT_STAGE_TEMPLATE = [
@@ -239,10 +241,11 @@ async def seed_curriculum():
     core7_lessons = parse_authored_lessons(CURRICULUM_DIR / "CORE_7_MULTI_TIMEFRAME.md")
     core8_lessons = parse_authored_lessons(CURRICULUM_DIR / "CORE_8_RISK_MANAGEMENT.md")
     core9_lessons = parse_authored_lessons(CURRICULUM_DIR / "CORE_9_TRADE_MANAGEMENT.md")
+    psy_lessons = parse_authored_lessons(CURRICULUM_DIR / "CORE_10_TRADING_PSYCHOLOGY.md")
     authored = {
         **orient_lessons, **core1_lessons, **core2_lessons, **core3_lessons,
         **core4_lessons, **core5_lessons, **core6_lessons, **core7_lessons,
-        **core8_lessons, **core9_lessons,
+        **core8_lessons, **core9_lessons, **psy_lessons,
     }
 
     async with AsyncSessionLocal() as db:

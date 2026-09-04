@@ -86,10 +86,16 @@ Status legend: [DONE] authored this batch, [ ] mapped, not yet authored
 - [DONE] C9-03 Judging Process Separately From Outcome
 
 ## CORE 10 — TRADING PSYCHOLOGY (PSY)
-- [ ] PSY-01 through PSY-10 — Emotional regulation, cognitive errors,
-  behavioural discipline, process psychology (Plan-Observe-Decide-
-  Execute-Record-Review-Improve), pre/post-trade checklists, detectors
-  (impulse/revenge/FOMO), confidence calibration, shutdown protocol.
+- [DONE] PSY-01 Emotional Regulation Under Live Risk
+- [DONE] PSY-02 Cognitive Errors: Confirmation Bias, Recency, Overconfidence
+- [DONE] PSY-03 Behavioural Discipline: Following Your Own Rules Under Pressure
+- [DONE] PSY-04 Process Psychology: Plan, Observe, Decide, Execute, Record, Review, Improve
+- [DONE] PSY-05 Pre-Trade Checklist Discipline
+- [DONE] PSY-06 Post-Trade Review Without Self-Deception
+- [DONE] PSY-07 Detectors: Impulse, Revenge Trading, FOMO
+- [DONE] PSY-08 Confidence Calibration: Matching Certainty to Actual Edge
+- [DONE] PSY-09 Shutdown Protocol: Recognizing When to Stop for the Day
+- [DONE] PSY-10 Psychology Capstone
 
 ## BOT SPECIALIZATIONS (BOT1-BOT5)
 - [ ] Each: 10-lesson sequence (Concept, Identification, Context, Setup,
@@ -123,6 +129,6 @@ Status legend: [DONE] authored this batch, [ ] mapped, not yet authored
 ---
 
 Authoring order from here (matches the brief's own 17-phase plan):
-Core 0-2 remainder -> Core 3-5 -> Core 6-10 -> Psychology -> Bot 1-5
--> Book Knowledge -> Practice/Drills -> Quiz Bank -> Flashcards ->
+Core 0-2 remainder -> Core 3-5 -> Core 6-10 (incl. Psychology, done)
+-> Bot 1-5 -> Book Knowledge -> Practice/Drills -> Quiz Bank -> Flashcards ->
 Games/Visuals -> Capstones -> final QA pass.
