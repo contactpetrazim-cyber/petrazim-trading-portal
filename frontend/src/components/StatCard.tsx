@@ -32,13 +32,14 @@ export function StatCard({ title, value, subtitle, trend, trendValue, icon, colo
     <div className={`rounded-xl border p-5 ${colorMap[color]}`}>
       <div className="flex items-start justify-between">
         <div>
-          <p className={`text-sm font-medium ${labelColorMap[color]}`}>{title}</p>
-          {/* The big number is the one thing on this card that must
-           * always be legible at a glance — explicit black/white
-           * rather than inheriting the card's own (lighter, harder to
-           * read) accent color, by direct request. */}
+          {/* Every line of text on this card is explicit black/white
+           * now, by direct (repeated) request — color lives only on
+           * the icon badge below, not on any text, so nothing here
+           * ever inherits the card's own lighter, harder-to-read
+           * accent shade. */}
+          <p className={`text-sm font-medium ${dark ? 'text-white' : 'text-gray-900'}`}>{title}</p>
           <p className={`text-2xl font-bold mt-1 ${dark ? 'text-white' : 'text-gray-900'}`}>{value}</p>
-          {subtitle && <p className={`text-xs mt-1 ${dark ? 'text-white/60' : 'text-gray-500'}`}>{subtitle}</p>}
+          {subtitle && <p className={`text-xs mt-1 ${dark ? 'text-white' : 'text-gray-900'}`}>{subtitle}</p>}
         </div>
         <div className={`p-2 rounded-lg ${labelColorMap[color]} ${dark ? 'bg-white/5' : 'bg-black/5'}`}>
           {icon}
@@ -49,9 +50,7 @@ export function StatCard({ title, value, subtitle, trend, trendValue, icon, colo
           {trend === 'up' && <TrendingUp size={14} className="text-emerald-400" />}
           {trend === 'down' && <TrendingDown size={14} className="text-red-400" />}
           {trend === 'neutral' && <Minus size={14} className="text-gray-400" />}
-          <span className={trend === 'up' ? 'text-emerald-400' : trend === 'down' ? 'text-red-400' : 'text-gray-400'}>
-            {trendValue}
-          </span>
+          <span className={dark ? 'text-white' : 'text-gray-900'}>{trendValue}</span>
         </div>
       )}
     </div>
