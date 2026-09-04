@@ -1,7 +1,9 @@
 
 import { useEffect, useState } from 'react';
-import { Shield, Save, AlertTriangle } from 'lucide-react';
+import { Shield, Save, AlertTriangle, DollarSign } from 'lucide-react';
+import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, BarChart, Bar, Cell } from 'recharts';
 import { StatCard } from '../components/StatCard';
+import { FoldedCard } from '../components/FoldedCard';
 import { botsApi, tradesApi } from '../services/api';
 import { BotConfig, BotMetricsUpdate, Trade } from '../types';
 import { useThemeStore } from '../hooks/useTheme';
@@ -25,6 +27,7 @@ export function RiskPage() {
   const [bots, setBots] = useState<BotConfig[]>([]);
   const [activeTrades, setActiveTrades] = useState<Trade[]>([]);
   const [todayTrades, setTodayTrades] = useState<Trade[]>([]);
+  const [allTrades, setAllTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editing, setEditing] = useState<BotMetricsUpdate | null>(null);
@@ -40,6 +43,7 @@ export function RiskPage() {
       ]);
       setBots(botList);
       setActiveTrades(active);
+      setAllTrades(all);
       const todayStart = new Date();
       todayStart.setHours(0, 0, 0, 0);
       setTodayTrades(all.filter((t) => new Date(t.created_at) >= todayStart));
@@ -84,6 +88,27 @@ export function RiskPage() {
   // real numbers from real open positions, not a modeled VaR figure.
   const exposurePct = activeTrades.reduce((s, t) => s + (t.risk_percent || 0), 0);
 
+  // Risk and P/L together, not risk alone, by direct request ("include
+  // P/L in Risk Management so you can see both risk and benefit") —
+  // chronological series from the same real trades already fetched.
+  const closedTrades = allTrades
+    .filter((t) => t.status === 'closed')
+    .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+  let running = 0;
+  const seriesData = closedTrades.map((t, i) => {
+    running += t.realized_pnl || 0;
+    return {
+      index: i + 1,
+      date: new Date(t.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+      risk_percent: t.risk_percent || 0,
+      pnl: t.realized_pnl || 0,
+      cumulative: running,
+    };
+  });
+  const totalPnl = running;
+  const gridColor = dark ? '#1f2937' : '#e5e7eb';
+  const axisColor = '#6b7280';
+
   return (
     <div className="space-y-6">
       <div>
@@ -91,29 +116,87 @@ export function RiskPage() {
         <p className="text-gray-400 text-sm mt-1">Live exposure and per-bot risk caps</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           title="Open Risk Exposure"
           value={`${exposurePct.toFixed(2)}%`}
           subtitle={`Across ${totalActive} open trade${totalActive === 1 ? '' : 's'}`}
           icon={<Shield size={20} />}
-          color={exposurePct > 10 ? 'red' : 'blue'}
+          color={exposurePct > 10 ? 'red' : 'blue'} dark={dark}
+        />
+        <StatCard
+          title="Realized P&L"
+          subtitle="Across closed trades shown below"
+          value={`${totalPnl >= 0 ? '+' : ''}$${totalPnl.toFixed(2)}`}
+          icon={<DollarSign size={20} />}
+          color={totalPnl >= 0 ? 'green' : 'red'} dark={dark}
         />
         <StatCard
           title="Trades Today"
           value={`${todayTrades.length} / ${totalDailyCap || '—'}`}
           subtitle="Used vs. combined daily cap across all bots"
           icon={<AlertTriangle size={20} />}
-          color={totalDailyCap > 0 && todayTrades.length >= totalDailyCap ? 'amber' : 'blue'}
+          color={totalDailyCap > 0 && todayTrades.length >= totalDailyCap ? 'amber' : 'blue'} dark={dark}
         />
         <StatCard
           title="Bots at Concurrent Cap"
           value={bots.filter((b) => activeTrades.filter((t) => t.bot_id === b.bot_id).length >= b.max_concurrent_trades).length}
           subtitle={`of ${bots.length} configured`}
           icon={<Shield size={20} />}
-          color="purple"
+          color="purple" dark={dark}
         />
       </div>
+
+      {/* Risk, P/L, and cumulative profiles over time — "so you can see
+          both risk and benefit," by direct request — from the same
+          real closed trades, chronological. */}
+      {seriesData.length > 0 && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <FoldedCard title="Risk Profile Over Time" summary="Risk % per closed trade" dark={dark} defaultOpen>
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={seriesData}>
+                <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
+                <XAxis dataKey="date" stroke={axisColor} fontSize={10} />
+                <YAxis stroke={axisColor} fontSize={10} unit="%" />
+                <Tooltip contentStyle={{ backgroundColor: dark ? '#111827' : '#fff', border: `1px solid ${gridColor}`, borderRadius: 8, fontSize: 12 }} />
+                <Bar dataKey="risk_percent" name="Risk %" fill="#f59e0b" radius={[3, 3, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </FoldedCard>
+
+          <FoldedCard title="P&L Profile Over Time" summary="Realized P&L per closed trade" dark={dark} defaultOpen>
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={seriesData}>
+                <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
+                <XAxis dataKey="date" stroke={axisColor} fontSize={10} />
+                <YAxis stroke={axisColor} fontSize={10} />
+                <Tooltip contentStyle={{ backgroundColor: dark ? '#111827' : '#fff', border: `1px solid ${gridColor}`, borderRadius: 8, fontSize: 12 }} />
+                <Bar dataKey="pnl" name="P&L">
+                  {seriesData.map((d, i) => <Cell key={i} fill={d.pnl >= 0 ? '#22c55e' : '#ef4444'} />)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </FoldedCard>
+
+          <FoldedCard title="Cumulative P&L" summary="Running total, closed trades" dark={dark} defaultOpen>
+            <ResponsiveContainer width="100%" height={200}>
+              <AreaChart data={seriesData}>
+                <defs>
+                  <linearGradient id="cumulativeGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
+                <XAxis dataKey="date" stroke={axisColor} fontSize={10} />
+                <YAxis stroke={axisColor} fontSize={10} />
+                <Tooltip contentStyle={{ backgroundColor: dark ? '#111827' : '#fff', border: `1px solid ${gridColor}`, borderRadius: 8, fontSize: 12 }} />
+                <Area type="monotone" dataKey="cumulative" name="Cumulative P&L" stroke="#3b82f6" strokeWidth={2} fill="url(#cumulativeGradient)" />
+              </AreaChart>
+            </ResponsiveContainer>
+          </FoldedCard>
+        </div>
+      )}
 
       {loading && <p className="text-sm text-gray-400">Loading…</p>}
 

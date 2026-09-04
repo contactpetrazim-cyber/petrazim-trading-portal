@@ -4,8 +4,7 @@ import { Link } from 'react-router-dom';
 import { StatCard } from '../components/StatCard';
 import { TradeRow } from '../components/TradeRow';
 import { FoldedCard } from '../components/FoldedCard';
-import { TradingViewChart } from '../components/TradingViewChart';
-import { useCandleColorStore } from '../hooks/useCandleColors';
+import { ChartPanel } from '../components/ChartPanel';
 import { useAppStore } from '../hooks/useStore';
 import { useThemeStore } from '../hooks/useTheme';
 import { HERO_GRADIENT } from '../config/theme';
@@ -16,6 +15,7 @@ import {
   AlertCircle,
   DollarSign,
   Target,
+  TrendingDown,
   LineChart as LineChartIcon,
 } from 'lucide-react';
 import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
@@ -42,7 +42,6 @@ export function DashboardPage() {
   const { stats, setStats } = useAppStore();
   const { theme } = useThemeStore();
   const dark = theme === 'dark';
-  const { colors } = useCandleColorStore();
   const [equityData, setEquityData] = useState<EquityPoint[]>([]);
   const [pending, setPending] = useState<Trade[]>([]);
   const [recentTrades, setRecentTrades] = useState<Trade[]>([]);
@@ -127,35 +126,46 @@ export function DashboardPage() {
         </div>
       </div>
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* Stats Grid — Today's Trades, Daily P&L, Daily Drawdown, Active
+          Trades, Pending Approvals, per direct request. Daily Drawdown
+          is real now too: dashboard.py used to hardcode this at 0.0
+          ("calculate from equity tracking") — now computed from
+          today's own closed trades' peak-to-trough running P&L. */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
         <StatCard
           title="Today's Trades"
           value={stats?.total_trades_today || 0}
           subtitle={`${stats?.win_rate_today || 0}% win rate`}
           icon={<Activity size={20} />}
-          color="blue"
+          color="blue" dark={dark}
         />
         <StatCard
           title="Daily P&L"
           value={`$${stats?.daily_pnl?.toFixed(2) || '0.00'}`}
           subtitle="Net realized profit"
           icon={<DollarSign size={20} />}
-          color={stats && stats.daily_pnl >= 0 ? 'green' : 'red'}
+          color={stats && stats.daily_pnl >= 0 ? 'green' : 'red'} dark={dark}
+        />
+        <StatCard
+          title="Daily Drawdown"
+          value={`$${stats?.current_drawdown?.toFixed(2) || '0.00'}`}
+          subtitle="Decline from today's P&L high"
+          icon={<TrendingDown size={20} />}
+          color={stats && stats.current_drawdown > 0 ? 'amber' : 'blue'} dark={dark}
         />
         <StatCard
           title="Active Trades"
           value={stats?.active_trades || 0}
           subtitle="Currently in market"
           icon={<Target size={20} />}
-          color="purple"
+          color="purple" dark={dark}
         />
         <StatCard
           title="Pending Approvals"
           value={stats?.pending_approvals || 0}
           subtitle="Human-in-the-Loop"
           icon={<AlertCircle size={20} />}
-          color="amber"
+          color="amber" dark={dark}
         />
       </div>
 
@@ -165,17 +175,10 @@ export function DashboardPage() {
         title="Free Chart" summary="A live TradingView chart, right on your dashboard"
         icon={<LineChartIcon size={19} />} dark={dark} defaultOpen
       >
-        <div className={`rounded-lg overflow-hidden mb-2 ${dark ? '' : 'border border-corporate-bg'}`} style={{ height: 360 }}>
-          <TradingViewChart symbol="BINANCE:BTCUSDT" interval="60" theme={dark ? 'dark' : 'light'} candleColors={colors} />
-        </div>
-        <div className="flex items-center gap-4">
-          <Link to="/tradingview" className={`text-xs font-medium ${dark ? 'text-white/50' : 'text-corporate-hero'}`}>
-            Open My Workspace (saved views, drawing tools) →
-          </Link>
-          <Link to="/trade/manual" className="text-xs font-bold text-white px-3 py-1.5 rounded-lg" style={{ background: HERO_GRADIENT }}>
-            Trade this chart →
-          </Link>
-        </div>
+        <ChartPanel symbol="BINANCE:BTCUSDT" height={420} tradeSymbol="BTCUSDT" dark={dark} />
+        <Link to="/tradingview" className={`text-xs font-medium mt-2 inline-block ${dark ? 'text-white/50' : 'text-corporate-hero'}`}>
+          Open My Workspace (saved views, drawing tools) →
+        </Link>
       </FoldedCard>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

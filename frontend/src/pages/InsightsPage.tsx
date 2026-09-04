@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react';
 import { PageHeader } from '../components/PageHeader';
+import { FoldedCard } from '../components/FoldedCard';
+import { ChartPanel } from '../components/ChartPanel';
+import { LineChart } from 'lucide-react';
 import { useThemeStore } from '../hooks/useTheme';
 import { useAuth } from '../hooks/useAuth';
 import { apiFetch } from '../components/AccessExpiredGate';
@@ -24,6 +27,8 @@ interface Tile {
   value: string;
   color: 'blue' | 'emerald' | 'amber' | 'gray';
   note?: string;
+  /** 0-100 — every metric here gets an actual bar, not just a number, by direct request ("visual is always better"). */
+  barPct?: number;
 }
 
 /**
@@ -71,6 +76,7 @@ export function InsightsPage() {
           out.push({
             label: 'Expectancy per trade', value: `${m.expectancy_r > 0 ? '+' : ''}${m.expectancy_r.toFixed(2)}R`,
             color: m.expectancy_r >= 0 ? 'emerald' : 'amber', note: `${m.n_trades} closed trades, ${Math.round(m.win_rate * 100)}% win rate`,
+            barPct: Math.round(m.win_rate * 100),
           });
         } else {
           out.push({ label: 'Performance Forecast', value: '—', color: 'gray', note: 'Not enough closed trades yet.' });
@@ -95,6 +101,7 @@ export function InsightsPage() {
             label: 'This week', value: `${w.n_trades} trade${w.n_trades === 1 ? '' : 's'}`,
             color: w.n_trades > 0 ? 'blue' : 'gray',
             note: w.n_trades > 0 ? `${Math.round(w.win_rate * 100)}% win rate, ${w.expectancy_r.toFixed(2)}R expectancy` : 'No trades taken this week yet.',
+            barPct: w.n_trades > 0 ? Math.round(w.win_rate * 100) : 0,
           });
         } else {
           out.push({ label: 'Weekly Review', value: '—', color: 'gray', note: 'No trades taken this week yet.' });
@@ -116,6 +123,7 @@ export function InsightsPage() {
               label: 'Go-Live Checklist', value: `${passed}/${g.checks.length}`,
               color: g.overall_pass ? 'emerald' : 'amber',
               note: g.overall_pass ? 'Ready to go live.' : (g.blocking_failures[0] || 'Some checks still incomplete.'),
+              barPct: g.checks.length ? Math.round((passed / g.checks.length) * 100) : 0,
             });
           } else {
             out.push({ label: 'Go-Live Checklist', value: '—', color: 'gray', note: 'No backtest on file for this bot yet.' });
@@ -135,10 +143,20 @@ export function InsightsPage() {
     blue: 'text-corporate-hero', emerald: 'text-emerald-500', amber: 'text-amber-500',
     gray: dark ? 'text-white/30' : 'text-gray-300',
   };
+  const barClass: Record<Tile['color'], string> = {
+    blue: 'bg-corporate-hero', emerald: 'bg-emerald-500', amber: 'bg-amber-500',
+    gray: dark ? 'bg-white/20' : 'bg-gray-200',
+  };
 
   return (
     <div>
       <PageHeader title="Insights" subtitle="Monte Carlo forecasts, weekly coach reviews, and the go-live validation gate." />
+
+      <div className="mb-4">
+        <FoldedCard title="Free Chart" summary="A live TradingView chart, right here" icon={<LineChart size={19} />} dark={dark} defaultOpen>
+          <ChartPanel symbol="OANDA:EURUSD" height={380} tradeSymbol="EURUSD" dark={dark} />
+        </FoldedCard>
+      </div>
 
       {tiles === null && <p className={`text-sm ${dark ? 'text-white/40' : 'text-gray-400'}`}>Loading…</p>}
 
@@ -147,7 +165,12 @@ export function InsightsPage() {
           {tiles.map((t) => (
             <div key={t.label} className={`rounded-2xl p-5 border ${dark ? 'bg-corporate-surface-dark border-corporate-border-dark' : 'bg-white border-corporate-bg'}`}>
               <div className={`text-xs mb-1 ${dark ? 'text-white/40' : 'text-gray-500'}`}>{t.label}</div>
-              <div className={`text-3xl font-extrabold font-display mb-1.5 ${colorClass[t.color]}`}>{t.value}</div>
+              <div className={`text-3xl font-extrabold font-display mb-2 ${colorClass[t.color]}`}>{t.value}</div>
+              {typeof t.barPct === 'number' && (
+                <div className={`h-1.5 rounded-full overflow-hidden mb-2 ${dark ? 'bg-white/10' : 'bg-corporate-bg'}`}>
+                  <div className={`h-full rounded-full ${barClass[t.color]}`} style={{ width: `${t.barPct}%` }} />
+                </div>
+              )}
               {t.note && <div className={`text-xs ${dark ? 'text-white/40' : 'text-gray-400'}`}>{t.note}</div>}
             </div>
           ))}

@@ -24,6 +24,36 @@ import { useThemeStore } from '../hooks/useTheme';
 
 const emptyNewBot = { bot_id: '', bot_name: '', bot_type: 'smc', symbols: '' };
 
+// The 5 REAL strategies core/bot_strategies.py actually implements —
+// bot_id must be one of these exact 5 values for BotOrchestrator to
+// ever dispatch a real signal to it; anything else is a BotConfig row
+// with no matching strategy engine, i.e. a bot that will never
+// actually trade. This dropdown replaces a free-text "Bot ID" field
+// that let someone create exactly that, by direct request to show a
+// short summary of the bot's technique/style before picking one.
+const BOT_CATALOG = [
+  {
+    id: 'bot_1_macro_swing', name: 'Pure Macro Swing Structure',
+    summary: 'Patient multi-day swing trades on confirmed 1D/4H structure breaks, entered on a pullback — low frequency, high R:R (5:1+).',
+  },
+  {
+    id: 'bot_2_ob_reversal', name: 'HF Order Block Reversal',
+    summary: 'Fast reversals inside higher-timeframe order blocks, confirmed by a 15m liquidity sweep + CHoCH — higher frequency, 3:1 target.',
+  },
+  {
+    id: 'bot_3_fvg_expansion', name: 'FVG Expansion & Fill',
+    summary: 'Trades unmitigated fair-value-gap retests after strong expansion moves, trailing the stop on new structure breaks — momentum/runner style.',
+  },
+  {
+    id: 'bot_4_volume_liq', name: 'Volume & Liquidity Sweep',
+    summary: 'Wyckoff-style spring/upthrust false-breakout patterns confirmed by volume divergence — range accumulation/distribution trades.',
+  },
+  {
+    id: 'bot_5_jeafx', name: 'Jeafx SMC Specialist',
+    summary: 'Highly mechanical liquidity-purge and refined supply/demand entries with strict confirmation criteria — highest target R:R (4:1-6:1).',
+  },
+];
+
 export function BotsPage() {
   const { theme } = useThemeStore();
   const dark = theme === 'dark';
@@ -315,10 +345,26 @@ export function BotsPage() {
             </div>
             <div className="space-y-3">
               <label className="text-xs text-gray-400 block">
-                Bot ID (unique, e.g. bot_smc_1)
-                <input value={newBot.bot_id} onChange={(e) => setNewBot({ ...newBot, bot_id: e.target.value })}
-                  className={`${inputCls} py-2`} />
+                Strategy
+                <select
+                  value={newBot.bot_id}
+                  onChange={(e) => {
+                    const chosen = BOT_CATALOG.find((b) => b.id === e.target.value);
+                    setNewBot({ ...newBot, bot_id: e.target.value, bot_name: chosen?.name || '' });
+                  }}
+                  className={`${inputCls} py-2`}
+                >
+                  <option value="">Choose a strategy…</option>
+                  {BOT_CATALOG.map((b) => (
+                    <option key={b.id} value={b.id}>{b.name}</option>
+                  ))}
+                </select>
               </label>
+              {newBot.bot_id && (
+                <p className={`text-xs -mt-1.5 leading-relaxed ${dark ? 'text-white/40' : 'text-gray-400'}`}>
+                  {BOT_CATALOG.find((b) => b.id === newBot.bot_id)?.summary}
+                </p>
+              )}
               <label className="text-xs text-gray-400 block">
                 Name
                 <input value={newBot.bot_name} onChange={(e) => setNewBot({ ...newBot, bot_name: e.target.value })}

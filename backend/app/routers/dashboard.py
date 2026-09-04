@@ -46,6 +46,24 @@ async def dashboard_stats(db: AsyncSession = Depends(get_db), user: User = Depen
     wins = len([t for t in today_trades if t.realized_pnl and t.realized_pnl > 0])
     pnl = sum(t.realized_pnl or 0 for t in today_trades)
 
+    # Intraday drawdown — real, computed from today's own closed trades'
+    # running P&L, not the "0.0, calculate from equity tracking" stub
+    # this used to be. No account-equity baseline exists on User to
+    # express this as a %, so it's the $ decline from today's own
+    # running-P&L high point, in chronological (exit) order — the same
+    # peak-to-current-trough definition max_drawdown_pct already uses
+    # elsewhere in this app, just in dollars instead of percent since
+    # that's the honest unit available here.
+    closed_today = sorted(
+        (t for t in today_trades if t.status == TradeStatus.CLOSED),
+        key=lambda t: t.exit_timestamp or t.created_at,
+    )
+    running, peak, drawdown = 0.0, 0.0, 0.0
+    for t in closed_today:
+        running += t.realized_pnl or 0.0
+        peak = max(peak, running)
+        drawdown = max(drawdown, peak - running)
+
     # Active trades
     active_query = _scope_trades(select(Trade), user).where(Trade.status == TradeStatus.ACTIVE)
     result = await db.execute(active_query)
@@ -69,7 +87,7 @@ async def dashboard_stats(db: AsyncSession = Depends(get_db), user: User = Depen
         pending_approvals=pending,
         daily_pnl=round(pnl, 2),
         win_rate_today=round(wins / total * 100, 2) if total > 0 else 0.0,
-        current_drawdown=0.0,  # Calculate from equity tracking
+        current_drawdown=round(drawdown, 2),
         active_bots=active_bots
     )
 

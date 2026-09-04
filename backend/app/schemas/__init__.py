@@ -43,12 +43,15 @@ class TradeResponse(BaseModel):
     entry_price: Optional[float]
     stop_loss: float
     take_profit: Optional[float]
+    take_profit_2: Optional[float] = None
+    take_profit_3: Optional[float] = None
     lot_size: float
     risk_percent: float
     realized_pnl: float
     unrealized_pnl: float = 0.0
     bot_id: str
     strategy_type: str
+    is_test: bool = False
     user_id: Optional[UUID] = None
     created_at: datetime
 

@@ -65,7 +65,7 @@ export function TradingViewFramePage() {
   const [symbol, setSymbol] = useState(SYMBOLS[0]);
   const [interval, setIntervalValue] = useState(INTERVALS[1]);
   const [mode, setMode] = useState<Mode>('widget');
-  const [frameTheme, setFrameTheme] = useState<FrameTheme>('dark');
+  const [frameTheme, setFrameTheme] = useState<FrameTheme>('light');
   const [layouts, setLayouts] = useState<LayoutSummary[]>([]);
   const [savedViewsOpen, setSavedViewsOpen] = useState(false);
   const [saveName, setSaveName] = useState('');

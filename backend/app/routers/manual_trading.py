@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.access_gate import require_active_access
 from app.database import get_db
-from app.models.trade import ManualTradingSettings, Trade, TradeDirection, TradeStatus, TradingMode
+from app.models.trade import EntryType, ExitType, ManualTradingSettings, Trade, TradeDirection, TradeStatus, TradingMode
 from app.models.user import User
 from app.services.execution_engine import ExecutionEngine
 from app.services.manual_trading import check_manual_trade_risk, compute_lot_size, effective_limits
@@ -105,11 +105,16 @@ async def update_settings(
 class ManualOrderRequest(BaseModel):
     symbol: str
     direction: Literal["long", "short"]
-    entry_price: float = Field(gt=0)
+    order_type: Literal["market", "limit"] = "market"
+    entry_price: float = Field(gt=0, description="Market price reference for market orders; the trigger price for limit orders.")
     stop_loss: float = Field(gt=0)
     take_profit: Optional[float] = None
-    account_equity: float = Field(gt=0, description="Used with risk_percent to size the position.")
-    risk_percent: float = Field(gt=0, le=100)
+    take_profit_2: Optional[float] = None
+    take_profit_3: Optional[float] = None
+    account_equity: float = Field(gt=0, description="Used with risk_percent/risk_amount to size the position.")
+    risk_mode: Literal["dollar", "percent"] = "dollar"
+    risk_amount: Optional[float] = Field(default=None, gt=0, description="Absolute risk in account currency — the default sizing mode, matching a real exchange's own order ticket.")
+    risk_percent: Optional[float] = Field(default=None, gt=0, le=100)
     preferred_broker: Optional[str] = None
 
 
@@ -118,6 +123,7 @@ class ManualOrderResponse(BaseModel):
     status: str
     is_test: bool
     lot_size: float
+    risk_percent: float
     message: str
 
 
@@ -128,16 +134,33 @@ async def place_manual_order(
     settings_row = await _get_or_create_settings(db, user.id)
     limits = effective_limits(settings_row)
 
-    reward = abs((req.take_profit - req.entry_price)) if req.take_profit is not None else None
     risk_dist = abs(req.entry_price - req.stop_loss)
-    rr_ratio = (reward / risk_dist) if (reward is not None and risk_dist > 0) else limits.min_rr_ratio
+    if risk_dist <= 0:
+        raise HTTPException(status_code=400, detail="stop_loss must differ from entry_price")
 
-    risk_check = await check_manual_trade_risk(db, user.id, limits, req.risk_percent, rr_ratio)
+    # Risk-$ is the default sizing mode (matches a real exchange's own
+    # order ticket — "Risk, USD" driving position size) — risk_percent
+    # is derived from it either way, since every risk cap in this app
+    # (and the bot side of the platform) is expressed as a percentage.
+    if req.risk_mode == "dollar":
+        if req.risk_amount is None:
+            raise HTTPException(status_code=400, detail="risk_amount is required when risk_mode is 'dollar'")
+        risk_percent = (req.risk_amount / req.account_equity) * 100
+    else:
+        if req.risk_percent is None:
+            raise HTTPException(status_code=400, detail="risk_percent is required when risk_mode is 'percent'")
+        risk_percent = req.risk_percent
+
+    final_target = req.take_profit_3 or req.take_profit_2 or req.take_profit
+    reward = abs(final_target - req.entry_price) if final_target is not None else None
+    rr_ratio = (reward / risk_dist) if reward is not None else limits.min_rr_ratio
+
+    risk_check = await check_manual_trade_risk(db, user.id, limits, risk_percent, rr_ratio)
     if not risk_check.allowed:
         raise HTTPException(status_code=409, detail=risk_check.reason)
 
     try:
-        lot_size = compute_lot_size(req.account_equity, req.risk_percent, req.entry_price, req.stop_loss)
+        lot_size = compute_lot_size(req.account_equity, risk_percent, req.entry_price, req.stop_loss)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -148,22 +171,30 @@ async def place_manual_order(
         trade_id=trade_id, user_id=user.id, bot_id=f"manual_{user.id}", bot_name="Manual Trade",
         strategy_type="manual", symbol=req.symbol.upper(),
         direction=TradeDirection.LONG if req.direction == "long" else TradeDirection.SHORT,
-        entry_price=req.entry_price, stop_loss=req.stop_loss, take_profit_1=req.take_profit,
-        lot_size=lot_size, risk_percent=req.risk_percent,
+        entry_price=req.entry_price, stop_loss=req.stop_loss,
+        take_profit_1=req.take_profit, take_profit_2=req.take_profit_2, take_profit_3=req.take_profit_3,
+        lot_size=lot_size, risk_percent=risk_percent,
         risk_amount=lot_size * risk_dist, requires_approval=False, is_test=is_test,
-        broker_name=req.preferred_broker, status=TradeStatus.PENDING,
+        broker_name=req.preferred_broker,
+        status=TradeStatus.PENDING,
+        entry_type=EntryType.LIMIT if req.order_type == "limit" else EntryType.MARKET,
     )
     db.add(trade)
     await db.commit()
 
     if is_test:
+        # Test mode always simulates an instant fill regardless of
+        # order_type — it's a rehearsal of the risk/execution flow, not
+        # a simulation of a resting limit order waiting to be touched
+        # (no price feed exists in this app to know when that would
+        # happen for a paper order).
         trade.status = TradeStatus.ACTIVE
         trade.entry_timestamp = datetime.now(timezone.utc)
         trade.broker_order_id = f"TEST-{uuid.uuid4().hex[:10]}"
         trade.broker_name = "test"
         await db.commit()
         return ManualOrderResponse(
-            trade_id=trade_id, status="active", is_test=True, lot_size=lot_size,
+            trade_id=trade_id, status="active", is_test=True, lot_size=lot_size, risk_percent=risk_percent,
             message="Simulated fill — Test mode, nothing was sent to a real exchange.",
         )
 
@@ -171,19 +202,76 @@ async def place_manual_order(
         "trade_id": trade_id, "symbol": trade.symbol, "direction": req.direction,
         "entry_price": req.entry_price, "stop_loss": req.stop_loss, "take_profit": req.take_profit,
         "lot_size": lot_size, "preferred_broker": req.preferred_broker, "bot_id": trade.bot_id,
+        "entry_type": req.order_type,
     }, db)
 
     if result.get("success"):
+        # A real limit order sits on the exchange's own book until
+        # triggered — ACTIVE here means "the order is live," not
+        # necessarily "filled," same distinction a real exchange's own
+        # order history draws between "working" and "filled."
         trade.status = TradeStatus.ACTIVE
         trade.entry_timestamp = datetime.now(timezone.utc)
         trade.broker_order_id = str(result.get("order_id", ""))
         trade.broker_name = result.get("broker", trade.broker_name)
         await db.commit()
         return ManualOrderResponse(
-            trade_id=trade_id, status="active", is_test=False, lot_size=lot_size,
+            trade_id=trade_id, status="active", is_test=False, lot_size=lot_size, risk_percent=risk_percent,
             message=result.get("message", "Order sent."),
         )
 
     trade.status = TradeStatus.ERROR
     await db.commit()
     raise HTTPException(status_code=502, detail=result.get("message") or result.get("error") or "Order failed at the broker.")
+
+
+class PartialCloseRequest(BaseModel):
+    percent: float = Field(gt=0, le=100, description="What portion of the CURRENT remaining size to close now.")
+    exit_price: float = Field(gt=0)
+
+
+class PartialCloseResponse(BaseModel):
+    trade_id: str
+    status: str
+    closed_lot_size: float
+    remaining_lot_size: float
+    realized_pnl_this_close: float
+
+
+@router.post("/{trade_id}/partial-close", response_model=PartialCloseResponse)
+async def partial_close(
+    trade_id: str, req: PartialCloseRequest, db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access),
+):
+    """Manual, trader-triggered partial exit — for multiple targets
+    (take_profit_1/2/3), the trader decides when price has reached
+    each one and closes that portion themselves; this app has no
+    price-feed/worker process to detect a target being hit and fire
+    automatically. `lot_size` on the Trade row is treated as the
+    CURRENT remaining size (mutated down on each partial close, not
+    the original) — closing 100% at any point fully closes the trade."""
+    row = (await db.execute(
+        select(Trade).where(Trade.trade_id == trade_id, Trade.user_id == user.id)
+    )).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Trade not found")
+    if row.status != TradeStatus.ACTIVE:
+        raise HTTPException(status_code=409, detail=f"Trade is {row.status.value}, not active — nothing to close.")
+
+    closed_size = row.lot_size * (req.percent / 100)
+    direction_sign = 1 if row.direction == TradeDirection.LONG else -1
+    pnl_this_close = direction_sign * (req.exit_price - row.entry_price) * closed_size
+
+    row.lot_size = round(row.lot_size - closed_size, 8)
+    row.realized_pnl = (row.realized_pnl or 0.0) + pnl_this_close
+    if row.lot_size <= 1e-8 or req.percent >= 100:
+        row.status = TradeStatus.CLOSED
+        row.exit_price = req.exit_price
+        row.exit_timestamp = datetime.now(timezone.utc)
+        row.exit_type = ExitType.MANUAL
+        row.lot_size = 0.0
+    await db.commit()
+
+    return PartialCloseResponse(
+        trade_id=trade_id, status=row.status.value, closed_lot_size=round(closed_size, 8),
+        remaining_lot_size=row.lot_size, realized_pnl_this_close=round(pnl_this_close, 2),
+    )

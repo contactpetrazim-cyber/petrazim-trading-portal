@@ -8,12 +8,15 @@ export interface Trade {
   entry_price: number | null;
   stop_loss: number;
   take_profit: number | null;
+  take_profit_2?: number | null;
+  take_profit_3?: number | null;
   lot_size: number;
   risk_percent: number;
   realized_pnl: number;
   unrealized_pnl: number;
   bot_id: string;
   strategy_type: string;
+  is_test?: boolean;
   user_id?: string | null;
   created_at: string;
   requires_approval: boolean;

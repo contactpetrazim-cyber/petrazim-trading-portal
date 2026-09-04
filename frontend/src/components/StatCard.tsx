@@ -9,26 +9,38 @@ interface StatCardProps {
   trendValue?: string;
   icon: React.ReactNode;
   color?: string;
+  /** Trade-console pages are always dark regardless of the site
+   * toggle by default; pass true only where this card renders on a
+   * light background (e.g. the Trade portal's own light mode). */
+  dark?: boolean;
 }
 
-export function StatCard({ title, value, subtitle, trend, trendValue, icon, color = 'blue' }: StatCardProps) {
+export function StatCard({ title, value, subtitle, trend, trendValue, icon, color = 'blue', dark = true }: StatCardProps) {
   const colorMap: Record<string, string> = {
-    blue: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
-    green: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
-    red: 'bg-red-500/10 text-red-400 border-red-500/20',
-    amber: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
-    purple: 'bg-purple-500/10 text-purple-400 border-purple-500/20',
+    blue: 'bg-blue-500/10 border-blue-500/20',
+    green: 'bg-emerald-500/10 border-emerald-500/20',
+    red: 'bg-red-500/10 border-red-500/20',
+    amber: 'bg-amber-500/10 border-amber-500/20',
+    purple: 'bg-purple-500/10 border-purple-500/20',
+  };
+  const labelColorMap: Record<string, string> = {
+    blue: 'text-blue-400', green: 'text-emerald-400', red: 'text-red-400',
+    amber: 'text-amber-400', purple: 'text-purple-400',
   };
 
   return (
     <div className={`rounded-xl border p-5 ${colorMap[color]}`}>
       <div className="flex items-start justify-between">
         <div>
-          <p className="text-sm font-medium opacity-80">{title}</p>
-          <p className="text-2xl font-bold mt-1">{value}</p>
-          {subtitle && <p className="text-xs opacity-60 mt-1">{subtitle}</p>}
+          <p className={`text-sm font-medium ${labelColorMap[color]}`}>{title}</p>
+          {/* The big number is the one thing on this card that must
+           * always be legible at a glance — explicit black/white
+           * rather than inheriting the card's own (lighter, harder to
+           * read) accent color, by direct request. */}
+          <p className={`text-2xl font-bold mt-1 ${dark ? 'text-white' : 'text-gray-900'}`}>{value}</p>
+          {subtitle && <p className={`text-xs mt-1 ${dark ? 'text-white/60' : 'text-gray-500'}`}>{subtitle}</p>}
         </div>
-        <div className="p-2 rounded-lg bg-white/5">
+        <div className={`p-2 rounded-lg ${labelColorMap[color]} ${dark ? 'bg-white/5' : 'bg-black/5'}`}>
           {icon}
         </div>
       </div>

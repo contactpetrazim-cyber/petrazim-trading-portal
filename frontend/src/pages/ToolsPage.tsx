@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import {
-  Gauge, TrendingUp, Grid3x3, NotebookPen, Wallet, Plus, Trash2,
+  Gauge, TrendingUp, Grid3x3, NotebookPen, Wallet, Plus, Trash2, LineChart,
 } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
 import { FoldedCard } from '../components/FoldedCard';
+import { ChartPanel } from '../components/ChartPanel';
 import { useThemeStore } from '../hooks/useTheme';
 import { useAuth } from '../hooks/useAuth';
 import { apiFetch } from '../components/AccessExpiredGate';
@@ -21,6 +22,80 @@ function ResultBox({ dark, children }: { dark: boolean; children: React.ReactNod
   return (
     <div className={`text-sm rounded-xl p-3 mt-3 whitespace-pre-wrap ${dark ? 'bg-white/5 text-white/80' : 'bg-corporate-bg text-corporate-text-on-bg'}`}>
       {children}
+    </div>
+  );
+}
+
+/** A single gauge bar — every Tools metric gets one of these instead of
+ * standing alone as plain text, by direct request ("all features on
+ * tools and insights must be visual"). */
+function GaugeBar({ pct, color, dark, label }: { pct: number; color: string; dark: boolean; label?: string }) {
+  return (
+    <div className="mb-2">
+      {label && <div className={`text-xs mb-1 ${dark ? 'text-white/50' : 'text-gray-500'}`}>{label}</div>}
+      <div className={`h-2.5 rounded-full overflow-hidden ${dark ? 'bg-white/10' : 'bg-gray-100'}`}>
+        <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(100, Math.max(0, pct))}%`, background: color }} />
+      </div>
+    </div>
+  );
+}
+
+/** A stacked bar for the 4 Prop-Firm outcome probabilities. */
+function StackedBar({ segments, dark }: { segments: { pct: number; color: string; label: string }[]; dark: boolean }) {
+  return (
+    <div>
+      <div className={`h-3 rounded-full overflow-hidden flex ${dark ? 'bg-white/10' : 'bg-gray-100'}`}>
+        {segments.map((s, i) => (
+          <div key={i} style={{ width: `${s.pct}%`, background: s.color }} title={`${s.label}: ${s.pct}%`} />
+        ))}
+      </div>
+      <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2">
+        {segments.map((s, i) => (
+          <div key={i} className={`flex items-center gap-1.5 text-xs ${dark ? 'text-white/50' : 'text-gray-500'}`}>
+            <span className="w-2 h-2 rounded-sm shrink-0" style={{ background: s.color }} /> {s.label}: {s.pct}%
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Correlation as an actual colored heat-map grid instead of a text
+ * list — diverging blue (negative) to red (positive correlation). */
+function CorrelationHeatMap({ labels, matrix, dark }: { labels: string[]; matrix: number[][]; dark: boolean }) {
+  function cellColor(v: number) {
+    const a = Math.min(1, Math.abs(v));
+    return v >= 0 ? `rgba(239,68,68,${a * 0.85})` : `rgba(59,130,246,${a * 0.85})`;
+  }
+  return (
+    <div className="overflow-x-auto">
+      <table className="border-collapse text-xs">
+        <thead>
+          <tr>
+            <th className="p-1" />
+            {labels.map((l) => (
+              <th key={l} className={`p-1.5 font-medium ${dark ? 'text-white/50' : 'text-gray-500'}`}>{l}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {matrix.map((row, i) => (
+            <tr key={i}>
+              <td className={`p-1.5 font-medium whitespace-nowrap ${dark ? 'text-white/50' : 'text-gray-500'}`}>{labels[i]}</td>
+              {row.map((v, j) => (
+                <td key={j} className="p-0">
+                  <div
+                    className="w-14 h-10 flex items-center justify-center font-semibold"
+                    style={{ background: cellColor(v), color: Math.abs(v) > 0.5 ? '#fff' : dark ? '#fff' : '#111' }}
+                  >
+                    {v.toFixed(2)}
+                  </div>
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -179,6 +254,12 @@ export function ToolsPage() {
     <div>
       <PageHeader title="Tools" subtitle="Risk-of-ruin, prop-firm odds, correlation, journal review, and payout tools." />
 
+      <div className="mb-4">
+        <FoldedCard title="Free Chart" summary="A live TradingView chart, right here" icon={<LineChart size={19} />} dark={dark} accent={TOOLS_ACCENT} defaultOpen>
+          <ChartPanel symbol="BINANCE:BTCUSDT" height={380} tradeSymbol="BTCUSDT" dark={dark} />
+        </FoldedCard>
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <FoldedCard title="Risk-of-Ruin Calculator" summary="Free — estimate risk of ruin from your own stats." icon={<Gauge size={19} />} dark={dark} accent={TOOLS_ACCENT}>
           <div className="grid grid-cols-2 gap-2 mb-2">
@@ -203,11 +284,16 @@ export function ToolsPage() {
             {rorBusy ? 'Calculating…' : 'Calculate'}
           </button>
           {rorResult && (
-            <ResultBox dark={dark}>
-              {rorResult.error ? rorResult.error : (
-                <>Probability of ruin: <b>{rorResult.probability_of_ruin}%</b>{'\n'}Expectancy: {rorResult.expectancy_r}R{'\n'}{rorResult.verdict}</>
-              )}
-            </ResultBox>
+            rorResult.error ? <ResultBox dark={dark}>{rorResult.error}</ResultBox> : (
+              <div className="mt-3">
+                <GaugeBar
+                  pct={rorResult.probability_of_ruin} dark={dark}
+                  color={rorResult.probability_of_ruin > 20 ? '#ef4444' : rorResult.probability_of_ruin > 5 ? '#f59e0b' : '#22c55e'}
+                  label={`Probability of ruin — ${rorResult.probability_of_ruin}%`}
+                />
+                <ResultBox dark={dark}>Expectancy: {rorResult.expectancy_r}R{'\n'}{rorResult.verdict}</ResultBox>
+              </div>
+            )
           )}
         </FoldedCard>
 
@@ -225,11 +311,19 @@ export function ToolsPage() {
             {propBusy ? 'Simulating…' : 'Simulate'}
           </button>
           {propResult && (
-            <ResultBox dark={dark}>
-              {propResult.error ? propResult.error : (
-                <>Pass probability: <b>{propResult.probability_of_pass}%</b>{'\n'}Fail (daily loss): {propResult.probability_of_fail_daily_loss}%{'\n'}Fail (total drawdown): {propResult.probability_of_fail_total_drawdown}%{'\n'}Fail (ran out of time): {propResult.probability_of_fail_time_limit}%</>
-              )}
-            </ResultBox>
+            propResult.error ? <ResultBox dark={dark}>{propResult.error}</ResultBox> : (
+              <div className="mt-3">
+                <StackedBar
+                  dark={dark}
+                  segments={[
+                    { pct: propResult.probability_of_pass, color: '#22c55e', label: 'Pass' },
+                    { pct: propResult.probability_of_fail_daily_loss, color: '#f59e0b', label: 'Fail (daily loss)' },
+                    { pct: propResult.probability_of_fail_total_drawdown, color: '#ef4444', label: 'Fail (total DD)' },
+                    { pct: propResult.probability_of_fail_time_limit, color: dark ? '#4b5563' : '#9ca3af', label: 'Ran out of time' },
+                  ]}
+                />
+              </div>
+            )
           )}
         </FoldedCard>
 
@@ -249,13 +343,18 @@ export function ToolsPage() {
             {corrBusy ? 'Computing…' : 'Compute correlation'}
           </button>
           {corrResult && (
-            <ResultBox dark={dark}>
-              {corrResult.error ? corrResult.error : corrResult.flags.length === 0
-                ? 'No pairs above the concentration-risk threshold.'
-                : corrResult.flags.map((f: any, i: number) => (
-                    <div key={i}>{f.label_a} × {f.label_b}: {f.correlation} ({f.severity})</div>
-                  ))}
-            </ResultBox>
+            corrResult.error ? <ResultBox dark={dark}>{corrResult.error}</ResultBox> : (
+              <div className="mt-3">
+                <CorrelationHeatMap labels={corrResult.labels} matrix={corrResult.matrix} dark={dark} />
+                {corrResult.flags.length > 0 && (
+                  <ResultBox dark={dark}>
+                    {corrResult.flags.map((f: any, i: number) => (
+                      <div key={i}>{f.label_a} × {f.label_b}: {f.correlation} ({f.severity})</div>
+                    ))}
+                  </ResultBox>
+                )}
+              </div>
+            )
           )}
         </FoldedCard>
 
@@ -291,11 +390,16 @@ export function ToolsPage() {
             {journalBusy ? 'Reviewing…' : 'Review'}
           </button>
           {journalResult && (
-            <ResultBox dark={dark}>
-              {journalResult.error ? journalResult.error : (
-                <>Win rate: {journalResult.win_rate}% · Expectancy: {journalResult.expectancy_r}R{journalResult.psychology_flag ? `\n\n${journalResult.psychology_flag}` : ''}{'\n\n'}{journalResult.coach_narrative}</>
-              )}
-            </ResultBox>
+            journalResult.error ? <ResultBox dark={dark}>{journalResult.error}</ResultBox> : (
+              <div className="mt-3">
+                <GaugeBar
+                  pct={journalResult.win_rate} dark={dark}
+                  color={journalResult.win_rate >= 50 ? '#22c55e' : '#f59e0b'}
+                  label={`Win rate — ${journalResult.win_rate}% (Expectancy: ${journalResult.expectancy_r}R)`}
+                />
+                <ResultBox dark={dark}>{journalResult.psychology_flag ? `${journalResult.psychology_flag}\n\n` : ''}{journalResult.coach_narrative}</ResultBox>
+              </div>
+            )
           )}
         </FoldedCard>
 
@@ -325,11 +429,19 @@ export function ToolsPage() {
             {payoutBusy ? 'Optimizing…' : 'Optimize'}
           </button>
           {payoutResult && (
-            <ResultBox dark={dark}>
-              {payoutResult.error ? payoutResult.error : payoutResult.allocations.map((a: any, i: number) => (
-                <div key={i}>{a.account_id}: {a.excluded ? a.exclusion_reason : `risk ${a.risk_pct_allocated}%`}</div>
-              ))}
-            </ResultBox>
+            payoutResult.error ? <ResultBox dark={dark}>{payoutResult.error}</ResultBox> : (
+              <div className="mt-3 space-y-2">
+                {payoutResult.allocations.map((a: any, i: number) => (
+                  a.excluded ? (
+                    <div key={i} className={`text-xs rounded-lg p-2 ${dark ? 'bg-red-500/10 text-red-300' : 'bg-red-50 text-red-600'}`}>
+                      {a.account_id}: {a.exclusion_reason}
+                    </div>
+                  ) : (
+                    <GaugeBar key={i} pct={(a.risk_pct_allocated / 2) * 100} color="#0891b2" dark={dark} label={`${a.account_id} — ${a.risk_pct_allocated}% risk allocated`} />
+                  )
+                ))}
+              </div>
+            )
           )}
         </FoldedCard>
       </div>

@@ -2,8 +2,7 @@ import { Link } from 'react-router-dom';
 import { LineChart } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
 import { FoldedCard } from '../components/FoldedCard';
-import { TradingViewChart } from '../components/TradingViewChart';
-import { useCandleColorStore } from '../hooks/useCandleColors';
+import { ChartPanel } from '../components/ChartPanel';
 import { FEATURE_AREAS, FEATURE_REGISTRY, AREA_ICONS, FeatureArea } from '../config/featureRegistry';
 import { useThemeStore } from '../hooks/useTheme';
 
@@ -45,7 +44,6 @@ import { useThemeStore } from '../hooks/useTheme';
 export function AreaPage({ area }: { area: FeatureArea }) {
   const { theme } = useThemeStore();
   const dark = theme === 'dark';
-  const { colors } = useCandleColorStore();
   const meta = FEATURE_AREAS.find((a) => a.id === area)!;
   const items = FEATURE_REGISTRY.filter((f) => f.area === area);
   const AreaIcon = AREA_ICONS[area];
@@ -59,9 +57,7 @@ export function AreaPage({ area }: { area: FeatureArea }) {
           title="Free Chart" summary="A live TradingView chart, right here" icon={<LineChart size={19} />}
           dark={dark} defaultOpen
         >
-          <div className="rounded-lg overflow-hidden" style={{ height: 320 }}>
-            <TradingViewChart symbol="OANDA:EURUSD" interval="60" theme={theme} candleColors={colors} />
-          </div>
+          <ChartPanel symbol="OANDA:EURUSD" height={420} tradeSymbol="EURUSD" dark={dark} />
         </FoldedCard>
       </div>
 

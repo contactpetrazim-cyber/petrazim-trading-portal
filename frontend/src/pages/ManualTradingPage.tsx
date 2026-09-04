@@ -1,9 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { ArrowLeft, FlaskConical, Radio, Settings2 } from 'lucide-react';
-import { TradingViewChart } from '../components/TradingViewChart';
-import { CandleColorPicker } from '../components/CandleColorPicker';
-import { useCandleColorStore } from '../hooks/useCandleColors';
+import { ChartPanel } from '../components/ChartPanel';
 import { useAuth } from '../hooks/useAuth';
 import { useThemeStore } from '../hooks/useTheme';
 import { apiFetch } from '../components/AccessExpiredGate';
@@ -53,22 +51,30 @@ export function ManualTradingPage() {
   const { token } = useAuth();
   const { theme } = useThemeStore();
   const dark = theme === 'dark';
-  const { colors } = useCandleColorStore();
 
   const preselect = params.get('symbol');
   const [symbol, setSymbol] = useState(
     SYMBOLS.find((s) => s.trade === preselect) || SYMBOLS[0]
   );
   const [direction, setDirection] = useState<'long' | 'short'>('long');
+  const [orderType, setOrderType] = useState<'market' | 'limit'>('market');
   const [entryPrice, setEntryPrice] = useState('');
   const [stopLoss, setStopLoss] = useState('');
   const [takeProfit, setTakeProfit] = useState('');
+  const [takeProfit2, setTakeProfit2] = useState('');
+  const [takeProfit3, setTakeProfit3] = useState('');
+  const [showExtraTargets, setShowExtraTargets] = useState(false);
   const [accountEquity, setAccountEquity] = useState('10000');
+  const [riskMode, setRiskMode] = useState<'dollar' | 'percent'>('dollar');
+  const [riskAmount, setRiskAmount] = useState('100');
   const [riskPercent, setRiskPercent] = useState('1');
   const [settings, setSettings] = useState<Settings | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [result, setResult] = useState<{ ok: boolean; message: string; tradeId?: string } | null>(null);
+  const [closePercent, setClosePercent] = useState('100');
+  const [closePrice, setClosePrice] = useState('');
+  const [closing, setClosing] = useState(false);
 
   const headers: Record<string, string> = token
     ? { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
@@ -100,19 +106,47 @@ export function ManualTradingPage() {
       const res = await apiFetch(`${API_URL}/manual-trading/order`, {
         method: 'POST', headers,
         body: JSON.stringify({
-          symbol: symbol.trade, direction,
+          symbol: symbol.trade, direction, order_type: orderType,
           entry_price: Number(entryPrice), stop_loss: Number(stopLoss),
           take_profit: takeProfit ? Number(takeProfit) : null,
-          account_equity: Number(accountEquity), risk_percent: Number(riskPercent),
+          take_profit_2: takeProfit2 ? Number(takeProfit2) : null,
+          take_profit_3: takeProfit3 ? Number(takeProfit3) : null,
+          account_equity: Number(accountEquity), risk_mode: riskMode,
+          risk_amount: riskMode === 'dollar' ? Number(riskAmount) : null,
+          risk_percent: riskMode === 'percent' ? Number(riskPercent) : null,
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Order failed.');
-      setResult({ ok: true, message: data.message });
+      setResult({ ok: true, message: data.message, tradeId: data.trade_id });
+      setClosePrice(entryPrice);
     } catch (err: any) {
       setResult({ ok: false, message: err.message || 'Order failed.' });
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function submitPartialClose() {
+    if (!token || !result?.tradeId) return;
+    setClosing(true);
+    try {
+      const res = await apiFetch(`${API_URL}/manual-trading/${result.tradeId}/partial-close`, {
+        method: 'POST', headers,
+        body: JSON.stringify({ percent: Number(closePercent), exit_price: Number(closePrice) }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Close failed.');
+      setResult({
+        ok: true, tradeId: data.status === 'closed' ? undefined : result.tradeId,
+        message: data.status === 'closed'
+          ? `Closed fully. Realized P&L this close: ${data.realized_pnl_this_close}.`
+          : `Closed ${closePercent}%. Remaining size: ${data.remaining_lot_size}. Realized P&L this close: ${data.realized_pnl_this_close}.`,
+      });
+    } catch (err: any) {
+      setResult({ ok: false, message: err.message || 'Close failed.', tradeId: result.tradeId });
+    } finally {
+      setClosing(false);
     }
   }
 
@@ -218,11 +252,8 @@ export function ManualTradingPage() {
                   {s.label}
                 </button>
               ))}
-              <div className="ml-auto"><CandleColorPicker dark={dark} /></div>
             </div>
-            <div className={`rounded-xl overflow-hidden border ${dark ? 'border-corporate-border-dark' : 'border-gray-200'}`} style={{ height: '520px' }}>
-              <TradingViewChart symbol={symbol.tv} interval="60" theme={theme} candleColors={colors} />
-            </div>
+            <ChartPanel symbol={symbol.tv} height={520} dark={dark} />
           </div>
 
           <div className={`rounded-xl border p-4 h-fit ${dark ? 'bg-corporate-surface-dark border-corporate-border-dark' : 'bg-white border-gray-200'}`}>
@@ -241,37 +272,107 @@ export function ManualTradingPage() {
               </button>
             </div>
 
-            <label className={labelCls}>Entry price</label>
+            <div className="flex gap-2 mb-3">
+              {(['market', 'limit'] as const).map((t) => (
+                <button
+                  key={t}
+                  onClick={() => setOrderType(t)}
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-semibold uppercase ${
+                    orderType === t ? 'bg-corporate-hero text-white' : dark ? 'bg-white/5 text-white/40' : 'bg-gray-50 text-gray-400'
+                  }`}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+
+            <label className={labelCls}>{orderType === 'limit' ? 'Limit price' : 'Market price (reference)'}</label>
             <input className={`${inputCls} mb-3`} value={entryPrice} onChange={(e) => setEntryPrice(e.target.value)} placeholder="0.00" />
 
             <label className={labelCls}>Stop loss</label>
             <input className={`${inputCls} mb-3`} value={stopLoss} onChange={(e) => setStopLoss(e.target.value)} placeholder="0.00" />
 
-            <label className={labelCls}>Take profit (optional)</label>
-            <input className={`${inputCls} mb-3`} value={takeProfit} onChange={(e) => setTakeProfit(e.target.value)} placeholder="0.00" />
+            <label className={labelCls}>Take profit (target 1)</label>
+            <input className={`${inputCls} mb-2`} value={takeProfit} onChange={(e) => setTakeProfit(e.target.value)} placeholder="0.00" />
 
+            {!showExtraTargets ? (
+              <button onClick={() => setShowExtraTargets(true)} className={`text-xs font-medium mb-3 ${dark ? 'text-white/40' : 'text-gray-400'}`}>
+                + Add more targets (partial exits)
+              </button>
+            ) : (
+              <>
+                <label className={labelCls}>Take profit 2 (optional)</label>
+                <input className={`${inputCls} mb-2`} value={takeProfit2} onChange={(e) => setTakeProfit2(e.target.value)} placeholder="0.00" />
+                <label className={labelCls}>Take profit 3 (optional)</label>
+                <input className={`${inputCls} mb-3`} value={takeProfit3} onChange={(e) => setTakeProfit3(e.target.value)} placeholder="0.00" />
+              </>
+            )}
+
+            <div className="flex gap-2 mb-2">
+              {(['dollar', 'percent'] as const).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => setRiskMode(m)}
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-semibold ${
+                    riskMode === m ? 'bg-corporate-hero text-white' : dark ? 'bg-white/5 text-white/40' : 'bg-gray-50 text-gray-400'
+                  }`}
+                >
+                  Risk in {m === 'dollar' ? '$' : '%'}
+                </button>
+              ))}
+            </div>
             <div className="grid grid-cols-2 gap-2 mb-3">
               <label className={labelCls}>
                 Account equity
                 <input className={inputCls} value={accountEquity} onChange={(e) => setAccountEquity(e.target.value)} />
               </label>
-              <label className={labelCls}>
-                Risk %
-                <input className={inputCls} value={riskPercent} onChange={(e) => setRiskPercent(e.target.value)} />
-              </label>
+              {riskMode === 'dollar' ? (
+                <label className={labelCls}>
+                  Risk, USD
+                  <input className={inputCls} value={riskAmount} onChange={(e) => setRiskAmount(e.target.value)} />
+                </label>
+              ) : (
+                <label className={labelCls}>
+                  Risk %
+                  <input className={inputCls} value={riskPercent} onChange={(e) => setRiskPercent(e.target.value)} />
+                </label>
+              )}
             </div>
 
             {result && (
               <p className={`text-xs mb-3 ${result.ok ? 'text-emerald-500' : 'text-red-500'}`}>{result.message}</p>
             )}
 
-            <button
-              onClick={submitOrder}
-              disabled={submitting || !entryPrice || !stopLoss}
-              className={`w-full py-3 rounded-lg text-sm font-bold text-white disabled:opacity-50 ${direction === 'long' ? 'bg-emerald-500' : 'bg-red-500'}`}
-            >
-              {submitting ? 'Placing…' : `${isTest ? 'Simulate' : 'Place'} ${direction === 'long' ? 'Buy' : 'Sell'} Order`}
-            </button>
+            {result?.ok && result.tradeId ? (
+              <div className={`rounded-lg p-3 mb-3 border ${dark ? 'border-corporate-border-dark' : 'border-gray-200'}`}>
+                <div className={`text-xs font-semibold mb-2 ${dark ? 'text-white/60' : 'text-gray-600'}`}>Partial close this position</div>
+                <div className="grid grid-cols-2 gap-2 mb-2">
+                  <label className={labelCls}>
+                    % to close
+                    <input className={inputCls} value={closePercent} onChange={(e) => setClosePercent(e.target.value)} />
+                  </label>
+                  <label className={labelCls}>
+                    Exit price
+                    <input className={inputCls} value={closePrice} onChange={(e) => setClosePrice(e.target.value)} />
+                  </label>
+                </div>
+                <button
+                  onClick={submitPartialClose}
+                  disabled={closing || !closePrice}
+                  className={`w-full py-2 rounded-lg text-xs font-bold disabled:opacity-50 ${dark ? 'bg-white/10 text-white' : 'bg-gray-100 text-gray-700'}`}
+                >
+                  {closing ? 'Closing…' : 'Close position'}
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={submitOrder}
+                disabled={submitting || !entryPrice || !stopLoss}
+                className={`w-full py-3 rounded-lg text-sm font-bold text-white disabled:opacity-50 ${direction === 'long' ? 'bg-emerald-500' : 'bg-red-500'}`}
+              >
+                {submitting ? 'Placing…' : `${isTest ? 'Simulate' : 'Place'} ${direction === 'long' ? 'Buy' : 'Sell'} ${orderType === 'limit' ? 'Limit' : 'Market'} Order`}
+              </button>
+            )}
           </div>
         </div>
       </div>

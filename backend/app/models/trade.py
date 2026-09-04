@@ -2,6 +2,7 @@
 from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, JSON, ForeignKey, Enum, Text
 from sqlalchemy.dialects.postgresql import UUID
 from app.database import Base
+from typing import Optional
 import uuid
 from datetime import datetime
 import enum
@@ -64,6 +65,18 @@ class Trade(Base):
     take_profit_1 = Column(Float)
     take_profit_2 = Column(Float)
     take_profit_3 = Column(Float)
+
+    @property
+    def take_profit(self) -> Optional[float]:
+        """Alias for take_profit_1 — schemas.TradeResponse has always
+        serialized a field named exactly `take_profit` via plain
+        attribute passthrough (routers/trades.py returns the ORM object
+        directly), but no column or property by that name existed, so
+        every trade's take_profit came back None regardless of what was
+        actually stored. Found and fixed while adding multi-target
+        (take_profit_2/3) support below — a real, previously invisible
+        bug, not something introduced by this change."""
+        return self.take_profit_1
 
     # Position sizing
     lot_size = Column(Float, nullable=False)

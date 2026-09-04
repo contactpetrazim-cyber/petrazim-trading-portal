@@ -2,8 +2,7 @@ import { Link } from 'react-router-dom';
 import { Bot, Hand, LayoutDashboard, ListChecks, Settings2, Shield } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
 import { FoldedCard } from '../components/FoldedCard';
-import { TradingViewChart } from '../components/TradingViewChart';
-import { useCandleColorStore } from '../hooks/useCandleColors';
+import { ChartPanel } from '../components/ChartPanel';
 import { useThemeStore } from '../hooks/useTheme';
 
 /**
@@ -17,7 +16,6 @@ import { useThemeStore } from '../hooks/useTheme';
 export function TradePage() {
   const { theme } = useThemeStore();
   const dark = theme === 'dark';
-  const { colors } = useCandleColorStore();
 
   const cardCls = `rounded-2xl border p-6 ${dark ? 'bg-corporate-surface-dark border-corporate-border-dark' : 'bg-white border-corporate-bg'}`;
   const linkTiles = [
@@ -32,10 +30,8 @@ export function TradePage() {
       <PageHeader title="Trade" subtitle="Your live signal panel, trade approvals, bot configuration, and manual trading." />
 
       <FoldedCard title="Free Chart" summary="A live TradingView chart, right here" icon={<LayoutDashboard size={19} />} dark={dark} defaultOpen>
-        <div className="rounded-lg overflow-hidden mb-2" style={{ height: 360 }}>
-          <TradingViewChart symbol="BINANCE:BTCUSDT" interval="60" theme={theme} candleColors={colors} />
-        </div>
-        <Link to="/tradingview" className={`text-xs font-medium ${dark ? 'text-white/50' : 'text-corporate-hero'}`}>
+        <ChartPanel symbol="BINANCE:BTCUSDT" height={440} tradeSymbol="BTCUSDT" dark={dark} />
+        <Link to="/tradingview" className={`text-xs font-medium mt-2 inline-block ${dark ? 'text-white/50' : 'text-corporate-hero'}`}>
           Open the full Trading Frame (more symbols, My Workspace, drawing tools) →
         </Link>
       </FoldedCard>
