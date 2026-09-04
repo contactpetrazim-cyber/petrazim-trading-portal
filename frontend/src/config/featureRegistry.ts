@@ -9,7 +9,23 @@
  * never drift out of sync with each other.
  */
 
+import { BookOpen, Dumbbell, LineChart, BarChart3, Tv, Wrench, Users, Compass } from 'lucide-react';
+
 export type FeatureArea = 'learn' | 'practise' | 'trade' | 'insights' | 'tradingview' | 'tools' | 'community' | 'explore';
+
+// Same icon-per-area mapping as petrazim_preview_v13_FINAL.jsx's NAV
+// array — the single shared source, so BottomNav's tabs and AreaPage's
+// FoldedCard badges can never drift onto two different icon sets.
+export const AREA_ICONS: Record<FeatureArea, typeof BookOpen> = {
+  learn: BookOpen,
+  practise: Dumbbell,
+  trade: LineChart,
+  insights: BarChart3,
+  tradingview: Tv,
+  tools: Wrench,
+  community: Users,
+  explore: Compass,
+};
 
 export interface FeatureEntry {
   id: string;

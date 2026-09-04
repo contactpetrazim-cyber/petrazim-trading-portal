@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom';
 import { PageHeader } from '../components/PageHeader';
 import { FoldedCard } from '../components/FoldedCard';
-import { FEATURE_AREAS, FEATURE_REGISTRY, FeatureArea } from '../config/featureRegistry';
+import { FEATURE_AREAS, FEATURE_REGISTRY, AREA_ICONS, FeatureArea } from '../config/featureRegistry';
 import { useThemeStore } from '../hooks/useTheme';
 
 /**
@@ -23,12 +23,20 @@ import { useThemeStore } from '../hooks/useTheme';
  * (same "still queued" list) and will fall through to the sitemap
  * fallback until they do — this page doesn't change that, it just
  * gives every BottomNav tab somewhere real to land first.
+ *
+ * Every FoldedCard in the reference carries an icon badge — this one
+ * had none at all (FEATURE_REGISTRY has no per-feature icon), a real,
+ * visible drift from Section 4's card anatomy. Reuses the area's own
+ * AREA_ICONS entry per card, same as the reference's own Tools page
+ * (one Wrench icon repeated across every tool card, only the accent
+ * varying) rather than inventing a distinct icon per feature.
  */
 export function AreaPage({ area }: { area: FeatureArea }) {
   const { theme } = useThemeStore();
   const dark = theme === 'dark';
   const meta = FEATURE_AREAS.find((a) => a.id === area)!;
   const items = FEATURE_REGISTRY.filter((f) => f.area === area);
+  const AreaIcon = AREA_ICONS[area];
 
   return (
     <div>
@@ -36,7 +44,7 @@ export function AreaPage({ area }: { area: FeatureArea }) {
 
       <div className="space-y-3">
         {items.map((item) => (
-          <FoldedCard key={item.id} title={item.label} summary={item.description} dark={dark}>
+          <FoldedCard key={item.id} title={item.label} summary={item.description} icon={<AreaIcon size={19} />} dark={dark}>
             <Link
               to={item.route}
               className={`inline-flex items-center gap-1.5 text-sm font-medium ${dark ? 'text-white' : 'text-corporate-hero'}`}

@@ -1,21 +1,6 @@
 import { Link, useLocation } from 'react-router-dom';
-import {
-  BookOpen, Dumbbell, LineChart, BarChart3, Tv, Wrench, Users, Compass,
-} from 'lucide-react';
-import { FEATURE_AREAS, FeatureArea } from '../config/featureRegistry';
+import { FEATURE_AREAS, AREA_ICONS } from '../config/featureRegistry';
 import { useThemeStore } from '../hooks/useTheme';
-
-// Same icon-per-area mapping as petrazim_preview_v13_FINAL.jsx's NAV array.
-const AREA_ICONS: Record<FeatureArea, typeof BookOpen> = {
-  learn: BookOpen,
-  practise: Dumbbell,
-  trade: LineChart,
-  insights: BarChart3,
-  tradingview: Tv,
-  tools: Wrench,
-  community: Users,
-  explore: Compass,
-};
 
 /**
  * BottomNav — the 8 feature areas as a fixed, mobile-app-style tab

@@ -1,6 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { Users, ShieldCheck } from 'lucide-react';
-import { Layout, NavItem } from './components/Layout';
+import { Layout } from './components/Layout';
 import { TopNav } from './components/TopNav';
 import { BottomNav } from './components/BottomNav';
 import { FloatingTradeAI } from './components/FloatingTradeAI';
@@ -48,10 +47,6 @@ function CorporateLayout({ children }: { children: React.ReactNode }) {
   );
 }
 
-const MANAGER_NAV_ITEMS: NavItem[] = [{ path: '/manager', label: 'Console', icon: Users }];
-const PARTNER_NAV_ITEMS: NavItem[] = [{ path: '/partner', label: 'Console', icon: Users }];
-const ADMIN_NAV_ITEMS: NavItem[] = [{ path: '/admin', label: 'Users', icon: ShieldCheck }];
-
 function App() {
   return (
     <BrowserRouter>
@@ -92,26 +87,23 @@ function App() {
           </ProtectedRoute>
         } />
 
-        {/* Role consoles — mounted inside the same dark Layout the Trader
-            console uses (not CorporateLayout): "let every portal follow
-            the style and formatting and colour theme of the trader
-            dashboard." Each gets its own single-item sidebar (there's
-            only the one console page per role today) plus Layout's new
-            settings gear for the real logo, "Switch Portal," and every
-            other SettingsPanel item, consistently. */}
+        {/* Role consoles — mounted inside CorporateLayout (like every other
+            corporate-shell page) so they get the real logo, the site-wide
+            light/dark toggle, and BottomNav/Settings' "Switch Portal" nav.
+            They previously rendered bare, with none of that. */}
         <Route path="/manager" element={
           <ProtectedRoute allowedRoles={['fund_manager']}>
-            <Layout navItems={MANAGER_NAV_ITEMS}><ManagerConsolePage /></Layout>
+            <CorporateLayout><ManagerConsolePage /></CorporateLayout>
           </ProtectedRoute>
         } />
         <Route path="/partner" element={
           <ProtectedRoute allowedRoles={['partner']}>
-            <Layout navItems={PARTNER_NAV_ITEMS}><PartnerConsolePage /></Layout>
+            <CorporateLayout><PartnerConsolePage /></CorporateLayout>
           </ProtectedRoute>
         } />
         <Route path="/admin" element={
           <ProtectedRoute allowedRoles={['admin', 'super_admin']}>
-            <Layout navItems={ADMIN_NAV_ITEMS}><AdminConsolePage /></Layout>
+            <CorporateLayout><AdminConsolePage /></CorporateLayout>
           </ProtectedRoute>
         } />
 

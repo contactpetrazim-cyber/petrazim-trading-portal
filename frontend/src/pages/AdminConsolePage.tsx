@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react';
 import { ShieldAlert } from 'lucide-react';
 import { RoleBadge } from '../components/RoleBadge';
+import { RosterPanel } from '../components/RosterPanel';
+import { AccessCodesPanel } from '../components/AccessCodesPanel';
+import { TraderOversightPanel } from '../components/TraderOversightPanel';
 import { useAuth } from '../hooks/useAuth';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -20,12 +23,19 @@ interface UserRow {
  * succeed server-side) for the seeded Super Admin — matches
  * require_super_admin() on the backend, not just require_role(ADMIN).
  *
- * Mounted inside the same dark Layout (App.tsx) every portal now
- * shares — "let every portal follow the style and formatting and
- * colour theme of the trader dashboard." No longer needs its own
- * dark-card wrapper: that was a workaround for sitting inside
- * CorporateLayout's toggle-driven light/dark background; Layout's own
- * background already is smc-dark, unconditionally, like Trader's.
+ * Deliberately keeps its own dark smc-* palette rather than following
+ * the corporate light theme — same documented exception as the Trade
+ * console (config/theme.ts): an internal ops tool, not a first-time
+ * visitor surface. Still mounted inside CorporateLayout in App.tsx
+ * (like every other console) purely for the shared logo/nav — that
+ * part was missing entirely before, not a styling choice.
+ *
+ * "Admin will have everything in Manager and more" — mounts the same
+ * RosterPanel/TraderOversightPanel/AccessCodesPanel the Manager
+ * console has. No backend changes needed for this: roster.py's
+ * get_roster and user_can_manage_trader already give Admin/Super
+ * Admin the full, unscoped view (every roster, every trader), the
+ * same principle used everywhere else access is role-gated.
  */
 export function AdminConsolePage() {
   const { user, token } = useAuth();
@@ -77,8 +87,8 @@ export function AdminConsolePage() {
   if (!user) return null;
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="bg-smc-dark text-white rounded-2xl p-6 -mx-5 md:mx-0">
+      <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold">
             {isSuperAdmin ? 'Super Admin' : 'Admin'} Console
@@ -93,7 +103,7 @@ export function AdminConsolePage() {
       </div>
 
       {isSuperAdmin && (
-        <div className="bg-smc-card border border-smc-border rounded-xl p-6">
+        <div className="bg-smc-card border border-smc-border rounded-xl p-6 mb-4">
           <div className="flex items-center gap-2 mb-1">
             <ShieldAlert size={16} className="text-amber-400" />
             <h2 className="text-sm font-medium text-gray-300">Payments Mode</h2>
@@ -125,6 +135,12 @@ export function AdminConsolePage() {
           </div>
         </div>
       )}
+
+      <div className="space-y-4 mb-4">
+        <RosterPanel dark />
+        <TraderOversightPanel dark />
+        <AccessCodesPanel dark />
+      </div>
 
       <div className="bg-smc-card border border-smc-border rounded-xl p-6">
         <h2 className="text-sm font-medium text-gray-300 mb-4">All Users</h2>

@@ -35,26 +35,33 @@ const TRADER_NAV_ITEMS: NavItem[] = [
 ];
 
 /**
- * Layout — the Trader console's dark terminal shell. Now the shared
- * shell for every portal (Trader/Manager/Partner/Admin), not just the
- * Trader's: "let every portal follow the style and formatting and
- * colour theme of the trader dashboard" means literally this
- * component, not a lookalike. `navItems` lets each portal supply its
- * own (Trader's five-item sidebar stays the default, so this page
- * needed zero changes at its own three call sites).
+ * Layout — the dark terminal shell for the Trader console's own five
+ * pages (Dashboard/Trades/Bots/Analytics-Risk-Settings). This is the
+ * "existing v2 dashboard" App.tsx's own comment refers to — it
+ * predates, and isn't part of, the v13 design system (TopNav/
+ * BottomNav/HERO_GRADIENT/PageHeader) that Manager/Partner/Admin and
+ * every other page in the app follow; per the UI design handover's
+ * own "Deliberate Exception" section, it's the Trade signal panel and
+ * TradingView frame specifically that stay dark on purpose, not a
+ * whole separate console shell. Manager/Partner/Admin
+ * mount inside CorporateLayout (App.tsx), not here — an earlier pass
+ * this session moved them here by mistake, reading "the trader
+ * dashboard" as this legacy sidebar rather than the v13 corporate
+ * theme's own Dashboard; reverted once the actual v13 source file and
+ * handover doc confirmed which one "the trader dashboard" means.
  *
- * Also fixes a real, separate gap while unifying this: the header
- * was still the pre-launch "SMC Trading Engine" placeholder branding
- * (a lightning icon + text), never swapped for the real Petrazim
- * logo like TopNav's corporate-shell header already was — "use the
- * correct Petrazim logo on all portals, copy the trader portal" only
- * half-worked as an instruction while the trader portal itself hadn't
- * been fixed either.
+ * `navItems` (only the Trader nav today) exists so this doesn't need
+ * to be Trader-specific at the type level, in case a future page
+ * genuinely needs this same dark-terminal treatment — not a signal
+ * that other consoles should mount here.
  *
- * The settings gear (new) opens the same SettingsPanel the corporate
- * shell uses, forced dark — this is what gives every portal mounted
- * here the "Switch Portal" nav ("how to get back and select portal of
- * interest"), consistently, rather than each portal inventing its own.
+ * Two real, narrow fixes kept from that reverted pass: the header was
+ * still the pre-launch "SMC Trading Engine" placeholder (a lightning
+ * icon + text) — swapped for the real PetrazimLogo, which every v13
+ * page already had and this one, oddly, never did. And a settings
+ * gear was added so this legacy console also reaches SettingsPanel's
+ * "Switch Portal" — it had no way back to the rest of the app at all
+ * before this.
  */
 export function Layout({ children, navItems = TRADER_NAV_ITEMS }: { children: React.ReactNode; navItems?: NavItem[] }) {
   const { sidebarOpen, toggleSidebar, wsConnected, stats } = useAppStore();

@@ -1,4 +1,4 @@
-import { FEATURE_AREAS, FEATURE_REGISTRY, FeatureArea } from '../config/featureRegistry';
+import { FEATURE_AREAS, FEATURE_REGISTRY, AREA_ICONS, FeatureArea } from '../config/featureRegistry';
 import { FoldedCard } from '../components/FoldedCard';
 import { Link } from 'react-router-dom';
 import { useThemeStore } from '../hooks/useTheme';
@@ -32,11 +32,13 @@ export function SiteMapPage() {
       <div className="space-y-3">
         {FEATURE_AREAS.map((area) => {
           const items = grouped(area.id);
+          const AreaIcon = AREA_ICONS[area.id];
           return (
             <FoldedCard
               key={area.id}
               title={area.label}
               summary={`${items.length} feature${items.length === 1 ? '' : 's'}`}
+              icon={<AreaIcon size={19} />}
               dark={dark}
             >
               <div className="space-y-2">

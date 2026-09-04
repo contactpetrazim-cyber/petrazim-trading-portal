@@ -12,7 +12,7 @@ export function PageHeader({ title, subtitle }: { title: string; subtitle: strin
   return (
     <div className="rounded-3xl p-7 mb-6" style={{ background: HERO_GRADIENT }}>
       <h1 className="text-2xl md:text-3xl font-extrabold text-white mb-1.5 font-display">{title}</h1>
-      <p className="text-white/60 text-sm max-w-lg">{subtitle}</p>
+      <p className="text-white/55 text-sm max-w-lg">{subtitle}</p>
     </div>
   );
 }
