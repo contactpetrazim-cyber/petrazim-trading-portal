@@ -200,3 +200,136 @@ async def get_depth(
         bids=[DepthLevel(price=float(p), qty=float(q)) for p, q in raw["bids"]],
         asks=[DepthLevel(price=float(p), qty=float(q)) for p, q in raw["asks"]],
     )
+
+
+# ---------------------------------------------------------------------------
+# Footprint chart + volume profile — the "volume clusters" view (OF-04
+# footprint, OF-03 volume profile), computed at real per-price-level
+# resolution from genuine trades, not simulated. Every candle and every
+# volume-profile row shares the SAME price grid (one tick size for the
+# whole fetched window) so they visually align, the same way a real
+# footprint chart's rows line up across candles and against its
+# volume-profile panel.
+# ---------------------------------------------------------------------------
+
+class FootprintRow(BaseModel):
+    row_price: float
+    bid_volume: float   # aggressor SOLD at this price (hit the bid)
+    ask_volume: float   # aggressor BOUGHT at this price (hit the ask)
+
+
+class FootprintCandle(BaseModel):
+    time_ms: int
+    open: float
+    high: float
+    low: float
+    close: float
+    delta: float
+    total_volume: float
+    trade_count: int
+    rows: List[FootprintRow]   # high-to-low, only rows this candle's own trades touched
+
+
+class VolumeProfileRow(BaseModel):
+    row_price: float
+    volume: float
+
+
+class FootprintChartResponse(BaseModel):
+    symbol: str
+    tick_size: float
+    candles: List[FootprintCandle]
+    volume_profile: List[VolumeProfileRow]   # high-to-low, same grid as candles' rows
+    poc_price: float                          # the volume_profile row with the most volume
+
+
+@router.get("/footprint-chart", response_model=FootprintChartResponse)
+async def get_footprint_chart(
+    symbol: str = "BTCUSDT", trade_limit: int = 1000, num_candles: int = 15, target_rows: int = 40,
+    user: User = Depends(require_active_access),
+):
+    """Real bid/ask volume clusters per price level per candle — the
+    same chart type as a professional footprint tool, built from
+    genuine Binance trades rather than simulated. `target_rows` sets
+    ONE tick size for the whole fetched price range (session_high to
+    session_low), so every candle's rows and the volume_profile panel
+    share the identical price grid and line up visually; a calmer
+    candle naturally gets fewer rows and a volatile one gets more,
+    exactly like a real footprint chart — this isn't a fixed row count
+    forced onto every candle."""
+    symbol = _validate_symbol(symbol)
+    trade_limit = max(50, min(trade_limit, 1000))
+    num_candles = max(3, min(num_candles, 30))
+    target_rows = max(10, min(target_rows, 80))
+
+    resp = await _binance_get("/trades", {"symbol": symbol, "limit": trade_limit})
+    raw = resp.json()
+    if not raw:
+        raise HTTPException(status_code=404, detail="No recent trades available for this symbol")
+
+    prices = [float(t["price"]) for t in raw]
+    session_high, session_low = max(prices), min(prices)
+    price_range = max(session_high - session_low, session_high * 0.0001, 1e-8)
+    tick = price_range / target_rows
+
+    def row_index(price: float) -> int:
+        return int((price - session_low) // tick)
+
+    times = [t["time"] for t in raw]
+    t_min, t_max = min(times), max(times)
+    span = max(1, t_max - t_min)
+    candle_ms = max(1, span // num_candles)
+
+    candle_trades: Dict[int, list] = defaultdict(list)
+    for t in raw:
+        idx = min(num_candles - 1, (t["time"] - t_min) // candle_ms)
+        candle_trades[idx].append(t)
+
+    candles: List[FootprintCandle] = []
+    for idx in sorted(candle_trades.keys()):
+        trs = sorted(candle_trades[idx], key=lambda t: t["time"])
+        c_prices = [float(t["price"]) for t in trs]
+        c_high, c_low = max(c_prices), min(c_prices)
+
+        row_vols: Dict[int, dict] = defaultdict(lambda: {"bid": 0.0, "ask": 0.0})
+        for t in trs:
+            r = row_index(float(t["price"]))
+            qty = float(t["qty"])
+            if t["isBuyerMaker"]:
+                row_vols[r]["bid"] += qty
+            else:
+                row_vols[r]["ask"] += qty
+
+        r_low, r_high = row_index(c_low), row_index(c_high)
+        rows = [
+            FootprintRow(
+                row_price=round(session_low + r * tick, 8),
+                bid_volume=round(row_vols.get(r, {"bid": 0.0})["bid"], 6),
+                ask_volume=round(row_vols.get(r, {"ask": 0.0})["ask"], 6),
+            )
+            for r in range(r_low, r_high + 1)
+        ]
+        rows.sort(key=lambda rw: rw.row_price, reverse=True)
+
+        total_bid = sum(rw.bid_volume for rw in rows)
+        total_ask = sum(rw.ask_volume for rw in rows)
+        candles.append(FootprintCandle(
+            time_ms=t_min + idx * candle_ms, open=c_prices[0], high=c_high, low=c_low, close=c_prices[-1],
+            delta=round(total_ask - total_bid, 6), total_volume=round(total_ask + total_bid, 6),
+            trade_count=len(trs), rows=rows,
+        ))
+
+    vp: Dict[int, float] = defaultdict(float)
+    for t in raw:
+        vp[row_index(float(t["price"]))] += float(t["qty"])
+    volume_profile = sorted(
+        (VolumeProfileRow(row_price=round(session_low + r * tick, 8), volume=round(v, 6)) for r, v in vp.items()),
+        key=lambda rw: rw.row_price, reverse=True,
+    )
+    poc_row = max(vp.items(), key=lambda kv: kv[1])[0] if vp else 0
+    poc_price = round(session_low + poc_row * tick, 8)
+
+    return FootprintChartResponse(
+        symbol=symbol, tick_size=round(tick, 8), candles=candles,
+        volume_profile=volume_profile, poc_price=poc_price,
+    )

@@ -12,10 +12,21 @@ interface FootprintBucket {
 }
 interface DepthLevel { price: number; qty: number }
 interface Depth { bids: DepthLevel[]; asks: DepthLevel[] }
+interface FootprintRow { row_price: number; bid_volume: number; ask_volume: number }
+interface FootprintCandleData {
+  time_ms: number; open: number; high: number; low: number; close: number;
+  delta: number; total_volume: number; trade_count: number; rows: FootprintRow[];
+}
+interface VolumeProfileRow { row_price: number; volume: number }
+interface FootprintChart {
+  symbol: string; tick_size: number; candles: FootprintCandleData[];
+  volume_profile: VolumeProfileRow[]; poc_price: number;
+}
 
 const TRADES_POLL_MS = 4000;
 const FOOTPRINT_POLL_MS = 10000;
 const DEPTH_POLL_MS = 5000;
+const CHART_POLL_MS = 15000;
 
 /**
  * OrderFlowChartTool — a REAL order-flow chart, not a simulation.
@@ -48,6 +59,7 @@ export function OrderFlowChartTool() {
   const [trades, setTrades] = useState<TradePrint[] | null>(null);
   const [footprint, setFootprint] = useState<FootprintBucket[] | null>(null);
   const [depth, setDepth] = useState<Depth | null>(null);
+  const [chart, setChart] = useState<FootprintChart | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
@@ -99,6 +111,20 @@ export function OrderFlowChartTool() {
     };
     load();
     const id = setInterval(load, DEPTH_POLL_MS);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [token, symbol]);
+
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    const load = () => {
+      apiFetch(`${API_URL}/order-flow/footprint-chart?symbol=${symbol}&trade_limit=1000&num_candles=15&target_rows=40`, { headers })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => !cancelled && d && setChart(d))
+        .catch(() => {});
+    };
+    load();
+    const id = setInterval(load, CHART_POLL_MS);
     return () => { cancelled = true; clearInterval(id); };
   }, [token, symbol]);
 
@@ -216,6 +242,130 @@ export function OrderFlowChartTool() {
             actually trades on the tape.
           </div>
         </div>
+      </div>
+
+      {/* Footprint chart + volume profile — the "volume clusters" view */}
+      <div className={`${cardCls} mt-4`}>
+        <div className="flex items-center justify-between mb-4">
+          <div className={titleCls} style={{ marginBottom: 0 }}>Footprint Chart — Bid × Ask Volume Clusters</div>
+          {chart && (
+            <span className={`text-xs ${mutedCls}`}>
+              Tick size ≈ {chart.tick_size.toPrecision(3)} · POC {chart.poc_price.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+            </span>
+          )}
+        </div>
+
+        {chart === null ? (
+          <p className={`text-sm ${mutedCls}`}>Loading footprint chart…</p>
+        ) : (
+          <FootprintGrid chart={chart} dark={dark} mutedCls={mutedCls} />
+        )}
+
+        <div className={`mt-4 pt-4 border-t text-xs leading-relaxed ${dark ? 'border-white/10 text-white/60' : 'border-gray-100 text-gray-600'}`}>
+          <div className="font-semibold mb-1.5">How to read this (see OF-03, OF-04, OF-07):</div>
+          <ul className="space-y-1 list-disc list-inside">
+            <li>Each cell is real bid volume (left, aggressive selling) × ask volume (right, aggressive buying) at that exact price, inside that candle only.</li>
+            <li>A cell shaded green means more aggressive buying than selling happened there; red means the opposite — the darker the shade, the bigger the imbalance.</li>
+            <li>The left bar chart is the session's Volume Profile — the longest bar is the Point of Control (POC), the single price with the most total volume.</li>
+            <li>Watch for a new price high or low printed on thin, mostly-empty rows — that's often a fast, low-participation move, worth treating differently from a high built on heavy, two-sided volume (compare OF-06's absorption vs. exhaustion).</li>
+            <li>A candle's Δ (delta, shown below it) is its total ask volume minus bid volume — compare it to the previous candle's Δ at a similar price to check for the delta divergence pattern from OF-04.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** One shared price grid — the volume-profile bars and every candle's
+ * rows are placed by explicit row/column index so they line up
+ * exactly, the same way a real footprint chart's rows align across
+ * candles and against its volume-profile panel. */
+function FootprintGrid({ chart, dark, mutedCls }: { chart: FootprintChart; dark: boolean; mutedCls: string }) {
+  const rows = chart.volume_profile;   // already sorted high-to-low
+  const maxVpVolume = Math.max(1e-9, ...rows.map((r) => r.volume));
+  const maxCellVolume = Math.max(
+    1e-9,
+    ...chart.candles.flatMap((c) => c.rows.map((r) => r.bid_volume + r.ask_volume))
+  );
+
+  const candleRowMaps = chart.candles.map(
+    (c) => new Map(c.rows.map((r) => [r.row_price.toFixed(8), r]))
+  );
+
+  const priceColWidth = 84;
+  const vpColWidth = 90;
+  const candleColWidth = 108;
+  const rowHeight = 20;
+
+  return (
+    <div className="overflow-x-auto">
+      <div
+        className="grid"
+        style={{
+          gridTemplateColumns: `${priceColWidth}px ${vpColWidth}px repeat(${chart.candles.length}, ${candleColWidth}px)`,
+          gridTemplateRows: `repeat(${rows.length}, ${rowHeight}px) auto`,
+          minWidth: priceColWidth + vpColWidth + chart.candles.length * candleColWidth,
+        }}
+      >
+        {rows.map((row, ri) => {
+          const isPoc = Math.abs(row.row_price - chart.poc_price) < chart.tick_size / 2;
+          return (
+            <div
+              key={`price-${ri}`}
+              className={`text-[10px] font-mono flex items-center pr-2 justify-end ${isPoc ? 'font-bold' : ''} ${mutedCls}`}
+              style={{ gridRow: ri + 1, gridColumn: 1, color: isPoc ? '#f59e0b' : undefined }}
+            >
+              {row.row_price.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+            </div>
+          );
+        })}
+
+        {rows.map((row, ri) => (
+          <div key={`vp-${ri}`} className="flex items-center" style={{ gridRow: ri + 1, gridColumn: 2 }}>
+            <div
+              className={dark ? 'bg-white/20' : 'bg-gray-300'}
+              style={{ height: rowHeight - 6, width: `${(row.volume / maxVpVolume) * 100}%`, minWidth: row.volume > 0 ? 2 : 0 }}
+              title={`${row.volume} traded at this price`}
+            />
+          </div>
+        ))}
+
+        {chart.candles.map((candle, ci) =>
+          rows.map((row, ri) => {
+            const cell = candleRowMaps[ci].get(row.row_price.toFixed(8));
+            if (!cell || (cell.bid_volume === 0 && cell.ask_volume === 0)) {
+              return <div key={`c${ci}-${ri}`} style={{ gridRow: ri + 1, gridColumn: ci + 3 }} />;
+            }
+            const netAsk = cell.ask_volume - cell.bid_volume;
+            const intensity = Math.min(1, Math.abs(netAsk) / maxCellVolume) * 0.7 + 0.08;
+            const bg = netAsk >= 0 ? `rgba(16,185,129,${intensity})` : `rgba(239,68,68,${intensity})`;
+            return (
+              <div
+                key={`c${ci}-${ri}`}
+                className="text-[9px] font-mono flex items-center justify-center"
+                style={{ gridRow: ri + 1, gridColumn: ci + 3, background: bg }}
+                title={`bid ${cell.bid_volume} × ask ${cell.ask_volume}`}
+              >
+                {cell.bid_volume.toFixed(2)}×{cell.ask_volume.toFixed(2)}
+              </div>
+            );
+          })
+        )}
+
+        <div style={{ gridRow: rows.length + 1, gridColumn: 1 }} />
+        <div style={{ gridRow: rows.length + 1, gridColumn: 2 }} />
+        {chart.candles.map((candle, ci) => (
+          <div
+            key={`delta-${ci}`}
+            className="text-[10px] font-mono flex flex-col items-center pt-1.5"
+            style={{ gridRow: rows.length + 1, gridColumn: ci + 3 }}
+          >
+            <span className={candle.delta >= 0 ? 'text-emerald-500 font-semibold' : 'text-red-500 font-semibold'}>
+              Δ {candle.delta >= 0 ? '+' : ''}{candle.delta.toFixed(2)}
+            </span>
+            <span className={mutedCls}>{candle.trade_count} tr</span>
+          </div>
+        ))}
       </div>
     </div>
   );
