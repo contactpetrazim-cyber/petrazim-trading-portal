@@ -54,14 +54,29 @@ async def list_trades(
     """List the caller's own trades with filtering (Admin/Super Admin see all)."""
     query = _scope_to_owner(select(Trade), user)
 
+    # Real bug, found while wiring TradeSpecsPanel's "?status=active"
+    # call: comparing an Enum column directly to a raw query-param
+    # string (Trade.status == "active") binds the literal string
+    # 'active', but this column's Enum type persists by member NAME
+    # ("ACTIVE"), not value — so the old code silently matched zero
+    # rows instead of erroring, for every status/direction filter ever
+    # passed here. Converting to the actual enum member first (case-
+    # insensitively) is what every other status comparison in this
+    # router already does correctly (see active_trades() below).
     if status:
-        query = query.where(Trade.status == status)
+        try:
+            query = query.where(Trade.status == TradeStatus(status.lower()))
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid status '{status}' — expected one of {[s.value for s in TradeStatus]}")
     if bot_id:
         query = query.where(Trade.bot_id == bot_id)
     if symbol:
         query = query.where(Trade.symbol == symbol)
     if direction:
-        query = query.where(Trade.direction == direction)
+        try:
+            query = query.where(Trade.direction == TradeDirection(direction.lower()))
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid direction '{direction}' — expected one of {[d.value for d in TradeDirection]}")
 
     query = query.order_by(Trade.created_at.desc()).offset(offset).limit(limit)
     result = await db.execute(query)

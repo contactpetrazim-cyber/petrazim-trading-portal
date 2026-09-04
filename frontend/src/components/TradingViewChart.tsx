@@ -75,12 +75,23 @@ function buildOverrides(colors: CandleColors | undefined, chartStyle: ChartStyle
   if (!colors) return {};
   const { upColor, downColor, wickUpColor, wickDownColor, borderUpColor, borderDownColor } = colors;
   switch (chartStyle) {
+    // Hollow Candles and Heikin Ashi both only expose a single shared
+    // `wickColor` key (unlike plain Candles, which has separate
+    // wickUpColor/wickDownColor) — confirmed against TradingView's own
+    // override key reference. Selected colors previously only reached
+    // upColor/downColor/border here, leaving wicks their default gray
+    // regardless of what was picked — by direct request ("the hollow
+    // candle type should take the selected colours - including the
+    // wicks ... colours selected should always apply to body and
+    // wicks"), wickColor is now always set too, from the up color
+    // (the closest single-color stand-in this style's API allows).
     case '9': // Hollow Candles
       return {
         ...(upColor && { 'mainSeriesProperties.hollowCandleStyle.upColor': upColor }),
         ...(downColor && { 'mainSeriesProperties.hollowCandleStyle.downColor': downColor }),
         ...(borderUpColor && { 'mainSeriesProperties.hollowCandleStyle.borderUpColor': borderUpColor }),
         ...(borderDownColor && { 'mainSeriesProperties.hollowCandleStyle.borderDownColor': borderDownColor }),
+        ...((wickUpColor || upColor) && { 'mainSeriesProperties.hollowCandleStyle.wickColor': wickUpColor || upColor }),
       };
     case '8': // Heikin Ashi
       return {
@@ -88,8 +99,7 @@ function buildOverrides(colors: CandleColors | undefined, chartStyle: ChartStyle
         ...(downColor && { 'mainSeriesProperties.haStyle.downColor': downColor }),
         ...(borderUpColor && { 'mainSeriesProperties.haStyle.borderUpColor': borderUpColor }),
         ...(borderDownColor && { 'mainSeriesProperties.haStyle.borderDownColor': borderDownColor }),
-        ...(wickUpColor && { 'mainSeriesProperties.haStyle.wickUpColor': wickUpColor }),
-        ...(wickDownColor && { 'mainSeriesProperties.haStyle.wickDownColor': wickDownColor }),
+        ...((wickUpColor || upColor) && { 'mainSeriesProperties.haStyle.wickColor': wickUpColor || upColor }),
       };
     case '0': // Bars
       return {
@@ -125,7 +135,7 @@ function buildOverrides(colors: CandleColors | undefined, chartStyle: ChartStyle
 function TradingViewChartBase({
   symbol = 'OANDA:EURUSD',
   interval = '60',
-  theme = 'dark',
+  theme = 'light',
   height = '100%',
   candleColors,
   chartStyle = '1',

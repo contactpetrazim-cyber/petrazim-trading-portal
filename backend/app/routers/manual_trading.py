@@ -275,3 +275,88 @@ async def partial_close(
         trade_id=trade_id, status=row.status.value, closed_lot_size=round(closed_size, 8),
         remaining_lot_size=row.lot_size, realized_pnl_this_close=round(pnl_this_close, 2),
     )
+
+
+class ModifyTargetsRequest(BaseModel):
+    stop_loss: Optional[float] = Field(default=None, gt=0)
+    take_profit: Optional[float] = Field(default=None, gt=0)
+    take_profit_2: Optional[float] = Field(default=None, gt=0)
+    take_profit_3: Optional[float] = Field(default=None, gt=0)
+
+
+class ModifyTargetsResponse(BaseModel):
+    trade_id: str
+    stop_loss: float
+    take_profit: Optional[float]
+    take_profit_2: Optional[float]
+    take_profit_3: Optional[float]
+
+
+@router.patch("/{trade_id}/modify-targets", response_model=ModifyTargetsResponse)
+async def modify_targets(
+    trade_id: str, req: ModifyTargetsRequest, db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access),
+):
+    """Move/edit SL and TP1/2/3 on an open position — the real backend
+    for the Trade Specs panel's "Modify" action, by direct request
+    ("fix or move or edit all SL and TP ... from the charts"). Works on
+    ANY of the caller's own active trades, bot-placed or manual — not
+    manual-only — since a trader manages both the same way once a
+    position is open.
+
+    Honest scope: this updates OUR OWN record of the trade's targets,
+    the same thing partial-close already treats as trader-managed
+    rather than broker-enforced (see that endpoint's own docstring —
+    there's no price-feed worker in this app that watches for a target
+    being hit). For a LIVE trade at a real broker, that broker's own
+    resting stop/limit order is not modified by this call; the trader
+    still needs to adjust it at the broker directly if one was placed
+    there. Fixing that fully means adding a modify-order call to every
+    broker integration this app has — a separate, larger piece of
+    work, not something to silently pretend already happens here.
+    """
+    row = (await db.execute(
+        select(Trade).where(Trade.trade_id == trade_id, Trade.user_id == user.id)
+    )).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Trade not found")
+    if row.status != TradeStatus.ACTIVE:
+        raise HTTPException(status_code=409, detail=f"Trade is {row.status.value}, not active.")
+
+    if req.stop_loss is not None:
+        row.stop_loss = req.stop_loss
+    if req.take_profit is not None:
+        row.take_profit_1 = req.take_profit
+    if req.take_profit_2 is not None:
+        row.take_profit_2 = req.take_profit_2
+    if req.take_profit_3 is not None:
+        row.take_profit_3 = req.take_profit_3
+    await db.commit()
+
+    return ModifyTargetsResponse(
+        trade_id=trade_id, stop_loss=row.stop_loss, take_profit=row.take_profit_1,
+        take_profit_2=row.take_profit_2, take_profit_3=row.take_profit_3,
+    )
+
+
+@router.get("/quick-price/{symbol}")
+async def quick_price(symbol: str):
+    """A free, no-credential "what's it trading at right now" lookup
+    for the order form's "Use current price" quick-fill button — by
+    direct request ("ensure quick fill works"). Real data, not
+    invented: Binance's public ticker endpoint, which needs no API key
+    for a plain price read. Scoped honestly to crypto pairs (anything
+    Binance actually lists) — this app has no free, credential-less
+    price source for forex/metals (EURUSD, XAUUSD, ...); those need
+    the trader's own connected broker, which is a per-user credential
+    this endpoint deliberately doesn't require.
+    """
+    import httpx
+    clean = symbol.upper().replace("BINANCE:", "").replace("/", "")
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get("https://api.binance.com/api/v3/ticker/price", params={"symbol": clean})
+        if resp.status_code != 200:
+            raise HTTPException(status_code=404, detail=f"No live crypto price for {clean} — enter your price manually.")
+        return {"symbol": clean, "price": float(resp.json()["price"])}
+    except httpx.HTTPError:
+        raise HTTPException(status_code=502, detail="Price lookup failed — enter your price manually.")

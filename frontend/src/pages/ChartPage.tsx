@@ -1,12 +1,12 @@
 import { useState } from 'react';
-import { TradingViewChart } from '../components/TradingViewChart';
+import { ChartPanel } from '../components/ChartPanel';
 import { useThemeStore } from '../hooks/useTheme';
 
 const SYMBOLS = [
-  { label: 'BTC/USDT', value: 'BINANCE:BTCUSDT' },
-  { label: 'EUR/USD', value: 'OANDA:EURUSD' },
-  { label: 'GBP/USD', value: 'OANDA:GBPUSD' },
-  { label: 'XAU/USD', value: 'OANDA:XAUUSD' },
+  { label: 'BTC/USDT', value: 'BINANCE:BTCUSDT', tradeSymbol: 'BTCUSDT' },
+  { label: 'EUR/USD', value: 'OANDA:EURUSD', tradeSymbol: 'EURUSD' },
+  { label: 'GBP/USD', value: 'OANDA:GBPUSD', tradeSymbol: 'GBPUSD' },
+  { label: 'XAU/USD', value: 'OANDA:XAUUSD', tradeSymbol: 'XAUUSD' },
 ];
 
 /**
@@ -19,7 +19,7 @@ const SYMBOLS = [
 export function ChartPage() {
   const { theme } = useThemeStore();
   const dark = theme === 'dark';
-  const [symbol, setSymbol] = useState(SYMBOLS[0].value);
+  const [symbol, setSymbol] = useState(SYMBOLS[0]);
 
   return (
     <div className={`h-[calc(100vh-5rem)] flex flex-col ${dark ? 'bg-smc-dark' : 'bg-corporate-bg'}`}>
@@ -27,9 +27,9 @@ export function ChartPage() {
         {SYMBOLS.map((s) => (
           <button
             key={s.value}
-            onClick={() => setSymbol(s.value)}
+            onClick={() => setSymbol(s)}
             className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-              symbol === s.value
+              symbol.value === s.value
                 ? dark ? 'bg-smc-accent text-white' : 'bg-corporate-hero text-white'
                 : dark ? 'bg-smc-card text-gray-400 hover:text-white' : 'bg-white text-gray-500 hover:text-corporate-text-on-bg'
             }`}
@@ -39,8 +39,15 @@ export function ChartPage() {
         ))}
       </div>
 
-      <div className="flex-1">
-        <TradingViewChart symbol={symbol} interval="60" theme={theme} />
+      {/* ChartPanel, not a raw TradingViewChart — this page was the
+          one holdout still hardcoding the site's own dark/light theme
+          onto the chart (via useThemeStore) instead of always
+          defaulting light with its own toggle, by direct, repeated
+          instruction ("default for tradingview charts and all charts
+          is light"). Also picks up the chart-type/candle-color picker
+          and the Trade button for free. */}
+      <div className="flex-1 overflow-y-auto p-3">
+        <ChartPanel symbol={symbol.value} interval="60" height={640} tradeSymbol={symbol.tradeSymbol} dark={dark} />
       </div>
     </div>
   );

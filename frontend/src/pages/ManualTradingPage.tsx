@@ -253,7 +253,11 @@ export function ManualTradingPage() {
                 </button>
               ))}
             </div>
-            <ChartPanel symbol={symbol.tv} height={520} dark={dark} />
+            <ChartPanel
+              symbol={symbol.tv} height={520} dark={dark}
+              specsSymbol={symbol.trade}
+              onQuickFill={(price) => setEntryPrice(String(price))}
+            />
           </div>
 
           <div className={`rounded-xl border p-4 h-fit ${dark ? 'bg-corporate-surface-dark border-corporate-border-dark' : 'bg-white border-gray-200'}`}>
