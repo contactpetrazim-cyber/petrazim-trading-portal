@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { Bot, Play, Pause, Settings, TrendingUp, Save, Plus, X } from 'lucide-react';
 import { botsApi } from '../services/api';
 import { BotConfig, BotPerformance, BotMetricsUpdate } from '../types';
+import { useThemeStore } from '../hooks/useTheme';
 
 /**
  * BotsPage — "Bot Configuration". Was 5 hardcoded bots with dead
@@ -24,6 +25,11 @@ import { BotConfig, BotPerformance, BotMetricsUpdate } from '../types';
 const emptyNewBot = { bot_id: '', bot_name: '', bot_type: 'smc', symbols: '' };
 
 export function BotsPage() {
+  const { theme } = useThemeStore();
+  const dark = theme === 'dark';
+  const inputCls = `w-full mt-1 border rounded-lg px-2 py-1.5 text-sm ${
+    dark ? 'bg-smc-dark border-smc-border text-white' : 'bg-white border-corporate-bg text-corporate-text-on-bg'
+  }`;
   const [bots, setBots] = useState<BotConfig[]>([]);
   const [performance, setPerformance] = useState<Record<string, BotPerformance>>({});
   const [loading, setLoading] = useState(true);
@@ -123,7 +129,9 @@ export function BotsPage() {
         </div>
         <button
           onClick={() => setShowCreate(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-smc-accent text-white rounded-lg text-sm font-medium hover:bg-smc-accent/90 transition-colors"
+          className={`flex items-center gap-2 px-4 py-2 text-white rounded-lg text-sm font-medium transition-colors ${
+            dark ? 'bg-smc-accent hover:bg-smc-accent/90' : 'bg-corporate-hero hover:bg-corporate-accent-hover'
+          }`}
         >
           <Plus size={16} /> New Bot
         </button>
@@ -132,7 +140,7 @@ export function BotsPage() {
       {loading && <p className="text-gray-400 text-sm">Loading…</p>}
 
       {!loading && bots.length === 0 && (
-        <div className="text-center py-16 text-gray-400 bg-smc-card border border-smc-border rounded-xl">
+        <div className={`text-center py-16 text-gray-400 border rounded-xl ${dark ? 'bg-smc-card border-smc-border' : 'bg-white border-corporate-bg'}`}>
           No bots yet — create one to start trading.
         </div>
       )}
@@ -143,17 +151,17 @@ export function BotsPage() {
           return (
             <div
               key={bot.bot_id}
-              className={`bg-smc-card border rounded-xl p-6 transition-all cursor-pointer ${
+              className={`border rounded-xl p-6 transition-all cursor-pointer ${dark ? 'bg-smc-card' : 'bg-white'} ${
                 selectedBot === bot.bot_id
-                  ? 'border-smc-accent ring-1 ring-smc-accent/30'
-                  : 'border-smc-border hover:border-smc-accent/30'
+                  ? dark ? 'border-smc-accent ring-1 ring-smc-accent/30' : 'border-corporate-hero ring-1 ring-corporate-hero/30'
+                  : dark ? 'border-smc-border hover:border-smc-accent/30' : 'border-corporate-bg hover:border-corporate-hero/30'
               }`}
               onClick={() => openBot(bot)}
             >
               <div className="flex items-start justify-between">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-lg bg-smc-accent/10 flex items-center justify-center">
-                    <Bot className="text-smc-accent" size={20} />
+                  <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${dark ? 'bg-smc-accent/10' : 'bg-corporate-hero/10'}`}>
+                    <Bot className={dark ? 'text-smc-accent' : 'text-corporate-hero'} size={20} />
                   </div>
                   <div>
                     <h3 className="font-bold">{bot.bot_name}</h3>
@@ -176,19 +184,19 @@ export function BotsPage() {
               </div>
 
               <div className="grid grid-cols-4 gap-3 mt-4">
-                <div className="text-center p-2 bg-white/5 rounded-lg">
+                <div className={`text-center p-2 rounded-lg ${dark ? "bg-white/5" : "bg-corporate-bg"}`}>
                   <div className="text-lg font-bold">{perf ? `${perf.win_rate}%` : '—'}</div>
                   <div className="text-xs text-gray-400">Win Rate</div>
                 </div>
-                <div className="text-center p-2 bg-white/5 rounded-lg">
+                <div className={`text-center p-2 rounded-lg ${dark ? "bg-white/5" : "bg-corporate-bg"}`}>
                   <div className="text-lg font-bold">{perf ? perf.total_trades : '—'}</div>
                   <div className="text-xs text-gray-400">Trades</div>
                 </div>
-                <div className="text-center p-2 bg-white/5 rounded-lg">
+                <div className={`text-center p-2 rounded-lg ${dark ? "bg-white/5" : "bg-corporate-bg"}`}>
                   <div className="text-lg font-bold">{bot.min_rr_ratio}:1</div>
                   <div className="text-xs text-gray-400">Min R:R</div>
                 </div>
-                <div className="text-center p-2 bg-white/5 rounded-lg">
+                <div className={`text-center p-2 rounded-lg ${dark ? "bg-white/5" : "bg-corporate-bg"}`}>
                   <div className="text-lg font-bold">{bot.risk_per_trade}%</div>
                   <div className="text-xs text-gray-400">Risk</div>
                 </div>
@@ -200,7 +208,7 @@ export function BotsPage() {
               </div>
 
               {selectedBot === bot.bot_id && editing && (
-                <div className="mt-4 pt-4 border-t border-smc-border space-y-4" onClick={(e) => e.stopPropagation()}>
+                <div className={`mt-4 pt-4 border-t space-y-4 ${dark ? "border-smc-border" : "border-corporate-bg"}`} onClick={(e) => e.stopPropagation()}>
                   <div className="flex items-center gap-2">
                     <Settings size={14} className="text-gray-400" />
                     <span className="text-sm font-medium">Quick Actions</span>
@@ -235,7 +243,7 @@ export function BotsPage() {
                           type="number" step="0.1" min="0.1" max="25"
                           value={editing.risk_per_trade}
                           onChange={(e) => setEditing({ ...editing, risk_per_trade: Number(e.target.value) })}
-                          className="w-full mt-1 bg-smc-bg border border-smc-border rounded-lg px-2 py-1.5 text-sm text-white"
+                          className={inputCls}
                         />
                       </label>
                       <label className="text-xs text-gray-400">
@@ -244,7 +252,7 @@ export function BotsPage() {
                           type="number" step="0.1" min="0.1" max="20"
                           value={editing.min_rr_ratio}
                           onChange={(e) => setEditing({ ...editing, min_rr_ratio: Number(e.target.value) })}
-                          className="w-full mt-1 bg-smc-bg border border-smc-border rounded-lg px-2 py-1.5 text-sm text-white"
+                          className={inputCls}
                         />
                       </label>
                       <label className="text-xs text-gray-400">
@@ -253,7 +261,7 @@ export function BotsPage() {
                           type="number" step="1" min="1" max="200"
                           value={editing.max_daily_trades}
                           onChange={(e) => setEditing({ ...editing, max_daily_trades: Number(e.target.value) })}
-                          className="w-full mt-1 bg-smc-bg border border-smc-border rounded-lg px-2 py-1.5 text-sm text-white"
+                          className={inputCls}
                         />
                       </label>
                       <label className="text-xs text-gray-400">
@@ -262,7 +270,7 @@ export function BotsPage() {
                           type="number" step="1" min="1" max="50"
                           value={editing.max_concurrent_trades}
                           onChange={(e) => setEditing({ ...editing, max_concurrent_trades: Number(e.target.value) })}
-                          className="w-full mt-1 bg-smc-bg border border-smc-border rounded-lg px-2 py-1.5 text-sm text-white"
+                          className={inputCls}
                         />
                       </label>
                       <label className="text-xs text-gray-400 col-span-2">
@@ -271,7 +279,7 @@ export function BotsPage() {
                           type="number" step="0.5" min="0.1" max="100"
                           value={editing.max_portfolio_exposure}
                           onChange={(e) => setEditing({ ...editing, max_portfolio_exposure: Number(e.target.value) })}
-                          className="w-full mt-1 bg-smc-bg border border-smc-border rounded-lg px-2 py-1.5 text-sm text-white"
+                          className={inputCls}
                         />
                       </label>
                       <label className="flex items-center gap-2 text-xs text-gray-400 col-span-2 mt-1">
@@ -286,7 +294,7 @@ export function BotsPage() {
                     <button
                       onClick={() => saveMetrics(bot.bot_id)}
                       disabled={saving}
-                      className="w-full mt-3 flex items-center justify-center gap-2 px-3 py-2 bg-smc-accent text-white rounded-lg text-sm font-medium disabled:opacity-50"
+                      className={`w-full mt-3 flex items-center justify-center gap-2 px-3 py-2 text-white rounded-lg text-sm font-medium disabled:opacity-50 ${dark ? "bg-smc-accent" : "bg-corporate-hero"}`}
                     >
                       <Save size={14} /> {saving ? 'Saving…' : 'Save metrics'}
                     </button>
@@ -300,7 +308,7 @@ export function BotsPage() {
 
       {showCreate && (
         <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => setShowCreate(false)}>
-          <div className="bg-smc-card border border-smc-border rounded-xl p-6 w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
+          <div className={`border rounded-xl p-6 w-full max-w-sm ${dark ? "bg-smc-card border-smc-border" : "bg-white border-corporate-bg"}`} onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold">New Bot</h3>
               <button onClick={() => setShowCreate(false)}><X size={18} className="text-gray-400" /></button>
@@ -309,20 +317,20 @@ export function BotsPage() {
               <label className="text-xs text-gray-400 block">
                 Bot ID (unique, e.g. bot_smc_1)
                 <input value={newBot.bot_id} onChange={(e) => setNewBot({ ...newBot, bot_id: e.target.value })}
-                  className="w-full mt-1 bg-smc-bg border border-smc-border rounded-lg px-3 py-2 text-sm text-white" />
+                  className={`${inputCls} py-2`} />
               </label>
               <label className="text-xs text-gray-400 block">
                 Name
                 <input value={newBot.bot_name} onChange={(e) => setNewBot({ ...newBot, bot_name: e.target.value })}
-                  className="w-full mt-1 bg-smc-bg border border-smc-border rounded-lg px-3 py-2 text-sm text-white" />
+                  className={`${inputCls} py-2`} />
               </label>
               <label className="text-xs text-gray-400 block">
                 Symbols (comma-separated, e.g. BTCUSDT, EURUSD)
                 <input value={newBot.symbols} onChange={(e) => setNewBot({ ...newBot, symbols: e.target.value })}
-                  className="w-full mt-1 bg-smc-bg border border-smc-border rounded-lg px-3 py-2 text-sm text-white" />
+                  className={`${inputCls} py-2`} />
               </label>
               {createError && <p className="text-xs text-red-400">{createError}</p>}
-              <button onClick={createBot} className="w-full bg-smc-accent text-white font-medium py-2.5 rounded-lg text-sm">
+              <button onClick={createBot} className={`w-full text-white font-medium py-2.5 rounded-lg text-sm ${dark ? "bg-smc-accent" : "bg-corporate-hero"}`}>
                 Create bot
               </button>
             </div>

@@ -2,6 +2,7 @@
 import { Trade } from '../types';
 import { ArrowUpRight, ArrowDownRight, Clock, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
+import { useThemeStore } from '../hooks/useTheme';
 
 interface TradeRowProps {
   trade: Trade;
@@ -10,6 +11,8 @@ interface TradeRowProps {
 }
 
 export function TradeRow({ trade, onApprove, onReject }: TradeRowProps) {
+  const { theme } = useThemeStore();
+  const dark = theme === 'dark';
   const isLong = trade.direction === 'long';
   const statusColors: Record<string, string> = {
     pending: 'text-amber-400 bg-amber-400/10',
@@ -28,7 +31,9 @@ export function TradeRow({ trade, onApprove, onReject }: TradeRowProps) {
   };
 
   return (
-    <div className="bg-smc-card border border-smc-border rounded-lg p-4 hover:border-smc-accent/30 transition-colors">
+    <div className={`border rounded-lg p-4 transition-colors ${
+      dark ? 'bg-smc-card border-smc-border hover:border-smc-accent/30' : 'bg-white border-corporate-bg hover:border-corporate-hero/30'
+    }`}>
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
           {/* Direction Badge */}
@@ -41,7 +46,7 @@ export function TradeRow({ trade, onApprove, onReject }: TradeRowProps) {
 
           {/* Symbol & Details */}
           <div>
-            <div className="font-bold text-white">{trade.symbol}</div>
+            <div className={`font-bold ${dark ? 'text-white' : 'text-corporate-text-on-bg'}`}>{trade.symbol}</div>
             <div className="text-xs text-gray-400">{trade.strategy_type}</div>
           </div>
 

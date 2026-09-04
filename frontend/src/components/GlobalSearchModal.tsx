@@ -1,14 +1,19 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Search, X } from 'lucide-react';
+import { Search, X, Home } from 'lucide-react';
 import { FEATURE_AREAS, searchFeatures } from '../config/featureRegistry';
 import { useThemeStore } from '../hooks/useTheme';
+
+// Not a FEATURE_REGISTRY entry — Home is the dashboard, not one of the
+// 8 areas — so it's pinned in here by hand rather than registered,
+// added by direct request for a quick way back to it from search.
+const HOME_RESULT = { id: 'home', label: 'Home', route: '/home', description: 'Back to the dashboard.' };
 
 /**
  * GlobalSearchModal — searches across ALL 7 feature areas at once
  * (Learn/Practise/Trade/Insights/Tools/Community/Explore), reading
- * from the same FEATURE_REGISTRY the nav uses. Opens from the search
- * icon in TopNav, or Cmd/Ctrl+K.
+ * from the same FEATURE_REGISTRY the nav uses, plus the pinned Home
+ * shortcut above. Opens from the search icon in TopNav, or Cmd/Ctrl+K.
  */
 export function GlobalSearchModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [query, setQuery] = useState('');
@@ -37,6 +42,8 @@ export function GlobalSearchModal({ open, onClose }: { open: boolean; onClose: (
 
   if (!open) return null;
 
+  const q = query.trim().toLowerCase();
+  const homeMatches = !q || 'home'.includes(q) || 'dashboard'.includes(q);
   const results = searchFeatures(query);
   const areaLabel = (id: string) => FEATURE_AREAS.find((a) => a.id === id)?.label ?? id;
 
@@ -61,8 +68,21 @@ export function GlobalSearchModal({ open, onClose }: { open: boolean; onClose: (
         </div>
 
         <div className="max-h-96 overflow-y-auto">
-          {query && results.length === 0 && (
+          {query && results.length === 0 && !homeMatches && (
             <p className={`text-sm px-4 py-6 text-center ${dark ? 'text-white/40' : 'text-gray-500'}`}>No matches for "{query}"</p>
+          )}
+          {homeMatches && (
+            <Link
+              to={HOME_RESULT.route}
+              onClick={onClose}
+              className={`flex items-center gap-3 px-4 py-3 transition-colors ${dark ? 'hover:bg-white/5' : 'hover:bg-corporate-bg'}`}
+            >
+              <Home size={16} className="text-corporate-hero shrink-0" />
+              <div>
+                <div className={`text-sm font-medium ${dark ? 'text-white' : 'text-corporate-text-on-bg'}`}>{HOME_RESULT.label}</div>
+                <div className={`text-xs mt-0.5 ${dark ? 'text-white/40' : 'text-gray-500'}`}>{HOME_RESULT.description}</div>
+              </div>
+            </Link>
           )}
           {results.map((r) => (
             <Link

@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { StatCard } from '../components/StatCard';
 import { TradeRow } from '../components/TradeRow';
 import { useAppStore } from '../hooks/useStore';
+import { useThemeStore } from '../hooks/useTheme';
 import { dashboardApi, tradesApi, botsApi } from '../services/api';
 import { Trade, BotConfig, BotPerformance } from '../types';
 import {
@@ -33,6 +34,8 @@ interface EquityPoint {
  */
 export function DashboardPage() {
   const { stats, setStats } = useAppStore();
+  const { theme } = useThemeStore();
+  const dark = theme === 'dark';
   const [equityData, setEquityData] = useState<EquityPoint[]>([]);
   const [pending, setPending] = useState<Trade[]>([]);
   const [recentTrades, setRecentTrades] = useState<Trade[]>([]);
@@ -90,7 +93,7 @@ export function DashboardPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-96">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-smc-accent"></div>
+        <div className={`animate-spin rounded-full h-12 w-12 border-b-2 ${dark ? 'border-smc-accent' : 'border-corporate-hero'}`}></div>
       </div>
     );
   }
@@ -140,7 +143,7 @@ export function DashboardPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Equity Curve */}
-        <div className="lg:col-span-2 bg-smc-card border border-smc-border rounded-xl p-6">
+        <div className={`lg:col-span-2 ${dark ? 'bg-smc-card border-smc-border' : 'bg-white border-corporate-bg'} border rounded-xl p-6`}>
           <div className="flex items-center justify-between mb-6">
             <h3 className="text-lg font-bold">Equity Curve</h3>
           </div>
@@ -157,12 +160,12 @@ export function DashboardPage() {
                     <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
+                <CartesianGrid strokeDasharray="3 3" stroke={dark ? '#1f2937' : '#e5e7eb'} />
                 <XAxis dataKey="timestamp" stroke="#6b7280" fontSize={12} tickFormatter={(t) => new Date(t).toLocaleDateString()} />
                 <YAxis stroke="#6b7280" fontSize={12} domain={['dataMin - 200', 'dataMax + 200']} />
                 <Tooltip
-                  contentStyle={{ backgroundColor: '#111827', border: '1px solid #1f2937', borderRadius: '8px' }}
-                  labelStyle={{ color: '#9ca3af' }}
+                  contentStyle={{ backgroundColor: dark ? '#111827' : '#ffffff', border: `1px solid ${dark ? '#1f2937' : '#e5e7eb'}`, borderRadius: '8px' }}
+                  labelStyle={{ color: dark ? '#9ca3af' : '#374151' }}
                   labelFormatter={(t) => new Date(t).toLocaleString()}
                 />
                 <Area
@@ -179,7 +182,7 @@ export function DashboardPage() {
         </div>
 
         {/* Bot Performance */}
-        <div className="bg-smc-card border border-smc-border rounded-xl p-6">
+        <div className={`${dark ? 'bg-smc-card border-smc-border' : 'bg-white border-corporate-bg'} border rounded-xl p-6`}>
           <h3 className="text-lg font-bold mb-4">Bot Performance</h3>
           {bots.length === 0 ? (
             <p className="text-sm text-gray-400">No bots configured yet.</p>
@@ -188,7 +191,7 @@ export function DashboardPage() {
               {bots.map((bot) => {
                 const perf = performance[bot.bot_id];
                 return (
-                  <div key={bot.bot_id} className="flex items-center justify-between p-3 bg-white/5 rounded-lg">
+                  <div key={bot.bot_id} className={`flex items-center justify-between p-3 rounded-lg ${dark ? 'bg-white/5' : 'bg-corporate-bg'}`}>
                     <div>
                       <div className="font-medium text-sm">{bot.bot_name}</div>
                       <div className="text-xs text-gray-400">{perf ? `${perf.total_trades} trades` : '—'}</div>
@@ -208,7 +211,7 @@ export function DashboardPage() {
       </div>
 
       {/* Pending Approvals ("Live Signals") */}
-      <div className="bg-smc-card border border-smc-border rounded-xl p-6">
+      <div className={`${dark ? 'bg-smc-card border-smc-border' : 'bg-white border-corporate-bg'} border rounded-xl p-6`}>
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-bold">Pending Approvals</h3>
           <span className="text-xs text-gray-400">Auto-refresh every 30s</span>
@@ -226,7 +229,7 @@ export function DashboardPage() {
       </div>
 
       {/* Recent Trades */}
-      <div className="bg-smc-card border border-smc-border rounded-xl p-6">
+      <div className={`${dark ? 'bg-smc-card border-smc-border' : 'bg-white border-corporate-bg'} border rounded-xl p-6`}>
         <h3 className="text-lg font-bold mb-4">Recent Trades</h3>
         {recentTrades.length === 0 ? (
           <p className="text-sm text-gray-400">No trades yet.</p>

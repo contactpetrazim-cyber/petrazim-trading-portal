@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { TradeRow } from '../components/TradeRow';
 import { tradesApi } from '../services/api';
 import { Trade } from '../types';
+import { useThemeStore } from '../hooks/useTheme';
 import { Filter, Search, Download, RefreshCw } from 'lucide-react';
 
 /**
@@ -16,6 +17,8 @@ import { Filter, Search, Download, RefreshCw } from 'lucide-react';
  * here — they're real now, via POST /trades/approve.
  */
 export function TradesPage() {
+  const { theme } = useThemeStore();
+  const dark = theme === 'dark';
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -81,7 +84,9 @@ export function TradesPage() {
           <button
             onClick={exportCsv}
             disabled={trades.length === 0}
-            className="flex items-center gap-2 px-4 py-2 bg-smc-accent/10 text-smc-accent rounded-lg hover:bg-smc-accent/20 transition-colors disabled:opacity-40"
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors disabled:opacity-40 ${
+              dark ? 'bg-smc-accent/10 text-smc-accent hover:bg-smc-accent/20' : 'bg-corporate-hero/10 text-corporate-hero hover:bg-corporate-hero/20'
+            }`}
           >
             <Download size={16} />
             Export CSV
@@ -98,7 +103,9 @@ export function TradesPage() {
             placeholder="Search by symbol..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 bg-smc-card border border-smc-border rounded-lg text-sm focus:outline-none focus:border-smc-accent"
+            className={`w-full pl-10 pr-4 py-2 border rounded-lg text-sm focus:outline-none ${
+              dark ? 'bg-smc-card border-smc-border focus:border-smc-accent' : 'bg-white border-corporate-bg focus:border-corporate-hero'
+            }`}
           />
         </div>
 
@@ -108,10 +115,10 @@ export function TradesPage() {
             <button
               key={f}
               onClick={() => setFilter(f)}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors border ${
                 filter === f
-                  ? 'bg-smc-accent text-white'
-                  : 'bg-smc-card border border-smc-border text-gray-400 hover:text-white'
+                  ? dark ? 'bg-smc-accent text-white border-transparent' : 'bg-corporate-hero text-white border-transparent'
+                  : dark ? 'bg-smc-card border-smc-border text-gray-400 hover:text-white' : 'bg-white border-corporate-bg text-gray-500 hover:text-corporate-text-on-bg'
               }`}
             >
               {f.charAt(0).toUpperCase() + f.slice(1)}

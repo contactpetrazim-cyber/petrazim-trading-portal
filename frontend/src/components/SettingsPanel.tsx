@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
-  X, CreditCard, GraduationCap, CalendarClock, LayoutGrid,
+  X, Home, CreditCard, GraduationCap, CalendarClock, LayoutGrid,
   HardDriveDownload, Link2, ChevronRight, Sun, Moon,
 } from 'lucide-react';
 import { HERO_GRADIENT } from '../config/theme';
@@ -13,14 +13,16 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 /**
  * SettingsPanel — slide-over from the gear icon in TopNav, per
- * petrazim_preview_v13_FINAL.jsx. The six items match the reference
- * exactly. Four are functionally real: the theme toggle (wired to
- * useTheme), "Select Access and Pay" (links to /payments, the real
- * checkout page), "Facilitator Sessions" (links to /meetings), and
- * "Switch Portal" (fetches the current user's real
- * GET /auth/available-portals list and opens the real
- * PortalSelectionCard — the reference's hardcoded four-portal demo,
- * backed by data here). The remaining three (Ask Trading Coach,
+ * petrazim_preview_v13_FINAL.jsx, plus one addition: a "Home" row at
+ * the top, added by direct request for a quick way back to the
+ * dashboard from anywhere in the app (the reference's own six items
+ * had no such shortcut). Five are functionally real: "Home" (links to
+ * /home), the theme toggle (wired to useTheme), "Select Access and
+ * Pay" (links to /payments, the real checkout page), "Facilitator
+ * Sessions" (links to /meetings), and "Switch Portal" (fetches the
+ * current user's real GET /auth/available-portals list and opens the
+ * real PortalSelectionCard — the reference's hardcoded four-portal
+ * demo, backed by data here). The remaining three (Ask Trading Coach,
  * Backup and Offline, Quick Links) are informational rows only, same
  * as the reference — this doesn't invent navigation the design didn't
  * specify.
@@ -55,6 +57,7 @@ export function SettingsPanel({
   }
 
   const items: { icon: typeof CreditCard; label: string; detail: string; to?: string; onClick?: () => void }[] = [
+    { icon: Home, label: 'Home', detail: 'Back to the dashboard', to: '/home' },
     { icon: CreditCard, label: 'Select Access and Pay', detail: 'Choose a tier or duration pass', to: '/payments' },
     { icon: GraduationCap, label: 'Ask Trading Coach', detail: 'Open Trade AI' },
     { icon: CalendarClock, label: 'Facilitator Sessions', detail: 'Book time with a Manager or Partner (Tier 2/3)', to: '/meetings' },

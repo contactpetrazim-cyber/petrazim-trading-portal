@@ -4,6 +4,7 @@ import { Shield, Save, AlertTriangle } from 'lucide-react';
 import { StatCard } from '../components/StatCard';
 import { botsApi, tradesApi } from '../services/api';
 import { BotConfig, BotMetricsUpdate, Trade } from '../types';
+import { useThemeStore } from '../hooks/useTheme';
 
 /**
  * RiskPage — "Risk Management". Previously /risk didn't exist as its
@@ -16,6 +17,11 @@ import { BotConfig, BotMetricsUpdate, Trade } from '../types';
  * in place via the same PATCH /bots/{id}/metrics Bots.tsx uses.
  */
 export function RiskPage() {
+  const { theme } = useThemeStore();
+  const dark = theme === 'dark';
+  const inputCls = `w-full mt-1 border rounded-lg px-2 py-1.5 text-sm ${
+    dark ? 'bg-smc-dark border-smc-border text-white' : 'bg-white border-corporate-bg text-corporate-text-on-bg'
+  }`;
   const [bots, setBots] = useState<BotConfig[]>([]);
   const [activeTrades, setActiveTrades] = useState<Trade[]>([]);
   const [todayTrades, setTodayTrades] = useState<Trade[]>([]);
@@ -81,7 +87,7 @@ export function RiskPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold flex items-center gap-2"><Shield size={22} className="text-smc-accent" /> Risk Management</h2>
+        <h2 className="text-2xl font-bold flex items-center gap-2"><Shield size={22} className={dark ? "text-smc-accent" : "text-corporate-hero"} /> Risk Management</h2>
         <p className="text-gray-400 text-sm mt-1">Live exposure and per-bot risk caps</p>
       </div>
 
@@ -112,7 +118,7 @@ export function RiskPage() {
       {loading && <p className="text-sm text-gray-400">Loading…</p>}
 
       {!loading && bots.length === 0 && (
-        <div className="text-center py-16 text-gray-400 bg-smc-card border border-smc-border rounded-xl">
+        <div className={`text-center py-16 text-gray-400 border rounded-xl ${dark ? "bg-smc-card border-smc-border" : "bg-white border-corporate-bg"}`}>
           No bots configured yet — risk caps apply per bot once you create one.
         </div>
       )}
@@ -125,7 +131,7 @@ export function RiskPage() {
           const atDailyCap = botToday >= bot.max_daily_trades;
 
           return (
-            <div key={bot.bot_id} className="bg-smc-card border border-smc-border rounded-xl p-5">
+            <div key={bot.bot_id} className={`border rounded-xl p-5 ${dark ? "bg-smc-card border-smc-border" : "bg-white border-corporate-bg"}`}>
               <div className="flex items-center justify-between">
                 <div>
                   <div className="font-bold">{bot.bot_name}</div>
@@ -133,73 +139,73 @@ export function RiskPage() {
                 </div>
                 <button
                   onClick={() => startEdit(bot)}
-                  className="text-xs font-medium text-smc-accent px-3 py-1.5 rounded-lg bg-smc-accent/10 hover:bg-smc-accent/20"
+                  className={`text-xs font-medium px-3 py-1.5 rounded-lg ${dark ? "text-smc-accent bg-smc-accent/10 hover:bg-smc-accent/20" : "text-corporate-hero bg-corporate-hero/10 hover:bg-corporate-hero/20"}`}
                 >
                   {editingId === bot.bot_id ? 'Cancel' : 'Edit caps'}
                 </button>
               </div>
 
               <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mt-4">
-                <div className="text-center p-2 bg-white/5 rounded-lg">
+                <div className={`text-center p-2 rounded-lg ${dark ? "bg-white/5" : "bg-corporate-bg"}`}>
                   <div className="text-sm font-bold">{bot.risk_per_trade}%</div>
                   <div className="text-xs text-gray-400">Risk/trade</div>
                 </div>
-                <div className={`text-center p-2 rounded-lg ${atDailyCap ? 'bg-amber-500/10' : 'bg-white/5'}`}>
+                <div className={`text-center p-2 rounded-lg ${atDailyCap ? 'bg-amber-500/10' : dark ? 'bg-white/5' : 'bg-corporate-bg'}`}>
                   <div className={`text-sm font-bold ${atDailyCap ? 'text-amber-400' : ''}`}>{botToday}/{bot.max_daily_trades}</div>
                   <div className="text-xs text-gray-400">Today</div>
                 </div>
-                <div className={`text-center p-2 rounded-lg ${atConcurrentCap ? 'bg-amber-500/10' : 'bg-white/5'}`}>
+                <div className={`text-center p-2 rounded-lg ${atConcurrentCap ? 'bg-amber-500/10' : dark ? 'bg-white/5' : 'bg-corporate-bg'}`}>
                   <div className={`text-sm font-bold ${atConcurrentCap ? 'text-amber-400' : ''}`}>{botActive}/{bot.max_concurrent_trades}</div>
                   <div className="text-xs text-gray-400">Concurrent</div>
                 </div>
-                <div className="text-center p-2 bg-white/5 rounded-lg">
+                <div className={`text-center p-2 rounded-lg ${dark ? "bg-white/5" : "bg-corporate-bg"}`}>
                   <div className="text-sm font-bold">{bot.max_portfolio_exposure}%</div>
                   <div className="text-xs text-gray-400">Max exposure</div>
                 </div>
-                <div className="text-center p-2 bg-white/5 rounded-lg">
+                <div className={`text-center p-2 rounded-lg ${dark ? "bg-white/5" : "bg-corporate-bg"}`}>
                   <div className="text-sm font-bold">{bot.min_rr_ratio}:1</div>
                   <div className="text-xs text-gray-400">Min R:R</div>
                 </div>
               </div>
 
               {editingId === bot.bot_id && editing && (
-                <div className="mt-4 pt-4 border-t border-smc-border">
+                <div className={`mt-4 pt-4 border-t ${dark ? "border-smc-border" : "border-corporate-bg"}`}>
                   <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                     <label className="text-xs text-gray-400">
                       Risk/trade (%)
                       <input type="number" step="0.1" min="0.1" max="25" value={editing.risk_per_trade}
                         onChange={(e) => setEditing({ ...editing, risk_per_trade: Number(e.target.value) })}
-                        className="w-full mt-1 bg-smc-bg border border-smc-border rounded-lg px-2 py-1.5 text-sm text-white" />
+                        className={inputCls} />
                     </label>
                     <label className="text-xs text-gray-400">
                       Max daily trades
                       <input type="number" step="1" min="1" max="200" value={editing.max_daily_trades}
                         onChange={(e) => setEditing({ ...editing, max_daily_trades: Number(e.target.value) })}
-                        className="w-full mt-1 bg-smc-bg border border-smc-border rounded-lg px-2 py-1.5 text-sm text-white" />
+                        className={inputCls} />
                     </label>
                     <label className="text-xs text-gray-400">
                       Max concurrent
                       <input type="number" step="1" min="1" max="50" value={editing.max_concurrent_trades}
                         onChange={(e) => setEditing({ ...editing, max_concurrent_trades: Number(e.target.value) })}
-                        className="w-full mt-1 bg-smc-bg border border-smc-border rounded-lg px-2 py-1.5 text-sm text-white" />
+                        className={inputCls} />
                     </label>
                     <label className="text-xs text-gray-400">
                       Max exposure (%)
                       <input type="number" step="0.5" min="0.1" max="100" value={editing.max_portfolio_exposure}
                         onChange={(e) => setEditing({ ...editing, max_portfolio_exposure: Number(e.target.value) })}
-                        className="w-full mt-1 bg-smc-bg border border-smc-border rounded-lg px-2 py-1.5 text-sm text-white" />
+                        className={inputCls} />
                     </label>
                     <label className="text-xs text-gray-400">
                       Min R:R
                       <input type="number" step="0.1" min="0.1" max="20" value={editing.min_rr_ratio}
                         onChange={(e) => setEditing({ ...editing, min_rr_ratio: Number(e.target.value) })}
-                        className="w-full mt-1 bg-smc-bg border border-smc-border rounded-lg px-2 py-1.5 text-sm text-white" />
+                        className={inputCls} />
                     </label>
                   </div>
                   <button
                     onClick={() => save(bot.bot_id)}
                     disabled={saving}
-                    className="mt-3 flex items-center gap-2 px-4 py-2 bg-smc-accent text-white rounded-lg text-sm font-medium disabled:opacity-50"
+                    className={`mt-3 flex items-center gap-2 px-4 py-2 text-white rounded-lg text-sm font-medium disabled:opacity-50 ${dark ? "bg-smc-accent" : "bg-corporate-hero"}`}
                   >
                     <Save size={14} /> {saving ? 'Saving…' : 'Save caps'}
                   </button>

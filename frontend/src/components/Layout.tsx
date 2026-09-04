@@ -62,19 +62,31 @@ const TRADER_NAV_ITEMS: NavItem[] = [
  * gear was added so this legacy console also reaches SettingsPanel's
  * "Switch Portal" — it had no way back to the rest of the app at all
  * before this.
+ *
+ * Follows the site-wide light/dark toggle now too, by direct
+ * instruction — every other portal already did (Manager/Partner/Admin
+ * via CorporateLayout); this was the one console still forced dark
+ * regardless of the toggle. Dark keeps the exact original smc-* dark-
+ * terminal palette unchanged. Light does NOT invent a new "light
+ * terminal" look — it reuses the same white/corporate-bg/corporate-
+ * hero palette every other light-mode page already uses, so toggling
+ * light here looks like the rest of the site, not a third theme.
  */
 export function Layout({ children, navItems = TRADER_NAV_ITEMS }: { children: React.ReactNode; navItems?: NavItem[] }) {
   const { sidebarOpen, toggleSidebar, wsConnected, stats } = useAppStore();
   const location = useLocation();
   const { theme, setTheme } = useThemeStore();
+  const dark = theme === 'dark';
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   return (
-    <div className="min-h-screen bg-smc-dark text-white font-sans">
+    <div className={`min-h-screen font-sans ${dark ? 'bg-smc-dark text-white' : 'bg-corporate-bg text-corporate-text-on-bg'}`}>
       {/* Header */}
-      <header className="fixed top-0 left-0 right-0 h-16 bg-smc-card border-b border-smc-border z-50 flex items-center justify-between px-4">
+      <header className={`fixed top-0 left-0 right-0 h-16 border-b z-50 flex items-center justify-between px-4 ${
+        dark ? 'bg-smc-card border-smc-border' : 'bg-white border-corporate-bg'
+      }`}>
         <div className="flex items-center gap-3">
-          <button onClick={toggleSidebar} className="p-2 hover:bg-smc-border rounded-lg transition-colors">
+          <button onClick={toggleSidebar} className={`p-2 rounded-lg transition-colors ${dark ? 'hover:bg-smc-border' : 'hover:bg-corporate-bg'}`}>
             {sidebarOpen ? <X size={20} /> : <Menu size={20} />}
           </button>
           <Link to="/home" className="flex items-center">
@@ -91,7 +103,7 @@ export function Layout({ children, navItems = TRADER_NAV_ITEMS }: { children: Re
           {/* Connection Status */}
           <div className="flex items-center gap-2 text-sm">
             <div className={`w-2 h-2 rounded-full ${wsConnected ? 'bg-smc-success animate-pulse' : 'bg-smc-danger'}`} />
-            <span className="text-gray-400">{wsConnected ? 'Live' : 'Offline'}</span>
+            <span className={dark ? 'text-gray-400' : 'text-gray-500'}>{wsConnected ? 'Live' : 'Offline'}</span>
           </div>
 
           {/* Pending Approvals Badge */}
@@ -107,7 +119,9 @@ export function Layout({ children, navItems = TRADER_NAV_ITEMS }: { children: Re
           <button
             onClick={() => setSettingsOpen(true)}
             aria-label="Open settings"
-            className="w-9 h-9 rounded-lg flex items-center justify-center text-smc-accent hover:bg-white/5 transition-colors"
+            className={`w-9 h-9 rounded-lg flex items-center justify-center transition-colors ${
+              dark ? 'text-smc-accent hover:bg-white/5' : 'text-corporate-hero hover:bg-corporate-bg'
+            }`}
           >
             <SettingsIcon size={17} />
           </button>
@@ -115,9 +129,9 @@ export function Layout({ children, navItems = TRADER_NAV_ITEMS }: { children: Re
       </header>
 
       {/* Sidebar */}
-      <aside className={`fixed left-0 top-16 bottom-0 bg-smc-card border-r border-smc-border transition-all duration-300 z-40 ${
+      <aside className={`fixed left-0 top-16 bottom-0 border-r transition-all duration-300 z-40 ${
         sidebarOpen ? 'w-64' : 'w-0 overflow-hidden'
-      }`}>
+      } ${dark ? 'bg-smc-card border-smc-border' : 'bg-white border-corporate-bg'}`}>
         <nav className="p-4 space-y-1">
           {navItems.map((item) => {
             const Icon = item.icon;
@@ -128,8 +142,12 @@ export function Layout({ children, navItems = TRADER_NAV_ITEMS }: { children: Re
                 to={item.path}
                 className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all ${
                   isActive
-                    ? 'bg-smc-accent/10 text-smc-accent border border-smc-accent/20'
-                    : 'text-gray-400 hover:bg-smc-border hover:text-white'
+                    ? dark
+                      ? 'bg-smc-accent/10 text-smc-accent border border-smc-accent/20'
+                      : 'bg-corporate-hero/10 text-corporate-hero border border-corporate-hero/20'
+                    : dark
+                      ? 'text-gray-400 hover:bg-smc-border hover:text-white'
+                      : 'text-gray-500 hover:bg-corporate-bg hover:text-corporate-text-on-bg'
                 }`}
               >
                 <Icon size={18} />
@@ -152,7 +170,7 @@ export function Layout({ children, navItems = TRADER_NAV_ITEMS }: { children: Re
         </div>
       </main>
 
-      <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} theme={theme} setTheme={setTheme} dark />
+      <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} theme={theme} setTheme={setTheme} dark={dark} />
     </div>
   );
 }
