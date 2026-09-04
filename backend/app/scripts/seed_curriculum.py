@@ -9,15 +9,16 @@ CORE_1_MARKET_BASICS.md, CORE_2_MARKET_STRUCTURE.md,
 CORE_3_LIQUIDITY.md, CORE_4_SUPPLY_DEMAND_ZONES.md,
 CORE_5_FAIR_VALUE_GAPS.md, CORE_6_PREMIUM_DISCOUNT.md,
 CORE_7_MULTI_TIMEFRAME.md, CORE_8_RISK_MANAGEMENT.md,
-CORE_9_TRADE_MANAGEMENT.md, CORE_10_TRADING_PSYCHOLOGY.md) — nothing
-here invents lesson content.
+CORE_9_TRADE_MANAGEMENT.md, CORE_10_TRADING_PSYCHOLOGY.md, and each
+bot's own file listed in BOT_LESSON_FILES below, e.g.
+BOT_1_MACRO_SWING_STRUCTURE.md) — nothing here invents lesson content.
 
 Two kinds of stage get created, matching the content map's own
 [DONE] / [ ] status legend:
   - AUTHORED stages: real content_body, parsed directly out of the
-    eleven .md files that have full lessons written (PART_0, CORE_1,
-    CORE_2, CORE_3, CORE_4, CORE_5, CORE_6, CORE_7, CORE_8, CORE_9,
-    CORE_10).
+    twelve-plus .md files that have full lessons written (PART_0,
+    CORE_1, CORE_2, CORE_3, CORE_4, CORE_5, CORE_6, CORE_7, CORE_8,
+    CORE_9, CORE_10, and whichever BOT_N files exist so far).
     The parser (not a hand-copied string) is the intentional choice —
     it means the seeded content can never silently drift from the
     actual .md file, and re-running this script after an edit to
@@ -193,6 +194,17 @@ BOT_TRACKS = [
     ("bot_5", "Bot 5 — Liquidity Purge Specialist"),
 ]
 
+# Each bot's authored .md file, keyed the same as BOT_TRACKS above — a
+# bot with no file yet (still [ ] in the master content map) is simply
+# absent here, and its 10 stages stay real, correctly-titled
+# placeholders (BOT_STAGE_TEMPLATE), same pattern as every other
+# not-yet-authored stage in this script. Lesson codes inside each file
+# follow BOT{n}-01 through BOT{n}-10, matching BOT_STAGE_TEMPLATE's own
+# order (Concept, Identification, ..., Capstone).
+BOT_LESSON_FILES = {
+    "bot_1": "BOT_1_MACRO_SWING_STRUCTURE.md",
+}
+
 TRACKS = [
     {"title": "Honest Gap Orientation", "category": TrackCategory.BASICS,
      "description": "Start here — what this platform teaches, what it doesn't promise, and the vocabulary every later lesson assumes.",
@@ -247,6 +259,8 @@ async def seed_curriculum():
         **core4_lessons, **core5_lessons, **core6_lessons, **core7_lessons,
         **core8_lessons, **core9_lessons, **psy_lessons,
     }
+    for bot_id, filename in BOT_LESSON_FILES.items():
+        authored.update(parse_authored_lessons(CURRICULUM_DIR / filename))
 
     async with AsyncSessionLocal() as db:
         existing = (await db.execute(select(LearningTrack).limit(1))).scalar_one_or_none()
@@ -296,10 +310,23 @@ async def seed_curriculum():
             await db.flush()
             order_index += 1
 
+            bot_number = bot_id.rsplit("_", 1)[-1]   # "bot_1" -> "1"
             for i, stage_title in enumerate(BOT_STAGE_TEMPLATE, start=1):
+                code = f"BOT{bot_number}-{i:02d}"
+                lesson_id = None
+                if code in authored:
+                    lesson = Lesson(
+                        track_id=track.id, title=authored[code]["title"],
+                        order_index=i, content_body=authored[code]["body"],
+                    )
+                    db.add(lesson)
+                    await db.flush()
+                    lesson_id = lesson.id
+                    total_authored += 1
+
                 db.add(TrackStage(
                     track_id=track.id, stage_number=i, title=f"{stage_title} — {bot_title}",
-                    lesson_id=None, xp_reward=10,
+                    lesson_id=lesson_id, xp_reward=10,
                 ))
                 total_stages += 1
 

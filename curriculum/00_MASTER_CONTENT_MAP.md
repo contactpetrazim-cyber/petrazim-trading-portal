@@ -98,11 +98,21 @@ Status legend: [DONE] authored this batch, [ ] mapped, not yet authored
 - [DONE] PSY-10 Psychology Capstone
 
 ## BOT SPECIALIZATIONS (BOT1-BOT5)
-- [ ] Each: 10-lesson sequence (Concept, Identification, Context, Setup,
-  Invalidation, Entry, Management, Failure, Practice, Capstone), per the
-  brief's bot-specific curricula (Macro Swing / Order Block Reversal /
-  Imbalance Expansion / Volume & Liquidity Sweep / Liquidity Purge
-  Specialist — renamed per the Phase 1 rebrand, content preserved).
+Each: 10-lesson sequence (Concept, Identification, Context, Setup,
+Invalidation, Entry, Management, Failure, Practice, Capstone), verified
+line-by-line against each bot's real `analyze()` pipeline in
+`backend/app/core/bot_strategies.py` — not generic SMC content restyled
+per bot.
+
+- [DONE] BOT1-01 through BOT1-10 — Bot 1, Macro Swing Structure
+  (Damir/Brooks style: 1D trend + 4H BOS confirmation, 5:1 target)
+- [ ] BOT2-01 through BOT2-10 — Bot 2, Order Block Reversal (ICT style)
+- [ ] BOT3-01 through BOT3-10 — Bot 3, Imbalance Expansion (Photon/Phantom
+  style, FVG-driven)
+- [ ] BOT4-01 through BOT4-10 — Bot 4, Volume & Liquidity Sweep
+  (Dalton/Weis/Wyckoff style: Spring/Upthrust)
+- [ ] BOT5-01 through BOT5-10 — Bot 5, Liquidity Purge Specialist
+  (Jeafx SMC style — renamed per the Phase 1 rebrand, content preserved)
 
 ## BOOK KNOWLEDGE (BOOK)
 - [ ] Brooks, Dalton, Weis, Wyckoff, Douglas — original-language summaries,
