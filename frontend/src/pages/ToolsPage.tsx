@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import {
-  Gauge, TrendingUp, Grid3x3, NotebookPen, Wallet, Plus, Trash2, LineChart,
+  Gauge, TrendingUp, Grid3x3, NotebookPen, Wallet, Plus, Trash2, LineChart, Activity,
 } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
 import { FoldedCard } from '../components/FoldedCard';
 import { ChartPanel } from '../components/ChartPanel';
+import { OrderFlowChartTool } from './OrderFlowChartTool';
 import { useThemeStore } from '../hooks/useTheme';
 import { useAuth } from '../hooks/useAuth';
 import { apiFetch } from '../components/AccessExpiredGate';
@@ -443,6 +444,10 @@ export function ToolsPage() {
               </div>
             )
           )}
+        </FoldedCard>
+
+        <FoldedCard title="Order Flow Chart" summary="Free — live tape, delta, and order book, from real crypto market data." icon={<Activity size={19} />} dark={dark} accent={TOOLS_ACCENT}>
+          <OrderFlowChartTool />
         </FoldedCard>
       </div>
     </div>
