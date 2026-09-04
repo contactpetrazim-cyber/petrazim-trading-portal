@@ -5,6 +5,15 @@ Facilitator Meetings Router
 /meetings endpoints backing FacilitatorCalendar.tsx: the 3-month
 availability strip, booking, cancellation, and connector status for
 Fireflies + both Google Calendars.
+
+Access-gating is deliberately asymmetric here, by direct instruction:
+booking a NEW session (POST /book) requires active access — that's the
+paid action. Viewing or cancelling a booking already made (GET
+/my-bookings, DELETE /{id}) stays on plain get_current_user, gated on
+nothing but being logged in, so an existing invite/Jitsi link a trainee
+already has stays usable even if their access window has since closed
+— access expiring should stop new bookings, not retroactively revoke
+one already confirmed.
 """
 
 from __future__ import annotations
@@ -18,6 +27,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.access_gate import require_active_access
+from app.core.auth import get_current_user
 from app.database import get_db
 from app.models.access import UserAccess
 from app.models.facilitator import BookingStatus, ExternalConnector, MeetingBand, MeetingBooking
@@ -133,7 +143,7 @@ class MyBookingResponse(BaseModel):
 
 
 @router.get("/my-bookings", response_model=List[MyBookingResponse])
-async def my_bookings(db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access)):
+async def my_bookings(db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
     rows = (await db.execute(
         select(MeetingBooking).where(MeetingBooking.trainee_user_id == user.id).order_by(MeetingBooking.day)
     )).scalars().all()
@@ -145,7 +155,7 @@ async def my_bookings(db: AsyncSession = Depends(get_db), user: User = Depends(r
 
 
 @router.delete("/{booking_id}")
-async def cancel_booking(booking_id: str, db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access)):
+async def cancel_booking(booking_id: str, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
     row = (await db.execute(
         select(MeetingBooking).where(MeetingBooking.id == booking_id, MeetingBooking.trainee_user_id == user.id)
     )).scalar_one_or_none()
