@@ -8,13 +8,14 @@ already written in the repo's top-level curriculum/ directory
 CORE_1_MARKET_BASICS.md, CORE_2_MARKET_STRUCTURE.md,
 CORE_3_LIQUIDITY.md, CORE_4_SUPPLY_DEMAND_ZONES.md,
 CORE_5_FAIR_VALUE_GAPS.md, CORE_6_PREMIUM_DISCOUNT.md,
-CORE_7_MULTI_TIMEFRAME.md) — nothing here invents lesson content.
+CORE_7_MULTI_TIMEFRAME.md, CORE_8_RISK_MANAGEMENT.md) — nothing here
+invents lesson content.
 
 Two kinds of stage get created, matching the content map's own
 [DONE] / [ ] status legend:
   - AUTHORED stages: real content_body, parsed directly out of the
-    eight .md files that have full lessons written (PART_0, CORE_1,
-    CORE_2, CORE_3, CORE_4, CORE_5, CORE_6, CORE_7).
+    nine .md files that have full lessons written (PART_0, CORE_1,
+    CORE_2, CORE_3, CORE_4, CORE_5, CORE_6, CORE_7, CORE_8).
     The parser (not a hand-copied string) is the intentional choice —
     it means the seeded content can never silently drift from the
     actual .md file, and re-running this script after an edit to
@@ -236,9 +237,11 @@ async def seed_curriculum():
     core5_lessons = parse_authored_lessons(CURRICULUM_DIR / "CORE_5_FAIR_VALUE_GAPS.md")
     core6_lessons = parse_authored_lessons(CURRICULUM_DIR / "CORE_6_PREMIUM_DISCOUNT.md")
     core7_lessons = parse_authored_lessons(CURRICULUM_DIR / "CORE_7_MULTI_TIMEFRAME.md")
+    core8_lessons = parse_authored_lessons(CURRICULUM_DIR / "CORE_8_RISK_MANAGEMENT.md")
     authored = {
         **orient_lessons, **core1_lessons, **core2_lessons, **core3_lessons,
         **core4_lessons, **core5_lessons, **core6_lessons, **core7_lessons,
+        **core8_lessons,
     }
 
     async with AsyncSessionLocal() as db:

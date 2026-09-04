@@ -72,13 +72,13 @@ Status legend: [DONE] authored this batch, [ ] mapped, not yet authored
 - [DONE] C7-03 Long/Short Decision Trees, No-Trade Conditions
 
 ## CORE 8 — RISK MANAGEMENT (C8)
-- [ ] C8-01 Risk Per Trade, Fixed Fractional Sizing
-- [ ] C8-02 Stop-Loss, Invalidation, R-Multiple
-- [ ] C8-03 Reward-to-Risk, Partial Exits, Breakeven, Trailing
-- [ ] C8-04 Max Daily/Weekly Loss, Correlated Exposure
-- [ ] C8-05 Leverage, Margin, Spread, Slippage, Fees
-- [ ] C8-06 Kill Switches and Circuit Breakers
-- [ ] C8-07 Why a "3:1 Setup" Does Not Equal 3:1 Realized Expectancy
+- [DONE] C8-01 Risk Per Trade, Fixed Fractional Sizing
+- [DONE] C8-02 Stop-Loss, Invalidation, R-Multiple
+- [DONE] C8-03 Reward-to-Risk, Partial Exits, Breakeven, Trailing
+- [DONE] C8-04 Max Daily/Weekly Loss, Correlated Exposure
+- [DONE] C8-05 Leverage, Margin, Spread, Slippage, Fees
+- [DONE] C8-06 Kill Switches and Circuit Breakers
+- [DONE] C8-07 Why a "3:1 Setup" Does Not Equal 3:1 Realized Expectancy
 
 ## CORE 9 — TRADE MANAGEMENT (C9)
 - [ ] C9-01 Before Entry Through Exit — the Full Lifecycle
