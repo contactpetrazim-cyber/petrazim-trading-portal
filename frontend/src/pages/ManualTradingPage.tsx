@@ -71,6 +71,17 @@ export function ManualTradingPage() {
   const [riskMode, setRiskMode] = useState<'dollar' | 'percent'>('dollar');
   const [riskAmount, setRiskAmount] = useState('100');
   const [riskPercent, setRiskPercent] = useState('1');
+  // Each exit field can be driven by a typed PRICE (default) or a
+  // typed $ amount that back-calculates the price — see
+  // priceForDollarTarget below.
+  const [slMode, setSlMode] = useState<'price' | 'amount'>('price');
+  const [slAmount, setSlAmount] = useState('');
+  const [tpMode, setTpMode] = useState<'price' | 'amount'>('price');
+  const [tpAmount, setTpAmount] = useState('');
+  const [tp2Mode, setTp2Mode] = useState<'price' | 'amount'>('price');
+  const [tp2Amount, setTp2Amount] = useState('');
+  const [tp3Mode, setTp3Mode] = useState<'price' | 'amount'>('price');
+  const [tp3Amount, setTp3Amount] = useState('');
   const [settings, setSettings] = useState<Settings | null>(null);
   const { price: quickPrice, refresh: refreshQuickPrice } = useQuickPrice(symbol.trade);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -207,6 +218,38 @@ export function ManualTradingPage() {
   const lotSizePreview = perUnitRisk > 0 ? riskAmountForPreview / perUnitRisk : 0;
   const tradeValuePreview = lotSizePreview * effectiveEntryForPreview;
   const priceDelta = quickPrice != null && entryPrice ? Number(entryPrice) - quickPrice : null;
+
+  // Back-calculates a PRICE from a desired dollar amount, using the
+  // ticket's own currently-implied lot size (Risk-USD ÷ stop
+  // distance, i.e. lotSizePreview above) as the basis. For Take
+  // Profit this is a fully independent, well-defined convenience — TP
+  // never feeds into sizing. For Stop Loss it's honestly a
+  // best-effort one-way calculator rather than a second independent
+  // risk figure: lot size is itself derived from Risk-USD ÷ SL
+  // distance, so the dollar loss AT the resulting lot size is
+  // mathematically forced back toward the Risk-USD figure above —
+  // typing a SL $ amount changes the SL price (and so, indirectly,
+  // the next-computed lot size), it doesn't coexist as a second
+  // independent number. The Risk-USD row above stays the authoritative
+  // one for sizing.
+  function priceForDollarTarget(amountDollars: number, kind: 'tp' | 'sl'): number | null {
+    if (!(lotSizePreview > 0) || !effectiveEntryForPreview) return null;
+    const distance = amountDollars / lotSizePreview;
+    const goingUp = (direction === 'long') === (kind === 'tp');
+    return effectiveEntryForPreview + (goingUp ? distance : -distance);
+  }
+
+  function applyDollarAmount(field: 'sl' | 'tp' | 'tp2' | 'tp3', value: string) {
+    const n = Number(value);
+    if (!value || isNaN(n) || n <= 0) return;
+    const price = priceForDollarTarget(n, field === 'sl' ? 'sl' : 'tp');
+    if (price == null || price <= 0) return;
+    const priceStr = price.toFixed(2);
+    if (field === 'sl') setStopLoss(priceStr);
+    else if (field === 'tp') setTakeProfit(priceStr);
+    else if (field === 'tp2') setTakeProfit2(priceStr);
+    else setTakeProfit3(priceStr);
+  }
 
   return (
     <div className={`min-h-screen ${dark ? 'bg-[#0a0e1a] text-white' : 'bg-corporate-bg text-corporate-text-on-bg'}`}>
@@ -354,10 +397,19 @@ export function ManualTradingPage() {
               ))}
             </div>
 
-            {orderType !== 'market' && (
+            {/* Market orders hide this field ONLY when there's actually a
+                live reference price to fall back on (crypto, via
+                quick-price) — the whole point of "Market". On forex/
+                metals (no free feed — see quick-price's own docstring)
+                there is no live price to fall back on, so the field
+                has to stay visible even in Market mode, or every
+                calculation below silently uses 0 as the entry price. */}
+            {(orderType !== 'market' || quickPrice == null) && (
               <>
                 <div className="flex items-center justify-between py-2 border-b border-gray-100">
-                  <span className="text-sm text-gray-500">{orderType === 'stop' ? 'Stop price' : 'Price'}</span>
+                  <span className="text-sm text-gray-500">
+                    {orderType === 'stop' ? 'Stop price' : orderType === 'market' ? 'Reference price' : 'Price'}
+                  </span>
                   <div className="flex items-center gap-2">
                     <input
                       className="text-right text-sm font-semibold w-28 outline-none bg-transparent"
@@ -410,25 +462,46 @@ export function ManualTradingPage() {
             </div>
             <div className="flex items-center justify-between py-1.5 mb-3">
               <span className="text-sm text-gray-400">Available margin</span>
-              <div className="flex items-center gap-1">
-                <span className="text-sm text-gray-400">$</span>
+              <div className="flex items-center font-semibold text-gray-700">
+                <span className="text-sm">$</span>
                 <input
-                  className="text-right text-sm font-semibold w-24 outline-none bg-transparent"
+                  className="text-right text-sm font-semibold w-20 outline-none bg-transparent p-0"
                   value={accountEquity} onChange={(e) => setAccountEquity(e.target.value)}
                 />
               </div>
             </div>
 
-            {/* Exits */}
+            {/* Exits — each price field has a small toggle next to it to
+                switch to typing a $ amount instead, which back-
+                calculates and fills the price (priceForDollarTarget
+                above). By direct request ("allow option for a take
+                profit amount and stop loss amount to back calculate
+                and auto populate price"). */}
             <div className="text-sm font-bold text-gray-900 mb-1">Exits</div>
             <div className="flex items-center justify-between py-2 border-b border-gray-100">
-              <span className="text-sm text-gray-500">Take profit, price</span>
+              <span className="text-sm text-gray-500">Take profit, {tpMode === 'amount' ? 'amount ($)' : 'price'}</span>
               <div className="flex items-center gap-2">
                 {tpEnabled && (
-                  <input
-                    className="text-right text-sm font-semibold w-24 outline-none bg-transparent"
-                    value={takeProfit} onChange={(e) => setTakeProfit(e.target.value)} placeholder="0.00"
-                  />
+                  <>
+                    {tpMode === 'amount' ? (
+                      <input
+                        className="text-right text-sm font-semibold w-24 outline-none bg-transparent"
+                        value={tpAmount} onChange={(e) => { setTpAmount(e.target.value); applyDollarAmount('tp', e.target.value); }} placeholder="$0.00"
+                      />
+                    ) : (
+                      <input
+                        className="text-right text-sm font-semibold w-24 outline-none bg-transparent"
+                        value={takeProfit} onChange={(e) => setTakeProfit(e.target.value)} placeholder="0.00"
+                      />
+                    )}
+                    <button
+                      onClick={() => setTpMode((m) => (m === 'price' ? 'amount' : 'price'))}
+                      aria-label="Switch take profit between price and $ amount" title="Switch between price and $ amount"
+                      className="text-gray-300 hover:text-gray-500"
+                    >
+                      <ArrowLeftRight size={13} />
+                    </button>
+                  </>
                 )}
                 <button
                   onClick={() => setTpEnabled((v) => !v)} aria-label="Toggle take profit"
@@ -439,12 +512,26 @@ export function ManualTradingPage() {
               </div>
             </div>
             <div className="flex items-center justify-between py-2 mb-2">
-              <span className="text-sm text-gray-500">Stop loss, price</span>
+              <span className="text-sm text-gray-500">Stop loss, {slMode === 'amount' ? 'amount ($)' : 'price'}</span>
               <div className="flex items-center gap-2">
-                <input
-                  className="text-right text-sm font-semibold w-24 outline-none bg-transparent"
-                  value={stopLoss} onChange={(e) => setStopLoss(e.target.value)} placeholder="0.00"
-                />
+                {slMode === 'amount' ? (
+                  <input
+                    className="text-right text-sm font-semibold w-24 outline-none bg-transparent"
+                    value={slAmount} onChange={(e) => { setSlAmount(e.target.value); applyDollarAmount('sl', e.target.value); }} placeholder="$0.00"
+                  />
+                ) : (
+                  <input
+                    className="text-right text-sm font-semibold w-24 outline-none bg-transparent"
+                    value={stopLoss} onChange={(e) => setStopLoss(e.target.value)} placeholder="0.00"
+                  />
+                )}
+                <button
+                  onClick={() => setSlMode((m) => (m === 'price' ? 'amount' : 'price'))}
+                  aria-label="Switch stop loss between price and $ amount" title="Switch between price and $ amount"
+                  className="text-gray-300 hover:text-gray-500"
+                >
+                  <ArrowLeftRight size={13} />
+                </button>
                 {/* Always on — required for risk-based position sizing,
                     unlike a real exchange's optional protective stop. */}
                 <span className="relative w-9 h-5 rounded-full bg-blue-600 shrink-0" title="Stop loss is required to size this trade">
@@ -460,12 +547,38 @@ export function ManualTradingPage() {
             ) : (
               <div className="mb-3 space-y-2">
                 <div className="flex items-center justify-between py-1.5 border-b border-gray-100">
-                  <span className="text-sm text-gray-500">Take profit 2 (optional)</span>
-                  <input className="text-right text-sm font-semibold w-24 outline-none bg-transparent" value={takeProfit2} onChange={(e) => setTakeProfit2(e.target.value)} placeholder="0.00" />
+                  <span className="text-sm text-gray-500">Take profit 2, {tp2Mode === 'amount' ? 'amount ($)' : 'price'} (optional)</span>
+                  <div className="flex items-center gap-2">
+                    {tp2Mode === 'amount' ? (
+                      <input className="text-right text-sm font-semibold w-24 outline-none bg-transparent" value={tp2Amount} onChange={(e) => { setTp2Amount(e.target.value); applyDollarAmount('tp2', e.target.value); }} placeholder="$0.00" />
+                    ) : (
+                      <input className="text-right text-sm font-semibold w-24 outline-none bg-transparent" value={takeProfit2} onChange={(e) => setTakeProfit2(e.target.value)} placeholder="0.00" />
+                    )}
+                    <button
+                      onClick={() => setTp2Mode((m) => (m === 'price' ? 'amount' : 'price'))}
+                      aria-label="Switch take profit 2 between price and $ amount" title="Switch between price and $ amount"
+                      className="text-gray-300 hover:text-gray-500"
+                    >
+                      <ArrowLeftRight size={13} />
+                    </button>
+                  </div>
                 </div>
                 <div className="flex items-center justify-between py-1.5">
-                  <span className="text-sm text-gray-500">Take profit 3 (optional)</span>
-                  <input className="text-right text-sm font-semibold w-24 outline-none bg-transparent" value={takeProfit3} onChange={(e) => setTakeProfit3(e.target.value)} placeholder="0.00" />
+                  <span className="text-sm text-gray-500">Take profit 3, {tp3Mode === 'amount' ? 'amount ($)' : 'price'} (optional)</span>
+                  <div className="flex items-center gap-2">
+                    {tp3Mode === 'amount' ? (
+                      <input className="text-right text-sm font-semibold w-24 outline-none bg-transparent" value={tp3Amount} onChange={(e) => { setTp3Amount(e.target.value); applyDollarAmount('tp3', e.target.value); }} placeholder="$0.00" />
+                    ) : (
+                      <input className="text-right text-sm font-semibold w-24 outline-none bg-transparent" value={takeProfit3} onChange={(e) => setTakeProfit3(e.target.value)} placeholder="0.00" />
+                    )}
+                    <button
+                      onClick={() => setTp3Mode((m) => (m === 'price' ? 'amount' : 'price'))}
+                      aria-label="Switch take profit 3 between price and $ amount" title="Switch between price and $ amount"
+                      className="text-gray-300 hover:text-gray-500"
+                    >
+                      <ArrowLeftRight size={13} />
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
@@ -498,7 +611,7 @@ export function ManualTradingPage() {
             ) : (
               <button
                 onClick={submitOrder}
-                disabled={submitting || (!entryPrice && orderType !== 'market') || !stopLoss}
+                disabled={submitting || (!entryPrice && quickPrice == null) || !stopLoss}
                 className="w-full py-3.5 rounded-xl text-sm font-bold text-white disabled:opacity-50 bg-blue-600 hover:bg-blue-700"
               >
                 {submitting

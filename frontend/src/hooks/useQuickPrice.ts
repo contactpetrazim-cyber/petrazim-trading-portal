@@ -7,13 +7,10 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 /**
  * useQuickPrice — the one real "what's it trading at right now" fetch
  * (Binance public ticker, CoinGecko fallback — see
- * routers/manual_trading.py's quick_price), shared by the small quick-
- * price button in ChartPanel's toolbar and TradeSpecsPanel's floating-
- * P&L display, so there's exactly one fetch implementation instead of
- * two drifting copies. Moved out of TradeSpecsPanel itself by direct
- * request — the panel's own "Use current price" section was "taking
- * too much space"; the button now lives up in the chart toolbar next
- * to the candle-colors button instead.
+ * routers/manual_trading.py's quick_price), shared by the small
+ * "Price" button in ChartPanel's toolbar and Manual Trading's own
+ * order-ticket header/preview, so there's exactly one fetch
+ * implementation instead of drifting copies.
  */
 export function useQuickPrice(symbol: string) {
   const { token } = useAuth();
