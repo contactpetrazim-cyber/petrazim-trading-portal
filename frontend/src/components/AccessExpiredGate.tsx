@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Clock, ShieldCheck, RefreshCw } from 'lucide-react';
 import { CardLogoBand } from './CardLogoBand';
+import { useThemeStore } from '../hooks/useTheme';
 
 /**
  * AccessExpiredGate — matches the exact card design confirmed working
@@ -32,6 +33,8 @@ export function triggerAccessExpired(detail: ExpiredDetail) {
 
 export function AccessExpiredGate({ children }: { children: React.ReactNode }) {
   const [expired, setExpired] = useState<ExpiredDetail | null>(null);
+  const { theme } = useThemeStore();
+  const dark = theme === 'dark';
 
   useEffect(() => {
     globalSetter = setExpired;
@@ -43,21 +46,21 @@ export function AccessExpiredGate({ children }: { children: React.ReactNode }) {
       {children}
       {expired && (
         <div className="fixed inset-0 z-[100] bg-black/60 flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl p-8 max-w-md w-full text-center shadow-2xl">
-            <CardLogoBand />
-            <div className="w-16 h-16 rounded-full bg-[#EAEAF4] flex items-center justify-center mx-auto mb-5">
+          <div className={`rounded-3xl p-8 max-w-md w-full text-center shadow-2xl ${dark ? 'bg-corporate-surface-dark' : 'bg-white'}`}>
+            <CardLogoBand dark={dark} />
+            <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-5 ${dark ? 'bg-white/10' : 'bg-[#EAEAF4]'}`}>
               <Clock size={28} style={{ color: '#0284C7' }} />
             </div>
 
-            <h2 className="font-extrabold text-2xl text-[#141a33] mb-3 leading-tight">{expired.title}</h2>
-            <p className="text-sm text-gray-500 mb-6 leading-relaxed">{expired.message}</p>
+            <h2 className={`font-extrabold text-2xl mb-3 leading-tight ${dark ? 'text-white' : 'text-[#141a33]'}`}>{expired.title}</h2>
+            <p className={`text-sm mb-6 leading-relaxed ${dark ? 'text-white/60' : 'text-gray-500'}`}>{expired.message}</p>
 
-            <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 text-left mb-6">
+            <div className={`rounded-2xl p-4 text-left mb-6 border ${dark ? 'bg-emerald-400/10 border-emerald-400/20' : 'bg-emerald-50 border-emerald-200'}`}>
               <div className="flex items-center gap-2 mb-1.5">
-                <ShieldCheck size={16} className="text-emerald-600" />
-                <span className="text-sm font-semibold text-[#141a33]">{expired.progress_label}</span>
+                <ShieldCheck size={16} className={dark ? 'text-emerald-400' : 'text-emerald-600'} />
+                <span className={`text-sm font-semibold ${dark ? 'text-white' : 'text-[#141a33]'}`}>{expired.progress_label}</span>
               </div>
-              <p className="text-xs text-gray-600 leading-relaxed">{expired.progress_detail}</p>
+              <p className={`text-xs leading-relaxed ${dark ? 'text-white/50' : 'text-gray-600'}`}>{expired.progress_detail}</p>
             </div>
 
             <button
@@ -67,7 +70,7 @@ export function AccessExpiredGate({ children }: { children: React.ReactNode }) {
               <RefreshCw size={17} /> Renew access
             </button>
 
-            <p className="text-xs text-gray-400 mt-4">{expired.promo_hint}</p>
+            <p className={`text-xs mt-4 ${dark ? 'text-white/40' : 'text-gray-400'}`}>{expired.promo_hint}</p>
           </div>
         </div>
       )}

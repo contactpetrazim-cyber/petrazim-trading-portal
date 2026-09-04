@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LogIn, UserPlus } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
+import { useThemeStore } from '../hooks/useTheme';
 import { CardLogoBand } from '../components/CardLogoBand';
 import { PortalSelectionCard, PortalOption } from '../components/PortalSelectionCard';
 import { GoogleSignInButton } from '../components/GoogleSignInButton';
@@ -11,16 +12,21 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 type Mode = 'signin' | 'register';
 
-const inputClass =
-  'w-full bg-white text-[#141a33] border border-blue-100 rounded-xl px-3.5 py-2.5 text-sm mb-2 outline-none focus:border-[#005FB8]';
+function inputClass(dark: boolean) {
+  return `w-full rounded-xl px-3.5 py-2.5 text-sm mb-2 outline-none transition-colors ${
+    dark
+      ? 'bg-corporate-surface-dark border border-corporate-border-dark text-white placeholder:text-white/40 focus:border-[#005FB8]'
+      : 'bg-white border border-blue-100 text-[#141a33] placeholder:text-gray-400 focus:border-[#005FB8]'
+  }`;
+}
 
 /**
  * Unified login/register — one page for all four roles.
  *
  * Card anatomy is still the "important moment" family (Section 4 of
  * the design handover): icon-in-circle, bold centered heading, muted
- * subtext, soft-tinted input box, full-width gradient button. Two
- * deliberate departures from the handover's original spec, both by
+ * subtext, soft-tinted input box, full-width gradient button. Three
+ * deliberate departures from the handover's original spec, all by
  * direct request rather than drift:
  *   1. CardLogoBand replaces the old 32px top-left logo — see that
  *      component for why a full-width white band is safe here.
@@ -28,6 +34,11 @@ const inputClass =
  *      card (the handover's "Style A," gradient-hero mockup, had this
  *      toggle but was explicitly not chosen; this adopts just the
  *      toggle onto the chosen "Style B" card, not the gradient hero).
+ *   3. Follows the site-wide light/dark toggle (useThemeStore) — the
+ *      handover's card family was always plain white regardless of
+ *      theme; that's now a superseded default here, default remaining
+ *      light. AccessExpiredGate and PortalSelectionCard get the same
+ *      treatment for the same reason: they share this exact anatomy.
  *
  * Register does NOT hand the new account its landing_route directly —
  * it deliberately routes into /onboarding instead, so a fresh signup
@@ -47,6 +58,8 @@ export function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [portals, setPortals] = useState<PortalOption[] | null>(null);
   const { setAuth } = useAuth();
+  const { theme } = useThemeStore();
+  const dark = theme === 'dark';
   const navigate = useNavigate();
 
   function switchMode(next: Mode) {
@@ -139,16 +152,20 @@ export function LoginPage() {
   const isSignIn = mode === 'signin';
 
   return (
-    <div className="min-h-screen bg-corporate-bg flex items-center justify-center p-4">
-      <div className="bg-white rounded-3xl p-8 max-w-md w-full text-center shadow-2xl">
-        <CardLogoBand />
+    <div className={`min-h-screen flex items-center justify-center p-4 ${dark ? 'bg-[#0a0e1a]' : 'bg-corporate-bg'}`}>
+      <div
+        className={`rounded-3xl p-8 max-w-md w-full text-center shadow-2xl ${
+          dark ? 'bg-corporate-surface-dark' : 'bg-white'
+        }`}
+      >
+        <CardLogoBand dark={dark} />
 
-        <div className="flex bg-[#EAEAF4] rounded-full p-1 mb-6">
+        <div className={`flex rounded-full p-1 mb-6 ${dark ? 'bg-white/10' : 'bg-[#EAEAF4]'}`}>
           <button
             type="button"
             onClick={() => switchMode('signin')}
             className={`flex-1 py-2 rounded-full text-xs font-bold tracking-wide transition-colors ${
-              isSignIn ? 'text-white' : 'text-[#7c839c]'
+              isSignIn ? 'text-white' : dark ? 'text-white/50' : 'text-[#7c839c]'
             }`}
             style={isSignIn ? { background: HERO_GRADIENT } : undefined}
           >
@@ -158,7 +175,7 @@ export function LoginPage() {
             type="button"
             onClick={() => switchMode('register')}
             className={`flex-1 py-2 rounded-full text-xs font-bold tracking-wide transition-colors ${
-              !isSignIn ? 'text-white' : 'text-[#7c839c]'
+              !isSignIn ? 'text-white' : dark ? 'text-white/50' : 'text-[#7c839c]'
             }`}
             style={!isSignIn ? { background: HERO_GRADIENT } : undefined}
           >
@@ -166,7 +183,11 @@ export function LoginPage() {
           </button>
         </div>
 
-        <div className="w-16 h-16 rounded-full bg-[#EAEAF4] flex items-center justify-center mx-auto mb-5">
+        <div
+          className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-5 ${
+            dark ? 'bg-white/10' : 'bg-[#EAEAF4]'
+          }`}
+        >
           {isSignIn ? (
             <LogIn size={26} style={{ color: '#005FB8' }} />
           ) : (
@@ -174,10 +195,10 @@ export function LoginPage() {
           )}
         </div>
 
-        <h2 className="font-extrabold text-2xl text-[#141a33] mb-2 leading-tight">
+        <h2 className={`font-extrabold text-2xl mb-2 leading-tight ${dark ? 'text-white' : 'text-[#141a33]'}`}>
           {isSignIn ? 'Welcome Back to Petrazim' : 'Create Your Petrazim Account'}
         </h2>
-        <p className="text-sm text-gray-500 mb-6 leading-relaxed">
+        <p className={`text-sm mb-6 leading-relaxed ${dark ? 'text-white/60' : 'text-gray-500'}`}>
           {isSignIn
             ? 'Sign in to reach your Trader, Fund Manager, Partner, or Admin console.'
             : 'Register to start your journey — Register, Pay, Join the Community, then Trade.'}
@@ -185,7 +206,11 @@ export function LoginPage() {
 
         {isSignIn ? (
           <form onSubmit={handleSignIn}>
-            <div className="bg-blue-50 border border-blue-100 rounded-2xl p-4 text-left mb-5">
+            <div
+              className={`rounded-2xl p-4 text-left mb-5 border ${
+                dark ? 'bg-white/5 border-white/10' : 'bg-blue-50 border-blue-100'
+              }`}
+            >
               <input
                 type="email"
                 required
@@ -193,7 +218,7 @@ export function LoginPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="Email"
-                className={inputClass}
+                className={inputClass(dark)}
               />
               <input
                 type="password"
@@ -201,7 +226,7 @@ export function LoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Password"
-                className={`${inputClass} mb-0`}
+                className={`${inputClass(dark)} mb-0`}
               />
             </div>
 
@@ -218,7 +243,11 @@ export function LoginPage() {
           </form>
         ) : (
           <form onSubmit={handleRegister}>
-            <div className="bg-blue-50 border border-blue-100 rounded-2xl p-4 text-left mb-5">
+            <div
+              className={`rounded-2xl p-4 text-left mb-5 border ${
+                dark ? 'bg-white/5 border-white/10' : 'bg-blue-50 border-blue-100'
+              }`}
+            >
               <input
                 type="text"
                 required
@@ -226,7 +255,7 @@ export function LoginPage() {
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
                 placeholder="Full name"
-                className={inputClass}
+                className={inputClass(dark)}
               />
               <input
                 type="email"
@@ -234,14 +263,14 @@ export function LoginPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="Email"
-                className={inputClass}
+                className={inputClass(dark)}
               />
               <input
                 type="tel"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
                 placeholder="Phone (optional)"
-                className={inputClass}
+                className={inputClass(dark)}
               />
               <input
                 type="password"
@@ -249,7 +278,7 @@ export function LoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Password (min. 8 characters)"
-                className={inputClass}
+                className={inputClass(dark)}
               />
               <input
                 type="password"
@@ -257,7 +286,7 @@ export function LoginPage() {
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 placeholder="Confirm password"
-                className={`${inputClass} mb-0`}
+                className={`${inputClass(dark)} mb-0`}
               />
             </div>
 
@@ -275,14 +304,14 @@ export function LoginPage() {
         )}
 
         <div className="flex items-center gap-3 mb-3">
-          <span className="flex-1 h-px bg-gray-200" />
-          <span className="text-xs text-gray-400">or</span>
-          <span className="flex-1 h-px bg-gray-200" />
+          <span className={`flex-1 h-px ${dark ? 'bg-white/10' : 'bg-gray-200'}`} />
+          <span className={`text-xs ${dark ? 'text-white/40' : 'text-gray-400'}`}>or</span>
+          <span className={`flex-1 h-px ${dark ? 'bg-white/10' : 'bg-gray-200'}`} />
         </div>
 
-        <GoogleSignInButton onSuccess={handlePostLogin} onError={setError} />
+        <GoogleSignInButton onSuccess={handlePostLogin} onError={setError} dark={dark} />
 
-        <p className="text-xs text-gray-400 mt-4">
+        <p className={`text-xs mt-4 ${dark ? 'text-white/40' : 'text-gray-400'}`}>
           Trader · Fund Manager · Partner · Admin — same login, routed automatically.
         </p>
       </div>

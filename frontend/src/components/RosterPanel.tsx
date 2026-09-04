@@ -8,10 +8,11 @@ import { useAuth } from '../hooks/useAuth';
  * component, backend scopes the data per the caller's role
  * automatically (see roster.py: Admin sees everyone, Manager/Partner
  * see only their own roster). `dark` follows the same prop-driven
- * pattern as ConnectorCards/FacilitatorCalendar — the invite modal
- * itself stays plain white on purpose, matching every other
- * "decision moment" card in this app (AccessExpiredGate, LoginCardStyleB,
- * PortalSelectionCard, FacilitatorCalendar's booking modal).
+ * pattern as ConnectorCards/FacilitatorCalendar. The invite modal now
+ * follows the site theme too — it used to stay plain white regardless,
+ * matching the Login/AccessExpiredGate/PortalSelectionCard family's old
+ * always-white behavior, but that family is now theme-aware itself, so
+ * this modal follows suit rather than being the one form left behind.
  */
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
@@ -125,20 +126,27 @@ export function RosterPanel({ dark = false }: { dark?: boolean }) {
 
       {inviteOpen && (
         <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={closeInvite}>
-          <div className="bg-white rounded-2xl p-6 w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
+          <div
+            className={`rounded-2xl p-6 w-full max-w-sm ${dark ? 'bg-corporate-surface-dark' : 'bg-white'}`}
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold text-corporate-text-on-bg">Invite a Trader</h3>
-              <button onClick={closeInvite}><X size={18} className="text-gray-400" /></button>
+              <h3 className={`font-bold ${dark ? 'text-white' : 'text-corporate-text-on-bg'}`}>Invite a Trader</h3>
+              <button onClick={closeInvite}><X size={18} className={dark ? 'text-white/40' : 'text-gray-400'} /></button>
             </div>
 
             {!inviteResult ? (
               <>
-                <label className="text-xs font-medium text-gray-500 block mb-1">Full name</label>
+                <label className={`text-xs font-medium block mb-1 ${dark ? 'text-white/40' : 'text-gray-500'}`}>Full name</label>
                 <input value={inviteName} onChange={(e) => setInviteName(e.target.value)}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mb-3 text-corporate-text-on-bg outline-none focus:border-corporate-accent" />
-                <label className="text-xs font-medium text-gray-500 block mb-1">Email</label>
+                  className={`w-full border rounded-lg px-3 py-2 text-sm mb-3 outline-none focus:border-corporate-accent ${
+                    dark ? 'bg-corporate-nav-dark border-corporate-border-dark text-white placeholder:text-white/30' : 'border-gray-200 text-corporate-text-on-bg'
+                  }`} />
+                <label className={`text-xs font-medium block mb-1 ${dark ? 'text-white/40' : 'text-gray-500'}`}>Email</label>
                 <input value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} type="email"
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mb-4 text-corporate-text-on-bg outline-none focus:border-corporate-accent" />
+                  className={`w-full border rounded-lg px-3 py-2 text-sm mb-4 outline-none focus:border-corporate-accent ${
+                    dark ? 'bg-corporate-nav-dark border-corporate-border-dark text-white placeholder:text-white/30' : 'border-gray-200 text-corporate-text-on-bg'
+                  }`} />
                 {error && <p className="text-xs text-red-500 mb-3">{error}</p>}
                 <button
                   onClick={submitInvite}
@@ -150,11 +158,11 @@ export function RosterPanel({ dark = false }: { dark?: boolean }) {
               </>
             ) : (
               <div>
-                <p className="text-sm text-gray-600 mb-3">
+                <p className={`text-sm mb-3 ${dark ? 'text-white/60' : 'text-gray-600'}`}>
                   Trader account created for <b>{inviteResult.email}</b>. Share this one-time password —
                   it won't be shown again:
                 </p>
-                <div className="bg-corporate-bg rounded-lg p-3 font-mono text-sm text-center mb-4">
+                <div className={`rounded-lg p-3 font-mono text-sm text-center mb-4 ${dark ? 'bg-corporate-nav-dark text-white' : 'bg-corporate-bg'}`}>
                   {inviteResult.temporary_password}
                 </div>
                 <button onClick={closeInvite} className="w-full bg-corporate-hero text-white font-medium py-2.5 rounded-lg text-sm">

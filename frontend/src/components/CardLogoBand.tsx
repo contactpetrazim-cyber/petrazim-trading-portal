@@ -16,10 +16,22 @@ import { PetrazimLogo } from './PetrazimLogo';
  * seam the way there would be if this sat on a tinted or gradient
  * surface instead (a box smaller than that surface leaves a sliver of
  * the surface's color showing around the white).
+ *
+ * Stays solid white in dark mode too, deliberately — the logo file is
+ * an opaque JPEG with a white background baked in, so there's no way
+ * to make it blend into a dark card the way it blends into a white
+ * one; a white chip carrying a fixed-background logo is the normal
+ * pattern (same idea as a payment brand's logo tile), not a bug. The
+ * `dark` prop only adds a hairline border so the white band reads as
+ * a deliberate chip against a dark card rather than a stray box.
  */
-export function CardLogoBand() {
+export function CardLogoBand({ dark = false }: { dark?: boolean }) {
   return (
-    <div className="-mx-8 -mt-8 mb-6 py-5 flex justify-center bg-white rounded-t-3xl">
+    <div
+      className={`-mx-8 -mt-8 mb-6 py-5 flex justify-center bg-white rounded-t-3xl ${
+        dark ? 'border-b border-corporate-border-dark' : ''
+      }`}
+    >
       <PetrazimLogo height={56} />
     </div>
   );

@@ -1,5 +1,6 @@
 import { LineChart, Briefcase, Handshake, Shield, ChevronRight, LayoutGrid } from 'lucide-react';
 import { CardLogoBand } from './CardLogoBand';
+import { useThemeStore } from '../hooks/useTheme';
 
 // Same icon-per-portal mapping as petrazim_preview_v13_FINAL.jsx's
 // PortalSelectionCard demo (Section 4/12 of the design handover).
@@ -41,21 +42,24 @@ export function PortalSelectionCard({
   onSelect: (route: string) => void;
   onClose?: () => void;
 }) {
+  const { theme } = useThemeStore();
+  const dark = theme === 'dark';
+
   return (
     <div
       className="fixed inset-0 z-[100] bg-black/60 flex items-center justify-center p-4"
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-3xl p-8 max-w-md w-full text-center shadow-2xl"
+        className={`rounded-3xl p-8 max-w-md w-full text-center shadow-2xl ${dark ? 'bg-corporate-surface-dark' : 'bg-white'}`}
         onClick={(e) => e.stopPropagation()}
       >
-        <CardLogoBand />
-        <div className="w-16 h-16 rounded-full bg-[#EAEAF4] flex items-center justify-center mx-auto mb-5">
+        <CardLogoBand dark={dark} />
+        <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-5 ${dark ? 'bg-white/10' : 'bg-[#EAEAF4]'}`}>
           <LayoutGrid size={26} style={{ color: '#005FB8' }} />
         </div>
-        <h2 className="font-extrabold text-2xl text-[#141a33] mb-2 leading-tight">Select Your Portal</h2>
-        <p className="text-sm text-gray-500 mb-6 leading-relaxed">
+        <h2 className={`font-extrabold text-2xl mb-2 leading-tight ${dark ? 'text-white' : 'text-[#141a33]'}`}>Select Your Portal</h2>
+        <p className={`text-sm mb-6 leading-relaxed ${dark ? 'text-white/60' : 'text-gray-500'}`}>
           Your account has access to more than one console. Choose where to go.
         </p>
 
@@ -66,7 +70,9 @@ export function PortalSelectionCard({
               <button
                 key={p.id}
                 onClick={() => onSelect(p.route)}
-                className="w-full flex items-center gap-3 p-3.5 rounded-xl border border-gray-200 hover:border-[#005FB8] transition-colors"
+                className={`w-full flex items-center gap-3 p-3.5 rounded-xl border transition-colors hover:border-[#005FB8] ${
+                  dark ? 'border-corporate-border-dark' : 'border-gray-200'
+                }`}
               >
                 <span
                   className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0"
@@ -75,15 +81,15 @@ export function PortalSelectionCard({
                   <Icon size={16} />
                 </span>
                 <div className="flex-1">
-                  <div className="text-sm font-medium text-[#141a33]">{p.label}</div>
+                  <div className={`text-sm font-medium ${dark ? 'text-white' : 'text-[#141a33]'}`}>{p.label}</div>
                 </div>
-                <ChevronRight size={16} className="text-gray-300" />
+                <ChevronRight size={16} className={dark ? 'text-white/20' : 'text-gray-300'} />
               </button>
             );
           })}
         </div>
 
-        <p className="text-xs text-gray-400 mt-5">
+        <p className={`text-xs mt-5 ${dark ? 'text-white/40' : 'text-gray-400'}`}>
           Only portals your role can access are shown — never above your own level.
         </p>
       </div>

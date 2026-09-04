@@ -53,9 +53,11 @@ function loadGsiScript(): Promise<void> {
 export function GoogleSignInButton({
   onSuccess,
   onError,
+  dark = false,
 }: {
   onSuccess: (data: { access_token: string; user: any }) => void;
   onError: (message: string) => void;
+  dark?: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [clientId, setClientId] = useState<string | null>(null);
@@ -91,9 +93,10 @@ export function GoogleSignInButton({
             }
           },
         });
+        containerRef.current.innerHTML = '';   // clear a previous render before re-rendering on theme change
         window.google.accounts.id.renderButton(containerRef.current, {
           type: 'standard',
-          theme: 'outline',
+          theme: dark ? 'filled_black' : 'outline',
           size: 'large',
           width: 320,
           text: 'continue_with',
@@ -104,7 +107,7 @@ export function GoogleSignInButton({
     return () => {
       cancelled = true;
     };
-  }, [clientId]);
+  }, [clientId, dark]);
 
   if (!clientId) return null;
 
