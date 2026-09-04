@@ -115,8 +115,11 @@ per bot.
 - [DONE] BOT4-01 through BOT4-10 — Bot 4, Volume & Liquidity Sweep
   (Dalton/Weis/Wyckoff style: 6-swing range, Spring/Upthrust with
   volume divergence, CHoCH pairing, single flat target)
-- [ ] BOT5-01 through BOT5-10 — Bot 5, Liquidity Purge Specialist
-  (Jeafx SMC style — renamed per the Phase 1 rebrand, content preserved)
+- [DONE] BOT5-01 through BOT5-10 — Bot 5, Liquidity Purge Specialist
+  (Jeafx SMC style — renamed per the Phase 1 rebrand, content
+  preserved; refined-zone test_count filter, 5M confirmation candle,
+  fixed 2:1 target). Completes all 5 bot specialization tracks
+  (50 lessons total).
 
 ## BOOK KNOWLEDGE (BOOK)
 - [ ] Brooks, Dalton, Weis, Wyckoff, Douglas — original-language summaries,
