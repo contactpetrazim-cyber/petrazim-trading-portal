@@ -29,6 +29,7 @@ from app.routers.broker_credentials import router as broker_credentials_router
 from app.routers.curriculum import router as curriculum_router
 from app.routers.tools import router as tools_router
 from app.routers.community_broadcast import router as community_broadcast_router
+from app.routers.manual_trading import router as manual_trading_router
 from app.database import engine, Base
 from app.db.session import engine as legacy_engine, Base as LegacyBase
 from app.services.execution_engine import ExecutionEngine
@@ -144,6 +145,7 @@ app.include_router(broker_credentials_router)
 app.include_router(curriculum_router)
 app.include_router(tools_router)
 app.include_router(community_broadcast_router)
+app.include_router(manual_trading_router)
 
 # Phase-1 analytics engines — routers ship without their own prefix
 app.include_router(monte_carlo_router, prefix="/api/monte-carlo", tags=["monte-carlo"])

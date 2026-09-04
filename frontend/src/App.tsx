@@ -24,6 +24,7 @@ import { LearnTrackPage } from './pages/LearnTrackPage';
 import { ToolsPage } from './pages/ToolsPage';
 import { InsightsPage } from './pages/InsightsPage';
 import { CommunityPage } from './pages/CommunityPage';
+import { ManualTradingPage } from './pages/ManualTradingPage';
 import { PaymentsPage } from './pages/PaymentsPage';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import type { UserRole } from './hooks/useAuth';
@@ -142,6 +143,16 @@ function App() {
         <Route path="/tools" element={<CorporateLayout><ToolsPage /></CorporateLayout>} />
         <Route path="/insights" element={<CorporateLayout><InsightsPage /></CorporateLayout>} />
         <Route path="/community" element={<CorporateLayout><CommunityPage /></CorporateLayout>} />
+
+        {/* Manual Trading — its own full-bleed exchange-style layout,
+            same reasoning as the Trade console's own Layout not using
+            CorporateLayout: this needs the screen space a chart +
+            order ticket takes, not room reserved for TopNav/BottomNav. */}
+        <Route path="/trade/manual" element={
+          <ProtectedRoute allowedRoles={TRADER_CONSOLE_ROLES}>
+            <ManualTradingPage />
+          </ProtectedRoute>
+        } />
 
         {/* The remaining BottomNav area landing pages (Section 9 of the
             design handover — PageHeader + content, per area). TradingView

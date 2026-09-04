@@ -104,6 +104,12 @@ class Trade(Base):
     approved_at = Column(DateTime)
     approval_notes = Column(Text)
 
+    # True for a manual-trading Test-mode order (services/manual_trading.py) —
+    # simulated fill, never reaches a real broker. Same is_test convention as
+    # Payment.is_test (models/access.py) — mirrors the payments Test/Live
+    # toggle's own safe-default pattern for manual trade execution.
+    is_test = Column(Boolean, default=False)
+
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -119,3 +125,39 @@ class TradeLog(Base):
 
     price_at_event = Column(Float)
     pnl_at_event = Column(Float)
+
+
+class TradingMode(enum.Enum):
+    TEST = "test"
+    LIVE = "live"
+
+
+class ManualTradingSettings(Base):
+    """One row per trader — powers the manual-trading order form's two
+    toggles, by direct instruction:
+      1. use_global_defaults: True follows the platform's own Trading
+         Defaults (config.py — DEFAULT_RISK_PERCENT, DEFAULT_RR_RATIO,
+         MAX_DAILY_TRADES, MAX_PORTFOLIO_EXPOSURE), same numbers every
+         bot falls back to with no config of its own. False switches to
+         this row's own risk_per_trade/max_daily_trades/etc, exactly
+         like giving manual trading its own bot-style risk profile.
+      2. trading_mode: TEST never reaches a real broker (a simulated
+         fill, is_test=True on the Trade row) — LIVE calls the exact
+         same execution_engine.py path a bot's own trades use. Starts
+         at TEST always, the same safe-default convention
+         platform_setting.py's payments mode already established —
+         going live is something a trader opts into, never a default.
+    """
+    __tablename__ = "manual_trading_settings"
+
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), primary_key=True)
+    use_global_defaults = Column(Boolean, nullable=False, default=True)
+    trading_mode = Column(Enum(TradingMode), nullable=False, default=TradingMode.TEST)
+
+    risk_per_trade = Column(Float, nullable=False, default=1.0)
+    max_daily_trades = Column(Integer, nullable=False, default=10)
+    max_concurrent_trades = Column(Integer, nullable=False, default=5)
+    max_portfolio_exposure = Column(Float, nullable=False, default=5.0)
+    min_rr_ratio = Column(Float, nullable=False, default=1.5)
+
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
