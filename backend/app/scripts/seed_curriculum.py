@@ -203,6 +203,7 @@ BOT_TRACKS = [
 # order (Concept, Identification, ..., Capstone).
 BOT_LESSON_FILES = {
     "bot_1": "BOT_1_MACRO_SWING_STRUCTURE.md",
+    "bot_2": "BOT_2_ORDER_BLOCK_REVERSAL.md",
 }
 
 TRACKS = [

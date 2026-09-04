@@ -106,7 +106,9 @@ per bot.
 
 - [DONE] BOT1-01 through BOT1-10 — Bot 1, Macro Swing Structure
   (Damir/Brooks style: 1D trend + 4H BOS confirmation, 5:1 target)
-- [ ] BOT2-01 through BOT2-10 — Bot 2, Order Block Reversal (ICT style)
+- [DONE] BOT2-01 through BOT2-10 — Bot 2, Order Block Reversal (ICT
+  style: 4H-then-1H zone fallback, 15M CHoCH, sweep-conditional
+  entry/stop, 3:1 target)
 - [ ] BOT3-01 through BOT3-10 — Bot 3, Imbalance Expansion (Photon/Phantom
   style, FVG-driven)
 - [ ] BOT4-01 through BOT4-10 — Bot 4, Volume & Liquidity Sweep
