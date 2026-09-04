@@ -40,12 +40,12 @@ Status legend: [DONE] authored this batch, [ ] mapped, not yet authored
 - [DONE] C2-09 Structural Invalidation
 
 ## CORE 3 — LIQUIDITY (C3)
-- [ ] C3-01 What Liquidity Means in This Framework
-- [ ] C3-02 Buy-Side / Sell-Side Liquidity, Equal Highs/Lows
-- [ ] C3-03 Trendline Liquidity, Liquidity Pools
-- [ ] C3-04 Liquidity Sweeps — Sweep vs. Breakout vs. Random Wick
-- [ ] C3-05 Sweep + Displacement + CHoCH — Reading Sequences
-- [ ] C3-06 Why Not Every Pool Is Tradable
+- [DONE] C3-01 What Liquidity Means in This Framework
+- [DONE] C3-02 Buy-Side / Sell-Side Liquidity, Equal Highs/Lows
+- [DONE] C3-03 Trendline Liquidity, Liquidity Pools
+- [DONE] C3-04 Liquidity Sweeps — Sweep vs. Breakout vs. Random Wick
+- [DONE] C3-05 Sweep + Displacement + CHoCH — Reading Sequences
+- [DONE] C3-06 Why Not Every Pool Is Tradable
 
 ## CORE 4 — SUPPLY, DEMAND & ZONES (C4)
 - [ ] C4-01 Supply and Demand, Origin of Displacement
