@@ -1,9 +1,14 @@
 
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { StatCard } from '../components/StatCard';
 import { TradeRow } from '../components/TradeRow';
+import { FoldedCard } from '../components/FoldedCard';
+import { TradingViewChart } from '../components/TradingViewChart';
+import { useCandleColorStore } from '../hooks/useCandleColors';
 import { useAppStore } from '../hooks/useStore';
 import { useThemeStore } from '../hooks/useTheme';
+import { HERO_GRADIENT } from '../config/theme';
 import { dashboardApi, tradesApi, botsApi } from '../services/api';
 import { Trade, BotConfig, BotPerformance } from '../types';
 import {
@@ -11,6 +16,7 @@ import {
   AlertCircle,
   DollarSign,
   Target,
+  LineChart as LineChartIcon,
 } from 'lucide-react';
 import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 
@@ -36,6 +42,7 @@ export function DashboardPage() {
   const { stats, setStats } = useAppStore();
   const { theme } = useThemeStore();
   const dark = theme === 'dark';
+  const { colors } = useCandleColorStore();
   const [equityData, setEquityData] = useState<EquityPoint[]>([]);
   const [pending, setPending] = useState<Trade[]>([]);
   const [recentTrades, setRecentTrades] = useState<Trade[]>([]);
@@ -100,13 +107,24 @@ export function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold">Dashboard</h2>
-          <p className="text-gray-400 text-sm mt-1">Real-time SMC Trading Engine Overview</p>
+      {/* Header — the same HERO_GRADIENT hero every other page in the
+          app uses (PageHeader / CorporateHomePage), by direct request
+          to bring the trader console onto the main site's own theme
+          rather than a plain heading. The dark terminal cards below
+          (equity curve, signals, trades) are unchanged — this is
+          about the page's own visual language matching the rest of
+          the site, not re-litigating the dark-terminal-for-P&L-
+          legibility choice documented for those specific panels. */}
+      <div className="rounded-3xl p-6 md:p-8 relative overflow-hidden" style={{ background: HERO_GRADIENT }}>
+        <div className="absolute -right-8 -bottom-14 w-56 h-56 rounded-full" style={{ background: 'radial-gradient(circle, rgba(255,255,255,0.12), transparent 70%)' }} />
+        <div className="relative z-10 flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <span className="text-white/60 text-xs font-bold tracking-[0.15em] mb-2 block">TRADER CONSOLE</span>
+            <h2 className="text-2xl md:text-3xl font-extrabold text-white font-display">Dashboard</h2>
+            <p className="text-white/80 text-sm mt-1">Real-time SMC Trading Engine overview</p>
+          </div>
+          {error && <span className="px-3 py-1 bg-red-500/20 text-white rounded-full text-sm font-medium">{error}</span>}
         </div>
-        {error && <span className="px-3 py-1 bg-red-500/10 text-red-400 rounded-full text-sm font-medium">{error}</span>}
       </div>
 
       {/* Stats Grid */}
@@ -140,6 +158,25 @@ export function DashboardPage() {
           color="amber"
         />
       </div>
+
+      {/* Free Chart + My Workspace — by direct request, right on the
+          trader's own dashboard, not just under the TradingView area. */}
+      <FoldedCard
+        title="Free Chart" summary="A live TradingView chart, right on your dashboard"
+        icon={<LineChartIcon size={19} />} dark={dark} defaultOpen
+      >
+        <div className={`rounded-lg overflow-hidden mb-2 ${dark ? '' : 'border border-corporate-bg'}`} style={{ height: 360 }}>
+          <TradingViewChart symbol="BINANCE:BTCUSDT" interval="60" theme={dark ? 'dark' : 'light'} candleColors={colors} />
+        </div>
+        <div className="flex items-center gap-4">
+          <Link to="/tradingview" className={`text-xs font-medium ${dark ? 'text-white/50' : 'text-corporate-hero'}`}>
+            Open My Workspace (saved views, drawing tools) →
+          </Link>
+          <Link to="/trade/manual" className="text-xs font-bold text-white px-3 py-1.5 rounded-lg" style={{ background: HERO_GRADIENT }}>
+            Trade this chart →
+          </Link>
+        </div>
+      </FoldedCard>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Equity Curve */}
