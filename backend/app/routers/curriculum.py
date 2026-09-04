@@ -27,7 +27,7 @@ they're a reasonable default rather than an extracted spec:
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -43,7 +43,7 @@ from app.engines.progression_engine import (
 )
 from app.models.curriculum import (
     Certificate, Lesson, LearningTrack, MasteryLevel, PracticeAttempt, QuizAttempt,
-    StageCompletion, TrackCategory, TrackStage, UserLearningStats,
+    RetentionCheck, StageCompletion, TrackCategory, TrackStage, UserLearningStats,
 )
 from app.models.user import User
 
@@ -538,6 +538,17 @@ async def complete_stage(
     stats.longest_streak_days = streak.new_longest_streak_days
     stats.last_activity_date = now
     stats.total_xp += xp_awarded
+
+    # Schedule the first spaced-recall Retention Review check (routers/
+    # practise.py) — the RetentionCheck model and schedule_next_
+    # retention_check() already existed, but nothing had ever created
+    # the FIRST check for a lesson; without this, /practise/retention/due
+    # would stay permanently empty no matter how much was learned.
+    if stage.lesson_id is not None:
+        db.add(RetentionCheck(
+            user_id=user.id, lesson_id=stage.lesson_id,
+            due_at=now + timedelta(days=1), interval_index=0,
+        ))
 
     # Certificate on track completion (Section "Gamification layer" of
     # the curriculum model) — the Certificate table already existed but

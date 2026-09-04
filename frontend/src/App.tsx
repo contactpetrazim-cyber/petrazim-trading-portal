@@ -23,6 +23,9 @@ import { LearnPage } from './pages/LearnPage';
 import { LearnTrackPage } from './pages/LearnTrackPage';
 import { MasteryOverviewPage } from './pages/MasteryOverviewPage';
 import { AwardsPage } from './pages/AwardsPage';
+import { PracticeDrillsPage } from './pages/PracticeDrillsPage';
+import { RetentionReviewPage } from './pages/RetentionReviewPage';
+import { TradingGamePage } from './pages/TradingGamePage';
 import { ToolsPage } from './pages/ToolsPage';
 import { InsightsPage } from './pages/InsightsPage';
 import { CommunityPage } from './pages/CommunityPage';
@@ -177,6 +180,16 @@ function App() {
         {(['practise', 'explore'] as const).map((area) => (
           <Route key={area} path={`/${area}`} element={<CorporateLayout><AreaPage area={area} /></CorporateLayout>} />
         ))}
+
+        {/* Practise's three sub-features — previously unregistered routes
+            (Site Map linked to them, but they fell through to the sitemap
+            redirect below like every other still-queued sub-feature).
+            Backed by routers/practise.py, new this pass — real Practice
+            Drills, spaced-recall Retention Review, and a quiz-streak
+            Trading Simulator Game over authored lesson content. */}
+        <Route path="/practise/drills" element={<CorporateLayout><PracticeDrillsPage /></CorporateLayout>} />
+        <Route path="/practise/review" element={<CorporateLayout><RetentionReviewPage /></CorporateLayout>} />
+        <Route path="/practise/game" element={<CorporateLayout><TradingGamePage /></CorporateLayout>} />
 
         {/* Fallback — most FEATURE_REGISTRY *sub*-features (e.g. /learn/basics,
             /tools/risk-of-ruin) have no page component built yet; see

@@ -109,6 +109,11 @@ class RetentionCheck(Base):
     due_at = Column(DateTime(timezone=True), nullable=False)
     completed_at = Column(DateTime(timezone=True), nullable=True)
     passed = Column(Integer, nullable=True)   # null until completed; then 1/0
+    # Position in RETENTION_INTERVALS_DAYS (progression_engine.py) this
+    # check's due_at was scheduled from — needed so completing a check
+    # can advance (pass) or reset (fail) to the right next interval;
+    # nothing previously read or wrote this column at all.
+    interval_index = Column(Integer, nullable=False, default=0)
 
 
 # ---------------------------------------------------------------------------
@@ -156,6 +161,9 @@ class UserLearningStats(Base):
     current_streak_days = Column(Integer, nullable=False, default=0)
     longest_streak_days = Column(Integer, nullable=False, default=0)
     last_activity_date = Column(DateTime(timezone=True), nullable=True)
+    # Best-ever consecutive-correct run in the quiz Game (routers/practise.py)
+    # — never decreases, same "longest" pattern as longest_streak_days.
+    best_quiz_streak = Column(Integer, nullable=False, default=0)
 
 
 class Certificate(Base):
