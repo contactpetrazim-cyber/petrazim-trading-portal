@@ -62,9 +62,9 @@ Status legend: [DONE] authored this batch, [ ] mapped, not yet authored
 - [DONE] C5-04 FVG vs. Ordinary Price Noise — When Not to Trade It
 
 ## CORE 6 — PREMIUM / DISCOUNT (C6)
-- [ ] C6-01 Dealing Range, External Leg, Equilibrium
-- [ ] C6-02 Premium and Discount, Long/Short Location
-- [ ] C6-03 Multiple Dealing Ranges, Interaction With Liquidity/Zones
+- [DONE] C6-01 Dealing Range, External Leg, Equilibrium
+- [DONE] C6-02 Premium and Discount, Long/Short Location
+- [DONE] C6-03 Multiple Dealing Ranges, Interaction With Liquidity/Zones
 
 ## CORE 7 — MULTI-TIMEFRAME ANALYSIS (C7)
 - [ ] C7-01 The Five-Layer Stack — Macro/Direction/Opportunity/Trigger/Execution
