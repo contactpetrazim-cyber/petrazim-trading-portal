@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Clock, ShieldCheck, RefreshCw } from 'lucide-react';
-import { PetrazimLogo } from './PetrazimLogo';
+import { CardLogoBand } from './CardLogoBand';
 
 /**
  * AccessExpiredGate — matches the exact card design confirmed working
@@ -44,9 +44,7 @@ export function AccessExpiredGate({ children }: { children: React.ReactNode }) {
       {expired && (
         <div className="fixed inset-0 z-[100] bg-black/60 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl p-8 max-w-md w-full text-center shadow-2xl">
-            <div className="flex justify-start mb-6">
-              <PetrazimLogo height={32} />
-            </div>
+            <CardLogoBand />
             <div className="w-16 h-16 rounded-full bg-[#EAEAF4] flex items-center justify-center mx-auto mb-5">
               <Clock size={28} style={{ color: '#0284C7' }} />
             </div>

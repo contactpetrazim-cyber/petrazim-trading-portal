@@ -1,5 +1,5 @@
 import { LineChart, Briefcase, Handshake, Shield, ChevronRight, LayoutGrid } from 'lucide-react';
-import { PetrazimLogo } from './PetrazimLogo';
+import { CardLogoBand } from './CardLogoBand';
 
 // Same icon-per-portal mapping as petrazim_preview_v13_FINAL.jsx's
 // PortalSelectionCard demo (Section 4/12 of the design handover).
@@ -28,9 +28,9 @@ export interface PortalOption {
  * wants to jump consoles later in the session.
  *
  * Uses the same "important moment" card anatomy as AccessExpiredGate:
- * logo top-left 32px, icon-in-circle, bold centered heading — per
- * Section 4 of the handover, every full-screen modal card in this
- * family shares that identical header recipe.
+ * CardLogoBand, icon-in-circle, bold centered heading — per Section 4
+ * of the handover, every full-screen modal card in this family shares
+ * that identical header recipe.
  */
 export function PortalSelectionCard({
   portals,
@@ -50,9 +50,7 @@ export function PortalSelectionCard({
         className="bg-white rounded-3xl p-8 max-w-md w-full text-center shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex justify-start mb-6">
-          <PetrazimLogo height={32} />
-        </div>
+        <CardLogoBand />
         <div className="w-16 h-16 rounded-full bg-[#EAEAF4] flex items-center justify-center mx-auto mb-5">
           <LayoutGrid size={26} style={{ color: '#005FB8' }} />
         </div>
