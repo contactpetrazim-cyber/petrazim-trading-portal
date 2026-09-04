@@ -181,6 +181,20 @@ PSY_STAGES = [
     (10, "PSY-10", "Psychology Capstone"),
 ]
 
+OF_STAGES = [
+    (1, "OF-01", "Concept — What Order Flow Actually Is"),
+    (2, "OF-02", "Reading the Tape — Time & Sales and Aggressor Side"),
+    (3, "OF-03", "Volume Profile — Value Area, POC, and Auction Market Theory"),
+    (4, "OF-04", "Footprint Charts and Bid/Ask Delta"),
+    (5, "OF-05", "The Order Book and DOM — Visible Liquidity vs. Real Intent"),
+    (6, "OF-06", "Absorption and Exhaustion"),
+    (7, "OF-07", "Order Flow Setups — Divergence, Absorption Reversals, POC Rejection"),
+    (8, "OF-08", "Common Order Flow Manipulation — Spoofing, Layering, Stop Hunts"),
+    (9, "OF-09", "Common Mistakes in Order Flow Trading"),
+    (10, "OF-10", "Order Flow + SMC Synthesis"),
+    (11, "OF-11", "Capstone — Full Order Flow Read"),
+]
+
 BOT_STAGE_TEMPLATE = [
     "Concept", "Identification", "Context", "Setup", "Invalidation",
     "Entry", "Management", "Failure", "Practice", "Capstone",
@@ -243,6 +257,9 @@ TRACKS = [
     {"title": "Trading Psychology", "category": TrackCategory.PSYCHOLOGY,
      "description": "Emotional regulation, cognitive errors, and the discipline that keeps a tested process from breaking down under real risk.",
      "stages": PSY_STAGES},
+    {"title": "Order Flow Trading", "category": TrackCategory.ADVANCED,
+     "description": "The transaction-level view of price — tape reading, volume profile, delta, and the manipulation patterns every candle-only view misses.",
+     "stages": OF_STAGES},
 ]
 
 
@@ -258,10 +275,11 @@ async def seed_curriculum():
     core8_lessons = parse_authored_lessons(CURRICULUM_DIR / "CORE_8_RISK_MANAGEMENT.md")
     core9_lessons = parse_authored_lessons(CURRICULUM_DIR / "CORE_9_TRADE_MANAGEMENT.md")
     psy_lessons = parse_authored_lessons(CURRICULUM_DIR / "CORE_10_TRADING_PSYCHOLOGY.md")
+    of_lessons = parse_authored_lessons(CURRICULUM_DIR / "ORDER_FLOW_TRADING.md")
     authored = {
         **orient_lessons, **core1_lessons, **core2_lessons, **core3_lessons,
         **core4_lessons, **core5_lessons, **core6_lessons, **core7_lessons,
-        **core8_lessons, **core9_lessons, **psy_lessons,
+        **core8_lessons, **core9_lessons, **psy_lessons, **of_lessons,
     }
     for bot_id, filename in BOT_LESSON_FILES.items():
         authored.update(parse_authored_lessons(CURRICULUM_DIR / filename))

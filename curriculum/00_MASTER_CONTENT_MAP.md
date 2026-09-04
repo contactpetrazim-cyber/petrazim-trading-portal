@@ -121,6 +121,21 @@ per bot.
   fixed 2:1 target). Completes all 5 bot specialization tracks
   (50 lessons total).
 
+## ORDER FLOW TRADING (OF) — added outside the original 17-phase plan,
+per direct request; category ADVANCED (first real use of that
+TrackCategory value).
+- [DONE] OF-01 Concept — What Order Flow Actually Is
+- [DONE] OF-02 Reading the Tape — Time & Sales and Aggressor Side
+- [DONE] OF-03 Volume Profile — Value Area, POC, and Auction Market Theory
+- [DONE] OF-04 Footprint Charts and Bid/Ask Delta
+- [DONE] OF-05 The Order Book and DOM — Visible Liquidity vs. Real Intent
+- [DONE] OF-06 Absorption and Exhaustion
+- [DONE] OF-07 Order Flow Setups — Divergence, Absorption Reversals, POC Rejection
+- [DONE] OF-08 Common Order Flow Manipulation — Spoofing, Layering, Stop Hunts
+- [DONE] OF-09 Common Mistakes in Order Flow Trading
+- [DONE] OF-10 Order Flow + SMC Synthesis
+- [DONE] OF-11 Capstone — Full Order Flow Read
+
 ## BOOK KNOWLEDGE (BOOK)
 - [ ] Brooks, Dalton, Weis, Wyckoff, Douglas — original-language summaries,
   no reproduced text, plus BOOK-SYNTHESIS cross-framework mapping.
