@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
-import { ArrowLeft, FlaskConical, Radio, Settings2 } from 'lucide-react';
+import { ArrowLeft, FlaskConical, Radio, Settings2, ArrowLeftRight } from 'lucide-react';
 import { ChartPanel } from '../components/ChartPanel';
 import { useAuth } from '../hooks/useAuth';
 import { useThemeStore } from '../hooks/useTheme';
+import { useQuickPrice } from '../hooks/useQuickPrice';
 import { apiFetch } from '../components/AccessExpiredGate';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -53,22 +54,25 @@ export function ManualTradingPage() {
   const dark = theme === 'dark';
 
   const preselect = params.get('symbol');
+  const preselectPrice = params.get('price');
   const [symbol, setSymbol] = useState(
     SYMBOLS.find((s) => s.trade === preselect) || SYMBOLS[0]
   );
   const [direction, setDirection] = useState<'long' | 'short'>('long');
-  const [orderType, setOrderType] = useState<'market' | 'limit'>('market');
-  const [entryPrice, setEntryPrice] = useState('');
+  const [orderType, setOrderType] = useState<'market' | 'limit' | 'stop'>('market');
+  const [entryPrice, setEntryPrice] = useState(preselectPrice || '');
   const [stopLoss, setStopLoss] = useState('');
   const [takeProfit, setTakeProfit] = useState('');
   const [takeProfit2, setTakeProfit2] = useState('');
   const [takeProfit3, setTakeProfit3] = useState('');
+  const [tpEnabled, setTpEnabled] = useState(true);
   const [showExtraTargets, setShowExtraTargets] = useState(false);
   const [accountEquity, setAccountEquity] = useState('10000');
   const [riskMode, setRiskMode] = useState<'dollar' | 'percent'>('dollar');
   const [riskAmount, setRiskAmount] = useState('100');
   const [riskPercent, setRiskPercent] = useState('1');
   const [settings, setSettings] = useState<Settings | null>(null);
+  const { price: quickPrice, refresh: refreshQuickPrice } = useQuickPrice(symbol.trade);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; message: string; tradeId?: string } | null>(null);
@@ -99,7 +103,33 @@ export function ManualTradingPage() {
   }
 
   async function submitOrder() {
-    if (!token || !settings) return;
+    // Used to silently no-op here if settings hadn't loaded yet (or
+    // failed to, e.g. the settings-endpoint paywall bug) — clicking
+    // Place Order did nothing with zero feedback, which is exactly
+    // what "the place order is not working" looks like from outside.
+    if (!token) {
+      setResult({ ok: false, message: 'You need to be signed in to place an order.' });
+      return;
+    }
+    if (!settings) {
+      setResult({ ok: false, message: 'Your trading settings haven’t loaded yet — retrying…' });
+      loadSettings();
+      return;
+    }
+    // A Market order on a symbol with a live reference price (crypto,
+    // via quick-price) no longer shows its own price field — the
+    // whole point of "Market" — but the backend still needs SOME
+    // entry_price (reference for the risk-distance math, gt=0
+    // required). Use the live price automatically in that case;
+    // otherwise (forex/metals, no free feed — see quick-price's own
+    // docstring) the field stays visible and this falls back to
+    // whatever the trader typed in.
+    const effectiveEntryPrice = orderType === 'market' && quickPrice != null ? quickPrice : Number(entryPrice);
+    if (!effectiveEntryPrice) {
+      setResult({ ok: false, message: 'Enter a price — no live reference price is available for this symbol.' });
+      return;
+    }
+
     setResult(null);
     setSubmitting(true);
     try {
@@ -107,10 +137,10 @@ export function ManualTradingPage() {
         method: 'POST', headers,
         body: JSON.stringify({
           symbol: symbol.trade, direction, order_type: orderType,
-          entry_price: Number(entryPrice), stop_loss: Number(stopLoss),
-          take_profit: takeProfit ? Number(takeProfit) : null,
-          take_profit_2: takeProfit2 ? Number(takeProfit2) : null,
-          take_profit_3: takeProfit3 ? Number(takeProfit3) : null,
+          entry_price: effectiveEntryPrice, stop_loss: Number(stopLoss),
+          take_profit: tpEnabled && takeProfit ? Number(takeProfit) : null,
+          take_profit_2: tpEnabled && takeProfit2 ? Number(takeProfit2) : null,
+          take_profit_3: tpEnabled && takeProfit3 ? Number(takeProfit3) : null,
           account_equity: Number(accountEquity), risk_mode: riskMode,
           risk_amount: riskMode === 'dollar' ? Number(riskAmount) : null,
           risk_percent: riskMode === 'percent' ? Number(riskPercent) : null,
@@ -119,7 +149,7 @@ export function ManualTradingPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Order failed.');
       setResult({ ok: true, message: data.message, tradeId: data.trade_id });
-      setClosePrice(entryPrice);
+      setClosePrice(String(effectiveEntryPrice));
     } catch (err: any) {
       setResult({ ok: false, message: err.message || 'Order failed.' });
     } finally {
@@ -155,6 +185,28 @@ export function ManualTradingPage() {
     dark ? 'bg-corporate-nav-dark border-corporate-border-dark text-white' : 'bg-white border-gray-200 text-corporate-text-on-bg'
   }`;
   const labelCls = `text-xs font-medium block mb-1 ${dark ? 'text-white/40' : 'text-gray-500'}`;
+
+  // Silent — keeps the Sell/Buy header's live-ish reference price
+  // fresh (crypto only; see quick-price's own honest scope). Never
+  // overwrites anything the trader has typed.
+  useEffect(() => {
+    refreshQuickPrice({ silent: true });
+    const t = setInterval(() => refreshQuickPrice({ silent: true }), 15000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [symbol.trade]);
+
+  // Same fixed-fractional formula services/manual_trading.py's
+  // compute_lot_size uses server-side — a live preview only, the real
+  // number always comes back from the actual order response.
+  const effectiveEntryForPreview = Number(entryPrice) || quickPrice || 0;
+  const riskAmountForPreview = riskMode === 'dollar'
+    ? Number(riskAmount) || 0
+    : (Number(accountEquity) || 0) * (Number(riskPercent) || 0) / 100;
+  const perUnitRisk = Math.abs(effectiveEntryForPreview - Number(stopLoss));
+  const lotSizePreview = perUnitRisk > 0 ? riskAmountForPreview / perUnitRisk : 0;
+  const tradeValuePreview = lotSizePreview * effectiveEntryForPreview;
+  const priceDelta = quickPrice != null && entryPrice ? Number(entryPrice) - quickPrice : null;
 
   return (
     <div className={`min-h-screen ${dark ? 'bg-[#0a0e1a] text-white' : 'bg-corporate-bg text-corporate-text-on-bg'}`}>
@@ -260,29 +312,41 @@ export function ManualTradingPage() {
             />
           </div>
 
-          <div className={`rounded-xl border p-4 h-fit ${dark ? 'bg-corporate-surface-dark border-corporate-border-dark' : 'bg-white border-gray-200'}`}>
-            <div className="flex rounded-lg overflow-hidden mb-4">
-              <button
-                onClick={() => setDirection('long')}
-                className={`flex-1 py-2.5 text-sm font-bold ${direction === 'long' ? 'bg-emerald-500 text-white' : dark ? 'bg-white/5 text-white/40' : 'bg-gray-50 text-gray-400'}`}
-              >
-                BUY / LONG
-              </button>
+          {/* Place Buy/Sell Order — rebuilt to match the exact uploaded
+              order-ticket reference: styling is always light, by
+              direct request ("use upload exactly same colours and
+              style and formatting"), independent of the site's own
+              dark/light toggle, same reasoning as StatCard's fix
+              earlier this session. */}
+          <div className="rounded-2xl border border-gray-200 bg-white p-4 h-fit text-gray-900">
+            <div className="text-xs font-semibold mb-3 text-gray-400">{symbol.trade}</div>
+
+            {/* Sell / Buy split header, live reference price on each side */}
+            <div className="flex rounded-xl overflow-hidden mb-4 border border-gray-200">
               <button
                 onClick={() => setDirection('short')}
-                className={`flex-1 py-2.5 text-sm font-bold ${direction === 'short' ? 'bg-red-500 text-white' : dark ? 'bg-white/5 text-white/40' : 'bg-gray-50 text-gray-400'}`}
+                className={`flex-1 py-2.5 text-center transition-colors ${direction === 'short' ? 'bg-red-50' : 'bg-white hover:bg-gray-50'}`}
               >
-                SELL / SHORT
+                <div className="text-[11px] font-medium text-gray-400">Sell</div>
+                <div className={`text-base font-bold ${direction === 'short' ? 'text-red-600' : 'text-gray-700'}`}>{quickPrice != null ? quickPrice : '—'}</div>
+              </button>
+              <button
+                onClick={() => setDirection('long')}
+                className={`flex-1 py-2.5 text-center transition-colors border-l border-gray-200 ${direction === 'long' ? 'bg-blue-50' : 'bg-white hover:bg-gray-50'}`}
+              >
+                <div className="text-[11px] font-medium text-gray-400">Buy</div>
+                <div className={`text-base font-bold ${direction === 'long' ? 'text-blue-600' : 'text-gray-700'}`}>{quickPrice != null ? quickPrice : '—'}</div>
               </button>
             </div>
 
-            <div className="flex gap-2 mb-3">
-              {(['market', 'limit'] as const).map((t) => (
+            {/* Market / Limit / Stop */}
+            <div className="flex gap-4 mb-3 border-b border-gray-100">
+              {(['market', 'limit', 'stop'] as const).map((t) => (
                 <button
                   key={t}
                   onClick={() => setOrderType(t)}
-                  className={`flex-1 py-1.5 rounded-lg text-xs font-semibold uppercase ${
-                    orderType === t ? 'bg-corporate-hero text-white' : dark ? 'bg-white/5 text-white/40' : 'bg-gray-50 text-gray-400'
+                  className={`pb-2 text-sm font-semibold capitalize border-b-2 -mb-px ${
+                    orderType === t ? 'border-blue-600 text-gray-900' : 'border-transparent text-gray-400'
                   }`}
                 >
                   {t}
@@ -290,80 +354,143 @@ export function ManualTradingPage() {
               ))}
             </div>
 
-            <label className={labelCls}>{orderType === 'limit' ? 'Limit price' : 'Market price (reference)'}</label>
-            <input className={`${inputCls} mb-3`} value={entryPrice} onChange={(e) => setEntryPrice(e.target.value)} placeholder="0.00" />
-
-            <label className={labelCls}>Stop loss</label>
-            <input className={`${inputCls} mb-3`} value={stopLoss} onChange={(e) => setStopLoss(e.target.value)} placeholder="0.00" />
-
-            <label className={labelCls}>Take profit (target 1)</label>
-            <input className={`${inputCls} mb-2`} value={takeProfit} onChange={(e) => setTakeProfit(e.target.value)} placeholder="0.00" />
-
-            {!showExtraTargets ? (
-              <button onClick={() => setShowExtraTargets(true)} className={`text-xs font-medium mb-3 ${dark ? 'text-white/40' : 'text-gray-400'}`}>
-                + Add more targets (partial exits)
-              </button>
-            ) : (
+            {orderType !== 'market' && (
               <>
-                <label className={labelCls}>Take profit 2 (optional)</label>
-                <input className={`${inputCls} mb-2`} value={takeProfit2} onChange={(e) => setTakeProfit2(e.target.value)} placeholder="0.00" />
-                <label className={labelCls}>Take profit 3 (optional)</label>
-                <input className={`${inputCls} mb-3`} value={takeProfit3} onChange={(e) => setTakeProfit3(e.target.value)} placeholder="0.00" />
+                <div className="flex items-center justify-between py-2 border-b border-gray-100">
+                  <span className="text-sm text-gray-500">{orderType === 'stop' ? 'Stop price' : 'Price'}</span>
+                  <div className="flex items-center gap-2">
+                    <input
+                      className="text-right text-sm font-semibold w-28 outline-none bg-transparent"
+                      value={entryPrice} onChange={(e) => setEntryPrice(e.target.value)} placeholder="0.00"
+                    />
+                    <button
+                      onClick={() => refreshQuickPrice().then((p) => p != null && setEntryPrice(String(p)))}
+                      aria-label="Use current price" title="Use current price"
+                      className="text-gray-300 hover:text-gray-500"
+                    >
+                      <ArrowLeftRight size={13} />
+                    </button>
+                  </div>
+                </div>
+                {priceDelta != null && (
+                  <div className="text-right text-[11px] text-gray-400 mb-1 mt-0.5">
+                    {priceDelta >= 0 ? '+' : ''}{priceDelta.toFixed(2)} from current price
+                  </div>
+                )}
               </>
             )}
 
-            <div className="flex gap-2 mb-2">
-              {(['dollar', 'percent'] as const).map((m) => (
+            {/* Risk row — the field this whole ticket is built around:
+                Risk-in-$ default sizing, swap icon flips to Risk %. */}
+            <div className="flex items-center justify-between py-2 border-b border-gray-100 mt-1">
+              <span className="text-sm text-gray-500">Risk, {riskMode === 'dollar' ? 'USD' : '%'}</span>
+              <div className="flex items-center gap-2">
+                <input
+                  className="text-right text-sm font-semibold w-24 outline-none bg-transparent"
+                  value={riskMode === 'dollar' ? riskAmount : riskPercent}
+                  onChange={(e) => (riskMode === 'dollar' ? setRiskAmount(e.target.value) : setRiskPercent(e.target.value))}
+                />
                 <button
-                  key={m}
-                  onClick={() => setRiskMode(m)}
-                  className={`flex-1 py-1.5 rounded-lg text-xs font-semibold ${
-                    riskMode === m ? 'bg-corporate-hero text-white' : dark ? 'bg-white/5 text-white/40' : 'bg-gray-50 text-gray-400'
-                  }`}
+                  onClick={() => setRiskMode((m) => (m === 'dollar' ? 'percent' : 'dollar'))}
+                  aria-label="Switch between Risk $ and Risk %" title="Switch between Risk $ and Risk %"
+                  className="text-gray-300 hover:text-gray-500"
                 >
-                  Risk in {m === 'dollar' ? '$' : '%'}
+                  <ArrowLeftRight size={13} />
                 </button>
-              ))}
-            </div>
-            <div className="grid grid-cols-2 gap-2 mb-3">
-              <label className={labelCls}>
-                Account equity
-                <input className={inputCls} value={accountEquity} onChange={(e) => setAccountEquity(e.target.value)} />
-              </label>
-              {riskMode === 'dollar' ? (
-                <label className={labelCls}>
-                  Risk, USD
-                  <input className={inputCls} value={riskAmount} onChange={(e) => setRiskAmount(e.target.value)} />
-                </label>
-              ) : (
-                <label className={labelCls}>
-                  Risk %
-                  <input className={inputCls} value={riskPercent} onChange={(e) => setRiskPercent(e.target.value)} />
-                </label>
-              )}
+              </div>
             </div>
 
+            {/* Trade value / Available margin — Available margin
+                doubles as the account-equity input this app's risk
+                sizing needs (this app has no live broker margin feed
+                to read a real number from, unlike a real exchange). */}
+            <div className="flex items-center justify-between py-1.5 text-sm">
+              <span className="text-gray-400">Trade value</span>
+              <span className="font-semibold text-gray-700">${tradeValuePreview ? tradeValuePreview.toFixed(2) : '0.00'}</span>
+            </div>
+            <div className="flex items-center justify-between py-1.5 mb-3">
+              <span className="text-sm text-gray-400">Available margin</span>
+              <div className="flex items-center gap-1">
+                <span className="text-sm text-gray-400">$</span>
+                <input
+                  className="text-right text-sm font-semibold w-24 outline-none bg-transparent"
+                  value={accountEquity} onChange={(e) => setAccountEquity(e.target.value)}
+                />
+              </div>
+            </div>
+
+            {/* Exits */}
+            <div className="text-sm font-bold text-gray-900 mb-1">Exits</div>
+            <div className="flex items-center justify-between py-2 border-b border-gray-100">
+              <span className="text-sm text-gray-500">Take profit, price</span>
+              <div className="flex items-center gap-2">
+                {tpEnabled && (
+                  <input
+                    className="text-right text-sm font-semibold w-24 outline-none bg-transparent"
+                    value={takeProfit} onChange={(e) => setTakeProfit(e.target.value)} placeholder="0.00"
+                  />
+                )}
+                <button
+                  onClick={() => setTpEnabled((v) => !v)} aria-label="Toggle take profit"
+                  className={`relative w-9 h-5 rounded-full transition-colors shrink-0 ${tpEnabled ? 'bg-blue-600' : 'bg-gray-200'}`}
+                >
+                  <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${tpEnabled ? 'translate-x-4' : ''}`} />
+                </button>
+              </div>
+            </div>
+            <div className="flex items-center justify-between py-2 mb-2">
+              <span className="text-sm text-gray-500">Stop loss, price</span>
+              <div className="flex items-center gap-2">
+                <input
+                  className="text-right text-sm font-semibold w-24 outline-none bg-transparent"
+                  value={stopLoss} onChange={(e) => setStopLoss(e.target.value)} placeholder="0.00"
+                />
+                {/* Always on — required for risk-based position sizing,
+                    unlike a real exchange's optional protective stop. */}
+                <span className="relative w-9 h-5 rounded-full bg-blue-600 shrink-0" title="Stop loss is required to size this trade">
+                  <span className="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white translate-x-4" />
+                </span>
+              </div>
+            </div>
+
+            {!showExtraTargets ? (
+              <button onClick={() => setShowExtraTargets(true)} className="text-xs font-medium mb-3 text-gray-400">
+                + Add more targets (partial exits)
+              </button>
+            ) : (
+              <div className="mb-3 space-y-2">
+                <div className="flex items-center justify-between py-1.5 border-b border-gray-100">
+                  <span className="text-sm text-gray-500">Take profit 2 (optional)</span>
+                  <input className="text-right text-sm font-semibold w-24 outline-none bg-transparent" value={takeProfit2} onChange={(e) => setTakeProfit2(e.target.value)} placeholder="0.00" />
+                </div>
+                <div className="flex items-center justify-between py-1.5">
+                  <span className="text-sm text-gray-500">Take profit 3 (optional)</span>
+                  <input className="text-right text-sm font-semibold w-24 outline-none bg-transparent" value={takeProfit3} onChange={(e) => setTakeProfit3(e.target.value)} placeholder="0.00" />
+                </div>
+              </div>
+            )}
+
             {result && (
-              <p className={`text-xs mb-3 ${result.ok ? 'text-emerald-500' : 'text-red-500'}`}>{result.message}</p>
+              <p className={`text-xs mb-3 ${result.ok ? 'text-emerald-600' : 'text-red-600'}`}>{result.message}</p>
             )}
 
             {result?.ok && result.tradeId ? (
-              <div className={`rounded-lg p-3 mb-3 border ${dark ? 'border-corporate-border-dark' : 'border-gray-200'}`}>
-                <div className={`text-xs font-semibold mb-2 ${dark ? 'text-white/60' : 'text-gray-600'}`}>Partial close this position</div>
+              <div className="rounded-lg p-3 mb-3 border border-gray-200">
+                <div className="text-xs font-semibold mb-2 text-gray-600">Partial close this position</div>
                 <div className="grid grid-cols-2 gap-2 mb-2">
-                  <label className={labelCls}>
+                  <label className="text-xs font-medium block mb-1 text-gray-500">
                     % to close
-                    <input className={inputCls} value={closePercent} onChange={(e) => setClosePercent(e.target.value)} />
+                    <input className="w-full rounded-lg px-3 py-2 text-sm outline-none border border-gray-200" value={closePercent} onChange={(e) => setClosePercent(e.target.value)} />
                   </label>
-                  <label className={labelCls}>
+                  <label className="text-xs font-medium block mb-1 text-gray-500">
                     Exit price
-                    <input className={inputCls} value={closePrice} onChange={(e) => setClosePrice(e.target.value)} />
+                    <input className="w-full rounded-lg px-3 py-2 text-sm outline-none border border-gray-200" value={closePrice} onChange={(e) => setClosePrice(e.target.value)} />
                   </label>
                 </div>
                 <button
                   onClick={submitPartialClose}
                   disabled={closing || !closePrice}
-                  className={`w-full py-2 rounded-lg text-xs font-bold disabled:opacity-50 ${dark ? 'bg-white/10 text-white' : 'bg-gray-100 text-gray-700'}`}
+                  className="w-full py-2 rounded-lg text-xs font-bold disabled:opacity-50 bg-gray-100 text-gray-700"
                 >
                   {closing ? 'Closing…' : 'Close position'}
                 </button>
@@ -371,10 +498,12 @@ export function ManualTradingPage() {
             ) : (
               <button
                 onClick={submitOrder}
-                disabled={submitting || !entryPrice || !stopLoss}
-                className={`w-full py-3 rounded-lg text-sm font-bold text-white disabled:opacity-50 ${direction === 'long' ? 'bg-emerald-500' : 'bg-red-500'}`}
+                disabled={submitting || (!entryPrice && orderType !== 'market') || !stopLoss}
+                className="w-full py-3.5 rounded-xl text-sm font-bold text-white disabled:opacity-50 bg-blue-600 hover:bg-blue-700"
               >
-                {submitting ? 'Placing…' : `${isTest ? 'Simulate' : 'Place'} ${direction === 'long' ? 'Buy' : 'Sell'} ${orderType === 'limit' ? 'Limit' : 'Market'} Order`}
+                {submitting
+                  ? 'Placing…'
+                  : `${direction === 'long' ? 'Buy' : 'Sell'} ${lotSizePreview > 0 ? lotSizePreview.toFixed(4) : ''} ${symbol.trade} @ ${entryPrice || quickPrice || '—'} ${orderType.toUpperCase()}${isTest ? ' (Test)' : ''}`}
               </button>
             )}
           </div>

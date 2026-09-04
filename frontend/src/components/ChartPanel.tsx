@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Maximize2, Minimize2, Sun, Moon, TrendingUp, X, PanelBottom, PanelRight } from 'lucide-react';
+import { Maximize2, Minimize2, Sun, Moon, TrendingUp, X, PanelBottom, PanelRight, Zap } from 'lucide-react';
 import { TradingViewChart } from './TradingViewChart';
 import { CandleColorPicker } from './CandleColorPicker';
 import { TradeSpecsPanel } from './TradeSpecsPanel';
 import { useEffectiveChartColors } from '../hooks/useCandleColors';
 import { useTradeSpecsLayoutStore } from '../hooks/useTradeSpecsLayout';
+import { useQuickPrice } from '../hooks/useQuickPrice';
 
 /**
  * ChartPanel — the one reusable chart embed every page uses (Trade,
@@ -48,6 +49,20 @@ export function ChartPanel({
   const effectiveSpecsSymbol = specsSymbol ?? tradeSymbol;
   const { colors, chartStyle, applyLocal, applyGlobal, resetLocal, resetGlobal } = useEffectiveChartColors();
   const { position: specsPosition, setPosition: setSpecsPosition } = useTradeSpecsLayoutStore();
+  const { busy: quickPriceBusy, refresh: refreshQuickPrice } = useQuickPrice(effectiveSpecsSymbol || symbol);
+
+  async function handleQuickPrice() {
+    const price = await refreshQuickPrice();
+    if (price == null) return;
+    if (onQuickFill) {
+      onQuickFill(price);
+    } else if (tradeSymbol) {
+      // No order form on this page (e.g. Dashboard/Insights/Tools/Trade) —
+      // "trigger and open the Place Buy/Sell Order form" means taking you
+      // straight there with the price already filled in.
+      navigate(`/trade/manual?symbol=${encodeURIComponent(tradeSymbol)}&price=${price}`);
+    }
+  }
   const [chartTheme, setChartTheme] = useState<'light' | 'dark'>('light');
   const [fullscreen, setFullscreen] = useState(false);
   const chartDark = chartTheme === 'dark';
@@ -72,6 +87,15 @@ export function ChartPanel({
       </div>
 
       <div className="flex items-center gap-2 ml-auto">
+        {effectiveSpecsSymbol && (
+          <button
+            onClick={handleQuickPrice} disabled={quickPriceBusy}
+            aria-label="Use current price" title="Use current price — fills the order form"
+            className={`p-1.5 rounded-md flex items-center gap-1.5 text-xs font-medium disabled:opacity-50 ${containerDark ? 'text-white/50 hover:text-white/80 bg-white/5' : 'text-gray-500 hover:text-gray-700 bg-black/5'}`}
+          >
+            <Zap size={13} />
+          </button>
+        )}
         <CandleColorPicker
           dark={containerDark}
           colors={colors} chartStyle={chartStyle}
@@ -118,7 +142,7 @@ export function ChartPanel({
   );
 
   const specsPanel = effectiveSpecsSymbol && (
-    <TradeSpecsPanel symbol={effectiveSpecsSymbol} dark={containerDark} onQuickFill={onQuickFill} />
+    <TradeSpecsPanel symbol={effectiveSpecsSymbol} dark={containerDark} />
   );
 
   if (fullscreen) {

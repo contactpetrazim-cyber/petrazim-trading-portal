@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { RefreshCw, Zap, X, Check } from 'lucide-react';
+import { RefreshCw, Check, X } from 'lucide-react';
 import { FoldedCard } from './FoldedCard';
 import { useAuth } from '../hooks/useAuth';
 import { apiFetch } from './AccessExpiredGate';
+import { useQuickPrice } from '../hooks/useQuickPrice';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -23,8 +24,6 @@ interface TradeSpecsPanelProps {
   /** Exchange-format symbol, e.g. "BTCUSDT" — same value passed as ChartPanel's tradeSymbol. */
   symbol: string;
   dark?: boolean;
-  /** If the hosting page has its own order form, wire this to fill its entry price field directly. */
-  onQuickFill?: (price: number) => void;
 }
 
 /**
@@ -35,17 +34,18 @@ interface TradeSpecsPanelProps {
  * createPositionLine were moved to TradingView's paid Trading
  * Platform product — confirmed against their own docs, not a bug on
  * this app's side). This sits right next to the chart instead of
- * inside it: your open position(s) on this symbol, a real "use
- * current price" quick-fill, and real Modify SL/TP + Close actions —
- * folded by default, per direct request.
+ * inside it: your open position(s) on this symbol, with real Modify
+ * SL/TP + Close actions — folded by default, per direct request. The
+ * "Use current price" quick-fill used to live here too, but moved up
+ * into ChartPanel's own toolbar (a small button next to the candle-
+ * colors button) since this card was "taking too much space" — this
+ * panel only uses that same price silently now, for floating P&L.
  */
-export function TradeSpecsPanel({ symbol, dark = false, onQuickFill }: TradeSpecsPanelProps) {
+export function TradeSpecsPanel({ symbol, dark = false }: TradeSpecsPanelProps) {
   const { token } = useAuth();
+  const { price: quickPrice, refresh: refreshPriceSilently } = useQuickPrice(symbol);
   const [positions, setPositions] = useState<OpenPosition[]>([]);
   const [loading, setLoading] = useState(false);
-  const [quickPrice, setQuickPrice] = useState<number | null>(null);
-  const [quickError, setQuickError] = useState<string | null>(null);
-  const [quickBusy, setQuickBusy] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editSl, setEditSl] = useState('');
   const [editTp, setEditTp] = useState('');
@@ -71,19 +71,6 @@ export function TradeSpecsPanel({ symbol, dark = false, onQuickFill }: TradeSpec
     }
   }
 
-  // Silent refresh — updates the reference price used for each open
-  // position's live-ish floating P&L, without touching any order
-  // form (only the explicit button below does that). Only polls while
-  // there's actually a position open, since it's otherwise unused.
-  async function refreshPriceSilently() {
-    try {
-      const res = await apiFetch(`${API_URL}/manual-trading/quick-price/${encodeURIComponent(symbol)}`, { headers });
-      if (res.ok) setQuickPrice((await res.json()).price);
-    } catch {
-      /* silent — the button path below surfaces the real error message */
-    }
-  }
-
   useEffect(() => {
     loadPositions();
     const t = setInterval(loadPositions, 20000);
@@ -91,29 +78,17 @@ export function TradeSpecsPanel({ symbol, dark = false, onQuickFill }: TradeSpec
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [symbol, token]);
 
+  // Silent — updates the reference price used for each open
+  // position's live-ish floating P&L only; the visible quick-fill
+  // button now lives in ChartPanel's own toolbar. Only polls while
+  // there's actually a position open, since it's otherwise unused.
   useEffect(() => {
     if (positions.length === 0) return;
-    refreshPriceSilently();
-    const t = setInterval(refreshPriceSilently, 15000);
+    refreshPriceSilently({ silent: true });
+    const t = setInterval(() => refreshPriceSilently({ silent: true }), 15000);
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [symbol, positions.length]);
-
-  async function fetchQuickPrice() {
-    setQuickBusy(true);
-    setQuickError(null);
-    try {
-      const res = await apiFetch(`${API_URL}/manual-trading/quick-price/${encodeURIComponent(symbol)}`, { headers });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'No live price for this symbol.');
-      setQuickPrice(data.price);
-      onQuickFill?.(data.price);
-    } catch (e: any) {
-      setQuickError(e.message || 'Price lookup failed.');
-    } finally {
-      setQuickBusy(false);
-    }
-  }
 
   function floatingPnl(p: OpenPosition): number | null {
     if (quickPrice == null || p.entry_price == null) return null;
@@ -173,22 +148,12 @@ export function TradeSpecsPanel({ symbol, dark = false, onQuickFill }: TradeSpec
   const muted = dark ? 'text-white/40' : 'text-gray-400';
 
   return (
-    <FoldedCard title="Trade Specs" summary={`${positions.length} open on ${symbol}`} icon={<Zap size={16} />} dark={dark}>
-      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-        <button
-          onClick={fetchQuickPrice} disabled={quickBusy}
-          className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-lg text-white bg-corporate-hero disabled:opacity-50"
-        >
-          <Zap size={12} /> {quickBusy ? 'Fetching…' : 'Use current price'}
+    <FoldedCard title="Trade Specs" summary={`${positions.length} open on ${symbol}`} icon={<RefreshCw size={16} />} dark={dark}>
+      <div className="flex items-center justify-end mb-3">
+        <button onClick={loadPositions} aria-label="Refresh positions" className={`flex items-center gap-1 text-xs ${muted}`}>
+          <RefreshCw size={13} className={loading ? 'animate-spin' : ''} /> Refresh
         </button>
-        <div className="flex items-center gap-2">
-          {quickPrice != null && <span className={`text-sm font-bold ${dark ? 'text-white' : 'text-gray-900'}`}>{quickPrice}</span>}
-          <button onClick={loadPositions} aria-label="Refresh positions" className={muted}>
-            <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
-          </button>
-        </div>
       </div>
-      {quickError && <p className="text-xs text-amber-500 mb-2">{quickError}</p>}
 
       {positions.length === 0 ? (
         <p className={`text-xs ${muted}`}>No open positions on {symbol} right now.</p>

@@ -118,7 +118,7 @@ async def update_settings(
 class ManualOrderRequest(BaseModel):
     symbol: str
     direction: Literal["long", "short"]
-    order_type: Literal["market", "limit"] = "market"
+    order_type: Literal["market", "limit", "stop"] = "market"
     entry_price: float = Field(gt=0, description="Market price reference for market orders; the trigger price for limit orders.")
     stop_loss: float = Field(gt=0)
     take_profit: Optional[float] = None
@@ -201,7 +201,7 @@ async def place_manual_order(
         risk_amount=lot_size * risk_dist, requires_approval=False, is_test=is_test,
         broker_name=req.preferred_broker,
         status=TradeStatus.PENDING,
-        entry_type=EntryType.LIMIT if req.order_type == "limit" else EntryType.MARKET,
+        entry_type={"limit": EntryType.LIMIT, "stop": EntryType.STOP}.get(req.order_type, EntryType.MARKET),
     )
     db.add(trade)
     await db.commit()
@@ -226,7 +226,14 @@ async def place_manual_order(
         "trade_id": trade_id, "symbol": trade.symbol, "direction": req.direction,
         "entry_price": req.entry_price, "stop_loss": req.stop_loss, "take_profit": req.take_profit,
         "lot_size": lot_size, "preferred_broker": req.preferred_broker, "bot_id": trade.bot_id,
-        "entry_type": req.order_type,
+        # Every broker integration here only branches on "limit" vs
+        # market (see _execute_broker_order's own docstring) — there's
+        # no real stop-order call wired per broker yet, so a Stop
+        # order is honestly sent as a resting limit order at the
+        # trigger price rather than silently downgraded to a market
+        # order. Building real broker-side stop orders is separate,
+        # larger work.
+        "entry_type": "limit" if req.order_type in ("limit", "stop") else "market",
     }, db)
 
     if result.get("success"):
