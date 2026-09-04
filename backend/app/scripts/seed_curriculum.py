@@ -204,6 +204,7 @@ BOT_TRACKS = [
 BOT_LESSON_FILES = {
     "bot_1": "BOT_1_MACRO_SWING_STRUCTURE.md",
     "bot_2": "BOT_2_ORDER_BLOCK_REVERSAL.md",
+    "bot_3": "BOT_3_IMBALANCE_EXPANSION.md",
 }
 
 TRACKS = [

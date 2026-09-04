@@ -109,8 +109,9 @@ per bot.
 - [DONE] BOT2-01 through BOT2-10 — Bot 2, Order Block Reversal (ICT
   style: 4H-then-1H zone fallback, 15M CHoCH, sweep-conditional
   entry/stop, 3:1 target)
-- [ ] BOT3-01 through BOT3-10 — Bot 3, Imbalance Expansion (Photon/Phantom
-  style, FVG-driven)
+- [DONE] BOT3-01 through BOT3-10 — Bot 3, Imbalance Expansion
+  (Photon/Phantom style: 1H FVG 30-70% mitigation window, 15M BOS,
+  hand-calculated entry/stop, 4:1 target)
 - [ ] BOT4-01 through BOT4-10 — Bot 4, Volume & Liquidity Sweep
   (Dalton/Weis/Wyckoff style: Spring/Upthrust)
 - [ ] BOT5-01 through BOT5-10 — Bot 5, Liquidity Purge Specialist
