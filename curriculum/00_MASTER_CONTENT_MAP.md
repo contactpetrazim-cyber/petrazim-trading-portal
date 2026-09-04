@@ -56,10 +56,10 @@ Status legend: [DONE] authored this batch, [ ] mapped, not yet authored
 - [DONE] C4-06 Zone Age, Zone Quality, Confluence
 
 ## CORE 5 — FAIR VALUE GAPS & IMBALANCE (C5)
-- [ ] C5-01 What Imbalance Means, FVG Formation
-- [ ] C5-02 Bullish/Bearish FVG, Minimum Gap
-- [ ] C5-03 FVG Fill — Partial, Full, Inversion, Retracement
-- [ ] C5-04 FVG vs. Ordinary Price Noise — When Not to Trade It
+- [DONE] C5-01 What Imbalance Means, FVG Formation
+- [DONE] C5-02 Bullish/Bearish FVG, Minimum Gap
+- [DONE] C5-03 FVG Fill — Partial, Full, Inversion, Retracement
+- [DONE] C5-04 FVG vs. Ordinary Price Noise — When Not to Trade It
 
 ## CORE 6 — PREMIUM / DISCOUNT (C6)
 - [ ] C6-01 Dealing Range, External Leg, Equilibrium
