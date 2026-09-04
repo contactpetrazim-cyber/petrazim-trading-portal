@@ -8,14 +8,14 @@ already written in the repo's top-level curriculum/ directory
 CORE_1_MARKET_BASICS.md, CORE_2_MARKET_STRUCTURE.md,
 CORE_3_LIQUIDITY.md, CORE_4_SUPPLY_DEMAND_ZONES.md,
 CORE_5_FAIR_VALUE_GAPS.md, CORE_6_PREMIUM_DISCOUNT.md,
-CORE_7_MULTI_TIMEFRAME.md, CORE_8_RISK_MANAGEMENT.md) — nothing here
-invents lesson content.
+CORE_7_MULTI_TIMEFRAME.md, CORE_8_RISK_MANAGEMENT.md,
+CORE_9_TRADE_MANAGEMENT.md) — nothing here invents lesson content.
 
 Two kinds of stage get created, matching the content map's own
 [DONE] / [ ] status legend:
   - AUTHORED stages: real content_body, parsed directly out of the
-    nine .md files that have full lessons written (PART_0, CORE_1,
-    CORE_2, CORE_3, CORE_4, CORE_5, CORE_6, CORE_7, CORE_8).
+    ten .md files that have full lessons written (PART_0, CORE_1,
+    CORE_2, CORE_3, CORE_4, CORE_5, CORE_6, CORE_7, CORE_8, CORE_9).
     The parser (not a hand-copied string) is the intentional choice —
     it means the seeded content can never silently drift from the
     actual .md file, and re-running this script after an edit to
@@ -101,68 +101,68 @@ CORE1_STAGES = [
 ]
 
 CORE2_STAGES = [
-    (1, None, "Swing Highs and Swing Lows"),
-    (2, None, "Higher Highs/Lows, Lower Highs/Lows — Defining Trend"),
-    (3, None, "Trend vs. Range vs. Transition"),
-    (4, None, "Internal vs. External Structure"),
-    (5, None, "Protected Highs and Lows"),
-    (6, None, "BOS — Break of Structure"),
-    (7, None, "CHoCH — Change of Character"),
-    (8, None, "Wick vs. Body Break, Displacement, False Break"),
-    (9, None, "Structural Invalidation"),
+    (1, "C2-01", "Swing Highs and Swing Lows"),
+    (2, "C2-02", "Higher Highs/Lows, Lower Highs/Lows — Defining Trend"),
+    (3, "C2-03", "Trend vs. Range vs. Transition"),
+    (4, "C2-04", "Internal vs. External Structure"),
+    (5, "C2-05", "Protected Highs and Lows"),
+    (6, "C2-06", "BOS — Break of Structure"),
+    (7, "C2-07", "CHoCH — Change of Character"),
+    (8, "C2-08", "Wick vs. Body Break, Displacement, False Break"),
+    (9, "C2-09", "Structural Invalidation"),
 ]
 
 CORE3_STAGES = [
-    (1, None, "What Liquidity Means in This Framework"),
-    (2, None, "Buy-Side / Sell-Side Liquidity, Equal Highs/Lows"),
-    (3, None, "Trendline Liquidity, Liquidity Pools"),
-    (4, None, "Liquidity Sweeps — Sweep vs. Breakout vs. Random Wick"),
-    (5, None, "Sweep + Displacement + CHoCH — Reading Sequences"),
-    (6, None, "Why Not Every Pool Is Tradable"),
+    (1, "C3-01", "What Liquidity Means in This Framework"),
+    (2, "C3-02", "Buy-Side / Sell-Side Liquidity, Equal Highs/Lows"),
+    (3, "C3-03", "Trendline Liquidity, Liquidity Pools"),
+    (4, "C3-04", "Liquidity Sweeps — Sweep vs. Breakout vs. Random Wick"),
+    (5, "C3-05", "Sweep + Displacement + CHoCH — Reading Sequences"),
+    (6, "C3-06", "Why Not Every Pool Is Tradable"),
 ]
 
 CORE4_STAGES = [
-    (1, None, "Supply and Demand, Origin of Displacement"),
-    (2, None, "Order Blocks — Bullish and Bearish"),
-    (3, None, "Breaker Blocks and Mitigation Blocks"),
-    (4, None, "Fresh / Tested / Mitigated / Invalid Zones"),
-    (5, None, "Zone Boundaries — Body vs. Full-Range vs. Wick-Inclusive"),
-    (6, None, "Zone Age, Zone Quality, Confluence"),
+    (1, "C4-01", "Supply and Demand, Origin of Displacement"),
+    (2, "C4-02", "Order Blocks — Bullish and Bearish"),
+    (3, "C4-03", "Breaker Blocks and Mitigation Blocks"),
+    (4, "C4-04", "Fresh / Tested / Mitigated / Invalid Zones"),
+    (5, "C4-05", "Zone Boundaries — Body vs. Full-Range vs. Wick-Inclusive"),
+    (6, "C4-06", "Zone Age, Zone Quality, Confluence"),
 ]
 
 CORE5_STAGES = [
-    (1, None, "What Imbalance Means, FVG Formation"),
-    (2, None, "Bullish/Bearish FVG, Minimum Gap"),
-    (3, None, "FVG Fill — Partial, Full, Inversion, Retracement"),
-    (4, None, "FVG vs. Ordinary Price Noise — When Not to Trade It"),
+    (1, "C5-01", "What Imbalance Means, FVG Formation"),
+    (2, "C5-02", "Bullish/Bearish FVG, Minimum Gap"),
+    (3, "C5-03", "FVG Fill — Partial, Full, Inversion, Retracement"),
+    (4, "C5-04", "FVG vs. Ordinary Price Noise — When Not to Trade It"),
 ]
 
 CORE6_STAGES = [
-    (1, None, "Dealing Range, External Leg, Equilibrium"),
-    (2, None, "Premium and Discount, Long/Short Location"),
-    (3, None, "Multiple Dealing Ranges, Interaction With Liquidity/Zones"),
+    (1, "C6-01", "Dealing Range, External Leg, Equilibrium"),
+    (2, "C6-02", "Premium and Discount, Long/Short Location"),
+    (3, "C6-03", "Multiple Dealing Ranges, Interaction With Liquidity/Zones"),
 ]
 
 CORE7_STAGES = [
-    (1, None, "The Five-Layer Stack — Macro/Direction/Opportunity/Trigger/Execution"),
-    (2, None, "MTF Alignment vs. Conflict, Transition States"),
-    (3, None, "Long/Short Decision Trees, No-Trade Conditions"),
+    (1, "C7-01", "The Five-Layer Stack — Macro/Direction/Opportunity/Trigger/Execution"),
+    (2, "C7-02", "MTF Alignment vs. Conflict, Transition States"),
+    (3, "C7-03", "Long/Short Decision Trees, No-Trade Conditions"),
 ]
 
 CORE8_STAGES = [
-    (1, None, "Risk Per Trade, Fixed Fractional Sizing"),
-    (2, None, "Stop-Loss, Invalidation, R-Multiple"),
-    (3, None, "Reward-to-Risk, Partial Exits, Breakeven, Trailing"),
-    (4, None, "Max Daily/Weekly Loss, Correlated Exposure"),
-    (5, None, "Leverage, Margin, Spread, Slippage, Fees"),
-    (6, None, "Kill Switches and Circuit Breakers"),
-    (7, None, "Why a \"3:1 Setup\" Does Not Equal 3:1 Realized Expectancy"),
+    (1, "C8-01", "Risk Per Trade, Fixed Fractional Sizing"),
+    (2, "C8-02", "Stop-Loss, Invalidation, R-Multiple"),
+    (3, "C8-03", "Reward-to-Risk, Partial Exits, Breakeven, Trailing"),
+    (4, "C8-04", "Max Daily/Weekly Loss, Correlated Exposure"),
+    (5, "C8-05", "Leverage, Margin, Spread, Slippage, Fees"),
+    (6, "C8-06", "Kill Switches and Circuit Breakers"),
+    (7, "C8-07", "Why a \"3:1 Setup\" Does Not Equal 3:1 Realized Expectancy"),
 ]
 
 CORE9_STAGES = [
-    (1, None, "Before Entry Through Exit — the Full Lifecycle"),
-    (2, None, "Valid Loss vs. Bad Loss, Good Trade That Loses vs. Bad Trade That Wins"),
-    (3, None, "Judging Process Separately From Outcome"),
+    (1, "C9-01", "Before Entry Through Exit — the Full Lifecycle"),
+    (2, "C9-02", "Valid Loss vs. Bad Loss, Good Trade That Loses vs. Bad Trade That Wins"),
+    (3, "C9-03", "Judging Process Separately From Outcome"),
 ]
 
 PSY_STAGES = [
@@ -238,10 +238,11 @@ async def seed_curriculum():
     core6_lessons = parse_authored_lessons(CURRICULUM_DIR / "CORE_6_PREMIUM_DISCOUNT.md")
     core7_lessons = parse_authored_lessons(CURRICULUM_DIR / "CORE_7_MULTI_TIMEFRAME.md")
     core8_lessons = parse_authored_lessons(CURRICULUM_DIR / "CORE_8_RISK_MANAGEMENT.md")
+    core9_lessons = parse_authored_lessons(CURRICULUM_DIR / "CORE_9_TRADE_MANAGEMENT.md")
     authored = {
         **orient_lessons, **core1_lessons, **core2_lessons, **core3_lessons,
         **core4_lessons, **core5_lessons, **core6_lessons, **core7_lessons,
-        **core8_lessons,
+        **core8_lessons, **core9_lessons,
     }
 
     async with AsyncSessionLocal() as db:

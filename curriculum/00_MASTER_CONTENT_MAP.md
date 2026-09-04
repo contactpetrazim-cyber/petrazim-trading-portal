@@ -81,9 +81,9 @@ Status legend: [DONE] authored this batch, [ ] mapped, not yet authored
 - [DONE] C8-07 Why a "3:1 Setup" Does Not Equal 3:1 Realized Expectancy
 
 ## CORE 9 — TRADE MANAGEMENT (C9)
-- [ ] C9-01 Before Entry Through Exit — the Full Lifecycle
-- [ ] C9-02 Valid Loss vs. Bad Loss, Good Trade That Loses vs. Bad Trade That Wins
-- [ ] C9-03 Judging Process Separately From Outcome
+- [DONE] C9-01 Before Entry Through Exit — the Full Lifecycle
+- [DONE] C9-02 Valid Loss vs. Bad Loss, Good Trade That Loses vs. Bad Trade That Wins
+- [DONE] C9-03 Judging Process Separately From Outcome
 
 ## CORE 10 — TRADING PSYCHOLOGY (PSY)
 - [ ] PSY-01 through PSY-10 — Emotional regulation, cognitive errors,
