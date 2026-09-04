@@ -19,8 +19,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+import structlog
 
-from app.core.access_gate import require_active_access
+from app.core.access_gate import _raise_if_access_expired
+from app.core.auth import get_current_user
 from app.database import get_db
 from app.models.trade import EntryType, ExitType, ManualTradingSettings, Trade, TradeDirection, TradeStatus, TradingMode
 from app.models.user import User
@@ -28,6 +30,7 @@ from app.services.execution_engine import ExecutionEngine
 from app.services.manual_trading import check_manual_trade_risk, compute_lot_size, effective_limits
 
 router = APIRouter(prefix="/manual-trading", tags=["manual-trading"])
+logger = structlog.get_logger()
 _engine = ExecutionEngine()
 
 
@@ -71,8 +74,18 @@ def _to_response(row: ManualTradingSettings) -> SettingsResponse:
     )
 
 
+# Both settings routes below were on require_active_access — real bug,
+# found from a live 402 in production logs: viewing/toggling your own
+# Test-vs-Live preference is exactly the "account settings" case
+# require_active_access's own docstring already says should stay on
+# plain get_current_user (same asymmetry already applied in
+# facilitator.py), not something a lapsed subscription should hide.
+# With settings 402ing, ManualTradingPage's loadSettings() silently
+# failed (its own .catch swallows the error) and the whole Test/Live
+# toggle never rendered at all — reading as "there's no toggle," not
+# as an error.
 @router.get("/settings", response_model=SettingsResponse)
-async def get_settings_route(db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access)):
+async def get_settings_route(db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
     return _to_response(await _get_or_create_settings(db, user.id))
 
 
@@ -88,7 +101,7 @@ class SettingsUpdateRequest(BaseModel):
 
 @router.patch("/settings", response_model=SettingsResponse)
 async def update_settings(
-    req: SettingsUpdateRequest, db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access),
+    req: SettingsUpdateRequest, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user),
 ):
     row = await _get_or_create_settings(db, user.id)
     data = req.model_dump(exclude_unset=True)
@@ -129,10 +142,21 @@ class ManualOrderResponse(BaseModel):
 
 @router.post("/order", response_model=ManualOrderResponse)
 async def place_manual_order(
-    req: ManualOrderRequest, db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access),
+    req: ManualOrderRequest, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user),
 ):
     settings_row = await _get_or_create_settings(db, user.id)
     limits = effective_limits(settings_row)
+
+    # Gated here, not at the dependency level (require_active_access),
+    # because whether this needs an active subscription genuinely
+    # depends on trading_mode: a Test order is a risk-free rehearsal
+    # that never reaches a real broker — no different from any other
+    # free practice feature — so it stays open regardless of access
+    # status. Only a real LIVE order (money actually at risk) is
+    # gated, and only now that trading_mode is known. By direct
+    # request: "at least let's see it work in test mode."
+    if settings_row.trading_mode != TradingMode.TEST:
+        await _raise_if_access_expired(db, user)
 
     risk_dist = abs(req.entry_price - req.stop_loss)
     if risk_dist <= 0:
@@ -240,7 +264,7 @@ class PartialCloseResponse(BaseModel):
 
 @router.post("/{trade_id}/partial-close", response_model=PartialCloseResponse)
 async def partial_close(
-    trade_id: str, req: PartialCloseRequest, db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access),
+    trade_id: str, req: PartialCloseRequest, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user),
 ):
     """Manual, trader-triggered partial exit — for multiple targets
     (take_profit_1/2/3), the trader decides when price has reached
@@ -256,6 +280,10 @@ async def partial_close(
         raise HTTPException(status_code=404, detail="Trade not found")
     if row.status != TradeStatus.ACTIVE:
         raise HTTPException(status_code=409, detail=f"Trade is {row.status.value}, not active — nothing to close.")
+    # Same test/live split as placing the order — closing a real
+    # position only makes sense to gate the same way opening one is.
+    if not row.is_test:
+        await _raise_if_access_expired(db, user)
 
     closed_size = row.lot_size * (req.percent / 100)
     direction_sign = 1 if row.direction == TradeDirection.LONG else -1
@@ -294,7 +322,7 @@ class ModifyTargetsResponse(BaseModel):
 
 @router.patch("/{trade_id}/modify-targets", response_model=ModifyTargetsResponse)
 async def modify_targets(
-    trade_id: str, req: ModifyTargetsRequest, db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access),
+    trade_id: str, req: ModifyTargetsRequest, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user),
 ):
     """Move/edit SL and TP1/2/3 on an open position — the real backend
     for the Trade Specs panel's "Modify" action, by direct request
@@ -321,6 +349,8 @@ async def modify_targets(
         raise HTTPException(status_code=404, detail="Trade not found")
     if row.status != TradeStatus.ACTIVE:
         raise HTTPException(status_code=409, detail=f"Trade is {row.status.value}, not active.")
+    if not row.is_test:
+        await _raise_if_access_expired(db, user)
 
     if req.stop_loss is not None:
         row.stop_loss = req.stop_loss
@@ -338,25 +368,55 @@ async def modify_targets(
     )
 
 
+# CoinGecko's fallback — used only when Binance's own response isn't
+# a clean 200. Binance's public endpoints are known to block requests
+# from data-center/cloud IP ranges outright (a real, observed failure
+# once this endpoint was actually deployed on Render — confirmed by a
+# 404 on a perfectly valid symbol, BTCUSDT, in production logs), so
+# Binance alone isn't reliable enough to be the only source. CoinGecko
+# doesn't apply that kind of IP blocking, but needs its own coin id
+# rather than a trading-pair symbol, hence the small map — only covers
+# the crypto pairs this app actually offers, not a general symbol
+# translator.
+_COINGECKO_IDS = {"BTCUSDT": "bitcoin", "ETHUSDT": "ethereum", "BNBUSDT": "binancecoin", "SOLUSDT": "solana"}
+
+
 @router.get("/quick-price/{symbol}")
 async def quick_price(symbol: str):
     """A free, no-credential "what's it trading at right now" lookup
     for the order form's "Use current price" quick-fill button — by
     direct request ("ensure quick fill works"). Real data, not
-    invented: Binance's public ticker endpoint, which needs no API key
-    for a plain price read. Scoped honestly to crypto pairs (anything
-    Binance actually lists) — this app has no free, credential-less
-    price source for forex/metals (EURUSD, XAUUSD, ...); those need
-    the trader's own connected broker, which is a per-user credential
-    this endpoint deliberately doesn't require.
+    invented — tries Binance's public ticker first, CoinGecko second.
+    Scoped honestly to crypto pairs — this app has no free,
+    credential-less price source for forex/metals (EURUSD, XAUUSD,
+    ...); those need the trader's own connected broker, which is a
+    per-user credential this endpoint deliberately doesn't require.
     """
     import httpx
     clean = symbol.upper().replace("BINANCE:", "").replace("/", "")
+
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             resp = await client.get("https://api.binance.com/api/v3/ticker/price", params={"symbol": clean})
-        if resp.status_code != 200:
-            raise HTTPException(status_code=404, detail=f"No live crypto price for {clean} — enter your price manually.")
-        return {"symbol": clean, "price": float(resp.json()["price"])}
-    except httpx.HTTPError:
-        raise HTTPException(status_code=502, detail="Price lookup failed — enter your price manually.")
+        if resp.status_code == 200:
+            return {"symbol": clean, "price": float(resp.json()["price"]), "source": "binance"}
+        logger.warning("quick_price_binance_non_200", symbol=clean, status=resp.status_code, body=resp.text[:200])
+    except httpx.HTTPError as e:
+        logger.warning("quick_price_binance_failed", symbol=clean, error=str(e))
+
+    coingecko_id = _COINGECKO_IDS.get(clean)
+    if coingecko_id:
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(
+                    "https://api.coingecko.com/api/v3/simple/price",
+                    params={"ids": coingecko_id, "vs_currencies": "usd"},
+                )
+            if resp.status_code == 200:
+                price = resp.json().get(coingecko_id, {}).get("usd")
+                if price is not None:
+                    return {"symbol": clean, "price": float(price), "source": "coingecko"}
+        except httpx.HTTPError as e:
+            logger.warning("quick_price_coingecko_failed", symbol=clean, error=str(e))
+
+    raise HTTPException(status_code=404, detail=f"No live crypto price for {clean} — enter your price manually.")

@@ -108,15 +108,17 @@ class AccessExpiredError(HTTPException):
         super().__init__(status_code=402, detail=detail)
 
 
-async def require_active_access(
-    db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)
-) -> User:
-    """Drop-in replacement for get_current_user on any route that should
-    be fully blocked once access lapses (everything except account
-    settings, the renewal/payment flow itself, and public marketing
-    pages — those should keep using plain get_current_user)."""
+async def _raise_if_access_expired(db: AsyncSession, user: User) -> None:
+    """The actual expiry check, factored out of require_active_access
+    so a route that only needs to gate ONE specific branch (a real,
+    LIVE manual trade — never a Test-mode rehearsal, which touches no
+    real broker or money the same way a demo/practice feature doesn't)
+    can call it explicitly instead of gating the whole endpoint at the
+    dependency-injection level before it even knows which branch a
+    request is going to take. See routers/manual_trading.py for the
+    concrete case this was split out for."""
     if user.role in STAFF_ROLES:
-        return user
+        return
 
     now = datetime.now(timezone.utc)
 
@@ -128,7 +130,7 @@ async def require_active_access(
     )).scalar_one_or_none()
 
     if active is not None:
-        return user
+        return
 
     most_recent_expired = (await db.execute(
         select(UserAccess)
@@ -139,3 +141,14 @@ async def require_active_access(
 
     progress = await learner_progress_snapshot(db, user.id)
     raise AccessExpiredError(most_recent_expired.expires_at if most_recent_expired else None, progress)
+
+
+async def require_active_access(
+    db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)
+) -> User:
+    """Drop-in replacement for get_current_user on any route that should
+    be fully blocked once access lapses (everything except account
+    settings, the renewal/payment flow itself, and public marketing
+    pages — those should keep using plain get_current_user)."""
+    await _raise_if_access_expired(db, user)
+    return user

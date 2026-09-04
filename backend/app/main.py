@@ -8,6 +8,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
+from sqlalchemy import inspect, text
 import structlog
 from app.config import get_settings
 from app.routers import webhook_router, trades_router, bots_router, dashboard_router
@@ -59,6 +60,48 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
+async def _repair_missing_columns(conn, base, label: str):
+    """`Base.metadata.create_all` (below) only creates tables that
+    don't exist yet — for a table that's already live in production,
+    a column added to its model afterwards is silently never added to
+    the real database. That's exactly what caused "column trades.is_test
+    does not exist" (and would have quietly broken take_profit_2/
+    take_profit_3 the same way) — the ORM inserted/selected the new
+    column, Postgres had never heard of it, and every request touching
+    a Trade row 500'd. This app has no Alembic migrations actually
+    wired into its deploy (alembic/ exists in the repo but nothing
+    ever runs `alembic upgrade head`), so rather than leave the next
+    column addition to fail the exact same way, this introspects the
+    real database on every startup and adds whatever's missing —
+    driven by the models themselves, nothing hand-listed. New columns
+    are added nullable regardless of the model's own nullable=False
+    (existing rows have nothing to put there); where the model
+    declares a plain Python-side scalar default (e.g. is_test=False),
+    existing NULL rows are backfilled to it so old trades don't 500
+    when serialized against a non-Optional response field.
+    """
+    def _existing_columns(sync_conn):
+        inspector = inspect(sync_conn)
+        return {t: {c["name"] for c in inspector.get_columns(t)} for t in inspector.get_table_names()}
+
+    existing = await conn.run_sync(_existing_columns)
+    for table in base.metadata.sorted_tables:
+        have = existing.get(table.name)
+        if have is None:
+            continue  # brand-new table — create_all just made it with every column already
+        for column in table.columns:
+            if column.name in have:
+                continue
+            ddl_type = column.type.compile(dialect=conn.dialect)
+            await conn.execute(text(f'ALTER TABLE "{table.name}" ADD COLUMN IF NOT EXISTS "{column.name}" {ddl_type}'))
+            logger.warning("schema_repair_added_column", label=label, table=table.name, column=column.name)
+            if column.default is not None and getattr(column.default, "is_scalar", False):
+                await conn.execute(
+                    text(f'UPDATE "{table.name}" SET "{column.name}" = :v WHERE "{column.name}" IS NULL'),
+                    {"v": column.default.arg},
+                )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler."""
@@ -67,6 +110,7 @@ async def lifespan(app: FastAPI):
     # Create database tables
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await _repair_missing_columns(conn, Base, "main")
 
     # The Phase-1 Monte Carlo / validation-gate / weekly-review engines
     # (app/db/session.py) keep their own separate declarative Base —
@@ -76,6 +120,7 @@ async def lifespan(app: FastAPI):
     # leaving closed_trades/rejected_signals missing.
     async with legacy_engine.begin() as conn:
         await conn.run_sync(LegacyBase.metadata.create_all)
+        await _repair_missing_columns(conn, LegacyBase, "legacy")
 
     # Autonomous market scanner — off by default (MARKET_SCANNER_ENABLED).
     # See market_scanner.py's module docstring for what this does and

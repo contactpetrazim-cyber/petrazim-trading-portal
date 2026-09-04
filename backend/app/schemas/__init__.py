@@ -51,7 +51,10 @@ class TradeResponse(BaseModel):
     unrealized_pnl: float = 0.0
     bot_id: str
     strategy_type: str
-    is_test: bool = False
+    # Optional, not plain bool: the schema-repair step backfills NULLs
+    # to False on startup, but this stays tolerant of a stray NULL
+    # slipping through so a legacy row never 500s the whole list.
+    is_test: Optional[bool] = False
     user_id: Optional[UUID] = None
     created_at: datetime
 
