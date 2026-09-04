@@ -6,7 +6,7 @@ from typing import List
 from app.database import get_db
 from app.models.bot import BotConfig, BotStatus, ExecutionMode
 from app.models.user import User, UserRole
-from app.core.auth import get_current_user
+from app.core.access_gate import require_active_access
 from app.models.trade import Trade, TradeStatus
 from app.services.roster_access import user_can_manage_trader
 from app.schemas import BotConfigCreate, BotConfigResponse, BotToggle, BotExchangeUpdate, BotMetricsUpdate
@@ -39,7 +39,7 @@ async def _get_owned_bot(bot_id: str, user: User, db: AsyncSession) -> BotConfig
 
 
 @router.get("/", response_model=List[BotConfigResponse])
-async def list_bots(db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+async def list_bots(db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access)):
     """List the caller's own configured trading bots (Admin/Super Admin see all)."""
     query = select(BotConfig).order_by(BotConfig.created_at.desc())
     if user.role not in STAFF_ROLES:
@@ -49,7 +49,7 @@ async def list_bots(db: AsyncSession = Depends(get_db), user: User = Depends(get
 
 @router.post("/", response_model=BotConfigResponse)
 async def create_bot(
-    config: BotConfigCreate, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)
+    config: BotConfigCreate, db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access)
 ):
     """Create a new bot configuration, owned by the authenticated caller."""
     bot = BotConfig(
@@ -77,13 +77,13 @@ async def create_bot(
     return bot
 
 @router.get("/{bot_id}", response_model=BotConfigResponse)
-async def get_bot(bot_id: str, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+async def get_bot(bot_id: str, db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access)):
     """Get bot configuration details — must be the caller's own bot (or Admin/Super Admin)."""
     return await _get_owned_bot(bot_id, user, db)
 
 @router.patch("/{bot_id}/toggle")
 async def toggle_bot(
-    bot_id: str, toggle: BotToggle, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)
+    bot_id: str, toggle: BotToggle, db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access)
 ):
     """Activate or deactivate a bot."""
     bot = await _get_owned_bot(bot_id, user, db)
@@ -97,7 +97,7 @@ async def set_execution_mode(
     bot_id: str,
     mode: str,  # human_in_loop or fully_autonomous
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_active_access),
 ):
     """Switch bot execution mode."""
     bot = await _get_owned_bot(bot_id, user, db)
@@ -115,7 +115,7 @@ async def set_bot_exchange(
     bot_id: str,
     update: BotExchangeUpdate,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_active_access),
 ):
     """
     Pin which exchange this bot executes on (and which live ticker the
@@ -136,7 +136,7 @@ async def update_bot_metrics(
     bot_id: str,
     update: BotMetricsUpdate,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_active_access),
 ):
     """Edit a bot's risk/entry metrics — risk per trade, daily/
     concurrent trade caps, portfolio exposure cap, min R:R, trailing
@@ -154,7 +154,7 @@ async def update_bot_metrics(
 
 @router.get("/{bot_id}/performance")
 async def bot_performance(
-    bot_id: str, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)
+    bot_id: str, db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access)
 ):
     """Get real performance metrics for a specific bot, computed from
     its own closed trades — this used to be a stub that always

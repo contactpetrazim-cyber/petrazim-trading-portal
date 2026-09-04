@@ -23,22 +23,37 @@ from app.engines.backtest_engine import ClosedBacktestTrade
 from app.engines.monte_carlo_engine import TradeRecord
 from app.engines.weekly_review_engine import EmotionalJournalEntry, RejectedSignal, TakenTrade
 from app.core.attestation_store import AttestationRecord
+from app.models.trade import Trade, TradeStatus
 
 
 # --------------------------------------------------------------------------
 # Monte Carlo engine data source
 # --------------------------------------------------------------------------
 
-async def load_trade_history(db: AsyncSession, bot_id: Optional[str] = None) -> List[TradeRecord]:
-    """Live trades only — this is what the Monte Carlo forecast is built from."""
-    stmt = select(ClosedTradeORM).where(ClosedTradeORM.source == "live")
+async def load_trade_history(
+    db: AsyncSession, bot_id: Optional[str] = None, user_id: Optional[str] = None,
+) -> List[TradeRecord]:
+    """Live trades only — this is what the Monte Carlo forecast is built
+    from. Queries the app's real `trades` table (models/trade.py) directly
+    rather than the closed_trades side-table below: nothing in the live
+    execution path ever wrote a "source=live" row there, so that version
+    of this function silently returned an empty history no matter how
+    many real trades existed. user_id scopes to one Trader's own trades;
+    omit it (Admin/Super Admin only) to forecast across the whole
+    platform, matching every other router's staff-see-all convention."""
+    stmt = select(Trade).where(Trade.status == TradeStatus.CLOSED, Trade.r_multiple.isnot(None))
     if bot_id:
-        stmt = stmt.where(ClosedTradeORM.bot_id == bot_id)
+        stmt = stmt.where(Trade.bot_id == bot_id)
+    if user_id:
+        stmt = stmt.where(Trade.user_id == user_id)
+    stmt = stmt.order_by(Trade.exit_timestamp)
     rows = (await db.execute(stmt)).scalars().all()
 
     return [
-        TradeRecord(trade_id=r.trade_id, r_multiple=r.r_multiple,
-                    bot_id=r.bot_id, symbol=r.symbol, timestamp=r.exit_time.isoformat())
+        TradeRecord(
+            trade_id=r.trade_id, r_multiple=r.r_multiple, bot_id=r.bot_id, symbol=r.symbol,
+            timestamp=(r.exit_timestamp.isoformat() if r.exit_timestamp else ""),
+        )
         for r in rows
     ]
 
@@ -111,24 +126,46 @@ async def save_backtest_trades(
 # Weekly review data sources
 # --------------------------------------------------------------------------
 
+_EXIT_TYPE_TO_REASON = {
+    "tp1": "target", "tp2": "target", "tp3": "target", "trailing": "target",
+    "stop_loss": "stop", "manual": "manual_close", "structure": "timeout",
+}
+
+
 async def load_taken_trades(
-    db: AsyncSession, week_start: datetime, week_end: datetime, bot_id: Optional[str] = None
+    db: AsyncSession, week_start: datetime, week_end: datetime,
+    bot_id: Optional[str] = None, user_id: Optional[str] = None,
 ) -> List[TakenTrade]:
-    stmt = select(ClosedTradeORM).where(
-        ClosedTradeORM.source == "live",
-        ClosedTradeORM.exit_time >= week_start,
-        ClosedTradeORM.exit_time <= week_end,
+    """Same fix as load_trade_history above and for the same reason:
+    ClosedTradeORM(source='live') is never written by the live execution
+    path, so this used to silently return an empty week every time no
+    matter how many real trades closed. Queries the real `trades` table
+    directly instead."""
+    stmt = select(Trade).where(
+        Trade.status == TradeStatus.CLOSED, Trade.r_multiple.isnot(None),
+        Trade.exit_timestamp >= week_start, Trade.exit_timestamp <= week_end,
     )
     if bot_id:
-        stmt = stmt.where(ClosedTradeORM.bot_id == bot_id)
+        stmt = stmt.where(Trade.bot_id == bot_id)
+    if user_id:
+        stmt = stmt.where(Trade.user_id == user_id)
     rows = (await db.execute(stmt)).scalars().all()
 
     return [
         TakenTrade(
-            trade_id=r.trade_id, bot_id=r.bot_id, symbol=r.symbol, direction=r.direction,
-            entry_price=r.entry_price, exit_price=r.exit_price, stop_price=r.stop_price,
-            r_multiple=r.r_multiple, entry_time=r.entry_time, exit_time=r.exit_time,
-            exit_reason=r.exit_reason, entry_rationale=r.entry_rationale,
+            trade_id=r.trade_id, bot_id=r.bot_id, symbol=r.symbol,
+            direction=r.direction.value if r.direction else "long",
+            entry_price=r.entry_price or 0.0, exit_price=r.exit_price or 0.0,
+            stop_price=r.stop_loss, r_multiple=r.r_multiple,
+            entry_time=r.entry_timestamp, exit_time=r.exit_timestamp,
+            # exit_type has no exact 1:1 mapping onto the engine's
+            # target/stop/timeout/manual_close vocabulary (STRUCTURE in
+            # particular is an approximation, mapped to "timeout") — flag
+            # if the engine's grading needs a finer-grained real reason.
+            exit_reason=_EXIT_TYPE_TO_REASON.get(
+                r.exit_type.value if r.exit_type else "", "manual_close"
+            ),
+            entry_rationale=r.reasoning_log or "",
         )
         for r in rows
     ]

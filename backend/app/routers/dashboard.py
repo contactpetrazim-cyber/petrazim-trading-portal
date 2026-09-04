@@ -8,7 +8,7 @@ from app.database import get_db
 from app.models.trade import Trade, TradeStatus
 from app.models.bot import BotConfig, BotStatus
 from app.models.user import User, UserRole
-from app.core.auth import get_current_user
+from app.core.access_gate import require_active_access
 from app.schemas import DashboardStats, PerformanceSummary
 import structlog
 
@@ -33,7 +33,7 @@ def _scope_bots(query, user: User):
 
 
 @router.get("/stats", response_model=DashboardStats)
-async def dashboard_stats(db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+async def dashboard_stats(db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access)):
     """Get real-time dashboard statistics for the caller (Admin/Super Admin see the whole platform)."""
     today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
 
@@ -77,7 +77,7 @@ async def dashboard_stats(db: AsyncSession = Depends(get_db), user: User = Depen
 async def performance_summary(
     period: str = "7d",  # 1d, 7d, 30d, 90d
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_active_access),
 ) -> List[PerformanceSummary]:
     """Get performance summary for specified period."""
     # Map period to timedelta
@@ -126,7 +126,7 @@ async def performance_summary(
     )]
 
 @router.get("/signals/preview")
-async def signal_preview(user: User = Depends(get_current_user)) -> List[Dict]:
+async def signal_preview(user: User = Depends(require_active_access)) -> List[Dict]:
     """Get current signal previews from all active bots."""
     # In production: run bot analysis on current market data
     # Return preview signals for dashboard display
@@ -136,7 +136,7 @@ async def signal_preview(user: User = Depends(get_current_user)) -> List[Dict]:
 async def equity_curve(
     days: int = 30,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_active_access),
 ):
     """Get equity curve data for charting."""
     start_date = datetime.utcnow() - timedelta(days=days)

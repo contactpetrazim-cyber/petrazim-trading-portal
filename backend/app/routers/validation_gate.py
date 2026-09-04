@@ -10,10 +10,13 @@ Mount in main.py:
     from app.routers import validation_gate as validation_gate_router
     app.include_router(validation_gate_router.router, prefix="/api/validation-gate", tags=["validation-gate"])
 
-TRADE DATA SOURCE: `_load_backtest_trades()` and friends below are
-placeholders, same pattern as monte_carlo.py's `_load_trade_history()`.
-Wire them to your real backtest results before this endpoint is used
-for anything but local testing.
+TRADE DATA SOURCE: backtest results are written by save_backtest_trades()
+whenever a real backtest runs (see engines/backtest_engine.py) — real,
+distinct from monte_carlo.py's live-trade fix, since a backtest result
+is a genuine standalone artifact, not something the live trades table
+already contains.
+
+Auth: gated on require_active_access, same as every other content route.
 """
 
 from __future__ import annotations
@@ -23,6 +26,9 @@ from typing import Dict, List, Literal, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.access_gate import require_active_access
+from app.models.user import User
 
 from app.core.attestation_store import AttestationRecord
 from app.db.repository import (
@@ -113,7 +119,10 @@ class GateEvaluateResponse(BaseModel):
 # --------------------------------------------------------------------------
 
 @router.post("/attest", response_model=AttestationResponse)
-async def submit_attestation(req: AttestRequest, db: AsyncSession = Depends(get_db)):
+async def submit_attestation(
+    req: AttestRequest, db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_active_access),
+):
     """Records a human sign-off (or explicit failure) for one of the three
     manual safety checks. Append-only — submitting again creates a new
     record and supersedes the previous one for gate purposes, but full
@@ -127,14 +136,20 @@ async def submit_attestation(req: AttestRequest, db: AsyncSession = Depends(get_
 
 
 @router.get("/attestations/{bot_id}", response_model=List[AttestationResponse])
-async def get_attestations(bot_id: str, db: AsyncSession = Depends(get_db)):
+async def get_attestations(
+    bot_id: str, db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_active_access),
+):
     """Full attestation history for a bot, oldest first — the audit trail."""
     records = await list_attestations_for_bot(db, bot_id)
     return [AttestationResponse.from_record(r) for r in records]
 
 
 @router.post("/evaluate", response_model=GateEvaluateResponse)
-async def evaluate_gate(req: EvaluateRequest, db: AsyncSession = Depends(get_db)):
+async def evaluate_gate(
+    req: EvaluateRequest, db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_active_access),
+):
     """Runs the full go-live validation gate for one bot: automated checks
     against stored backtest results, plus the latest manual attestations
     on file. Missing manual attestations correctly block go-live."""

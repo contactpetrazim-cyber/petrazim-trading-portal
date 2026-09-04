@@ -10,11 +10,11 @@ Mount in main.py:
     from app.routers import monte_carlo
     app.include_router(monte_carlo.router, prefix="/api/monte-carlo", tags=["monte-carlo"])
 
-NOTE ON TRADE HISTORY SOURCE:
-`_load_trade_history()` below is a placeholder. Replace its body with a
-real query against your trades table (analytics.py already tracks closed
-trades — pull R-multiples from there). It's isolated in one function on
-purpose so swapping the data source doesn't touch anything else in this file.
+Auth: gated on require_active_access, same as every other content
+route — an Insights forecast is exactly the kind of paid feature that
+should stop working the instant a duration pass lapses. Trade history
+is scoped to the caller's own trades unless they're Admin/Super Admin
+(STAFF_ROLES), matching trades.py/bots.py/dashboard.py's convention.
 """
 
 from __future__ import annotations
@@ -25,11 +25,17 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.access_gate import require_active_access, STAFF_ROLES
 from app.db.repository import load_trade_history
 from app.db.session import get_db
 from app.engines.monte_carlo_engine import MonteCarloEngine, TradeRecord
+from app.models.user import User
 
 router = APIRouter()
+
+
+def _scope_user_id(user: User) -> Optional[str]:
+    return None if user.role in STAFF_ROLES else str(user.id)
 
 
 # --------------------------------------------------------------------------
@@ -99,9 +105,12 @@ class SimulationResponse(BaseModel):
 # --------------------------------------------------------------------------
 
 @router.get("/metrics", response_model=MetricsResponse)
-async def get_metrics(bot_id: Optional[str] = None, db: AsyncSession = Depends(get_db)):
+async def get_metrics(
+    bot_id: Optional[str] = None, db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_active_access),
+):
     """Pattern/metric extraction from historical trades, no simulation."""
-    history = await load_trade_history(db, bot_id)
+    history = await load_trade_history(db, bot_id, user_id=_scope_user_id(user))
     engine = MonteCarloEngine(history)
     try:
         m = engine.compute_metrics(bot_id=bot_id)
@@ -111,13 +120,16 @@ async def get_metrics(bot_id: Optional[str] = None, db: AsyncSession = Depends(g
 
 
 @router.post("/simulate", response_model=SimulationResponse)
-async def simulate(req: SimulationRequest, db: AsyncSession = Depends(get_db)):
+async def simulate(
+    req: SimulationRequest, db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_active_access),
+):
     """
     Runs the Monte Carlo simulation with the caller's parameters and
     returns the full distribution of outcomes for a future SET of trades,
     plus (optionally) a fan-chart-ready percentile-band series.
     """
-    history = await load_trade_history(db, req.bot_id)
+    history = await load_trade_history(db, req.bot_id, user_id=_scope_user_id(user))
     engine = MonteCarloEngine(history)
 
     try:

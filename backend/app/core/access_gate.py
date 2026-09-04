@@ -27,7 +27,14 @@ from app.core.auth import get_current_user
 from app.database import get_db
 from app.models.access import UserAccess
 from app.models.curriculum import LearningTrack, StageCompletion, TrackStage, UserLearningStats
-from app.models.user import User
+from app.models.user import User, UserRole
+
+# Staff accounts never purchase a duration pass — there's no UserAccess
+# row to check for them, and there never will be. Gating them the same
+# way a paying Trader/Manager/Partner is gated would lock every Admin
+# and Super Admin out of the platform the moment this dependency is
+# wired into a real route, which is the opposite of the intent here.
+STAFF_ROLES = (UserRole.ADMIN, UserRole.SUPER_ADMIN)
 
 
 async def learner_progress_snapshot(db: AsyncSession, user_id) -> dict:
@@ -108,6 +115,9 @@ async def require_active_access(
     be fully blocked once access lapses (everything except account
     settings, the renewal/payment flow itself, and public marketing
     pages — those should keep using plain get_current_user)."""
+    if user.role in STAFF_ROLES:
+        return user
+
     now = datetime.now(timezone.utc)
 
     active = (await db.execute(

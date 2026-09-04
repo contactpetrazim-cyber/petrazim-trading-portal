@@ -18,7 +18,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.auth import get_current_user
+from app.core.access_gate import require_active_access
 from app.database import get_db
 from app.models.chart_layout import ChartDrawingTemplate, ChartLayout
 from app.models.user import User
@@ -44,7 +44,7 @@ class LayoutDetail(LayoutSummary):
 
 
 @router.get("/layouts", response_model=List[LayoutSummary])
-async def list_layouts(db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+async def list_layouts(db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access)):
     rows = (await db.execute(
         select(ChartLayout).where(ChartLayout.user_id == user.id).order_by(ChartLayout.updated_at.desc())
     )).scalars().all()
@@ -55,7 +55,7 @@ async def list_layouts(db: AsyncSession = Depends(get_db), user: User = Depends(
 
 
 @router.get("/layouts/{layout_id}", response_model=LayoutDetail)
-async def get_layout(layout_id: str, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+async def get_layout(layout_id: str, db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access)):
     row = (await db.execute(
         select(ChartLayout).where(ChartLayout.id == layout_id, ChartLayout.user_id == user.id)
     )).scalar_one_or_none()
@@ -69,7 +69,7 @@ async def get_layout(layout_id: str, db: AsyncSession = Depends(get_db), user: U
 
 @router.post("/layouts", response_model=LayoutSummary)
 async def save_layout(
-    req: SaveLayoutRequest, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)
+    req: SaveLayoutRequest, db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access)
 ):
     existing = (await db.execute(
         select(ChartLayout).where(ChartLayout.user_id == user.id, ChartLayout.name == req.name)
@@ -94,7 +94,7 @@ async def save_layout(
 
 
 @router.delete("/layouts/{layout_id}")
-async def delete_layout(layout_id: str, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+async def delete_layout(layout_id: str, db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access)):
     row = (await db.execute(
         select(ChartLayout).where(ChartLayout.id == layout_id, ChartLayout.user_id == user.id)
     )).scalar_one_or_none()
@@ -118,7 +118,7 @@ class TemplateSummary(BaseModel):
 
 
 @router.get("/drawing-templates", response_model=List[TemplateSummary])
-async def list_templates(db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+async def list_templates(db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access)):
     rows = (await db.execute(
         select(ChartDrawingTemplate).where(ChartDrawingTemplate.user_id == user.id)
     )).scalars().all()
@@ -127,7 +127,7 @@ async def list_templates(db: AsyncSession = Depends(get_db), user: User = Depend
 
 @router.post("/drawing-templates", response_model=TemplateSummary)
 async def save_template(
-    req: SaveTemplateRequest, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)
+    req: SaveTemplateRequest, db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access)
 ):
     row = ChartDrawingTemplate(user_id=user.id, name=req.name, tool_name=req.tool_name, content=req.content)
     db.add(row)

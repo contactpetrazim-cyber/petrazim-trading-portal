@@ -9,9 +9,14 @@ Mount in main.py:
     from app.routers import weekly_review
     app.include_router(weekly_review.router, prefix="/api/weekly-review", tags=["weekly-review"])
 
-DATA SOURCES: same placeholder pattern as every other router in this
-build. Wire these to your real trade log, signal-rejection log, and
-journaling engine before this runs against live data.
+DATA SOURCES: load_taken_trades now reads the real `trades` table (see
+db/repository.py). load_rejected_signals and load_journal_entries still
+read empty side-tables — there's no signal-rejection log or trade-
+journaling UI anywhere in the app yet to ever populate them, so those
+two stay real-but-empty until that input surface exists as its own
+feature, not a placeholder-swap like the trade history was.
+
+Auth: gated on require_active_access, same as every other content route.
 """
 
 from __future__ import annotations
@@ -23,8 +28,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.access_gate import require_active_access, STAFF_ROLES
 from app.db.repository import load_journal_entries, load_rejected_signals, load_taken_trades
 from app.db.session import get_db
+from app.models.user import User
 from app.engines.weekly_review_engine import (
     WeeklyReviewEngine, TakenTrade, RejectedSignal, EmotionalJournalEntry,
     build_weekly_review_prompt, generate_template_narrative,
@@ -107,7 +114,8 @@ def _load_forward_bars(symbols: List[str], week_start: datetime, week_end: datet
 
 @router.get("/report", response_model=WeeklyReviewResponse)
 async def get_weekly_review(
-    week_start: str, week_end: str, bot_id: Optional[str] = None, db: AsyncSession = Depends(get_db)
+    week_start: str, week_end: str, bot_id: Optional[str] = None,
+    db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access),
 ):
     """
     week_start / week_end: ISO date strings, e.g. "2026-08-03".
@@ -119,7 +127,8 @@ async def get_weekly_review(
     except ValueError:
         raise HTTPException(status_code=400, detail="week_start/week_end must be ISO dates")
 
-    taken = await load_taken_trades(db, start, end, bot_id)
+    user_id = None if user.role in STAFF_ROLES else str(user.id)
+    taken = await load_taken_trades(db, start, end, bot_id, user_id=user_id)
     rejected = await load_rejected_signals(db, start, end, bot_id)
     journal = await load_journal_entries(db, start, end)
 
