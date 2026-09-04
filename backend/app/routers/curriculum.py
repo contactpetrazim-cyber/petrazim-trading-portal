@@ -1,0 +1,351 @@
+"""
+Curriculum Router — the real API the Learn area never had
+=============================================================
+
+The Learning System Handover's data model and progression_engine.py
+were both real and fully tested (locked sequence, the quiz+practice
+dual gate, mastery thresholds, streak logic, XP formula, spaced
+retention) — but nothing exposed any of it over HTTP. AreaPage.tsx's
+Learn tab fell all the way through to a generic FoldedCard link list
+because there was no endpoint for a real Learn page to call. This is
+that endpoint layer.
+
+Auth: gated on require_active_access, like every other content route —
+Learn is a paid feature same as Trade or Insights.
+
+Two numbers on LearningStatsBar aren't in any source document, so
+they're a reasonable default rather than an extracted spec:
+  - "Level" — no leveling curve is specified anywhere; this uses
+    1 level per 100 XP (level = xp // 100 + 1). Flag if a different
+    curve is wanted.
+  - Track-level "locked" — the handover only defines stage-level
+    locking (can_attempt_stage). Applying the same sequential logic
+    one level up (track N is locked until track N-1's every stage is
+    complete) is an inference, not something spelled out in the docs.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from typing import List, Optional
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.access_gate import require_active_access, learner_progress_snapshot
+from app.database import get_db
+from app.engines.progression_engine import (
+    MasteryInput, StreakUpdateResult, can_attempt_stage, compute_mastery_level,
+    stage_completion_meets_requirements, update_streak, xp_for_stage,
+)
+from app.models.curriculum import (
+    Lesson, LearningTrack, PracticeAttempt, QuizAttempt, StageCompletion,
+    TrackStage, UserLearningStats,
+)
+from app.models.user import User
+
+router = APIRouter(prefix="/curriculum", tags=["curriculum"])
+
+# Same emoji-per-category fallback the Learning Handover's TrackCard
+# expects (§4) — one emoji per TrackCategory since no per-track emoji
+# field exists in the data model.
+_CATEGORY_EMOJI = {"basics": "📘", "bot_mastery": "🤖", "psychology": "🧠", "advanced": "🎯"}
+
+
+# --------------------------------------------------------------------------
+# Response models
+# --------------------------------------------------------------------------
+
+class StatsResponse(BaseModel):
+    overall_mastery_pct: float
+    xp: int
+    level: int
+    current_streak_days: int
+    longest_streak_days: int
+    stages_complete: int
+    stages_total: int
+    tracks_complete: int
+    tracks_total: int
+
+
+class TrackSummaryResponse(BaseModel):
+    id: str
+    emoji: str
+    title: str
+    description: str
+    category: str
+    stages_completed: int
+    total_stages: int
+    locked: bool
+    route: str
+
+
+class StageResponse(BaseModel):
+    id: str
+    stage_number: int
+    title: str
+    lesson_id: Optional[str]
+    min_quiz_score_pct: float
+    min_practice_reps: int
+    xp_reward: int
+    completed: bool
+    can_attempt: bool
+    lock_reason: str = ""
+
+
+class TrackDetailResponse(BaseModel):
+    id: str
+    title: str
+    description: str
+    category: str
+    mastery_level: str
+    stages: List[StageResponse]
+
+
+class QuizSubmitRequest(BaseModel):
+    lesson_id: str
+    score_pct: float
+
+
+class PracticeSubmitRequest(BaseModel):
+    track_id: str
+    scenario_id: str
+    correct: bool
+
+
+class StageCompleteRequest(BaseModel):
+    stage_id: str
+
+
+class StageCompleteResponse(BaseModel):
+    completed: bool
+    reason: str = ""
+    xp_awarded: int = 0
+    new_streak_days: Optional[int] = None
+
+
+# --------------------------------------------------------------------------
+# Helpers
+# --------------------------------------------------------------------------
+
+async def _completed_stage_numbers(db: AsyncSession, user_id, track_id) -> List[int]:
+    rows = (await db.execute(
+        select(TrackStage.stage_number)
+        .join(StageCompletion, StageCompletion.stage_id == TrackStage.id)
+        .where(TrackStage.track_id == track_id, StageCompletion.user_id == user_id)
+    )).scalars().all()
+    return list(rows)
+
+
+async def _track_stage_counts(db: AsyncSession, user_id, track_id) -> tuple[int, int]:
+    total = (await db.execute(
+        select(func.count(TrackStage.id)).where(TrackStage.track_id == track_id)
+    )).scalar() or 0
+    done = (await db.execute(
+        select(func.count(StageCompletion.id))
+        .join(TrackStage, TrackStage.id == StageCompletion.stage_id)
+        .where(TrackStage.track_id == track_id, StageCompletion.user_id == user_id)
+    )).scalar() or 0
+    return done, total
+
+
+async def _get_or_create_stats(db: AsyncSession, user_id) -> UserLearningStats:
+    stats = (await db.execute(
+        select(UserLearningStats).where(UserLearningStats.user_id == user_id)
+    )).scalar_one_or_none()
+    if stats is None:
+        stats = UserLearningStats(user_id=user_id)
+        db.add(stats)
+        await db.flush()
+    return stats
+
+
+# --------------------------------------------------------------------------
+# Routes
+# --------------------------------------------------------------------------
+
+@router.get("/stats", response_model=StatsResponse)
+async def get_stats(db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access)):
+    snap = await learner_progress_snapshot(db, user.id)
+    mastery_pct = (
+        round(100 * snap["stages_complete"] / snap["stages_total"], 1)
+        if snap["stages_total"] else 0.0
+    )
+    return StatsResponse(
+        overall_mastery_pct=mastery_pct,
+        xp=snap["xp"], level=(snap["xp"] // 100) + 1,
+        current_streak_days=snap["current_streak_days"],
+        longest_streak_days=snap["longest_streak_days"],
+        stages_complete=snap["stages_complete"], stages_total=snap["stages_total"],
+        tracks_complete=snap["tracks_complete"], tracks_total=snap["tracks_total"],
+    )
+
+
+@router.get("/tracks", response_model=List[TrackSummaryResponse])
+async def list_tracks(db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access)):
+    tracks = (await db.execute(
+        select(LearningTrack).order_by(LearningTrack.order_index)
+    )).scalars().all()
+
+    out: List[TrackSummaryResponse] = []
+    prev_complete = True   # track 1 (lowest order_index) is always unlocked
+    for t in tracks:
+        done, total = await _track_stage_counts(db, user.id, t.id)
+        track_complete = total > 0 and done >= total
+        locked = not prev_complete
+        out.append(TrackSummaryResponse(
+            id=str(t.id), emoji=_CATEGORY_EMOJI.get(t.category.value, "📘"),
+            title=t.title, description=t.description, category=t.category.value,
+            stages_completed=done, total_stages=total, locked=locked,
+            route=f"/learn/tracks/{t.id}",
+        ))
+        prev_complete = track_complete or total == 0   # a track with no stages yet never blocks the next
+    return out
+
+
+@router.get("/tracks/{track_id}", response_model=TrackDetailResponse)
+async def get_track(
+    track_id: str, db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access),
+):
+    track = (await db.execute(
+        select(LearningTrack).where(LearningTrack.id == track_id)
+    )).scalar_one_or_none()
+    if track is None:
+        raise HTTPException(status_code=404, detail="Track not found")
+
+    stages = (await db.execute(
+        select(TrackStage).where(TrackStage.track_id == track_id).order_by(TrackStage.stage_number)
+    )).scalars().all()
+    completed_numbers = await _completed_stage_numbers(db, user.id, track_id)
+
+    quiz_scores = (await db.execute(
+        select(QuizAttempt.score_pct)
+        .join(Lesson, Lesson.id == QuizAttempt.lesson_id)
+        .where(Lesson.track_id == track_id, QuizAttempt.user_id == user.id)
+        .order_by(QuizAttempt.attempted_at)
+    )).scalars().all()
+    practice_results = (await db.execute(
+        select(PracticeAttempt.correct)
+        .where(PracticeAttempt.track_id == track_id, PracticeAttempt.user_id == user.id)
+        .order_by(PracticeAttempt.attempted_at)
+    )).scalars().all()
+    mastery = compute_mastery_level(MasteryInput(
+        quiz_scores_pct=list(quiz_scores),
+        practice_attempts_correct=[bool(r) for r in practice_results],
+    ))
+
+    stage_out: List[StageResponse] = []
+    for s in stages:
+        unlock = can_attempt_stage(s.stage_number, completed_numbers)
+        stage_out.append(StageResponse(
+            id=str(s.id), stage_number=s.stage_number, title=s.title,
+            lesson_id=str(s.lesson_id) if s.lesson_id else None,
+            min_quiz_score_pct=s.min_quiz_score_pct, min_practice_reps=s.min_practice_reps,
+            xp_reward=s.xp_reward, completed=s.stage_number in completed_numbers,
+            can_attempt=unlock.can_attempt, lock_reason=unlock.reason,
+        ))
+
+    return TrackDetailResponse(
+        id=str(track.id), title=track.title, description=track.description,
+        category=track.category.value, mastery_level=mastery.value, stages=stage_out,
+    )
+
+
+@router.post("/quiz", response_model=dict)
+async def submit_quiz(
+    req: QuizSubmitRequest, db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_active_access),
+):
+    attempt = QuizAttempt(user_id=user.id, lesson_id=req.lesson_id, score_pct=req.score_pct)
+    db.add(attempt)
+    await db.commit()
+    return {"recorded": True, "score_pct": req.score_pct}
+
+
+@router.post("/practice", response_model=dict)
+async def submit_practice(
+    req: PracticeSubmitRequest, db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_active_access),
+):
+    attempt = PracticeAttempt(
+        user_id=user.id, track_id=req.track_id, scenario_id=req.scenario_id,
+        correct=1 if req.correct else 0,
+    )
+    db.add(attempt)
+    await db.commit()
+    return {"recorded": True, "correct": req.correct}
+
+
+@router.post("/stages/complete", response_model=StageCompleteResponse)
+async def complete_stage(
+    req: StageCompleteRequest, db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_active_access),
+):
+    """Applies the real dual gate (§3b of the Learning System Handover):
+    a stage only completes when BOTH the quiz-score minimum AND the
+    practice-rep minimum are met — a 90% quiz score alone never
+    completes a stage on its own."""
+    stage = (await db.execute(
+        select(TrackStage).where(TrackStage.id == req.stage_id)
+    )).scalar_one_or_none()
+    if stage is None:
+        raise HTTPException(status_code=404, detail="Stage not found")
+
+    already_done = (await db.execute(
+        select(StageCompletion).where(
+            StageCompletion.user_id == user.id, StageCompletion.stage_id == stage.id,
+        )
+    )).scalar_one_or_none()
+    if already_done is not None:
+        return StageCompleteResponse(completed=True, reason="Already completed.")
+
+    completed_numbers = await _completed_stage_numbers(db, user.id, stage.track_id)
+    unlock = can_attempt_stage(stage.stage_number, completed_numbers)
+    if not unlock.can_attempt:
+        return StageCompleteResponse(completed=False, reason=unlock.reason)
+
+    best_quiz = 0.0
+    if stage.lesson_id:
+        best_quiz = (await db.execute(
+            select(func.max(QuizAttempt.score_pct)).where(
+                QuizAttempt.user_id == user.id, QuizAttempt.lesson_id == stage.lesson_id,
+            )
+        )).scalar() or 0.0
+    practice_reps = (await db.execute(
+        select(func.count(PracticeAttempt.id)).where(
+            PracticeAttempt.user_id == user.id, PracticeAttempt.track_id == stage.track_id,
+            PracticeAttempt.correct == 1,
+        )
+    )).scalar() or 0
+
+    if not stage_completion_meets_requirements(
+        best_quiz, practice_reps, stage.min_quiz_score_pct, stage.min_practice_reps
+    ):
+        return StageCompleteResponse(
+            completed=False,
+            reason=(
+                f"Needs {stage.min_quiz_score_pct:.0f}%+ quiz score "
+                f"(best so far: {best_quiz:.0f}%) and {stage.min_practice_reps} correct "
+                f"practice reps (so far: {practice_reps})."
+            ),
+        )
+
+    stats = await _get_or_create_stats(db, user.id)
+    now = datetime.now(timezone.utc)
+    streak: StreakUpdateResult = update_streak(
+        stats.last_activity_date, stats.current_streak_days, stats.longest_streak_days, now,
+    )
+    xp_awarded = xp_for_stage(stage.xp_reward, streak.new_streak_days) if streak.xp_awarded_today else 0
+
+    db.add(StageCompletion(user_id=user.id, stage_id=stage.id, completed_at=now))
+    stats.current_streak_days = streak.new_streak_days
+    stats.longest_streak_days = streak.new_longest_streak_days
+    stats.last_activity_date = now
+    stats.total_xp += xp_awarded
+    await db.commit()
+
+    return StageCompleteResponse(
+        completed=True, xp_awarded=xp_awarded, new_streak_days=streak.new_streak_days,
+    )
