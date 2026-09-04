@@ -145,6 +145,89 @@ async def today_stats(db: AsyncSession = Depends(get_db), user: User = Depends(r
         "active_trades": len([t for t in trades if t.status == TradeStatus.ACTIVE])
     }
 
+@router.get("/analytics/summary")
+async def analytics_summary(
+    bot_id: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_active_access),
+):
+    """
+    Real aggregates over the caller's own CLOSED trades — daily and
+    monthly realized PnL, performance by symbol, and the standard
+    trade-analysis figures (avg win/loss, best/worst, win rate, profit
+    factor). Feeds InsightsPage's analytics section.
+
+    Deliberately does NOT include a running account balance/equity
+    column the way a real broker statement would: this app has no
+    persisted account-balance concept (account_equity on a manual
+    order is a per-trade sizing input, not a tracked running balance),
+    so showing one would mean fabricating a number this app can't
+    actually back. Daily Summary reports realized PnL per day instead
+    — real, not invented.
+    """
+    query = _scope_to_owner(select(Trade), user).where(Trade.status == TradeStatus.CLOSED)
+    if bot_id:
+        query = query.where(Trade.bot_id == bot_id)
+    result = await db.execute(query)
+    trades = result.scalars().all()
+
+    daily: Dict[str, Dict] = {}
+    monthly: Dict[str, float] = {}
+    by_symbol: Dict[str, Dict] = {}
+    wins: List[float] = []
+    losses: List[float] = []
+
+    for t in trades:
+        pnl = t.realized_pnl or 0.0
+        ts = t.exit_timestamp or t.created_at
+        if ts is None:
+            continue
+        day_key = ts.strftime("%Y-%m-%d")
+        month_key = ts.strftime("%Y-%m")
+
+        d = daily.setdefault(day_key, {"date": day_key, "trades": 0, "realized_pnl": 0.0})
+        d["trades"] += 1
+        d["realized_pnl"] += pnl
+
+        monthly[month_key] = monthly.get(month_key, 0.0) + pnl
+
+        s = by_symbol.setdefault(t.symbol, {"symbol": t.symbol, "trades": 0, "realized_pnl": 0.0})
+        s["trades"] += 1
+        s["realized_pnl"] += pnl
+
+        if pnl > 0:
+            wins.append(pnl)
+        elif pnl < 0:
+            losses.append(pnl)
+
+    total = len(trades)
+    gross_loss = abs(sum(losses))
+
+    for d in daily.values():
+        d["realized_pnl"] = round(d["realized_pnl"], 2)
+    for s in by_symbol.values():
+        s["realized_pnl"] = round(s["realized_pnl"], 2)
+
+    return {
+        "total_closed_trades": total,
+        "daily_summary": sorted(daily.values(), key=lambda r: r["date"], reverse=True),
+        "monthly_pnl": [
+            {"month": k, "realized_pnl": round(v, 2)}
+            for k, v in sorted(monthly.items(), reverse=True)
+        ],
+        "by_symbol": sorted(by_symbol.values(), key=lambda r: r["realized_pnl"], reverse=True),
+        "trade_analysis": {
+            "win_rate": round(len(wins) / total * 100, 2) if total else 0.0,
+            "avg_win": round(sum(wins) / len(wins), 2) if wins else 0.0,
+            "avg_loss": round(sum(losses) / len(losses), 2) if losses else 0.0,
+            "best_trade": round(max(wins), 2) if wins else 0.0,
+            "worst_trade": round(min(losses), 2) if losses else 0.0,
+            # None (not Infinity — invalid JSON) when there are no
+            # losses yet to divide by; the frontend shows "—" for that.
+            "profit_factor": round(sum(wins) / gross_loss, 2) if gross_loss > 0 else None,
+        },
+    }
+
 @router.get("/{trade_id}", response_model=TradeResponse)
 async def get_trade(trade_id: str, db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access)):
     """Get detailed trade information."""

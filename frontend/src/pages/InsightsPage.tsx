@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { PageHeader } from '../components/PageHeader';
 import { FoldedCard } from '../components/FoldedCard';
 import { ChartPanel } from '../components/ChartPanel';
-import { LineChart } from 'lucide-react';
+import { TradeAnalytics } from '../components/TradeAnalytics';
+import { LineChart, BarChart3 } from 'lucide-react';
 import { useThemeStore } from '../hooks/useTheme';
 import { useAuth } from '../hooks/useAuth';
 import { apiFetch } from '../components/AccessExpiredGate';
@@ -150,7 +151,7 @@ export function InsightsPage() {
 
   return (
     <div>
-      <PageHeader title="Insights" subtitle="Monte Carlo forecasts, weekly coach reviews, and the go-live validation gate." />
+      <PageHeader title="Insights" subtitle="Trader analytics from your real closed trades, Monte Carlo forecasts, weekly coach reviews, and the go-live validation gate." />
 
       <div className="mb-4">
         <FoldedCard title="Free Chart" summary="A live TradingView chart, right here" icon={<LineChart size={19} />} dark={dark} defaultOpen>
@@ -176,6 +177,20 @@ export function InsightsPage() {
           ))}
         </div>
       )}
+
+      {/* Trader Analytics — real per-account analytics from closed
+          trades (win rate, avg win/loss, best/worst, profit factor,
+          performance by symbol, most traded pairs, daily/monthly
+          realized PnL). See TradeAnalytics.tsx's own docstring for
+          what the reference dashboard this was modeled on shows that
+          this section deliberately doesn't (a running account
+          balance and prop-firm-style challenge rules — this app has
+          neither concept to honestly back those numbers with). */}
+      <div className="mt-4">
+        <FoldedCard title="Trader Analytics" summary="Win rate, PnL by symbol and by day, and more — from your real trade history" icon={<BarChart3 size={19} />} dark={dark} defaultOpen>
+          <TradeAnalytics dark={dark} />
+        </FoldedCard>
+      </div>
     </div>
   );
 }
