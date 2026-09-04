@@ -40,8 +40,19 @@ interface TrackSummary {
  * surfaces the AccessExpiredGate card — most of the app still calls
  * plain fetch() and never wired that up, a separate, wider gap this
  * page doesn't fix on its own.
+ *
+ * `categoryFilter` backs the Site Map's three specific Learn sub-links
+ * (Trading Basics / Bot Mastery Tracks / Trading Psychology) — those
+ * routed to /learn/basics, /learn/bots, /learn/psychology, none of
+ * which existed as real routes, so they always fell through to the
+ * sitemap redirect. There's no dedicated per-category endpoint, so
+ * this filters the same /curriculum/tracks response LearnPage always
+ * fetched, client-side, by TrackCategory. "Mastery Overview" and
+ * "Awards & Certificates" have no backing feature at all yet (no
+ * badges/certificates model exists) — those two route to the
+ * unfiltered page instead of a dead end.
  */
-export function LearnPage() {
+export function LearnPage({ categoryFilter }: { categoryFilter?: 'basics' | 'bot_mastery' | 'psychology' } = {}) {
   const { theme } = useThemeStore();
   const dark = theme === 'dark';
   const { token } = useAuth();
@@ -73,12 +84,19 @@ export function LearnPage() {
       ]
     : [];
 
+  const filteredTracks = categoryFilter ? tracks?.filter((t) => t.category === categoryFilter) ?? null : tracks;
+  const headerCopy = {
+    basics: { title: 'Trading Basics', subtitle: 'Start from zero — market structure, order types, and risk fundamentals.' },
+    bot_mastery: { title: 'Bot Mastery Tracks', subtitle: "Novice-to-mastery path for each of the 5 bots' own methodology — locked sequence, stage by stage." },
+    psychology: { title: 'Trading Psychology', subtitle: 'Discipline, emotional control, and process-over-outcome thinking.' },
+  } as const;
+  const { title, subtitle } = categoryFilter
+    ? headerCopy[categoryFilter]
+    : { title: 'Learn', subtitle: 'Structured tracks for market structure, each bot’s own methodology, and trading psychology.' };
+
   return (
     <div>
-      <PageHeader
-        title="Learn"
-        subtitle="Structured tracks for market structure, each bot’s own methodology, and trading psychology."
-      />
+      <PageHeader title={title} subtitle={subtitle} />
 
       {error && <p className={`text-sm mb-4 ${dark ? 'text-red-400' : 'text-red-500'}`}>{error}</p>}
 
@@ -96,19 +114,21 @@ export function LearnPage() {
         </div>
       )}
 
-      {tracks === null && !error && (
+      {filteredTracks === null && !error && (
         <p className={`text-sm ${dark ? 'text-white/40' : 'text-gray-400'}`}>Loading your tracks…</p>
       )}
 
-      {tracks && tracks.length === 0 && (
+      {filteredTracks && filteredTracks.length === 0 && (
         <p className={`text-sm ${dark ? 'text-white/40' : 'text-gray-400'}`}>
-          No learning tracks are seeded yet — an admin needs to run the curriculum seed script first.
+          {tracks && tracks.length > 0
+            ? 'No tracks in this category yet.'
+            : 'No learning tracks are seeded yet — an admin needs to run the curriculum seed script first.'}
         </p>
       )}
 
-      {tracks && tracks.length > 0 && (
+      {filteredTracks && filteredTracks.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {tracks.map((t) => {
+          {filteredTracks.map((t) => {
             const pct = t.total_stages > 0 ? Math.round((100 * t.stages_completed) / t.total_stages) : 0;
             const Card = (
               <div

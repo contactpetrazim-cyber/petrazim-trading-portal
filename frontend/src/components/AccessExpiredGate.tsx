@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Clock, ShieldCheck, RefreshCw } from 'lucide-react';
 import { CardLogoBand } from './CardLogoBand';
 import { useThemeStore } from '../hooks/useTheme';
@@ -11,10 +12,20 @@ import { useThemeStore } from '../hooks/useTheme';
  * sourced from require_active_access()'s payload, not placeholder
  * text), a full-width primary button, and the promo-code hint.
  *
- * Wraps the whole app once. Any apiFetch() call anywhere that hits
- * require_active_access() and gets blocked (402) triggers this
- * automatically — one place, can't be missed by a page that forgot
- * to handle it individually.
+ * Wraps the whole app once (mounted in App.tsx, inside BrowserRouter
+ * so its "Renew access" button can navigate). Any apiFetch() call
+ * anywhere that hits require_active_access() and gets blocked (402)
+ * triggers this automatically — one place, can't be missed by a page
+ * that forgot to handle it individually.
+ *
+ * Was previously exported but never actually mounted anywhere in the
+ * app tree — every 402 called triggerAccessExpired(), but the
+ * globalSetter it calls was always null since this component's own
+ * effect never ran, so the card silently never appeared. Every page
+ * fell back to its own (usually much weaker) local error handling
+ * instead — the real cause behind both LearnPage's generic "Could not
+ * load your Learn progress right now" and TradeAnalytics' permanent
+ * "Loading trade analytics…" with no error path at all.
  */
 
 interface ExpiredDetail {
@@ -35,11 +46,17 @@ export function AccessExpiredGate({ children }: { children: React.ReactNode }) {
   const [expired, setExpired] = useState<ExpiredDetail | null>(null);
   const { theme } = useThemeStore();
   const dark = theme === 'dark';
+  const navigate = useNavigate();
 
   useEffect(() => {
     globalSetter = setExpired;
     return () => { globalSetter = null; };
   }, []);
+
+  const handleRenew = () => {
+    setExpired(null);
+    navigate('/payments');
+  };
 
   return (
     <>
@@ -64,6 +81,7 @@ export function AccessExpiredGate({ children }: { children: React.ReactNode }) {
             </div>
 
             <button
+              onClick={handleRenew}
               className="w-full flex items-center justify-center gap-2 text-white font-semibold py-3.5 rounded-xl transition-transform hover:scale-[1.01]"
               style={{ background: 'linear-gradient(105deg, #003876 0%, #005FB8 50%, #00829B 100%)' }}
             >

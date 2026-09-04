@@ -28,6 +28,7 @@ import { ManualTradingPage } from './pages/ManualTradingPage';
 import { TradePage } from './pages/TradePage';
 import { PaymentsPage } from './pages/PaymentsPage';
 import { ProtectedRoute } from './components/ProtectedRoute';
+import { AccessExpiredGate } from './components/AccessExpiredGate';
 import type { UserRole } from './hooks/useAuth';
 
 // Mirrors the backend's PORTAL_ACCESS hierarchy (services/portal_access.py):
@@ -68,6 +69,7 @@ function CorporateLayout({ children }: { children: React.ReactNode }) {
 function App() {
   return (
     <BrowserRouter>
+      <AccessExpiredGate>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/onboarding" element={<OnboardingPage />} />
@@ -141,6 +143,19 @@ function App() {
             engines with zero frontend before this). */}
         <Route path="/learn" element={<CorporateLayout><LearnPage /></CorporateLayout>} />
         <Route path="/learn/tracks/:trackId" element={<CorporateLayout><LearnTrackPage /></CorporateLayout>} />
+
+        {/* Site Map's three category-specific Learn sub-links — previously
+            unregistered routes that fell through to the sitemap redirect
+            below, so clicking any of them just bounced back to the Site
+            Map. "Mastery Overview" and "Awards & Certificates" have no
+            backing feature yet (no badges/certificates model exists), so
+            those route to the real, unfiltered Learn page rather than a
+            dead end. */}
+        <Route path="/learn/basics" element={<CorporateLayout><LearnPage categoryFilter="basics" /></CorporateLayout>} />
+        <Route path="/learn/bots" element={<CorporateLayout><LearnPage categoryFilter="bot_mastery" /></CorporateLayout>} />
+        <Route path="/learn/psychology" element={<CorporateLayout><LearnPage categoryFilter="psychology" /></CorporateLayout>} />
+        <Route path="/learn/mastery" element={<Navigate to="/learn" replace />} />
+        <Route path="/learn/awards" element={<Navigate to="/learn" replace />} />
         <Route path="/tools" element={<CorporateLayout><ToolsPage /></CorporateLayout>} />
         <Route path="/insights" element={<CorporateLayout><InsightsPage /></CorporateLayout>} />
         <Route path="/community" element={<CorporateLayout><CommunityPage /></CorporateLayout>} />
@@ -171,6 +186,7 @@ function App() {
             instead of a blank screen until those land. */}
         <Route path="*" element={<Navigate to="/sitemap" replace />} />
       </Routes>
+      </AccessExpiredGate>
     </BrowserRouter>
   );
 }

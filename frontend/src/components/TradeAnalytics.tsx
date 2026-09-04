@@ -214,21 +214,43 @@ function profitFactorLabel(pf: number | null): { text: string; cls: string } {
 export function TradeAnalytics({ dark = false }: { dark?: boolean }) {
   const { token } = useAuth();
   const [summary, setSummary] = useState<Summary | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [dailyPage, setDailyPage] = useState(0);
   const [monthPage, setMonthPage] = useState(0);
+  const [retryTick, setRetryTick] = useState(0);
 
   useEffect(() => {
     if (!token) return;
+    setError(null);
     apiFetch(`${API_URL}/trades/analytics/summary`, { headers: { Authorization: `Bearer ${token}` } })
-      .then((r) => (r.ok ? r.json() : null))
+      .then((r) => {
+        // A 402 (access expired) is already surfaced by the global
+        // AccessExpiredGate — apiFetch triggers that card itself, so
+        // this component just needs to stop claiming to be "loading."
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
       .then(setSummary)
-      .catch(() => setSummary(null));
-  }, [token]);
+      .catch(() => setError('Could not load trade analytics right now.'));
+  }, [token, retryTick]);
 
   const cardCls = `rounded-2xl p-5 border ${dark ? 'bg-corporate-surface-dark border-corporate-border-dark' : 'bg-white border-corporate-bg'}`;
   const titleCls = `text-xs font-semibold uppercase tracking-wide mb-4 ${dark ? 'text-white/40' : 'text-gray-400'}`;
   const mutedCls = dark ? 'text-white/40' : 'text-gray-400';
 
+  if (error) {
+    return (
+      <div className={`text-sm ${dark ? 'text-red-400' : 'text-red-500'}`}>
+        {error}{' '}
+        <button
+          onClick={() => setRetryTick((n) => n + 1)}
+          className={`underline font-medium ${dark ? 'text-white/70 hover:text-white' : 'text-gray-700 hover:text-gray-900'}`}
+        >
+          Try again
+        </button>
+      </div>
+    );
+  }
   if (summary === null) {
     return <p className={`text-sm ${mutedCls}`}>Loading trade analytics…</p>;
   }
