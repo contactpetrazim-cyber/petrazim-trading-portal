@@ -112,66 +112,6 @@ async def get_trades(
     ]
 
 
-class FootprintBucket(BaseModel):
-    bucket_start_ms: int
-    buy_volume: float
-    sell_volume: float
-    delta: float
-    high: float
-    low: float
-    trade_count: int
-
-
-@router.get("/footprint", response_model=List[FootprintBucket])
-async def get_footprint(
-    symbol: str = "BTCUSDT", limit: int = 500, buckets: int = 20,
-    user: User = Depends(require_active_access),
-):
-    """Real footprint/delta (OF-04), computed by bucketing genuine
-    recent trades into `buckets` equal time windows and summing real
-    aggressor-side volume in each — not simulated. `limit` (trades
-    fetched) is capped at 1000 (Binance's own max for this endpoint);
-    `buckets` at 60."""
-    symbol = _validate_symbol(symbol)
-    limit = max(buckets, min(limit, 1000))
-    buckets = max(1, min(buckets, 60))
-
-    resp = await _binance_get("/trades", {"symbol": symbol, "limit": limit})
-    raw = resp.json()
-    if not raw:
-        return []
-
-    times = [t["time"] for t in raw]
-    t_min, t_max = min(times), max(times)
-    span = max(1, t_max - t_min)
-    bucket_ms = max(1, span // buckets)
-
-    grouped: Dict[int, dict] = defaultdict(lambda: {
-        "buy": 0.0, "sell": 0.0, "high": None, "low": None, "count": 0,
-    })
-    for t in raw:
-        idx = min(buckets - 1, (t["time"] - t_min) // bucket_ms)
-        bucket_start = t_min + idx * bucket_ms
-        g = grouped[bucket_start]
-        qty = float(t["qty"])
-        price = float(t["price"])
-        if t["isBuyerMaker"]:
-            g["sell"] += qty
-        else:
-            g["buy"] += qty
-        g["high"] = price if g["high"] is None else max(g["high"], price)
-        g["low"] = price if g["low"] is None else min(g["low"], price)
-        g["count"] += 1
-
-    return [
-        FootprintBucket(
-            bucket_start_ms=start, buy_volume=round(g["buy"], 6), sell_volume=round(g["sell"], 6),
-            delta=round(g["buy"] - g["sell"], 6), high=g["high"], low=g["low"], trade_count=g["count"],
-        )
-        for start, g in sorted(grouped.items())
-    ]
-
-
 class DepthLevel(BaseModel):
     price: float
     qty: float

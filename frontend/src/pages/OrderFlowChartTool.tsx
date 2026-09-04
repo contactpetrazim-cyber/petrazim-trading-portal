@@ -6,10 +6,6 @@ import { apiFetch } from '../components/AccessExpiredGate';
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 interface TradePrint { price: number; qty: number; time: number; aggressor: 'buy' | 'sell' }
-interface FootprintBucket {
-  bucket_start_ms: number; buy_volume: number; sell_volume: number;
-  delta: number; high: number; low: number; trade_count: number;
-}
 interface DepthLevel { price: number; qty: number }
 interface Depth { bids: DepthLevel[]; asks: DepthLevel[] }
 interface FootprintRow { row_price: number; bid_volume: number; ask_volume: number }
@@ -24,7 +20,6 @@ interface FootprintChart {
 }
 
 const TRADES_POLL_MS = 4000;
-const FOOTPRINT_POLL_MS = 10000;
 const DEPTH_POLL_MS = 5000;
 const CHART_POLL_MS = 15000;
 
@@ -40,9 +35,10 @@ const CHART_POLL_MS = 15000;
  * note: this platform's Candle model carries no tick or order-book
  * data anywhere). Proxies Binance's free, no-API-key-required public
  * market-data endpoints (routers/order_flow.py) for a fixed list of
- * liquid crypto pairs — genuine time & sales (the tape, OF-02),
- * genuine aggressor-side delta per time bucket (footprint, OF-04),
- * and a genuine resting order-book snapshot (DOM, OF-05).
+ * liquid crypto pairs — genuine time & sales (the tape, OF-02), a
+ * genuine resting order-book snapshot (DOM, OF-05), and a genuine
+ * per-price-level footprint chart with volume profile (OF-03, OF-04,
+ * OF-06, OF-07).
  *
  * Deliberately scoped to crypto: Binance is the free, real,
  * no-account data source this exists to use — it has no forex data,
@@ -57,7 +53,6 @@ export function OrderFlowChartTool() {
   const [symbols, setSymbols] = useState<string[]>([]);
   const [symbol, setSymbol] = useState('BTCUSDT');
   const [trades, setTrades] = useState<TradePrint[] | null>(null);
-  const [footprint, setFootprint] = useState<FootprintBucket[] | null>(null);
   const [depth, setDepth] = useState<Depth | null>(null);
   const [chart, setChart] = useState<FootprintChart | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -83,20 +78,6 @@ export function OrderFlowChartTool() {
     };
     load();
     const id = setInterval(load, TRADES_POLL_MS);
-    return () => { cancelled = true; clearInterval(id); };
-  }, [token, symbol]);
-
-  useEffect(() => {
-    if (!token) return;
-    let cancelled = false;
-    const load = () => {
-      apiFetch(`${API_URL}/order-flow/footprint?symbol=${symbol}&limit=500&buckets=20`, { headers })
-        .then((r) => (r.ok ? r.json() : null))
-        .then((d) => !cancelled && d && setFootprint(d))
-        .catch(() => {});
-    };
-    load();
-    const id = setInterval(load, FOOTPRINT_POLL_MS);
     return () => { cancelled = true; clearInterval(id); };
   }, [token, symbol]);
 
@@ -132,8 +113,6 @@ export function OrderFlowChartTool() {
   const titleCls = `text-xs font-semibold uppercase tracking-wide mb-4 ${dark ? 'text-white/40' : 'text-gray-400'}`;
   const mutedCls = dark ? 'text-white/40' : 'text-gray-400';
 
-  const maxAbsDelta = footprint ? Math.max(1, ...footprint.map((b) => Math.abs(b.delta))) : 1;
-
   return (
     <div>
       <p className={`text-xs mb-4 ${mutedCls}`}>
@@ -145,7 +124,7 @@ export function OrderFlowChartTool() {
         <span className={`text-xs ${mutedCls}`}>Symbol</span>
         <select
           value={symbol}
-          onChange={(e) => { setTrades(null); setFootprint(null); setDepth(null); setSymbol(e.target.value); }}
+          onChange={(e) => { setTrades(null); setDepth(null); setChart(null); setSymbol(e.target.value); }}
           className={`text-sm font-semibold px-3 py-1.5 rounded-lg border ${dark ? 'bg-corporate-surface-dark border-corporate-border-dark text-white' : 'bg-white border-corporate-bg text-corporate-text-on-bg'}`}
         >
           {(symbols.length ? symbols : [symbol]).map((s) => (
@@ -157,7 +136,7 @@ export function OrderFlowChartTool() {
 
       {error && <p className={`text-sm mb-4 ${dark ? 'text-red-400' : 'text-red-500'}`}>{error}</p>}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Tape */}
         <div className={cardCls}>
           <div className={titleCls}>Time &amp; Sales (Tape)</div>
@@ -178,35 +157,6 @@ export function OrderFlowChartTool() {
               ))}
             </div>
           )}
-        </div>
-
-        {/* Footprint / Delta */}
-        <div className={cardCls}>
-          <div className={titleCls}>Delta per Bucket (Footprint)</div>
-          {footprint === null ? (
-            <p className={`text-sm ${mutedCls}`}>Loading delta…</p>
-          ) : footprint.length === 0 ? (
-            <p className={`text-sm ${mutedCls}`}>No recent trades to bucket.</p>
-          ) : (
-            <div className="flex items-end gap-1 h-56">
-              {footprint.map((b) => {
-                const pct = (Math.abs(b.delta) / maxAbsDelta) * 100;
-                const positive = b.delta >= 0;
-                return (
-                  <div key={b.bucket_start_ms} className="flex-1 flex flex-col justify-end h-full" title={`Δ ${b.delta.toFixed(4)} (${b.trade_count} trades)`}>
-                    <div
-                      className={`w-full rounded-sm ${positive ? 'bg-emerald-500' : 'bg-red-500'}`}
-                      style={{ height: `${Math.max(2, pct)}%` }}
-                    />
-                  </div>
-                );
-              })}
-            </div>
-          )}
-          <div className={`text-xs mt-3 ${mutedCls}`}>
-            Each bar is real aggressor-side buy volume minus sell volume for that time window — a
-            positive (green) bar means more aggressive buying than selling.
-          </div>
         </div>
 
         {/* DOM */}
