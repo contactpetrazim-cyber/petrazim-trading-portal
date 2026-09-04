@@ -508,3 +508,519 @@ identifying displacement: its very first signal rule requires a
 higher-timeframe BOS confirming direction, and its second requires
 displacement to create an FVG above minimum ATR size — this lesson is
 the literal prerequisite for reading that rule correctly.
+
+---
+
+## C1-04 — Liquidity and Volatility: First Look
+
+**Level:** 0
+**Estimated study time:** 14 minutes
+**Prerequisites:** C1-01, C1-03
+**Learning objectives:** Define liquidity and volatility as distinct
+properties, explain why a market can be liquid but not volatile (or
+volatile but not liquid), and identify the practical trading
+consequences of each.
+
+### Why This Matters
+
+Liquidity and volatility get used almost interchangeably in casual
+trading talk, but they measure genuinely different things and have
+different practical consequences for spread, slippage, and position
+sizing. Confusing them leads to mis-set expectations — for example,
+assuming a highly liquid instrument is automatically "safe," when
+liquidity says nothing about how much price actually moves.
+
+### Core Teaching
+
+**Plain-English explanation.** Liquidity is about how easily you can
+get in and out of a position without moving price against yourself —
+how many willing buyers and sellers are actively present. Volatility is
+about how much price actually moves over a given period, regardless of
+how easy it was to trade. A market can be extremely liquid (tight
+spreads, huge order flow) and still calm (small price swings), or
+liquid and violently volatile at the same time — these are two
+independent dials, not one.
+
+**Technical explanation.** Liquidity is commonly estimated from bid/ask
+spread and traded volume: tight spreads and high volume indicate deep
+liquidity; wide spreads and thin volume indicate shallow liquidity.
+Volatility is commonly measured with tools like Average True Range
+(ATR), which averages the true range (accounting for gaps) of recent
+candles to give a single number representing typical price movement
+per period. A major FX pair during a quiet Asian session can be highly
+liquid (tight spread) with low ATR (small typical range) — liquid but
+low-volatility. The same pair during a major news release can spike to
+very high ATR while spreads simultaneously widen — a combination of
+rising volatility and temporarily thinning liquidity that produces the
+worst slippage conditions.
+
+### Visual Model
+
+See diagram: `visuals/c1-04-liquidity-volatility-grid.svg` — a
+two-axis grid, Liquidity (low to high) on one axis, Volatility (low to
+high) on the other, with example market conditions plotted in each of
+the four quadrants (e.g., "quiet major FX session" in high-liquidity/
+low-volatility; "news-release spike" in temporarily-lower-liquidity/
+high-volatility).
+
+### Worked Example
+
+EUR/USD during the London/New York overlap typically shows tight
+spreads (deep liquidity) and moderate, tradable ATR (moderate
+volatility) — generally considered favorable trading conditions. The
+same pair during a surprise central bank rate announcement can show
+both a spike in ATR and a simultaneous widening of spread as market
+makers pull back — high volatility paired with temporarily reduced
+liquidity, a combination that increases slippage risk sharply.
+
+### Counterexample
+
+A trader assumes that because an instrument is "known to be liquid"
+(a major crypto pair, say), it's automatically safe to trade any
+position size at any time. During a sudden liquidation cascade, spread
+can widen and slippage can spike sharply even on a normally
+deep-liquidity instrument — liquidity is a general tendency, not a
+guarantee that holds under every condition.
+
+### Good Example / Bad Example
+
+Good: Checking both current spread AND current ATR (or a volatility
+indicator) before sizing a trade, especially around scheduled news
+events. Bad: Treating "this instrument is usually liquid" as a
+permanent, unconditional fact rather than a normal condition that can
+temporarily break down around news or thin-session hours.
+
+### What to Look Out For
+
+- Liquidity and volatility can move independently — check both, not
+  just one.
+- Liquidity often drops sharply exactly when volatility spikes (major
+  news, low-volume hours) — the worst possible combination for
+  slippage.
+- "This is normally a liquid market" is a statement about typical
+  conditions, not a guarantee for right now.
+
+### Common Mistakes
+
+Beginners often use "volatile" and "risky" as if they were the same
+word, or "liquid" and "safe." Both conflations skip over the actual
+mechanism: volatility measures movement, liquidity measures ease of
+execution, and risk depends on how your position size interacts with
+both, not on either property alone.
+
+### Key Takeaways
+
+1. Liquidity measures ease of entry/exit without moving price;
+   volatility measures how much price actually moves.
+2. The two are independent — a market can be liquid and calm, liquid
+   and volatile, thin and calm, or thin and volatile.
+3. Liquidity frequently thins exactly when volatility spikes (news
+   events), which is when slippage risk is highest.
+
+### Practice Drill
+
+Given five short instrument/session descriptions (provided in
+Practise), classify each into one of the four liquidity/volatility
+quadrants and justify your classification in one sentence.
+
+### Scenario Challenge
+
+A major economic release is scheduled in ten minutes on an instrument
+you were planning to trade. Using this lesson's vocabulary, what two
+things should you expect to change in the minutes around the release,
+and how should that change your plan?
+
+### Mini Quiz
+
+Q1 (True/False): A highly liquid instrument is always low-volatility.
+Answer: False — liquidity and volatility are independent properties.
+
+Q2 (Multiple choice): What commonly happens to liquidity during a
+major, surprise news release?
+(a) It typically increases sharply
+(b) It's unaffected by news
+(c) It often thins temporarily, even on normally liquid instruments
+(d) It only affects illiquid instruments
+
+Answer: (c). Spreads often widen and depth thins right around
+high-impact news, even on instruments that are normally deep.
+
+### Flashcards
+
+- Front: Liquidity vs. volatility — what's the difference? Back:
+  Liquidity measures how easily you can trade without moving price;
+  volatility measures how much price actually moves. They're
+  independent.
+- Front: What commonly happens to liquidity right around major news
+  events? Back: It often thins temporarily, even on normally
+  deep-liquidity instruments, which combines badly with the volatility
+  spike that also occurs.
+
+### Reflection
+
+Have you ever been surprised by slippage or a wide spread during a
+news event on an instrument you considered "always liquid"? What would
+checking both dials in advance have told you?
+
+### Mastery Criteria
+
+Correctly classify all five practice-drill scenarios into the correct
+liquidity/volatility quadrant with valid justification.
+
+### Spaced Review
+
+Day 1, Day 7, Day 21 — this distinction resurfaces directly in Core 8's
+lesson on leverage, margin, spread, slippage, and fees.
+
+### Bot Connection
+
+Every bot's risk engine checks both current spread and a volatility
+measure before allowing an order through — this lesson is the
+conceptual basis for why that dual check exists rather than relying on
+just one signal.
+
+---
+
+## C1-05 — Timeframes and Chart Navigation
+
+**Level:** 0
+**Estimated study time:** 13 minutes
+**Prerequisites:** C1-02
+**Learning objectives:** Explain what a timeframe represents, describe
+the tradeoffs between higher and lower timeframes, and correctly
+navigate a multi-timeframe chart setup.
+
+### Why This Matters
+
+Nearly every concept from Core 2 onward (structure, liquidity, zones)
+is defined relative to a specific timeframe — a "swing high" on a
+1-hour chart and a "swing high" on a 1-minute chart are not the same
+event. Without a solid grasp of what a timeframe actually represents
+and how timeframes relate to each other, later multi-timeframe
+analysis (Core 7) will feel arbitrary rather than logical.
+
+### Core Teaching
+
+**Plain-English explanation.** A timeframe is simply the amount of
+price action compressed into one candle. A 1-hour candle summarizes
+everything that happened to price during that hour into a single open,
+high, low, close. A 1-minute candle does the same for just one minute.
+Higher timeframes (Daily, 4H, 1H) show the big picture with less noise
+but react slowly; lower timeframes (15m, 5m, 1m) show fine detail and
+react quickly but contain far more noise — much of what looks like a
+meaningful move on a 1-minute chart is invisible on a Daily chart.
+
+**Technical explanation.** Every higher-timeframe candle is built from
+many lower-timeframe candles — a single 4H candle is composed of
+sixteen 15-minute candles, for example. This nesting relationship is
+exactly why multi-timeframe analysis works: a pattern on a higher
+timeframe (say, a 4H order block) has real internal structure visible
+only by dropping to a lower timeframe (a 15-minute chart) to find a
+precise entry within that broader zone. This is the basis of Core 7's
+five-layer timeframe stack — different timeframes are used for
+different jobs (macro bias, direction, opportunity, trigger, execution)
+specifically because no single timeframe does all of those jobs well.
+
+### Visual Model
+
+See diagram: `visuals/c1-05-timeframe-nesting.svg` — a single 4H
+candle shown expanded into the sixteen 15-minute candles that compose
+it, demonstrating that higher-timeframe structure is not a different
+kind of price action, just a different resolution of the same price
+action.
+
+### Worked Example
+
+A trader identifies a strong bullish 4H order block. Rather than
+entering blindly at the top of that 4H zone, they drop to the
+15-minute chart, wait for price to enter the zone, and look for a
+15-minute market structure shift (a small CHoCH) before entering — the
+higher timeframe supplied the zone, the lower timeframe supplied
+entry precision.
+
+### Counterexample
+
+A trader analyzes a setup entirely on a 1-minute chart with no
+reference to any higher timeframe, then wonders why a "clean-looking"
+pattern immediately fails. The 1-minute chart alone has no way of
+showing that price is approaching a major Daily resistance level — the
+zoomed-in view was missing essential context only a higher timeframe
+provides.
+
+### Good Example / Bad Example
+
+Good: Establishing directional bias and key zones on a higher
+timeframe first, then using a lower timeframe only to refine entry
+timing within that established context. Bad: Picking whichever
+timeframe currently shows the most exciting-looking pattern with no
+consistent top-down process.
+
+### What to Look Out For
+
+- A pattern that looks compelling on a low timeframe can be
+  meaningless noise from a higher timeframe's perspective — always
+  check up before trusting down.
+- Higher timeframes update and confirm slower — don't expect a 4H
+  structure shift to be obvious within minutes.
+- Switching timeframes mid-analysis without a defined process (called
+  "timeframe shopping") is a common way to unconsciously find whatever
+  chart confirms a bias you already have.
+
+### Common Mistakes
+
+New traders often anchor to whichever timeframe they happen to be
+looking at, rather than deliberately choosing a timeframe for a
+specific analytical job. This leads to reading a 5-minute chart as if
+it contains all the context a Daily chart would provide, and being
+repeatedly surprised when higher-timeframe forces override a
+lower-timeframe pattern.
+
+### Key Takeaways
+
+1. A timeframe is a compression window — how much price action is
+   summarized into one candle.
+2. Higher timeframes show the big picture with less noise; lower
+   timeframes show precise detail with more noise.
+3. Effective analysis moves top-down: establish context on a higher
+   timeframe, refine entries on a lower one.
+
+### Practice Drill
+
+Given a 4H chart and its corresponding 15-minute chart for the same
+period (provided in Practise), identify one 4H-level feature (a zone,
+a swing point) and locate exactly where it appears within the
+15-minute chart's internal structure.
+
+### Scenario Challenge
+
+You spot what looks like a strong reversal pattern on a 5-minute
+chart. Before acting on it, what two things should you check on a
+higher timeframe, and why?
+
+### Mini Quiz
+
+Q1 (True/False): A pattern on a 1-minute chart always carries the same
+significance as the same-shaped pattern on a Daily chart.
+Answer: False — significance depends heavily on timeframe context, not
+just the pattern's shape.
+
+Q2 (Multiple choice): Why is a single 4H candle composed of exactly
+sixteen 15-minute candles?
+(a) Coincidence
+(b) Because 4 hours contains sixteen 15-minute periods (4 x 60 / 15)
+(c) Broker-specific convention with no fixed ratio
+(d) Timeframes are unrelated to each other
+
+Answer: (b). Timeframes nest in fixed, calculable ratios because a
+higher timeframe candle is literally built from the lower-timeframe
+candles inside its time window.
+
+### Flashcards
+
+- Front: What does a timeframe represent? Back: The amount of price
+  action compressed into a single candle — e.g., one hour's worth for
+  a 1H candle.
+- Front: Why does multi-timeframe analysis work? Back: Higher-timeframe
+  candles are literally composed of lower-timeframe candles, so a
+  higher-timeframe zone always has real internal structure visible by
+  dropping to a lower timeframe.
+
+### Reflection
+
+Which timeframe do you naturally gravitate toward when you open a
+chart? Is that a deliberate choice for a specific analytical job, or
+just habit?
+
+### Mastery Criteria
+
+Correctly locate the practice-drill's 4H-level feature within its
+corresponding 15-minute internal structure.
+
+### Spaced Review
+
+Day 1, Day 7, Day 21 — this lesson is the direct prerequisite for Core
+7's five-layer multi-timeframe stack, where it's applied formally.
+
+### Bot Connection
+
+Every bot's setup rules are defined across multiple explicit
+timeframes (for example, Bot 2's 4H zone + 1H sweep + 15-minute
+displacement) — this lesson is what makes those rules readable instead
+of an arbitrary list of numbers.
+
+---
+
+## C1-06 — Sessions, Market Open/Close, Gaps
+
+**Level:** 0
+**Estimated study time:** 13 minutes
+**Prerequisites:** C1-04, C1-05
+**Learning objectives:** Identify the major global trading sessions and
+their typical liquidity characteristics, and explain what a price gap
+is and why it occurs.
+
+### Why This Matters
+
+Price behaves differently depending on which global session is active
+and whether a market has just reopened after a closure — the same
+setup can perform very differently depending on when it occurs. Gaps
+in particular are a direct, visible consequence of markets closing and
+reopening, and several later concepts (imbalance, FVGs in Core 5) are
+closely related to the same underlying idea of price moving without
+full two-sided participation at every level.
+
+### Core Teaching
+
+**Plain-English explanation.** Global markets are active at different
+times depending on which financial center is open — broadly, Asian
+(Tokyo/Sydney), London, and New York sessions, with the London/New
+York overlap generally the most liquid and active window for most
+instruments. Some markets (many crypto exchanges) trade continuously
+with no close at all; others (most stock exchanges, and forex over
+the weekend) close and reopen, and a gap is what happens when the
+reopening price is meaningfully different from the prior closing
+price, because relevant news or order flow occurred while the market
+was closed and unable to reflect it.
+
+**Technical explanation.** A gap appears on a chart as a visible space
+between one candle's close and the next candle's open, with no trading
+having occurred at the prices in between. Gaps happen because during a
+market closure, news, economic data, or after-hours order flow builds
+up a change in fair value that the market has no mechanism to price in
+until it reopens — the first trade after reopening can occur well away
+from the prior close. This is conceptually related to, but distinct
+from, the Fair Value Gap (FVG) concept taught formally in Core 5: an
+FVG is a specific three-candle imbalance pattern that can form even in
+a continuously-trading market with no session close involved at all;
+a session gap is caused specifically by a market closure, not by rapid
+intra-session displacement.
+
+### Visual Model
+
+See diagram: `visuals/c1-06-sessions-gap.svg` — a 24-hour clock face
+showing the Asian, London, and New York session windows with their
+overlap highlighted, alongside a small chart panel showing a visible
+gap between Friday's close and Monday's open on a forex pair.
+
+### Worked Example
+
+A forex pair closes Friday at 1.0900. Over the weekend, unexpected
+geopolitical news breaks. When the market reopens Sunday evening, the
+first trade occurs at 1.0850 — a 50-pip gap down, with no trading
+having occurred at any price in between. A trader with a resting order
+inside that gapped range would not have gotten filled at their
+intended price; their order fills, if at all, at whatever price the
+market first offers.
+
+### Counterexample
+
+A trader analyzing a continuously-traded crypto pair looks for
+"weekend gaps" the way they would on forex, and finds none, concluding
+something is technically wrong with their chart. Continuously-traded
+markets have no closure, so there's no mechanism for a session gap to
+form — the absence of gaps here is expected, not a data error.
+
+### Good Example / Bad Example
+
+Good: Being aware of which session is currently active and adjusting
+expectations for typical liquidity and range accordingly — the London/
+New York overlap generally behaves differently than a thin Asian
+session. Bad: Applying identical expectations for typical range and
+liquidity to every hour of the day regardless of which session is
+active.
+
+### What to Look Out For
+
+- Not every market can gap — only markets that actually close and
+  reopen can produce a session gap.
+- A gap represents a real absence of trading at those prices, not
+  just a visual chart artifact.
+- Liquidity and typical range vary significantly by session — a
+  strategy tuned for the London/New York overlap may behave very
+  differently during a thin Asian session.
+
+### Common Mistakes
+
+Beginners sometimes assume every visible "jump" on a chart is
+automatically a Fair Value Gap in the Core 5 technical sense. A session
+gap (caused by a market closure) and an FVG (a specific three-candle
+displacement imbalance) can look superficially similar but have
+different causes and different trading implications — this lesson
+exists partly to prevent that conflation before Core 5 formally defines
+the FVG.
+
+### Key Takeaways
+
+1. Global markets operate across Asian, London, and New York sessions,
+   each with different typical liquidity and range characteristics.
+2. A gap is a visible price jump caused by a market closing and
+   reopening at a meaningfully different price — not every market can
+   produce one.
+3. A session gap and a Fair Value Gap are related in concept but
+   distinct in cause — don't conflate them before Core 5 defines FVGs
+   formally.
+
+### Practice Drill
+
+Given a week of Daily candles for a forex pair spanning a weekend
+(provided in Practise), identify the Friday close and Sunday/Monday
+open, and calculate the size of any weekend gap in pips.
+
+### Scenario Challenge
+
+You're comparing a strategy's typical results during the London/New
+York overlap against its results during a thin, low-volume overnight
+session. What two characteristics from this lesson would you expect to
+differ between those two windows, and how might that change your
+approach?
+
+### Mini Quiz
+
+Q1 (True/False): Every tradable market can produce a session gap.
+Answer: False — only markets that actually close and reopen can gap; a
+continuously-traded market has no mechanism to produce one.
+
+Q2 (Multiple choice): What generally makes the London/New York overlap
+distinct from other session windows?
+(a) It's typically the least liquid window of the day
+(b) It's generally the most liquid and active window for most
+    instruments
+(c) It only matters for crypto trading
+(d) It has no effect on typical range
+
+Answer: (b).
+
+### Flashcards
+
+- Front: What causes a session gap? Back: A market closing, then
+  reopening at a meaningfully different price because relevant news or
+  order flow occurred while trading was unavailable.
+- Front: Is a session gap the same thing as a Fair Value Gap (FVG)?
+  Back: No — related in concept (both represent price moving without
+  full two-sided trading at every level) but caused differently: a
+  session gap requires a market closure; an FVG is a three-candle
+  displacement pattern that can form intra-session.
+
+### Reflection
+
+Have you noticed a difference in how an instrument you watch behaves
+during different session windows? Write one specific observation.
+
+### Mastery Criteria
+
+Correctly calculate the weekend gap size from the practice-drill data
+and correctly distinguish it, in one sentence, from a Core 5 Fair
+Value Gap.
+
+### Spaced Review
+
+Day 1, Day 7, Day 21 — this lesson's gap/FVG distinction is directly
+tested again inside Core 5's own FVG lessons to confirm the earlier
+distinction actually stuck.
+
+### Bot Connection
+
+Bots trading forex pairs through TradeLocker/MetaApi integrations are
+directly affected by weekend gap risk on any position held into a
+market close — this is part of why Core 8's risk-management lessons
+treat holding through a known closure as a distinct risk category.

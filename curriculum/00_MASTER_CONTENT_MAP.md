@@ -15,29 +15,29 @@ Status legend: [DONE] authored this batch, [ ] mapped, not yet authored
 ## PART 0 — HONEST GAP ORIENTATION (ORIENT)
 - [DONE] ORIENT-01 What Honest Gap Is (and Isn't)
 - [DONE] ORIENT-02 Trading vs. Gambling, Signal vs. Setup vs. Trade
-- [ ] ORIENT-03 Framework vs. Proven Edge — Why Probability Matters
-- [ ] ORIENT-04 Why Losses Are Normal, Why Risk Management Beats Being Right
-- [ ] ORIENT-05 How to Use Learn / Practise / Mastery — a Learner's Map
-- [ ] ORIENT-06 How the Five Bots Relate to One Another
+- [DONE] ORIENT-03 Framework vs. Proven Edge — Why Probability Matters
+- [DONE] ORIENT-04 Why Losses Are Normal, Why Risk Management Beats Being Right
+- [DONE] ORIENT-05 How to Use Learn / Practise / Mastery — a Learner's Map
+- [DONE] ORIENT-06 How the Five Bots Relate to One Another
 
 ## CORE 1 — MARKET BASICS (C1)
 - [DONE] C1-01 What a Market Is — Buyers, Sellers, Price, Bid/Ask, Spread
 - [DONE] C1-02 Candlestick Anatomy — Open, High, Low, Close, Body, Wick
 - [DONE] C1-03 Bullish vs. Bearish Candles, Momentum, Expansion & Contraction
-- [ ] C1-04 Liquidity and Volatility — First Look
-- [ ] C1-05 Timeframes and Chart Navigation
-- [ ] C1-06 Sessions, Market Open/Close, Gaps
+- [DONE] C1-04 Liquidity and Volatility — First Look
+- [DONE] C1-05 Timeframes and Chart Navigation
+- [DONE] C1-06 Sessions, Market Open/Close, Gaps
 
 ## CORE 2 — MARKET STRUCTURE (C2)
-- [ ] C2-01 Swing Highs and Swing Lows
-- [ ] C2-02 Higher Highs/Lows, Lower Highs/Lows — Defining Trend
-- [ ] C2-03 Trend vs. Range vs. Transition
-- [ ] C2-04 Internal vs. External Structure
-- [ ] C2-05 Protected Highs and Lows
-- [ ] C2-06 BOS — Break of Structure
-- [ ] C2-07 CHoCH — Change of Character
-- [ ] C2-08 Wick vs. Body Break, Displacement, False Break
-- [ ] C2-09 Structural Invalidation
+- [DONE] C2-01 Swing Highs and Swing Lows
+- [DONE] C2-02 Higher Highs/Lows, Lower Highs/Lows — Defining Trend
+- [DONE] C2-03 Trend vs. Range vs. Transition
+- [DONE] C2-04 Internal vs. External Structure
+- [DONE] C2-05 Protected Highs and Lows
+- [DONE] C2-06 BOS — Break of Structure
+- [DONE] C2-07 CHoCH — Change of Character
+- [DONE] C2-08 Wick vs. Body Break, Displacement, False Break
+- [DONE] C2-09 Structural Invalidation
 
 ## CORE 3 — LIQUIDITY (C3)
 - [ ] C3-01 What Liquidity Means in This Framework
