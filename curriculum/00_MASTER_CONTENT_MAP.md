@@ -67,9 +67,9 @@ Status legend: [DONE] authored this batch, [ ] mapped, not yet authored
 - [DONE] C6-03 Multiple Dealing Ranges, Interaction With Liquidity/Zones
 
 ## CORE 7 — MULTI-TIMEFRAME ANALYSIS (C7)
-- [ ] C7-01 The Five-Layer Stack — Macro/Direction/Opportunity/Trigger/Execution
-- [ ] C7-02 MTF Alignment vs. Conflict, Transition States
-- [ ] C7-03 Long/Short Decision Trees, No-Trade Conditions
+- [DONE] C7-01 The Five-Layer Stack — Macro/Direction/Opportunity/Trigger/Execution
+- [DONE] C7-02 MTF Alignment vs. Conflict, Transition States
+- [DONE] C7-03 Long/Short Decision Trees, No-Trade Conditions
 
 ## CORE 8 — RISK MANAGEMENT (C8)
 - [ ] C8-01 Risk Per Trade, Fixed Fractional Sizing
