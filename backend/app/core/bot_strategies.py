@@ -737,6 +737,17 @@ class JeafxSMCBot:
         }
 
         # Step 9: High R:R target (4-6R)
+        # Real bug, found while authoring this bot's curriculum: `entry`
+        # was never assigned anywhere in this function (only entry_price,
+        # a bare float) — calculate_targets() requires a dict with an
+        # "entry_price" key (see EntryExitEngine.calculate_targets in
+        # smc_algorithms.py), so this raised NameError every single time
+        # a Bot 5 signal reached this line, i.e. every time all five real
+        # gates above actually passed. Bot 5 could never successfully
+        # produce a signal. Constructing the same {"entry_price",
+        # "direction"} dict FVGExpansionBot already builds by hand for
+        # its own non-engine entry (bot_strategies.py, Bot 3) fixes it.
+        entry = {"entry_price": entry_price, "direction": direction}
         targets = self.entry_engine.calculate_targets(entry, sl, rr_ratio=5.0)
 
         risk = self.risk_manager.calculate_position_risk(setup_quality=1.3)

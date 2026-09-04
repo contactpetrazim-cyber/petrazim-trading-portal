@@ -61,8 +61,8 @@ platform's Bot 1.
 
 A trader applies Bot 1's "trust the wide stop, hold for days" mindset
 to a Bot 2 position. This misapplies Bot 1's philosophy to a bot whose
-own real risk parameters (1.0% base risk, 3:1 target) are tuned for a
-faster, tighter style entirely.
+own real risk parameters (1.0% base risk, a tighter target parameter
+than Bot 1's) are tuned for a faster, tighter style entirely.
 
 ### Good Example / Bad Example
 
@@ -73,8 +73,9 @@ interchangeable variations of one generic SMC strategy.
 ### What to Look Out For
 
 - Bot 2 uses THREE timeframes (4H, 1H, 15M) — one more than Bot 1.
-- Its real base risk (1.0%) and target R:R (3:1) are both tighter than
-  Bot 1's (1.5%, 5:1).
+- Its real base risk (1.0%) and target parameter (3.0) are both
+  tighter than Bot 1's (1.5%, 5.0) — see BOT2-07 for a real, verified
+  nuance about what "target parameter" actually controls.
 - It is a REVERSAL bot (trading INSIDE a zone, expecting a turn) —
   Bot 1 is a CONTINUATION bot (trading a confirmed ongoing trend).
 
@@ -89,8 +90,8 @@ exists to correct.
 
 1. Bot 2 reads 4H, 1H, and 15M data — three timeframes, one more than
    Bot 1's two.
-2. Its real base risk (1.0%) and target (3:1) are both tighter than
-   Bot 1's, reflecting a faster, higher-frequency style.
+2. Its real base risk (1.0%) and target parameter (3.0) are both
+   tighter than Bot 1's, reflecting a faster, higher-frequency style.
 3. Bot 2 is a reversal specialist — trading INSIDE an HTF zone for a
    turn — genuinely different from Bot 1's continuation philosophy.
 
@@ -113,14 +114,15 @@ Bot 1.
 Answer: False — Bot 2 takes `candles_4h`, `candles_1h`, AND
 `candles_15m`; Bot 1 takes only `candles_1d` and `candles_4h`.
 
-Q2 (Multiple choice): What is Bot 2's real target reward-to-risk
-ratio?
-(a) 1:1
-(b) 3:1
-(c) 5:1
-(d) 10:1
+Q2 (Multiple choice): What reward-to-risk PARAMETER does Bot 2 pass
+into its target calculation?
+(a) 1.0
+(b) 3.0
+(c) 5.0
+(d) 10.0
 
-Answer: (b) — `EntryExitEngine(default_rr=3.0)`.
+Answer: (b) — `EntryExitEngine(default_rr=3.0)` — though see BOT2-07
+for what the actually-reported take-profit field turns out to be.
 
 ### Flashcards
 
@@ -944,11 +946,15 @@ percentage or ATR-based distance) is subtracted (long) or added
 (short); `method: "sweep_extreme"`. If NOT `has_sweep`: `sl_swing =
 swings_15m[-1]`; `sl = calculate_stop_loss(entry, target_ob, sl_swing,
 "structure_swing")` — the same `"structure_swing"` method name Bot 1
-uses, just against 15M swings instead of 1D ones. Target: 3:1 via
-`calculate_targets(..., rr_ratio=3.0)`, reporting `tp2`. Risk uses
-`setup_quality=1.1`. Confidence is reported as `0.80` if `has_sweep`
-else `0.70` — a real, coded confidence difference tied to the exact
-same condition.
+uses, just against 15M swings instead of 1D ones. Target:
+`calculate_targets(..., rr_ratio=3.0)`, reporting `tp2` — but as
+BOT1-07 found, `tp2`'s multiplier is hardcoded to a fixed 2:1 in
+`EntryExitEngine.calculate_targets`, completely ignoring the passed
+`rr_ratio`; Bot 2's real, reported take-profit is a fixed 2:1, the
+same as Bot 1's, regardless of the different `rr_ratio` value each bot
+passes in. Risk uses `setup_quality=1.1`. Confidence is reported as
+`0.80` if `has_sweep` else `0.70` — a real, coded confidence
+difference tied to the exact same condition.
 
 ### Visual Model
 
@@ -956,14 +962,15 @@ See diagram: `visuals/bot2-07-two-stop-methods.svg` — two stop
 placements on the same zone: "sweep_extreme" (tight, anchored to the
 sweep's own price + a fixed 0.0002 buffer) and "structure_swing"
 (wider, anchored to the most recent 15M swing) — both feeding into the
-same 3:1 target calculation.
+same fixed-2:1 TP2 target calculation.
 
 ### Worked Example
 
 A confirmed sweep's extreme price is 1.0838. The stop is placed at
 1.0836 (1.0838 minus the 0.0002 buffer, for a long). Entry (mean, from
-BOT2-06) is 1.0860 — stop distance is 24 pips, and the TP2 target sits
-72 pips above entry (3:1).
+BOT2-06) is 1.0860 — stop distance is 24 pips, and the reported TP2
+target sits 48 pips above entry (a fixed 2:1) — not 72 pips (3:1),
+even though `rr_ratio=3.0` was passed in.
 
 ### Counterexample
 
@@ -1250,7 +1257,8 @@ active order blocks (BOT2-02), confirm current 15M price is inside one
 (BOT2-02), check for a 15M CHoCH and derive direction (BOT2-03), check
 for a sweep and matching FVG (BOT2-04), apply the correct conditional
 entry type (BOT2-06), apply the correct conditional stop method
-(BOT2-07), and calculate the 3:1 TP2 target with the right reported
+(BOT2-07), and calculate the actual, fixed-2:1 TP2 target (not the
+3:1 the passed `rr_ratio` might suggest) with the right reported
 confidence.
 
 **Technical explanation.** This exercise mirrors
@@ -1428,8 +1436,9 @@ and 15M data. Working the complete pipeline: no active 4H zones, a 1H
 fallback finds one, 15M price sits inside it, a bearish CHoCH confirms
 direction, no sweep is found (`has_sweep = False`), producing an
 aggressive entry and a structure-swing stop at the most recent 15M
-swing high, with a 3:1 TP2 target and 0.70 confidence — matching what
-`OrderBlockReversalBot.analyze()` would output for this exact data.
+swing high, with a fixed-2:1 TP2 target and 0.70 confidence — matching
+what `OrderBlockReversalBot.analyze()` would output for this exact
+data.
 
 ### Counterexample
 

@@ -73,7 +73,9 @@ neither.
 
 - Bot 3 uses 1H and 15M — a genuinely different pair from either Bot 1
   or Bot 2, despite Bot 1 also using two timeframes.
-- Its 4:1 target sits between Bot 2's 3:1 and Bot 1's 5:1.
+- Its target parameter (4.0) sits between Bot 2's (3.0) and Bot 1's
+  (5.0) — see BOT3-07 for a real, verified nuance about what that
+  parameter actually controls.
 - It is a CONTINUATION play on a fresh imbalance, not a reversal.
 
 ### Common Mistakes
@@ -86,8 +88,8 @@ cross-bot mix-up this lesson exists to prevent.
 
 1. Bot 3 reads 1H and 15M data — a distinct pair from Bot 1's 1D/4H
    and Bot 2's 4H/1H/15M.
-2. Its target (4:1) and base risk (1.0%) sit between Bot 1's and
-   Bot 2's real values.
+2. Its target parameter (4.0) and base risk (1.0%) sit between Bot 1's
+   and Bot 2's real values.
 3. Bot 3 is a continuation play on a still-open imbalance — trading
    WITH the original expansion direction, not against it.
 
@@ -108,14 +110,15 @@ Q1 (True/False): Bot 3 uses the same timeframe pair as Bot 1.
 Answer: False — Bot 3 reads 1H and 15M; Bot 1 reads 1D and 4H — both
 are two-timeframe bots, but a genuinely different pair each.
 
-Q2 (Multiple choice): What is Bot 3's real target reward-to-risk
-ratio?
-(a) 3:1
-(b) 4:1
-(c) 5:1
-(d) 6:1
+Q2 (Multiple choice): What reward-to-risk PARAMETER does Bot 3 pass
+into its target calculation?
+(a) 3.0
+(b) 4.0
+(c) 5.0
+(d) 6.0
 
-Answer: (b) — `EntryExitEngine(default_rr=4.0)`.
+Answer: (b) — `EntryExitEngine(default_rr=4.0)` — though see BOT3-07
+for what the actually-reported take-profit field turns out to be.
 
 ### Flashcards
 
@@ -922,11 +925,11 @@ doesn't actually do.
 **Plain-English explanation.** Bot 3's stop is placed just beyond the
 selected FVG's far extreme, with a buffer equal to 10% of the gap's
 own size — not a fixed pip distance, and not anchored to a separate
-swing point the way Bot 1's is. Its target is a strict 4:1
-reward-to-risk from that stop distance, with TP2 as the reported
-take-profit — the same multi-target-then-TP2 pattern as Bot 1.
-Position sizing uses a 1.15 setup-quality multiplier, between Bot 1's
-1.2 and Bot 2's 1.1.
+swing point the way Bot 1's is. Its REPORTED take-profit is TP2 from
+a multi-target split (the same pattern as Bot 1 and Bot 2) — and, as
+BOT1-07 found, TP2 is always a fixed 2:1, regardless of the `rr_ratio`
+passed in. Position sizing uses a 1.15 setup-quality multiplier,
+between Bot 1's 1.2 and Bot 2's 1.1.
 
 **Technical explanation.** For a long: `sl_price = target_fvg.bottom -
 (target_fvg.top - target_fvg.bottom) * 0.1`; for a short:
@@ -934,12 +937,20 @@ Position sizing uses a 1.15 setup-quality multiplier, between Bot 1's
 10% of the FVG's own top-to-bottom size, computed locally (`method:
 "fvg_extreme"`), not via a shared engine call, matching BOT3-04's
 hand-calculated entry pattern. `calculate_targets(..., rr_ratio=4.0)`,
-reporting `tp2`. `calculate_position_risk(setup_quality=1.15)`, then
-`calculate_lot_size`. Crucially: THIS IS THE ENTIRE MANAGEMENT LOGIC —
-the class docstring's rule 5 ("Trail stop by new BOS formations") is
-NOT implemented anywhere in `analyze()`; the function computes one
-static `BotSignal` and returns, with no ongoing trailing loop or
-stop-adjustment logic anywhere in this class.
+reporting `tp2` — but `tp2`'s multiplier is hardcoded to 2:1 in
+`EntryExitEngine.calculate_targets`, so the `rr_ratio=4.0` Bot 3 passes
+in never reaches its reported take-profit; it only sizes `tp3`, a
+runner level this bot never reports. Bot 3's real, reported target is
+a fixed 2:1, the same as Bot 1, Bot 2, and (after a fix) Bot 5.
+`calculate_position_risk(setup_quality=1.15)`, then
+`calculate_lot_size`. Separately, and just as important: THIS IS THE
+ENTIRE MANAGEMENT LOGIC — the class docstring's rule 5 ("Trail stop by
+new BOS formations") is NOT implemented anywhere in `analyze()`; the
+function computes one static `BotSignal` and returns, with no ongoing
+trailing loop or stop-adjustment logic anywhere in this class. Two
+separate, real gaps between stated intent and actual code sit side by
+side in this one function — worth treating as two distinct findings,
+not one.
 
 ### Visual Model
 
@@ -954,8 +965,9 @@ intent, every time."
 The selected FVG spans 1.0900 (bottom) to 1.0920 (top) — a 20-pip
 gap. For a long entry at the midpoint (1.0910, BOT3-04), the stop sits
 at `1.0900 - (0.0020 * 0.1) = 1.0898` — 2 pips of buffer beyond the
-gap's own bottom. Stop distance from entry is 12 pips; at 4:1, TP2
-sits 48 pips above entry.
+gap's own bottom. Stop distance from entry is 12 pips; the reported
+TP2 sits 24 pips above entry (a fixed 2:1) — not 48 pips (4:1), even
+though `rr_ratio=4.0` was passed to `calculate_targets`.
 
 ### Counterexample
 
@@ -981,6 +993,9 @@ management style.
   that specific gap, not a fixed distance.
 - The stop and entry calculations are both hand-written, local
   arithmetic — matching BOT3-04's pattern, not a shared engine call.
+- The REPORTED take-profit (`tp2`) is always a fixed 2:1 — the
+  `rr_ratio=4.0` passed into `calculate_targets` only ever reaches
+  `tp3`, a runner level that's never reported.
 - The docstring's "trail stop by BOS" line is NOT implemented
   anywhere in this bot's actual `analyze()` function — a real,
   confirmed gap between stated intent and actual code.
@@ -996,8 +1011,10 @@ same discipline this whole curriculum applies throughout.
 
 1. Bot 3's stop buffer is 10% of the selected FVG's own size — a
    proportional, hand-calculated distance, not a fixed pip amount.
-2. Its target is 4:1 via TP2, with a 1.15 setup-quality multiplier for
-   sizing.
+2. Its REPORTED take-profit (`tp2`) is always a fixed 2:1 — the
+   `rr_ratio=4.0` it passes to `calculate_targets` only ever reaches
+   `tp3`, a runner level that's never reported as `take_profit`.
+   Sizing uses a 1.15 setup-quality multiplier.
 3. The docstring's "trail stop by BOS formations" line is NOT actually
    implemented in `analyze()` — the real function returns one static
    signal with no ongoing trailing logic.
@@ -1005,8 +1022,9 @@ same discipline this whole curriculum applies throughout.
 ### Practice Drill
 
 Given three FVG top/bottom pairs with entry prices (provided in
-Practise), calculate the exact stop price, stop distance, and TP2
-target for each.
+Practise), calculate the exact stop price, stop distance, and the
+actual (fixed 2:1) TP2 target for each — not the docstring's 4:1
+figure.
 
 ### Scenario Challenge
 
@@ -1032,11 +1050,20 @@ Q2 (Multiple choice): How is Bot 3's stop buffer calculated?
 
 Answer: (b).
 
+Q3 (True/False): Bot 3's reported take-profit reflects the 4.0
+`rr_ratio` it passes into `calculate_targets`.
+Answer: False — `tp2` (what it reports) is hardcoded to a fixed 2:1;
+the passed `rr_ratio` only ever reaches `tp3`, a runner level never
+used as the reported `take_profit` (the same finding as BOT1-07).
+
 ### Flashcards
 
 - Front: What's Bot 3's exact stop buffer? Back: 10% of the selected
   FVG's own size, beyond its far extreme — proportional to that
   specific gap.
+- Front: Does Bot 3's reported take-profit actually reflect its 4.0
+  rr_ratio? Back: No — `tp2` is hardcoded to a fixed 2:1 regardless;
+  the same finding as Bot 1 and Bot 2.
 - Front: Does Bot 3 actually implement stop-trailing by BOS, as its
   docstring describes? Back: No — this is a confirmed gap between
   documented intent and actual code; `analyze()` returns one static
@@ -1063,10 +1090,12 @@ failure-mode analysis.
 ### Bot Connection
 
 Verified against `FVGExpansionBot.analyze()` Steps 4-6 in
-`bot_strategies.py` — the `* 0.1` buffer calculation, `rr_ratio=4.0`,
-and `setup_quality=1.15` quoted directly from source, alongside a
-confirmed line-by-line check that no trailing logic exists anywhere in
-this bot's class despite the docstring's rule 5.
+`bot_strategies.py` AND `EntryExitEngine.calculate_targets` in
+`smc_algorithms.py` — the `* 0.1` buffer calculation, `rr_ratio=4.0`,
+`setup_quality=1.15`, and `tp2`'s hardcoded 2:1 multiplier all quoted
+directly from source, alongside a confirmed line-by-line check that no
+trailing logic exists anywhere in this bot's class despite the
+docstring's rule 5.
 
 ---
 
@@ -1245,8 +1274,9 @@ entry and stop, which neither of the other two bots uses.
 through Bot 3's pipeline in order: find the eligible 1H FVG within
 the 30-70% mitigation window (BOT3-02), confirm the matching 15M BOS
 (BOT3-03), calculate the direct midpoint entry (BOT3-04/06), and
-calculate the proportional 10%-of-gap stop and 4:1 TP2 target
-(BOT3-07).
+calculate the proportional 10%-of-gap stop and the actual, fixed-2:1
+TP2 target (BOT3-07) — not the 4:1 the docstring or `rr_ratio`
+parameter might suggest.
 
 **Technical explanation.** This exercise mirrors
 `FVGExpansionBot.analyze()`'s real, shorter control flow — two gates
@@ -1394,8 +1424,9 @@ behavior does NOT apply, since it isn't actually implemented.
 the entire pipeline from scratch: detect 1H FVGs and their mitigation
 percentages, find one in the 30-70% ACTIVE window, detect a matching
 15M BOS, calculate the direct midpoint entry, calculate the 10%-of-gap
-stop, and produce the final 4:1 TP2 target and 0.82 confidence — or
-correctly stop at whichever of the two BOT3-05 gates fails.
+stop, and produce the final, actual fixed-2:1 TP2 target and 0.82
+confidence — or correctly stop at whichever of the two BOT3-05 gates
+fails.
 
 **Technical explanation.** This exercise mirrors
 `BotOrchestrator.run_all()`'s real invocation of
@@ -1416,9 +1447,9 @@ through BOT3-09 stage to a final signal-or-None outcome.
 A full capstone scenario (provided in Practise) supplies raw 1H and
 15M data. Working the complete pipeline: one 1H FVG at 62% mitigation,
 ACTIVE, a matching bearish 15M BOS, producing a short entry at the FVG
-midpoint, a stop 10% of the gap's size beyond its top, and a 4:1 TP2
-target at 0.82 confidence — matching what `FVGExpansionBot.analyze()`
-would output for this exact data.
+midpoint, a stop 10% of the gap's size beyond its top, and the actual
+fixed-2:1 TP2 target at 0.82 confidence — matching what
+`FVGExpansionBot.analyze()` would output for this exact data.
 
 ### Counterexample
 
