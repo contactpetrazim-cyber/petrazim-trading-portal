@@ -31,35 +31,40 @@ interface Settings {
   effective_min_rr_ratio: number;
 }
 
-/** A '$' fused directly against the number, matching Trade Value's own
- * (non-editable) "$1234.56" format — by direct request ("the '$'
- * should automatically follow the numeric amounts entered"), used
- * everywhere on the order ticket a dollar figure is typed. */
-function DollarInput({ value, onChange, placeholder = '0.00', width = 'w-20' }: {
-  value: string; onChange: (v: string) => void; placeholder?: string; width?: string;
+/** A '$' fused directly against the number with NO gap between them —
+ * matching Trade Value's own non-editable "$1234.56" format exactly
+ * (a fixed-width right-aligned input, tried first, left a "hanging $"
+ * floating away from short numbers — by direct request, fixed by
+ * sizing the input to its own content in `ch` units instead, so the
+ * digits sit flush against the sign the same way plain text would). */
+function DollarInput({ value, onChange, placeholder = '0.00' }: {
+  value: string; onChange: (v: string) => void; placeholder?: string;
 }) {
+  const chWidth = Math.max((value || placeholder).length, 1);
   return (
-    <span className="flex items-center gap-0.5 font-semibold text-gray-700">
-      <span className="text-sm">$</span>
-      <input
-        className={`text-right text-sm font-semibold ${width} outline-none bg-transparent p-0`}
+    <span className="inline-flex items-center font-semibold text-gray-700 text-sm">
+      $<input
+        className="font-semibold outline-none bg-transparent p-0 border-none text-sm"
+        style={{ width: `${chWidth}ch` }}
         value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder}
       />
     </span>
   );
 }
 
-/** Same idea for a percent figure — the '%' follows the number instead. */
-function PercentInput({ value, onChange, width = 'w-16' }: {
-  value: string; onChange: (v: string) => void; width?: string;
+/** Same idea for a percent figure — the number sits flush against a
+ * trailing '%' instead. */
+function PercentInput({ value, onChange, placeholder = '0' }: {
+  value: string; onChange: (v: string) => void; placeholder?: string;
 }) {
+  const chWidth = Math.max((value || placeholder).length, 1);
   return (
-    <span className="flex items-center gap-0.5 font-semibold text-gray-700">
+    <span className="inline-flex items-center font-semibold text-gray-700 text-sm">
       <input
-        className={`text-right text-sm font-semibold ${width} outline-none bg-transparent p-0`}
-        value={value} onChange={(e) => onChange(e.target.value)}
-      />
-      <span className="text-sm">%</span>
+        className="font-semibold outline-none bg-transparent p-0 border-none text-sm text-right"
+        style={{ width: `${chWidth}ch` }}
+        value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder}
+      />%
     </span>
   );
 }
@@ -234,10 +239,15 @@ export function ManualTradingPage() {
   const labelCls = `text-xs font-medium block mb-1 ${dark ? 'text-white/40' : 'text-gray-500'}`;
 
   // Silent — keeps the Sell/Buy header's live-ish reference price
-  // fresh (crypto only; see quick-price's own honest scope). Never
-  // overwrites anything the trader has typed.
+  // fresh (crypto only; see quick-price's own honest scope). The
+  // symbol-change fetch also seeds entryPrice as a starting value —
+  // never overwrites anything already typed or quick-filled (checked
+  // via the functional setEntryPrice update, so this doesn't need
+  // entryPrice in the dependency array and can't clobber it mid-type).
   useEffect(() => {
-    refreshQuickPrice({ silent: true });
+    refreshQuickPrice({ silent: true }).then((p) => {
+      if (p != null) setEntryPrice((prev) => prev || String(p));
+    });
     const t = setInterval(() => refreshQuickPrice({ silent: true }), 15000);
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -426,18 +436,31 @@ export function ManualTradingPage() {
             onQuickFill={(price) => setEntryPrice(String(price))}
           />
 
-          {/* Place Buy/Sell Order — rebuilt to match the exact uploaded
-              order-ticket reference: styling is always light, by
-              direct request ("use upload exactly same colours and
-              style and formatting"), independent of the site's own
-              dark/light toggle, same reasoning as StatCard's fix
-              earlier this session. Height 600 on the chart above is
-              chosen to roughly match this card's own natural height
-              ("parallel", by direct request) — an exact pixel match
-              isn't feasible without measuring the DOM at runtime, since
-              this card's height varies with state (extra targets,
-              partial-close panel, result messages). */}
-          <div className="rounded-2xl border border-gray-200 bg-white p-4 h-fit text-gray-900">
+          <div>
+            {/* Matches ChartPanel's own toolbar row height (light/dark
+                toggle + Price/Chart-colors/Trade buttons, 41px: a
+                33px button row plus its own 8px bottom margin) so this
+                card's white top edge lines up with the chart's actual
+                white surface below that toolbar, not with the toolbar
+                itself — by direct request ("use the white chart level
+                ... where the camera icon is, so all the white
+                background flush at the same level"). Tied to
+                ChartPanel's current toolbar markup; if that markup's
+                height changes, this number needs to move with it. */}
+            <div style={{ height: 41 }} aria-hidden="true" />
+
+            {/* Place Buy/Sell Order — rebuilt to match the exact uploaded
+                order-ticket reference: styling is always light, by
+                direct request ("use upload exactly same colours and
+                style and formatting"), independent of the site's own
+                dark/light toggle, same reasoning as StatCard's fix
+                earlier this session. Height 600 on the chart above is
+                chosen to roughly match this card's own natural height
+                ("parallel", by direct request) — an exact pixel match
+                isn't feasible without measuring the DOM at runtime, since
+                this card's height varies with state (extra targets,
+                partial-close panel, result messages). */}
+            <div className="rounded-2xl border border-gray-200 bg-white p-4 h-fit text-gray-900">
             <div className="text-xs font-semibold mb-3 text-gray-400">{symbol.trade}</div>
 
             {/* Sell / Buy split header, live reference price on each side */}
@@ -473,39 +496,39 @@ export function ManualTradingPage() {
               ))}
             </div>
 
-            {/* Market orders hide this field ONLY when there's actually a
-                live reference price to fall back on (crypto, via
-                quick-price) — the whole point of "Market". On forex/
-                metals (no free feed — see quick-price's own docstring)
-                there is no live price to fall back on, so the field
-                has to stay visible even in Market mode, or every
-                calculation below silently uses 0 as the entry price. */}
-            {(orderType !== 'market' || quickPrice == null) && (
-              <>
-                <div className="flex items-center justify-between py-2 border-b border-gray-100">
-                  <span className="text-sm text-gray-500">
-                    {orderType === 'stop' ? 'Stop price' : orderType === 'market' ? 'Reference price' : 'Price'}
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <input
-                      className="text-right text-sm font-semibold w-28 outline-none bg-transparent"
-                      value={entryPrice} onChange={(e) => setEntryPrice(e.target.value)} placeholder="0.00"
-                    />
-                    <button
-                      onClick={() => refreshQuickPrice().then((p) => p != null && setEntryPrice(String(p)))}
-                      aria-label="Use current price" title="Use current price"
-                      className="text-gray-300 hover:text-gray-500"
-                    >
-                      <ArrowLeftRight size={13} />
-                    </button>
-                  </div>
-                </div>
-                {priceDelta != null && (
-                  <div className="text-right text-[11px] text-gray-400 mb-1 mt-0.5">
-                    {priceDelta >= 0 ? '+' : ''}{priceDelta.toFixed(2)} from current price
-                  </div>
-                )}
-              </>
+            {/* Always visible now — it used to hide itself for Market
+                orders whenever a live quick-price existed, on the
+                theory the live price alone was reference enough. That
+                silently broke two things: forex/metals (no live feed)
+                fell back to a 0 entry price with no way to fix it, and
+                the chart's own "Price" quick-fill button had nowhere
+                visible to land when clicked, since the field it was
+                filling wasn't on screen. Now it's always shown, seeded
+                from the live price on symbol change (see the
+                symbol.trade effect above) but never overwritten by
+                that seed once you've typed or quick-filled something. */}
+            <div className="flex items-center justify-between py-2 border-b border-gray-100">
+              <span className="text-sm text-gray-500">
+                {orderType === 'stop' ? 'Stop price' : orderType === 'market' ? 'Reference price' : 'Price'}
+              </span>
+              <div className="flex items-center gap-2">
+                <input
+                  className="text-right text-sm font-semibold w-28 outline-none bg-transparent"
+                  value={entryPrice} onChange={(e) => setEntryPrice(e.target.value)} placeholder="0.00"
+                />
+                <button
+                  onClick={() => refreshQuickPrice().then((p) => p != null && setEntryPrice(String(p)))}
+                  aria-label="Use current price" title="Use current price"
+                  className="text-gray-300 hover:text-gray-500"
+                >
+                  <ArrowLeftRight size={13} />
+                </button>
+              </div>
+            </div>
+            {priceDelta != null && (
+              <div className="text-right text-[11px] text-gray-400 mb-1 mt-0.5">
+                {priceDelta >= 0 ? '+' : ''}{priceDelta.toFixed(2)} from current price
+              </div>
             )}
 
             {/* Risk row — the field this whole ticket is built around:
@@ -514,7 +537,7 @@ export function ManualTradingPage() {
               <span className="text-sm text-gray-500">Risk ({riskMode === 'dollar' ? 'USD' : '%'})</span>
               <div className="flex items-center gap-2">
                 {riskMode === 'dollar' ? (
-                  <DollarInput value={riskAmount} onChange={setRiskAmount} width="w-16" />
+                  <DollarInput value={riskAmount} onChange={setRiskAmount} />
                 ) : (
                   <PercentInput value={riskPercent} onChange={setRiskPercent} />
                 )}
@@ -562,7 +585,7 @@ export function ManualTradingPage() {
                 {tpEnabled && (
                   <>
                     {tpMode === 'amount' ? (
-                      <DollarInput value={tpAmount} onChange={(v) => { setTpAmount(v); applyDollarAmount('tp', v); }} placeholder="0.00" width="w-16" />
+                      <DollarInput value={tpAmount} onChange={(v) => { setTpAmount(v); applyDollarAmount('tp', v); }} placeholder="0.00" />
                     ) : (
                       <input
                         className="text-right text-sm font-semibold w-24 outline-none bg-transparent"
@@ -603,7 +626,7 @@ export function ManualTradingPage() {
               <span className="text-sm text-gray-500">Stop Loss ({slMode === 'amount' ? 'Amount' : 'Price'})</span>
               <div className="flex items-center gap-2">
                 {slMode === 'amount' ? (
-                  <DollarInput value={slAmount} onChange={(v) => { setSlAmount(v); applyDollarAmount('sl', v); }} placeholder="0.00" width="w-16" />
+                  <DollarInput value={slAmount} onChange={(v) => { setSlAmount(v); applyDollarAmount('sl', v); }} placeholder="0.00" />
                 ) : (
                   <input
                     className="text-right text-sm font-semibold w-24 outline-none bg-transparent"
@@ -648,7 +671,7 @@ export function ManualTradingPage() {
                   <span className="text-sm text-gray-500">Take Profit 2 ({tp2Mode === 'amount' ? 'Amount' : 'Price'})</span>
                   <div className="flex items-center gap-2">
                     {tp2Mode === 'amount' ? (
-                      <DollarInput value={tp2Amount} onChange={(v) => { setTp2Amount(v); applyDollarAmount('tp2', v); }} placeholder="0.00" width="w-16" />
+                      <DollarInput value={tp2Amount} onChange={(v) => { setTp2Amount(v); applyDollarAmount('tp2', v); }} placeholder="0.00" />
                     ) : (
                       <input className="text-right text-sm font-semibold w-24 outline-none bg-transparent" value={takeProfit2} onChange={(e) => setTakeProfit2(e.target.value)} placeholder="0.00" />
                     )}
@@ -665,7 +688,7 @@ export function ManualTradingPage() {
                   <span className="text-sm text-gray-500">Take Profit 3 ({tp3Mode === 'amount' ? 'Amount' : 'Price'})</span>
                   <div className="flex items-center gap-2">
                     {tp3Mode === 'amount' ? (
-                      <DollarInput value={tp3Amount} onChange={(v) => { setTp3Amount(v); applyDollarAmount('tp3', v); }} placeholder="0.00" width="w-16" />
+                      <DollarInput value={tp3Amount} onChange={(v) => { setTp3Amount(v); applyDollarAmount('tp3', v); }} placeholder="0.00" />
                     ) : (
                       <input className="text-right text-sm font-semibold w-24 outline-none bg-transparent" value={takeProfit3} onChange={(e) => setTakeProfit3(e.target.value)} placeholder="0.00" />
                     )}
@@ -717,6 +740,7 @@ export function ManualTradingPage() {
                   : `${direction === 'long' ? 'Buy' : 'Sell'} ${lotSizePreview > 0 ? lotSizePreview.toFixed(4) : ''} ${symbol.trade} @ ${entryPrice || quickPrice || '—'} ${orderType.toUpperCase()}${isTest ? ' (Test)' : ''}`}
               </button>
             )}
+            </div>
           </div>
         </div>
       </div>
