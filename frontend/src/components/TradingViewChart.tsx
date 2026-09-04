@@ -49,30 +49,77 @@ export interface CandleColors {
   borderDownColor?: string;
 }
 
+/** TradingView's own real series-style ids — see useCandleColors.ts's CHART_STYLES. */
+export type ChartStyleId = '1' | '9' | '8' | '0' | '2' | '3' | '10';
+
 interface TradingViewChartProps {
   symbol?: string;
   interval?: string;
   theme?: 'light' | 'dark';
   height?: string | number;
   candleColors?: CandleColors;
+  /** Which series style to render — Candles, Hollow Candles, Heikin
+   * Ashi, Bars, Line, Area, Baseline. Defaults to plain Candles. */
+  chartStyle?: ChartStyleId;
 }
 
-function buildOverrides(colors?: CandleColors): Record<string, string> {
+/**
+ * Each TradingView series style has its OWN override namespace — a
+ * Line chart has no "candleStyle", a Baseline chart has no single
+ * "upColor" concept, etc. This maps candleColors' up/down pair onto
+ * whichever namespace the current chartStyle actually uses, rather
+ * than always writing candleStyle overrides that a non-candle style
+ * would just silently ignore.
+ */
+function buildOverrides(colors: CandleColors | undefined, chartStyle: ChartStyleId): Record<string, string> {
   if (!colors) return {};
-  const map: Record<string, keyof CandleColors> = {
-    'mainSeriesProperties.candleStyle.upColor': 'upColor',
-    'mainSeriesProperties.candleStyle.downColor': 'downColor',
-    'mainSeriesProperties.candleStyle.wickUpColor': 'wickUpColor',
-    'mainSeriesProperties.candleStyle.wickDownColor': 'wickDownColor',
-    'mainSeriesProperties.candleStyle.borderUpColor': 'borderUpColor',
-    'mainSeriesProperties.candleStyle.borderDownColor': 'borderDownColor',
-  };
-  const overrides: Record<string, string> = {};
-  for (const [key, prop] of Object.entries(map)) {
-    const value = colors[prop];
-    if (value) overrides[key] = value;
+  const { upColor, downColor, wickUpColor, wickDownColor, borderUpColor, borderDownColor } = colors;
+  switch (chartStyle) {
+    case '9': // Hollow Candles
+      return {
+        ...(upColor && { 'mainSeriesProperties.hollowCandleStyle.upColor': upColor }),
+        ...(downColor && { 'mainSeriesProperties.hollowCandleStyle.downColor': downColor }),
+        ...(borderUpColor && { 'mainSeriesProperties.hollowCandleStyle.borderUpColor': borderUpColor }),
+        ...(borderDownColor && { 'mainSeriesProperties.hollowCandleStyle.borderDownColor': borderDownColor }),
+      };
+    case '8': // Heikin Ashi
+      return {
+        ...(upColor && { 'mainSeriesProperties.haStyle.upColor': upColor }),
+        ...(downColor && { 'mainSeriesProperties.haStyle.downColor': downColor }),
+        ...(borderUpColor && { 'mainSeriesProperties.haStyle.borderUpColor': borderUpColor }),
+        ...(borderDownColor && { 'mainSeriesProperties.haStyle.borderDownColor': borderDownColor }),
+        ...(wickUpColor && { 'mainSeriesProperties.haStyle.wickUpColor': wickUpColor }),
+        ...(wickDownColor && { 'mainSeriesProperties.haStyle.wickDownColor': wickDownColor }),
+      };
+    case '0': // Bars
+      return {
+        ...(upColor && { 'mainSeriesProperties.barStyle.upColor': upColor }),
+        ...(downColor && { 'mainSeriesProperties.barStyle.downColor': downColor }),
+      };
+    case '2': // Line — one line, so "up" is the line color
+      return { ...(upColor && { 'mainSeriesProperties.lineStyle.color': upColor }) };
+    case '3': // Area — one line + fill, same idea
+      return {
+        ...(upColor && { 'mainSeriesProperties.areaStyle.linecolor': upColor }),
+        ...(upColor && { 'mainSeriesProperties.areaStyle.color1': upColor }),
+        ...(upColor && { 'mainSeriesProperties.areaStyle.color2': upColor }),
+      };
+    case '10': // Baseline — genuinely has an up (top) and down (bottom) line
+      return {
+        ...(upColor && { 'mainSeriesProperties.baselineStyle.topLineColor': upColor }),
+        ...(downColor && { 'mainSeriesProperties.baselineStyle.bottomLineColor': downColor }),
+      };
+    case '1': // Candles
+    default:
+      return {
+        ...(upColor && { 'mainSeriesProperties.candleStyle.upColor': upColor }),
+        ...(downColor && { 'mainSeriesProperties.candleStyle.downColor': downColor }),
+        ...(wickUpColor && { 'mainSeriesProperties.candleStyle.wickUpColor': wickUpColor }),
+        ...(wickDownColor && { 'mainSeriesProperties.candleStyle.wickDownColor': wickDownColor }),
+        ...(borderUpColor && { 'mainSeriesProperties.candleStyle.borderUpColor': borderUpColor }),
+        ...(borderDownColor && { 'mainSeriesProperties.candleStyle.borderDownColor': borderDownColor }),
+      };
   }
-  return overrides;
 }
 
 function TradingViewChartBase({
@@ -81,6 +128,7 @@ function TradingViewChartBase({
   theme = 'dark',
   height = '100%',
   candleColors,
+  chartStyle = '1',
 }: TradingViewChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const containerId = useRef(`tv_chart_${Math.random().toString(36).slice(2)}`);
@@ -105,7 +153,7 @@ function TradingViewChartBase({
           interval,
           timezone: 'Etc/UTC',
           theme,
-          style: '1',
+          style: chartStyle,
           locale: 'en',
           enable_publishing: false,
           allow_symbol_change: true,
@@ -113,7 +161,7 @@ function TradingViewChartBase({
           hide_top_toolbar: false,
           withdateranges: true,
           container_id: containerId.current,
-          overrides: buildOverrides(candleColors),
+          overrides: buildOverrides(candleColors, chartStyle),
         });
       }
     }
@@ -129,7 +177,7 @@ function TradingViewChartBase({
       script.onload = createWidget;
       document.body.appendChild(script);
     }
-  }, [symbol, interval, theme, JSON.stringify(candleColors)]);
+  }, [symbol, interval, theme, chartStyle, JSON.stringify(candleColors)]);
 
   return <div ref={containerRef} style={{ height, width: '100%' }} />;
 }

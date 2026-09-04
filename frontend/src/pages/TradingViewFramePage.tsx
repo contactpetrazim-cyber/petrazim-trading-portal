@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Sun, Moon, Save, Trash2, FolderOpen, X, TrendingUp } from 'lucide-react';
 import { TradingViewChart } from '../components/TradingViewChart';
 import { CandleColorPicker } from '../components/CandleColorPicker';
-import { useCandleColorStore } from '../hooks/useCandleColors';
+import { useEffectiveChartColors } from '../hooks/useCandleColors';
 import { OpenInTradingView } from '../components/OpenInTradingView';
 import { PetrazimLogo } from '../components/PetrazimLogo';
 import { FoldedCard } from '../components/FoldedCard';
@@ -61,7 +61,7 @@ interface LayoutSummary {
 export function TradingViewFramePage() {
   const { token } = useAuth();
   const navigate = useNavigate();
-  const { colors } = useCandleColorStore();
+  const { colors, chartStyle, applyLocal, applyGlobal, resetLocal, resetGlobal } = useEffectiveChartColors();
   const [symbol, setSymbol] = useState(SYMBOLS[0]);
   const [interval, setIntervalValue] = useState(INTERVALS[1]);
   const [mode, setMode] = useState<Mode>('widget');
@@ -195,7 +195,14 @@ export function TradingViewFramePage() {
               </div>
             )}
 
-            {mode !== 'external' && <CandleColorPicker dark={frameDark} />}
+            {mode !== 'external' && (
+              <CandleColorPicker
+                dark={frameDark}
+                colors={colors} chartStyle={chartStyle}
+                onChangeLocal={applyLocal} onChangeGlobal={applyGlobal}
+                onResetLocal={resetLocal} onResetGlobal={resetGlobal}
+              />
+            )}
 
             {mode === 'workspace' && (
               <button
@@ -240,7 +247,7 @@ export function TradingViewFramePage() {
           style={{ aspectRatio: '16/9' }}
         >
           {(mode === 'widget' || mode === 'workspace') && (
-            <TradingViewChart symbol={symbol.value} interval={interval.value} theme={frameTheme} candleColors={colors} />
+            <TradingViewChart symbol={symbol.value} interval={interval.value} theme={frameTheme} candleColors={colors} chartStyle={chartStyle} />
           )}
 
           {mode === 'workspace' && savedViewsOpen && (

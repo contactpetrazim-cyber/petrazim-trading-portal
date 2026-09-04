@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Maximize2, Minimize2, Sun, Moon, TrendingUp, X } from 'lucide-react';
 import { TradingViewChart } from './TradingViewChart';
 import { CandleColorPicker } from './CandleColorPicker';
-import { useCandleColorStore } from '../hooks/useCandleColors';
+import { useEffectiveChartColors } from '../hooks/useCandleColors';
 
 /**
  * ChartPanel — the one reusable chart embed every page uses (Trade,
@@ -37,7 +37,7 @@ export function ChartPanel({
   dark?: boolean;
 }) {
   const navigate = useNavigate();
-  const { colors } = useCandleColorStore();
+  const { colors, chartStyle, applyLocal, applyGlobal, resetLocal, resetGlobal } = useEffectiveChartColors();
   const [chartTheme, setChartTheme] = useState<'light' | 'dark'>('light');
   const [fullscreen, setFullscreen] = useState(false);
   const chartDark = chartTheme === 'dark';
@@ -62,7 +62,12 @@ export function ChartPanel({
       </div>
 
       <div className="flex items-center gap-2 ml-auto">
-        <CandleColorPicker dark={containerDark} />
+        <CandleColorPicker
+          dark={containerDark}
+          colors={colors} chartStyle={chartStyle}
+          onChangeLocal={applyLocal} onChangeGlobal={applyGlobal}
+          onResetLocal={resetLocal} onResetGlobal={resetGlobal}
+        />
         <button
           onClick={() => setFullscreen((f) => !f)}
           aria-label={fullscreen ? 'Return to default size' : 'Fill screen'}
@@ -93,7 +98,7 @@ export function ChartPanel({
         </div>
         {toolbar}
         <div className="flex-1 rounded-lg overflow-hidden">
-          <TradingViewChart symbol={symbol} interval={interval} theme={chartTheme} candleColors={colors} />
+          <TradingViewChart symbol={symbol} interval={interval} theme={chartTheme} candleColors={colors} chartStyle={chartStyle} />
         </div>
       </div>
     );

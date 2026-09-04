@@ -9,48 +9,63 @@ interface StatCardProps {
   trendValue?: string;
   icon: React.ReactNode;
   color?: string;
-  /** Trade-console pages are always dark regardless of the site
-   * toggle by default; pass true only where this card renders on a
-   * light background (e.g. the Trade portal's own light mode). */
+  /** Unused by the card's own colors now (see below) — kept only so
+   * existing call sites that pass the surrounding page's dark/light
+   * state don't need to change. */
   dark?: boolean;
 }
 
-export function StatCard({ title, value, subtitle, trend, trendValue, icon, color = 'blue', dark = true }: StatCardProps) {
+/**
+ * StatCard — this went through three requests before landing here:
+ * (1) make the value black, (2) make every line of text black, (3)
+ * "all texts in the coloured cards should be black" with no theme
+ * condition at all. The first two passes kept text color tied to the
+ * page's own dark/light toggle (`dark ? white : gray-900`), which is
+ * exactly why it kept reading as unfixed — the trader console's
+ * default IS dark, so the text kept rendering white again there.
+ *
+ * Fix: the card itself is now always a solid, light tinted surface
+ * (not a translucent overlay on top of whatever's behind it), and
+ * every line of text is unconditionally black. That's what makes
+ * "always black" actually true regardless of the site's light/dark
+ * toggle — a translucent tint over a dark page background would still
+ * make black text unreadable, so the fix has to be the card's own
+ * background, not just the text color.
+ */
+export function StatCard({ title, value, subtitle, trend, trendValue, icon, color = 'blue' }: StatCardProps) {
   const colorMap: Record<string, string> = {
-    blue: 'bg-blue-500/10 border-blue-500/20',
-    green: 'bg-emerald-500/10 border-emerald-500/20',
-    red: 'bg-red-500/10 border-red-500/20',
-    amber: 'bg-amber-500/10 border-amber-500/20',
-    purple: 'bg-purple-500/10 border-purple-500/20',
+    blue: 'bg-blue-50 border-blue-200',
+    green: 'bg-emerald-50 border-emerald-200',
+    red: 'bg-red-50 border-red-200',
+    amber: 'bg-amber-50 border-amber-200',
+    purple: 'bg-purple-50 border-purple-200',
   };
-  const labelColorMap: Record<string, string> = {
-    blue: 'text-blue-400', green: 'text-emerald-400', red: 'text-red-400',
-    amber: 'text-amber-400', purple: 'text-purple-400',
+  const iconColorMap: Record<string, string> = {
+    blue: 'bg-blue-100 text-blue-600',
+    green: 'bg-emerald-100 text-emerald-600',
+    red: 'bg-red-100 text-red-600',
+    amber: 'bg-amber-100 text-amber-600',
+    purple: 'bg-purple-100 text-purple-600',
   };
 
   return (
     <div className={`rounded-xl border p-5 ${colorMap[color]}`}>
       <div className="flex items-start justify-between">
         <div>
-          {/* Every line of text on this card is explicit black/white
-           * now, by direct (repeated) request — color lives only on
-           * the icon badge below, not on any text, so nothing here
-           * ever inherits the card's own lighter, harder-to-read
-           * accent shade. */}
-          <p className={`text-sm font-medium ${dark ? 'text-white' : 'text-gray-900'}`}>{title}</p>
-          <p className={`text-2xl font-bold mt-1 ${dark ? 'text-white' : 'text-gray-900'}`}>{value}</p>
-          {subtitle && <p className={`text-xs mt-1 ${dark ? 'text-white' : 'text-gray-900'}`}>{subtitle}</p>}
+          <p className="text-sm font-medium text-gray-900">{title}</p>
+          <p className="text-2xl font-bold mt-1 text-gray-900">{value}</p>
+          {subtitle && <p className="text-xs mt-1 text-gray-900">{subtitle}</p>}
         </div>
-        <div className={`p-2 rounded-lg ${labelColorMap[color]} ${dark ? 'bg-white/5' : 'bg-black/5'}`}>
+        <div className={`p-2 rounded-lg ${iconColorMap[color]}`}>
           {icon}
         </div>
       </div>
       {trend && (
         <div className="flex items-center gap-1 mt-3 text-sm">
-          {trend === 'up' && <TrendingUp size={14} className="text-emerald-400" />}
-          {trend === 'down' && <TrendingDown size={14} className="text-red-400" />}
-          {trend === 'neutral' && <Minus size={14} className="text-gray-400" />}
-          <span className={dark ? 'text-white' : 'text-gray-900'}>{trendValue}</span>
+          {trend === 'up' && <TrendingUp size={14} className="text-emerald-600" />}
+          {trend === 'down' && <TrendingDown size={14} className="text-red-600" />}
+          {trend === 'neutral' && <Minus size={14} className="text-gray-500" />}
+          <span className="text-gray-900">{trendValue}</span>
         </div>
       )}
     </div>
