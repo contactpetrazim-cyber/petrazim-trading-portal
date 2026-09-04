@@ -27,6 +27,7 @@ export function FoldedCard({
   defaultOpen = false,
   expandOnHover = false,
   dark = false,
+  accent,
 }: {
   title: string;
   summary?: string;
@@ -35,6 +36,12 @@ export function FoldedCard({
   defaultOpen?: boolean;
   expandOnHover?: boolean;
   dark?: boolean;
+  /** Icon badge color, hex — defaults to corporate-hero. The one
+   * documented exception is the Tools area, which uses a distinct
+   * cyan-teal (#0891b2) for its card icons on purpose (Section 6 of
+   * the Master Handover: "the only area that uses an accent color
+   * other than HERO_BLUE for its card icons"). */
+  accent?: string;
 }) {
   const [open, setOpen] = useState(defaultOpen);
   const [hovering, setHovering] = useState(false);
@@ -57,7 +64,10 @@ export function FoldedCard({
         aria-expanded={isOpen}
       >
         {icon && (
-          <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 bg-corporate-hero/10 text-corporate-hero">
+          <span
+            className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 bg-corporate-hero/10 text-corporate-hero"
+            style={accent ? { background: `${accent}1a`, color: accent } : undefined}
+          >
             {icon}
           </span>
         )}

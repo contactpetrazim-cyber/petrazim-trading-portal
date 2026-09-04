@@ -19,6 +19,10 @@ import { SiteMapPage } from './pages/SiteMapPage';
 import { MeetingsPage } from './pages/MeetingsPage';
 import { CorporateHomePage } from './pages/CorporateHomePage';
 import { AreaPage } from './pages/AreaPage';
+import { LearnPage } from './pages/LearnPage';
+import { LearnTrackPage } from './pages/LearnTrackPage';
+import { ToolsPage } from './pages/ToolsPage';
+import { InsightsPage } from './pages/InsightsPage';
 import { PaymentsPage } from './pages/PaymentsPage';
 import { ProtectedRoute } from './components/ProtectedRoute';
 
@@ -115,12 +119,23 @@ function App() {
         <Route path="/meetings" element={<CorporateLayout><MeetingsPage /></CorporateLayout>} />
         <Route path="/payments" element={<CorporateLayout><PaymentsPage /></CorporateLayout>} />
 
-        {/* The 8 BottomNav area landing pages (Section 9 of the design
-            handover — PageHeader + content, per area). TradingView already
-            has its own dedicated page above; the other 7 previously had no
-            route at all, so every BottomNav tab except TradingView fell
+        {/* Learn, Tools, and Insights now have real pages wired to their
+            real APIs (curriculum.py / tools.py / monte-carlo+weekly-review+
+            validation-gate) rather than falling through to the generic
+            FoldedCard link list — see the handover audit for why those
+            three specifically were picked first (real, tested backend
+            engines with zero frontend before this). */}
+        <Route path="/learn" element={<CorporateLayout><LearnPage /></CorporateLayout>} />
+        <Route path="/learn/tracks/:trackId" element={<CorporateLayout><LearnTrackPage /></CorporateLayout>} />
+        <Route path="/tools" element={<CorporateLayout><ToolsPage /></CorporateLayout>} />
+        <Route path="/insights" element={<CorporateLayout><InsightsPage /></CorporateLayout>} />
+
+        {/* The remaining BottomNav area landing pages (Section 9 of the
+            design handover — PageHeader + content, per area). TradingView
+            already has its own dedicated page above; these previously had
+            no route at all, so every BottomNav tab except TradingView fell
             through to the sitemap fallback below. */}
-        {(['learn', 'practise', 'trade', 'insights', 'tools', 'community', 'explore'] as const).map((area) => (
+        {(['practise', 'trade', 'community', 'explore'] as const).map((area) => (
           <Route key={area} path={`/${area}`} element={<CorporateLayout><AreaPage area={area} /></CorporateLayout>} />
         ))}
 
