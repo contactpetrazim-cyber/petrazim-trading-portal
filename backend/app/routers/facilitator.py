@@ -263,11 +263,13 @@ def _prune_expired_states() -> None:
 async def google_calendar_authorize(connector_type: str, admin: User = Depends(require_super_admin)):
     if connector_type not in GOOGLE_CONNECTOR_TYPES:
         raise HTTPException(status_code=404, detail="Unknown connector")
-    if not google_calendar.is_configured():
+    if not google_calendar.is_configured(connector_type):
+        suffix = "INDIVIDUAL" if connector_type == "google_calendar_individual" else "CORPORATE"
         raise HTTPException(
             status_code=503,
-            detail="Google Calendar isn't configured yet — set GOOGLE_CALENDAR_CLIENT_ID, "
-                   "GOOGLE_CALENDAR_CLIENT_SECRET, and BACKEND_URL on the backend first.",
+            detail=f"Google Calendar isn't configured for this account yet — set "
+                   f"GOOGLE_CALENDAR_CLIENT_ID_{suffix}, GOOGLE_CALENDAR_CLIENT_SECRET_{suffix}, "
+                   f"and BACKEND_URL on the backend first.",
         )
     _prune_expired_states()
     nonce = secrets.token_urlsafe(24)
@@ -291,7 +293,7 @@ async def google_calendar_callback(code: str, state: str, db: AsyncSession = Dep
         raise HTTPException(status_code=400, detail="This connection attempt expired or wasn't recognized — try connecting again.")
     del _pending_oauth_states[nonce]
 
-    tokens = await google_calendar.exchange_code(code)
+    tokens = await google_calendar.exchange_code(connector_type, code)
     refresh_token = tokens.get("refresh_token")
     if not refresh_token:
         # Google only issues a refresh_token on first consent (or with

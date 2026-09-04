@@ -26,6 +26,17 @@ import { InsightsPage } from './pages/InsightsPage';
 import { CommunityPage } from './pages/CommunityPage';
 import { PaymentsPage } from './pages/PaymentsPage';
 import { ProtectedRoute } from './components/ProtectedRoute';
+import type { UserRole } from './hooks/useAuth';
+
+// Mirrors the backend's PORTAL_ACCESS hierarchy (services/portal_access.py):
+// "fund_manager and partner are treated as PARALLEL specialist roles ...
+// Both can drop down to the Trader view (e.g. to see exactly what their
+// traders see), but neither can reach the other's console or Admin's."
+// The trader console's ProtectedRoute used to allow only 'trader' itself,
+// which is why "Switch Portal -> Trader dashboard" from a Manager/Partner/
+// Admin session silently bounced back to their own console — the backend
+// already allowed the request, the frontend route guard never did.
+const TRADER_CONSOLE_ROLES: UserRole[] = ['trader', 'fund_manager', 'partner', 'admin', 'super_admin'];
 
 /**
  * CorporateLayout — wraps the newer "corporate" pages: a slim TopNav
@@ -62,32 +73,32 @@ function App() {
         {/* Trader console — existing v2 dashboard, unchanged, now role-gated */}
         <Route path="/" element={<Navigate to="/login" replace />} />
         <Route path="/dashboard" element={
-          <ProtectedRoute allowedRoles={['trader']}>
+          <ProtectedRoute allowedRoles={TRADER_CONSOLE_ROLES}>
             <Layout><DashboardPage /></Layout>
           </ProtectedRoute>
         } />
         <Route path="/trades" element={
-          <ProtectedRoute allowedRoles={['trader']}>
+          <ProtectedRoute allowedRoles={TRADER_CONSOLE_ROLES}>
             <Layout><TradesPage /></Layout>
           </ProtectedRoute>
         } />
         <Route path="/bots" element={
-          <ProtectedRoute allowedRoles={['trader']}>
+          <ProtectedRoute allowedRoles={TRADER_CONSOLE_ROLES}>
             <Layout><BotsPage /></Layout>
           </ProtectedRoute>
         } />
         <Route path="/analytics" element={
-          <ProtectedRoute allowedRoles={['trader']}>
+          <ProtectedRoute allowedRoles={TRADER_CONSOLE_ROLES}>
             <Layout><DashboardPage /></Layout>
           </ProtectedRoute>
         } />
         <Route path="/risk" element={
-          <ProtectedRoute allowedRoles={['trader']}>
+          <ProtectedRoute allowedRoles={TRADER_CONSOLE_ROLES}>
             <Layout><RiskPage /></Layout>
           </ProtectedRoute>
         } />
         <Route path="/settings" element={
-          <ProtectedRoute allowedRoles={['trader']}>
+          <ProtectedRoute allowedRoles={TRADER_CONSOLE_ROLES}>
             <Layout><BotsPage /></Layout>
           </ProtectedRoute>
         } />

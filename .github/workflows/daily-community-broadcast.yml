@@ -1,0 +1,25 @@
+name: Daily community broadcast
+
+# Free scheduler for the daily tip + leaderboard broadcast (see
+# backend/app/routers/community_broadcast.py) — chosen over a Render
+# Cron Job specifically because that would be a new billed resource;
+# GitHub Actions is free on this public repo. Needs a repository
+# secret named CRON_SECRET (Settings -> Secrets and variables ->
+# Actions -> New repository secret) matching the CRON_SECRET already
+# set on the Render backend — this workflow can't set that secret
+# itself, someone with repo admin access has to add it once.
+
+on:
+  schedule:
+    - cron: '0 8 * * *'   # 08:00 UTC daily
+  workflow_dispatch: {}     # lets you trigger a run manually from the Actions tab, for testing
+
+jobs:
+  broadcast:
+    runs-on: ubuntu-latest
+    steps:
+      - name: POST /community/broadcast/daily-tip
+        run: |
+          curl -sf -X POST \
+            -H "X-Cron-Secret: ${{ secrets.CRON_SECRET }}" \
+            https://petrazim-trading-backend.onrender.com/community/broadcast/daily-tip

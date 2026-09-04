@@ -1,0 +1,20 @@
+name: Weekly quiz broadcast
+
+# Same free-scheduler approach as daily-community-broadcast.yml — see
+# that workflow's comment for why GitHub Actions instead of a Render
+# Cron Job, and the CRON_SECRET repository-secret setup it needs.
+
+on:
+  schedule:
+    - cron: '0 9 * * 1'   # Monday 09:00 UTC
+  workflow_dispatch: {}
+
+jobs:
+  broadcast:
+    runs-on: ubuntu-latest
+    steps:
+      - name: POST /community/broadcast/weekly-quiz
+        run: |
+          curl -sf -X POST \
+            -H "X-Cron-Secret: ${{ secrets.CRON_SECRET }}" \
+            https://petrazim-trading-backend.onrender.com/community/broadcast/weekly-quiz

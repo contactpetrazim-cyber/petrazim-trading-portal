@@ -7,24 +7,20 @@ The actual OAuth call flow the Master Handover flagged as missing:
 Secret/Refresh Token) but the actual OAuth call flow is NOT built —
 only the connection-status UI." This is that flow.
 
-Reads its own env vars directly (see config.py's own comment on why
-third-party connector credentials aren't Settings fields):
-  GOOGLE_CALENDAR_CLIENT_ID       — OAuth 2.0 Client ID, Web application
-  GOOGLE_CALENDAR_CLIENT_SECRET   — its paired secret (this flow needs
-                                    one; the login button's GOOGLE_CLIENT_ID
-                                    deliberately doesn't, see routers/auth.py)
-  BACKEND_URL                     — this API's own public base URL, used
-                                    to build the redirect_uri Google calls
-                                    back to (must exactly match an
-                                    "Authorized redirect URI" registered
-                                    on that OAuth client in Google Cloud
-                                    Console)
-
-One shared OAuth client connects EITHER Google account (individual or
-corporate) — `connector_type` in the authorize URL's `state` param is
-how the callback knows which ExternalConnector/GoogleCalendarCredential
-row to update; the admin simply logs into whichever Google account
-they're connecting when Google's own consent screen appears.
+The two Google accounts (petrazim.solutions@gmail.com / individual,
+contact.petrazim@gmail.com / corporate) each have their OWN registered
+OAuth client — not one shared client used to connect either account,
+which was this file's first draft. Reads its own env vars directly
+(see config.py's own comment on why third-party connector credentials
+aren't Settings fields):
+  GOOGLE_CALENDAR_CLIENT_ID_INDIVIDUAL / _SECRET_INDIVIDUAL
+  GOOGLE_CALENDAR_CLIENT_ID_CORPORATE  / _SECRET_CORPORATE
+  BACKEND_URL — this API's own public base URL, used to build the
+                redirect_uri Google calls back to (must exactly match
+                an "Authorized redirect URI" registered on BOTH OAuth
+                clients in Google Cloud Console — the callback route
+                itself is one shared URL regardless of which client
+                sent the user there)
 
 Not built here: token encryption at rest (see GoogleCalendarCredential's
 own docstring) and a background refresh sweep (access tokens are
@@ -51,17 +47,22 @@ USERINFO_URL = "https://www.googleapis.com/oauth2/v2/userinfo"
 # the booking event this app actually needs, nothing wider than that.
 SCOPE = "https://www.googleapis.com/auth/calendar.events"
 
-
-def _client_id() -> str:
-    return os.environ.get("GOOGLE_CALENDAR_CLIENT_ID", "")
-
-
-def _client_secret() -> str:
-    return os.environ.get("GOOGLE_CALENDAR_CLIENT_SECRET", "")
+_ENV_SUFFIX = {
+    "google_calendar_individual": "INDIVIDUAL",
+    "google_calendar_corporate": "CORPORATE",
+}
 
 
-def is_configured() -> bool:
-    return bool(_client_id() and _client_secret())
+def _client_id(connector_type: str) -> str:
+    return os.environ.get(f"GOOGLE_CALENDAR_CLIENT_ID_{_ENV_SUFFIX[connector_type]}", "")
+
+
+def _client_secret(connector_type: str) -> str:
+    return os.environ.get(f"GOOGLE_CALENDAR_CLIENT_SECRET_{_ENV_SUFFIX[connector_type]}", "")
+
+
+def is_configured(connector_type: str) -> bool:
+    return bool(_client_id(connector_type) and _client_secret(connector_type))
 
 
 def _redirect_uri() -> str:
@@ -73,10 +74,11 @@ def build_authorize_url(connector_type: str, csrf_token: str) -> str:
     """connector_type + csrf_token are packed into `state` together
     (colon-joined — connector_type is one of two known enum-like
     strings, never contains a colon) so the callback can recover which
-    connector this was for AND verify it wasn't forged, from the one
-    round-trip param OAuth gives back unchanged."""
+    connector this was for (and therefore which client_id/secret pair
+    to exchange the code with) AND verify it wasn't forged, from the
+    one round-trip param OAuth gives back unchanged."""
     params = {
-        "client_id": _client_id(),
+        "client_id": _client_id(connector_type),
         "redirect_uri": _redirect_uri(),
         "response_type": "code",
         "scope": SCOPE,
@@ -87,10 +89,10 @@ def build_authorize_url(connector_type: str, csrf_token: str) -> str:
     return f"{AUTHORIZE_URL}?{urlencode(params)}"
 
 
-async def exchange_code(code: str) -> dict:
+async def exchange_code(connector_type: str, code: str) -> dict:
     async with httpx.AsyncClient(timeout=15) as client:
         res = await client.post(TOKEN_URL, data={
-            "code": code, "client_id": _client_id(), "client_secret": _client_secret(),
+            "code": code, "client_id": _client_id(connector_type), "client_secret": _client_secret(connector_type),
             "redirect_uri": _redirect_uri(), "grant_type": "authorization_code",
         })
     res.raise_for_status()
@@ -105,21 +107,22 @@ async def fetch_connected_email(access_token: str) -> Optional[str]:
     return res.json().get("email")
 
 
-async def _refresh_access_token(refresh_token: str) -> dict:
+async def _refresh_access_token(connector_type: str, refresh_token: str) -> dict:
     async with httpx.AsyncClient(timeout=15) as client:
         res = await client.post(TOKEN_URL, data={
-            "refresh_token": refresh_token, "client_id": _client_id(),
-            "client_secret": _client_secret(), "grant_type": "refresh_token",
+            "refresh_token": refresh_token, "client_id": _client_id(connector_type),
+            "client_secret": _client_secret(connector_type), "grant_type": "refresh_token",
         })
     res.raise_for_status()
     return res.json()
 
 
 async def get_valid_access_token(credential) -> Optional[str]:
-    """credential: a GoogleCalendarCredential row. Refreshes lazily if
-    the cached access token is missing or expired (with a 60s safety
-    margin), and updates the row's cache in place — caller is
-    responsible for committing the session afterward. Returns None
+    """credential: a GoogleCalendarCredential row (its connector_type
+    field says which client_id/secret pair refreshes it). Refreshes
+    lazily if the cached access token is missing or expired (with a
+    60s safety margin), and updates the row's cache in place — caller
+    is responsible for committing the session afterward. Returns None
     (never raises) if the refresh itself fails, e.g. the connection was
     revoked on Google's side — calendar sync degrades to "skipped" the
     same way a missing Fireflies key does, not a hard failure."""
@@ -128,7 +131,7 @@ async def get_valid_access_token(credential) -> Optional[str]:
         return credential.access_token
 
     try:
-        tokens = await _refresh_access_token(credential.refresh_token)
+        tokens = await _refresh_access_token(credential.connector_type, credential.refresh_token)
     except httpx.HTTPStatusError:
         return None
 
