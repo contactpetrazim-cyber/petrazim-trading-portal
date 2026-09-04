@@ -400,7 +400,7 @@ class ExecutionEngine:
     async def _execute_bingx(self, trade: Dict, broker) -> Dict:
         """Execute via BingX."""
         side = "BUY" if trade["direction"] == "long" else "SELL"
-        order_type = "LIMIT" if trade.get("entry_type") == "limit" else "MARKET"
+        order_type = {"limit": "LIMIT", "stop": "STOP"}.get(trade.get("entry_type"), "MARKET")
 
         result = await broker.place_order(
             symbol=trade["symbol"],
@@ -424,7 +424,7 @@ class ExecutionEngine:
     async def _execute_tradelocker(self, trade: Dict, broker) -> Dict:
         """Execute via TradeLocker."""
         side = "buy" if trade["direction"] == "long" else "sell"
-        order_type = "limit" if trade.get("entry_type") == "limit" else "market"
+        order_type = {"limit": "limit", "stop": "stop"}.get(trade.get("entry_type"), "market")
 
         result = await broker.place_order(
             symbol=trade["symbol"],
@@ -448,7 +448,7 @@ class ExecutionEngine:
     async def _execute_binance(self, trade: Dict, broker) -> Dict:
         """Execute via Binance USDT-M Futures."""
         side = "BUY" if trade["direction"] == "long" else "SELL"
-        order_type = "LIMIT" if trade.get("entry_type") == "limit" else "MARKET"
+        order_type = {"limit": "LIMIT", "stop": "STOP"}.get(trade.get("entry_type"), "MARKET")
 
         result = await broker.place_order(
             symbol=trade["symbol"],
@@ -471,7 +471,7 @@ class ExecutionEngine:
     async def _execute_bybit(self, trade: Dict, broker) -> Dict:
         """Execute via Bybit V5 (linear/USDT perpetuals)."""
         side = "BUY" if trade["direction"] == "long" else "SELL"
-        order_type = "LIMIT" if trade.get("entry_type") == "limit" else "MARKET"
+        order_type = {"limit": "LIMIT", "stop": "STOP"}.get(trade.get("entry_type"), "MARKET")
 
         result = await broker.place_order(
             symbol=trade["symbol"],
@@ -494,7 +494,7 @@ class ExecutionEngine:
     async def _execute_mexc(self, trade: Dict, broker) -> Dict:
         """Execute via MEXC Futures (contract)."""
         side = "BUY" if trade["direction"] == "long" else "SELL"
-        order_type = "LIMIT" if trade.get("entry_type") == "limit" else "MARKET"
+        order_type = {"limit": "LIMIT", "stop": "STOP"}.get(trade.get("entry_type"), "MARKET")
 
         result = await broker.place_order(
             symbol=trade["symbol"],
@@ -524,7 +524,7 @@ class ExecutionEngine:
         first).
         """
         side = "BUY" if trade["direction"] == "long" else "SELL"
-        order_type = "LIMIT" if trade.get("entry_type") == "limit" else "MARKET"
+        order_type = {"limit": "LIMIT", "stop": "STOP"}.get(trade.get("entry_type"), "MARKET")
 
         result = await broker.place_order(
             symbol=trade["symbol"],

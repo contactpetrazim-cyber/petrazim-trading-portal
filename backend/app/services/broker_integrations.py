@@ -144,13 +144,23 @@ class BingXBroker:
     async def place_order(self,
                          symbol: str,
                          side: str,  # BUY or SELL
-                         order_type: str,  # MARKET or LIMIT
+                         order_type: str,  # MARKET, LIMIT, or STOP
                          quantity: float,
                          price: Optional[float] = None,
                          stop_loss: Optional[float] = None,
                          take_profit: Optional[float] = None) -> Dict:
         """
         Place a new order on BingX.
+
+        STOP here is a genuine stop-market entry — BingX's own
+        TRIGGER_MARKET type: `price` is the trigger, and BingX itself
+        determines cross-direction (rises-to vs falls-to) the same way
+        it does for a plain MARKET order, from comparing the trigger to
+        the price at placement time (confirmed against ccxt's own
+        bingx.js createOrder mapping — no separate direction field
+        exists to get wrong). TRIGGER_LIMIT (a stop-limit, needing a
+        second post-trigger price) is not used — this app only ever
+        collects one price for a stop order.
 
         Example:
             await broker.place_order(
@@ -164,16 +174,19 @@ class BingXBroker:
             )
         """
         endpoint = "/openApi/swap/v2/trade/order"
+        is_stop = order_type.upper() == "STOP"
 
         params = {
             "symbol": symbol.replace("/", "-").upper(),
             "side": side.upper(),
             "positionSide": "LONG" if side.upper() == "BUY" else "SHORT",
-            "type": order_type.upper(),
+            "type": "TRIGGER_MARKET" if is_stop else order_type.upper(),
             "quantity": str(quantity)
         }
 
-        if order_type.upper() == "LIMIT" and price:
+        if is_stop and price:
+            params["stopPrice"] = str(price)
+        elif order_type.upper() == "LIMIT" and price:
             params["price"] = str(price)
 
         # Add stop loss and take profit
@@ -326,13 +339,21 @@ class TradeLockerBroker:
     async def place_order(self,
                          symbol: str,
                          side: str,  # buy or sell
-                         order_type: str,  # market or limit
+                         order_type: str,  # market, limit, or stop
                          quantity: float,
                          price: Optional[float] = None,
                          stop_loss: Optional[float] = None,
                          take_profit: Optional[float] = None) -> Dict:
         """
         Place order on TradeLocker.
+
+        A "stop" order needs its trigger in `stopPrice`, not `price`
+        (TradeLocker's own docs: "price is ignored for stop orders"),
+        and `validity` GTC — TradeLocker documents `validity` as
+        mandatory in general (IOC for market, GTC for limit/stop); this
+        integration has only ever exercised market/limit without it, so
+        it's added here for stop specifically rather than risked on the
+        two paths already working in production.
 
         Example:
             await broker.place_order(
@@ -346,6 +367,7 @@ class TradeLockerBroker:
             )
         """
         endpoint = "/orders"
+        is_stop = order_type.lower() == "stop"
 
         body = {
             "accountId": self.account_id,
@@ -355,7 +377,11 @@ class TradeLockerBroker:
             "quantity": quantity
         }
 
-        if order_type.lower() == "limit" and price:
+        if is_stop:
+            body["validity"] = "GTC"
+            if price:
+                body["stopPrice"] = price
+        elif order_type.lower() == "limit" and price:
             body["price"] = price
 
         if stop_loss:
@@ -511,7 +537,7 @@ class BinanceBroker:
     async def place_order(self,
                          symbol: str,
                          side: str,  # BUY or SELL
-                         order_type: str,  # MARKET or LIMIT
+                         order_type: str,  # MARKET, LIMIT, or STOP
                          quantity: float,
                          price: Optional[float] = None,
                          stop_loss: Optional[float] = None,
@@ -521,15 +547,25 @@ class BinanceBroker:
         reduce-only STOP_MARKET / TAKE_PROFIT_MARKET orders if SL/TP
         were given — Binance Futures has no single-call "attached"
         SL/TP the way BingX does, these are genuinely separate orders.
+
+        STOP entries use Binance's own STOP_MARKET type: `price` is the
+        stopPrice (trigger), `quantity` stays required (unlike the
+        SL/TP close orders below, this isn't a closePosition order),
+        and — unlike STOP_MARKET's close-side usage further down —
+        no timeInForce/price is sent, matching Binance's own docs
+        ("STOP_MARKET does not use timeInForce or price").
         """
         symbol_clean = symbol.replace("/", "").replace("-", "").upper()
+        is_stop = order_type.upper() == "STOP"
         params = {
             "symbol": symbol_clean,
             "side": side.upper(),
-            "type": order_type.upper(),
+            "type": "STOP_MARKET" if is_stop else order_type.upper(),
             "quantity": quantity,
         }
-        if order_type.upper() == "LIMIT":
+        if is_stop and price:
+            params["stopPrice"] = price
+        elif order_type.upper() == "LIMIT":
             params["timeInForce"] = "GTC"
             if price:
                 params["price"] = price
@@ -691,7 +727,7 @@ class BybitBroker:
     async def place_order(self,
                          symbol: str,
                          side: str,  # BUY or SELL (Bybit expects "Buy"/"Sell")
-                         order_type: str,  # MARKET or LIMIT
+                         order_type: str,  # MARKET, LIMIT, or STOP
                          quantity: float,
                          price: Optional[float] = None,
                          stop_loss: Optional[float] = None,
@@ -699,16 +735,31 @@ class BybitBroker:
         """
         Bybit V5 supports attaching takeProfit/stopLoss directly on the
         entry order (unlike Binance) — one call, like BingX.
+
+        STOP entries become a Bybit "conditional order": orderType
+        stays Market (it fires a market order once triggered) and
+        `triggerPrice` carries the trigger. Bybit — unlike BingX/
+        Binance — also needs an explicit `triggerDirection`, since it
+        won't infer it from where price sits at placement time: 1
+        ("rises to triggerPrice") for a BUY stop, matching the
+        conventional retail "Buy Stop" breakout-above-market order;
+        2 ("falls to triggerPrice") for a SELL stop, matching "Sell
+        Stop" breakdown-below-market — the same convention this app's
+        MetaApi (MT4/5) integration relies on for BUY_STOP/SELL_STOP.
         """
         symbol_clean = symbol.replace("/", "").replace("-", "").upper()
+        is_stop = order_type.upper() == "STOP"
         params = {
             "category": "linear",
             "symbol": symbol_clean,
             "side": "Buy" if side.upper() == "BUY" else "Sell",
-            "orderType": "Market" if order_type.upper() == "MARKET" else "Limit",
+            "orderType": "Market" if (order_type.upper() == "MARKET" or is_stop) else "Limit",
             "qty": str(quantity),
         }
-        if order_type.upper() == "LIMIT" and price:
+        if is_stop and price:
+            params["triggerPrice"] = str(price)
+            params["triggerDirection"] = 1 if side.upper() == "BUY" else 2
+        elif order_type.upper() == "LIMIT" and price:
             params["price"] = str(price)
         if stop_loss:
             params["stopLoss"] = str(stop_loss)
@@ -867,7 +918,7 @@ class MexcBroker:
     async def place_order(self,
                          symbol: str,
                          side: str,  # BUY or SELL
-                         order_type: str,  # MARKET or LIMIT
+                         order_type: str,  # MARKET, LIMIT, or STOP
                          quantity: float,
                          price: Optional[float] = None,
                          stop_loss: Optional[float] = None,
@@ -878,7 +929,16 @@ class MexcBroker:
         maps our simple long/short vocabulary onto that, and attaches
         SL/TP directly on the entry order (MEXC supports this, like
         Bybit/BingX).
+
+        STOP routes to a completely different call: MEXC has no
+        trigger variant of the regular order/submit endpoint — a stop
+        entry is its own "plan order" (POST .../planorder/place/v2),
+        so this branches to _place_plan_order rather than bolting a
+        trigger field onto the request built below.
         """
+        if order_type.upper() == "STOP":
+            return await self._place_plan_order(symbol, side, quantity, price)
+
         mexc_symbol = self._mexc_symbol(symbol)
         side_code = 1 if side.upper() == "BUY" else 3  # open long / open short
         params = {
@@ -898,6 +958,46 @@ class MexcBroker:
         result = await self._request("POST", "/api/v1/private/order/submit", params)
         if result["success"]:
             logger.info("mexc_order_placed", symbol=mexc_symbol, side=side, order_id=result["data"])
+            return {
+                "success": True,
+                "order_id": result["data"],
+                "symbol": mexc_symbol,
+                "status": "NEW",
+            }
+        return result
+
+    async def _place_plan_order(self, symbol: str, side: str, quantity: float, trigger_price: Optional[float]) -> Dict:
+        """
+        A MEXC "plan order" (trigger order) — separate order book from
+        the regular one, only materializes into a real market order
+        once triggerPrice is touched. orderType 5 = market, matching
+        every other broker's "stop" meaning stop-market here, not
+        stop-limit. triggerType is the direction MEXC needs explicitly
+        (it won't infer one from current price, like Bybit): 1 (>=)
+        for a BUY stop — conventional "Buy Stop" triggers as price
+        rises to it — 2 (<=) for a SELL stop, mirroring this file's
+        Bybit triggerDirection and MetaApi BUY_STOP/SELL_STOP logic.
+        executeCycle 2 (7 days) rather than 1 (24 hours) so a stop
+        order placed today is still working tomorrow, matching how
+        long a resting limit/market order is expected to sit.
+        """
+        mexc_symbol = self._mexc_symbol(symbol)
+        params = {
+            "symbol": mexc_symbol,
+            "side": 1 if side.upper() == "BUY" else 3,  # open long / open short
+            "vol": quantity,
+            "openType": 2,  # cross margin, matching the regular order path
+            "orderType": 5,  # market — fires at market once triggered
+            "trend": 1,  # trigger off latest price
+            "executeCycle": 2,  # 7 days
+            "triggerType": 1 if side.upper() == "BUY" else 2,
+        }
+        if trigger_price:
+            params["triggerPrice"] = trigger_price
+
+        result = await self._request("POST", "/api/v1/private/planorder/place/v2", params)
+        if result["success"]:
+            logger.info("mexc_plan_order_placed", symbol=mexc_symbol, side=side, order_id=result["data"])
             return {
                 "success": True,
                 "order_id": result["data"],
@@ -1017,18 +1117,26 @@ class MetaApiBroker:
     async def place_order(self,
                          symbol: str,
                          side: str,  # BUY or SELL
-                         order_type: str,  # MARKET or LIMIT
+                         order_type: str,  # MARKET, LIMIT, or STOP
                          quantity: float,
                          price: Optional[float] = None,
                          stop_loss: Optional[float] = None,
                          take_profit: Optional[float] = None) -> Dict:
-        action_type = (
-            ("ORDER_TYPE_BUY" if side.upper() == "BUY" else "ORDER_TYPE_SELL")
-            if order_type.upper() == "MARKET" else
-            ("ORDER_TYPE_BUY_LIMIT" if side.upper() == "BUY" else "ORDER_TYPE_SELL_LIMIT")
-        )
+        # STOP maps onto MT4/5's own native pending-order types —
+        # BUY_STOP triggers as price rises to openPrice (the classic
+        # "breakout above" entry), SELL_STOP as it falls to openPrice
+        # ("breakdown below") — the same convention this file's Bybit/
+        # MEXC stop branches reproduce for exchanges that need it
+        # spelled out explicitly instead of getting it for free from a
+        # native order type.
+        if order_type.upper() == "STOP":
+            action_type = "ORDER_TYPE_BUY_STOP" if side.upper() == "BUY" else "ORDER_TYPE_SELL_STOP"
+        elif order_type.upper() == "MARKET":
+            action_type = "ORDER_TYPE_BUY" if side.upper() == "BUY" else "ORDER_TYPE_SELL"
+        else:
+            action_type = "ORDER_TYPE_BUY_LIMIT" if side.upper() == "BUY" else "ORDER_TYPE_SELL_LIMIT"
         body = {"actionType": action_type, "symbol": symbol, "volume": quantity}
-        if order_type.upper() == "LIMIT" and price:
+        if order_type.upper() in ("LIMIT", "STOP") and price:
             body["openPrice"] = price
         if stop_loss:
             body["stopLoss"] = stop_loss
