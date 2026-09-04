@@ -25,6 +25,7 @@ import { ToolsPage } from './pages/ToolsPage';
 import { InsightsPage } from './pages/InsightsPage';
 import { CommunityPage } from './pages/CommunityPage';
 import { ManualTradingPage } from './pages/ManualTradingPage';
+import { TradePage } from './pages/TradePage';
 import { PaymentsPage } from './pages/PaymentsPage';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import type { UserRole } from './hooks/useAuth';
@@ -143,6 +144,7 @@ function App() {
         <Route path="/tools" element={<CorporateLayout><ToolsPage /></CorporateLayout>} />
         <Route path="/insights" element={<CorporateLayout><InsightsPage /></CorporateLayout>} />
         <Route path="/community" element={<CorporateLayout><CommunityPage /></CorporateLayout>} />
+        <Route path="/trade" element={<CorporateLayout><TradePage /></CorporateLayout>} />
 
         {/* Manual Trading — its own full-bleed exchange-style layout,
             same reasoning as the Trade console's own Layout not using
@@ -159,7 +161,7 @@ function App() {
             already has its own dedicated page above; these previously had
             no route at all, so every BottomNav tab except TradingView fell
             through to the sitemap fallback below. */}
-        {(['practise', 'trade', 'explore'] as const).map((area) => (
+        {(['practise', 'explore'] as const).map((area) => (
           <Route key={area} path={`/${area}`} element={<CorporateLayout><AreaPage area={area} /></CorporateLayout>} />
         ))}
 

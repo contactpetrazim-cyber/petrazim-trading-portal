@@ -1,6 +1,9 @@
 import { Link } from 'react-router-dom';
+import { LineChart } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
 import { FoldedCard } from '../components/FoldedCard';
+import { TradingViewChart } from '../components/TradingViewChart';
+import { useCandleColorStore } from '../hooks/useCandleColors';
 import { FEATURE_AREAS, FEATURE_REGISTRY, AREA_ICONS, FeatureArea } from '../config/featureRegistry';
 import { useThemeStore } from '../hooks/useTheme';
 
@@ -30,10 +33,19 @@ import { useThemeStore } from '../hooks/useTheme';
  * AREA_ICONS entry per card, same as the reference's own Tools page
  * (one Wrench icon repeated across every tool card, only the accent
  * varying) rather than inventing a distinct icon per feature.
+ *
+ * A free chart (collapsed by default, same FoldedCard as everything
+ * else here) now sits above the feature list, by direct request:
+ * "introduce a free chart in all the subsections on the nav bar."
+ * Trade, Tools, Insights, Learn, TradingView, and Community each have
+ * their own dedicated page instead of this generic one and get the
+ * same treatment there; this covers whatever's left (Practise,
+ * Explore) plus any future area that hasn't earned a bespoke page yet.
  */
 export function AreaPage({ area }: { area: FeatureArea }) {
   const { theme } = useThemeStore();
   const dark = theme === 'dark';
+  const { colors } = useCandleColorStore();
   const meta = FEATURE_AREAS.find((a) => a.id === area)!;
   const items = FEATURE_REGISTRY.filter((f) => f.area === area);
   const AreaIcon = AREA_ICONS[area];
@@ -41,6 +53,17 @@ export function AreaPage({ area }: { area: FeatureArea }) {
   return (
     <div>
       <PageHeader title={meta.label} subtitle={meta.description} />
+
+      <div className="mb-3">
+        <FoldedCard
+          title="Free Chart" summary="A live TradingView chart, right here" icon={<LineChart size={19} />}
+          dark={dark} defaultOpen
+        >
+          <div className="rounded-lg overflow-hidden" style={{ height: 320 }}>
+            <TradingViewChart symbol="OANDA:EURUSD" interval="60" theme={theme} candleColors={colors} />
+          </div>
+        </FoldedCard>
+      </div>
 
       <div className="space-y-3">
         {items.map((item) => (
