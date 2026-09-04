@@ -115,6 +115,21 @@ class TelegramService:
         permission. Used for signal broadcasts (see services/signal_broadcast.py)."""
         await self._call("sendMessage", {"chat_id": chat_id, "text": text, "parse_mode": "HTML"})
 
+    async def send_quiz_poll(
+        self, chat_id: str, question: str, options: list[str], correct_option_id: int, explanation: str = "",
+    ) -> None:
+        """Telegram's own native quiz poll (sendPoll, type='quiz') — a real
+        interactive object with a visible correct answer and vote tally,
+        not a text message asking people to reply with a letter. 2-10
+        options, exactly one correct index; explanation shows automatically
+        once someone answers. Used for services/community_broadcast.py's
+        curated quiz questions."""
+        await self._call("sendPoll", {
+            "chat_id": chat_id, "question": question, "options": options,
+            "type": "quiz", "correct_option_id": correct_option_id,
+            "explanation": explanation[:200], "is_anonymous": True,
+        })
+
     async def approve_join_request(self, chat_id: str, telegram_user_id: int) -> None:
         """Call this from the webhook handler after confirming the user has
         active platform access (UserAccess row, not expired)."""

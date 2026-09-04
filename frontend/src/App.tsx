@@ -23,6 +23,7 @@ import { LearnPage } from './pages/LearnPage';
 import { LearnTrackPage } from './pages/LearnTrackPage';
 import { ToolsPage } from './pages/ToolsPage';
 import { InsightsPage } from './pages/InsightsPage';
+import { CommunityPage } from './pages/CommunityPage';
 import { PaymentsPage } from './pages/PaymentsPage';
 import { ProtectedRoute } from './components/ProtectedRoute';
 
@@ -129,13 +130,14 @@ function App() {
         <Route path="/learn/tracks/:trackId" element={<CorporateLayout><LearnTrackPage /></CorporateLayout>} />
         <Route path="/tools" element={<CorporateLayout><ToolsPage /></CorporateLayout>} />
         <Route path="/insights" element={<CorporateLayout><InsightsPage /></CorporateLayout>} />
+        <Route path="/community" element={<CorporateLayout><CommunityPage /></CorporateLayout>} />
 
         {/* The remaining BottomNav area landing pages (Section 9 of the
             design handover — PageHeader + content, per area). TradingView
             already has its own dedicated page above; these previously had
             no route at all, so every BottomNav tab except TradingView fell
             through to the sitemap fallback below. */}
-        {(['practise', 'trade', 'community', 'explore'] as const).map((area) => (
+        {(['practise', 'trade', 'explore'] as const).map((area) => (
           <Route key={area} path={`/${area}`} element={<CorporateLayout><AreaPage area={area} /></CorporateLayout>} />
         ))}
 
