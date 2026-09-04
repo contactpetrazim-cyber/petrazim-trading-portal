@@ -64,8 +64,8 @@ class ExternalConnector(Base):
     """Connection status for Fireflies and the two Google Calendars
     (individual + corporate) — 'connect cards' in the UI read/write
     this table. Storing only connection STATUS and non-secret metadata
-    here; actual OAuth tokens belong in a proper secrets store, not
-    this table, once real credentials exist."""
+    here; actual OAuth tokens live in GoogleCalendarCredential below,
+    now that real credentials exist and the OAuth call flow is built."""
     __tablename__ = "external_connectors"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -73,3 +73,28 @@ class ExternalConnector(Base):
     is_connected = Column(String(10), nullable=False, default="false")  # 'true'/'false' as string — kept simple, not a real boolean enum
     connected_account_label = Column(String(255), nullable=True)   # e.g. the connected email, for display only
     connected_at = Column(DateTime(timezone=True), nullable=True)
+
+
+class GoogleCalendarCredential(Base):
+    """One row per connected Google Calendar (individual/corporate).
+    Holds the refresh token (long-lived) plus a cached access token
+    (short-lived, refreshed on demand by google_calendar.py) so a
+    booking can create a real calendar event without re-prompting for
+    consent every time.
+
+    SECURITY NOTE, said plainly rather than glossed over: refresh_token
+    is stored as plaintext in this column. That's acceptable for
+    getting the flow working end-to-end, but a real production
+    deployment should encrypt this column at rest (e.g. via the
+    database's own column-encryption, or a KMS-backed secrets store)
+    before real trainee data flows through it — flag this to whoever
+    does the production hardening pass, don't treat it as already done."""
+    __tablename__ = "google_calendar_credentials"
+
+    connector_type = Column(String(50), primary_key=True)  # 'google_calendar_individual' | 'google_calendar_corporate'
+    refresh_token = Column(Text, nullable=False)
+    access_token = Column(Text, nullable=True)
+    access_token_expires_at = Column(DateTime(timezone=True), nullable=True)
+    connected_email = Column(String(255), nullable=True)
+    scope = Column(String(500), nullable=True)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
