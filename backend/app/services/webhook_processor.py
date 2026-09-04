@@ -152,7 +152,7 @@ class WebhookProcessor:
                 "bot_2": "HF Order Block Reversal",
                 "bot_3": "FVG Expansion & Fill",
                 "bot_4": "Volume & Liquidity Sweep",
-                "bot_5": "Jeafx SMC Specialist"
+                "bot_5": "SMC BOT"
             }
 
             return BotSignal(

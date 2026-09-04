@@ -154,7 +154,7 @@ export function InsightsPage() {
       <PageHeader title="Insights" subtitle="Trader analytics from your real closed trades, Monte Carlo forecasts, weekly coach reviews, and the go-live validation gate." />
 
       <div className="mb-4">
-        <FoldedCard title="Free Chart" summary="A live TradingView chart, right here" icon={<LineChart size={19} />} dark={dark} defaultOpen>
+        <FoldedCard title="Chart" summary="A live TradingView chart, right here" icon={<LineChart size={19} />} dark={dark} defaultOpen>
           <ChartPanel symbol="OANDA:EURUSD" height={380} tradeSymbol="EURUSD" dark={dark} />
         </FoldedCard>
       </div>

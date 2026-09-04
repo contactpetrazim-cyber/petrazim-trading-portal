@@ -625,7 +625,7 @@ class JeafxSMCBot:
 
     def __init__(self, config: Dict):
         self.bot_id = "bot_5_jeafx"
-        self.bot_name = "Jeafx SMC Specialist"
+        self.bot_name = "SMC BOT"
         self.config = config
         self.structure_detector = MarketStructureDetector(left_bars=3, right_bars=2)
         self.entry_engine = EntryExitEngine(default_rr=4.0)
@@ -764,7 +764,7 @@ class JeafxSMCBot:
             take_profit=targets["tp2"],
             lot_size=lots["lot_size"],
             risk_percent=risk,
-            reasoning=f"Jeafx SMC {direction}. 1H fresh zone. 15M {last_sweep['type']}. "
+            reasoning=f"SMC BOT {direction}. 1H fresh zone. 15M {last_sweep['type']}. "
                      f"5M confirmation candle + FVG: {valid_fvg is not None}. "
                      f"Entry at 50%. Strict SL beyond purge. 5R target.",
             timestamp=datetime.utcnow()

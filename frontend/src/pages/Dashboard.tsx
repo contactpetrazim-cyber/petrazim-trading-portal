@@ -172,7 +172,7 @@ export function DashboardPage() {
       {/* Free Chart + My Workspace — by direct request, right on the
           trader's own dashboard, not just under the TradingView area. */}
       <FoldedCard
-        title="Free Chart" summary="A live TradingView chart, right on your dashboard"
+        title="Chart" summary="A live TradingView chart, right on your dashboard"
         icon={<LineChartIcon size={19} />} dark={dark} defaultOpen
       >
         <ChartPanel symbol="BINANCE:BTCUSDT" height={420} tradeSymbol="BTCUSDT" dark={dark} />

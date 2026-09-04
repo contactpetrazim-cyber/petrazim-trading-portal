@@ -256,7 +256,7 @@ export function ToolsPage() {
       <PageHeader title="Tools" subtitle="Risk-of-ruin, prop-firm odds, correlation, journal review, and payout tools." />
 
       <div className="mb-4">
-        <FoldedCard title="Free Chart" summary="A live TradingView chart, right here" icon={<LineChart size={19} />} dark={dark} accent={TOOLS_ACCENT} defaultOpen>
+        <FoldedCard title="Chart" summary="A live TradingView chart, right here" icon={<LineChart size={19} />} dark={dark} accent={TOOLS_ACCENT} defaultOpen>
           <ChartPanel symbol="BINANCE:BTCUSDT" height={380} tradeSymbol="BTCUSDT" dark={dark} />
         </FoldedCard>
       </div>

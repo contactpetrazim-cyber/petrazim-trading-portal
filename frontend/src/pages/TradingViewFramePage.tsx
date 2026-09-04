@@ -155,7 +155,7 @@ export function TradingViewFramePage() {
                     : frameDark ? 'text-white/50 hover:text-white' : 'text-[#141a33]/50 hover:text-[#141a33]'
                 }`}
               >
-                {m === 'widget' ? 'Free Chart' : m === 'workspace' ? 'My Workspace' : 'Real TradingView'}
+                {m === 'widget' ? 'Chart' : m === 'workspace' ? 'My Workspace' : 'Real TradingView'}
               </button>
             ))}
           </div>

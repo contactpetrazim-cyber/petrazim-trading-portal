@@ -49,7 +49,7 @@ const BOT_CATALOG = [
     summary: 'Wyckoff-style spring/upthrust false-breakout patterns confirmed by volume divergence — range accumulation/distribution trades.',
   },
   {
-    id: 'bot_5_jeafx', name: 'Jeafx SMC Specialist',
+    id: 'bot_5_jeafx', name: 'SMC BOT',
     summary: 'Highly mechanical liquidity-purge and refined supply/demand entries with strict confirmation criteria — highest target R:R (4:1-6:1).',
   },
 ];

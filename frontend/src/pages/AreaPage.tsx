@@ -54,7 +54,7 @@ export function AreaPage({ area }: { area: FeatureArea }) {
 
       <div className="mb-3">
         <FoldedCard
-          title="Free Chart" summary="A live TradingView chart, right here" icon={<LineChart size={19} />}
+          title="Chart" summary="A live TradingView chart, right here" icon={<LineChart size={19} />}
           dark={dark} defaultOpen
         >
           <ChartPanel symbol="OANDA:EURUSD" height={420} tradeSymbol="EURUSD" dark={dark} />
