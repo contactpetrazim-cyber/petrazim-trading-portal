@@ -112,8 +112,9 @@ per bot.
 - [DONE] BOT3-01 through BOT3-10 — Bot 3, Imbalance Expansion
   (Photon/Phantom style: 1H FVG 30-70% mitigation window, 15M BOS,
   hand-calculated entry/stop, 4:1 target)
-- [ ] BOT4-01 through BOT4-10 — Bot 4, Volume & Liquidity Sweep
-  (Dalton/Weis/Wyckoff style: Spring/Upthrust)
+- [DONE] BOT4-01 through BOT4-10 — Bot 4, Volume & Liquidity Sweep
+  (Dalton/Weis/Wyckoff style: 6-swing range, Spring/Upthrust with
+  volume divergence, CHoCH pairing, single flat target)
 - [ ] BOT5-01 through BOT5-10 — Bot 5, Liquidity Purge Specialist
   (Jeafx SMC style — renamed per the Phase 1 rebrand, content preserved)
 
