@@ -21,6 +21,8 @@ import { CorporateHomePage } from './pages/CorporateHomePage';
 import { AreaPage } from './pages/AreaPage';
 import { LearnPage } from './pages/LearnPage';
 import { LearnTrackPage } from './pages/LearnTrackPage';
+import { MasteryOverviewPage } from './pages/MasteryOverviewPage';
+import { AwardsPage } from './pages/AwardsPage';
 import { ToolsPage } from './pages/ToolsPage';
 import { InsightsPage } from './pages/InsightsPage';
 import { CommunityPage } from './pages/CommunityPage';
@@ -144,18 +146,14 @@ function App() {
         <Route path="/learn" element={<CorporateLayout><LearnPage /></CorporateLayout>} />
         <Route path="/learn/tracks/:trackId" element={<CorporateLayout><LearnTrackPage /></CorporateLayout>} />
 
-        {/* Site Map's three category-specific Learn sub-links — previously
-            unregistered routes that fell through to the sitemap redirect
-            below, so clicking any of them just bounced back to the Site
-            Map. "Mastery Overview" and "Awards & Certificates" have no
-            backing feature yet (no badges/certificates model exists), so
-            those route to the real, unfiltered Learn page rather than a
-            dead end. */}
+        {/* Site Map's five Learn sub-links — previously all unregistered
+            routes that fell through to the sitemap redirect below, so
+            clicking any of them just bounced back to the Site Map. */}
         <Route path="/learn/basics" element={<CorporateLayout><LearnPage categoryFilter="basics" /></CorporateLayout>} />
         <Route path="/learn/bots" element={<CorporateLayout><LearnPage categoryFilter="bot_mastery" /></CorporateLayout>} />
         <Route path="/learn/psychology" element={<CorporateLayout><LearnPage categoryFilter="psychology" /></CorporateLayout>} />
-        <Route path="/learn/mastery" element={<Navigate to="/learn" replace />} />
-        <Route path="/learn/awards" element={<Navigate to="/learn" replace />} />
+        <Route path="/learn/mastery" element={<CorporateLayout><MasteryOverviewPage /></CorporateLayout>} />
+        <Route path="/learn/awards" element={<CorporateLayout><AwardsPage /></CorporateLayout>} />
         <Route path="/tools" element={<CorporateLayout><ToolsPage /></CorporateLayout>} />
         <Route path="/insights" element={<CorporateLayout><InsightsPage /></CorporateLayout>} />
         <Route path="/community" element={<CorporateLayout><CommunityPage /></CorporateLayout>} />

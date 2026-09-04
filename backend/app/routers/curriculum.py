@@ -26,6 +26,7 @@ they're a reasonable default rather than an extracted spec:
 
 from __future__ import annotations
 
+import uuid
 from datetime import datetime, timezone
 from typing import List, Optional
 
@@ -41,8 +42,8 @@ from app.engines.progression_engine import (
     stage_completion_meets_requirements, update_streak, xp_for_stage,
 )
 from app.models.curriculum import (
-    Lesson, LearningTrack, PracticeAttempt, QuizAttempt, StageCompletion,
-    TrackStage, UserLearningStats,
+    Certificate, Lesson, LearningTrack, MasteryLevel, PracticeAttempt, QuizAttempt,
+    StageCompletion, TrackCategory, TrackStage, UserLearningStats,
 )
 from app.models.user import User
 
@@ -124,6 +125,46 @@ class StageCompleteResponse(BaseModel):
     reason: str = ""
     xp_awarded: int = 0
     new_streak_days: Optional[int] = None
+    certificate_issued: bool = False
+
+
+class MasteryTrackResponse(BaseModel):
+    id: str
+    emoji: str
+    title: str
+    category: str
+    mastery_level: str
+    stages_completed: int
+    total_stages: int
+
+
+class MasteryOverviewResponse(BaseModel):
+    xp: int
+    level: int
+    current_streak_days: int
+    longest_streak_days: int
+    tracks: List[MasteryTrackResponse]
+
+
+class BadgeResponse(BaseModel):
+    id: str
+    title: str
+    description: str
+    icon: str
+    earned: bool
+    earned_detail: str = ""   # e.g. "Reached on 04/09/2026" or progress toward it, e.g. "3 of 5 tracks"
+
+
+class CertificateResponse(BaseModel):
+    certificate_number: str
+    track_title: str
+    category: str
+    issued_at: datetime
+
+
+class AwardsResponse(BaseModel):
+    badges: List[BadgeResponse]
+    certificates: List[CertificateResponse]
 
 
 # --------------------------------------------------------------------------
@@ -149,6 +190,27 @@ async def _track_stage_counts(db: AsyncSession, user_id, track_id) -> tuple[int,
         .where(TrackStage.track_id == track_id, StageCompletion.user_id == user_id)
     )).scalar() or 0
     return done, total
+
+
+async def _track_mastery_level(db: AsyncSession, user_id, track_id) -> MasteryLevel:
+    """Same quiz+practice inputs get_track() already computed per-track
+    mastery from — factored out so /mastery can reuse it across every
+    track without duplicating the query pair."""
+    quiz_scores = (await db.execute(
+        select(QuizAttempt.score_pct)
+        .join(Lesson, Lesson.id == QuizAttempt.lesson_id)
+        .where(Lesson.track_id == track_id, QuizAttempt.user_id == user_id)
+        .order_by(QuizAttempt.attempted_at)
+    )).scalars().all()
+    practice_results = (await db.execute(
+        select(PracticeAttempt.correct)
+        .where(PracticeAttempt.track_id == track_id, PracticeAttempt.user_id == user_id)
+        .order_by(PracticeAttempt.attempted_at)
+    )).scalars().all()
+    return compute_mastery_level(MasteryInput(
+        quiz_scores_pct=list(quiz_scores),
+        practice_attempts_correct=[bool(r) for r in practice_results],
+    ))
 
 
 async def _get_or_create_stats(db: AsyncSession, user_id) -> UserLearningStats:
@@ -253,6 +315,138 @@ async def get_track(
     )
 
 
+@router.get("/mastery", response_model=MasteryOverviewResponse)
+async def get_mastery_overview(
+    db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access),
+):
+    """Backs the Site Map's "Mastery Overview" link (/learn/mastery) —
+    "Your mastery level across every track, at a glance." Every track's
+    mastery_level here is computed the exact same way get_track() computes
+    it for one track; this just loops it across all of them rather than
+    requiring N separate requests from the frontend."""
+    tracks = (await db.execute(
+        select(LearningTrack).order_by(LearningTrack.order_index)
+    )).scalars().all()
+
+    stats = await _get_or_create_stats(db, user.id)
+    await db.commit()  # release the row created by _get_or_create_stats's flush, if any
+
+    track_out: List[MasteryTrackResponse] = []
+    for t in tracks:
+        done, total = await _track_stage_counts(db, user.id, t.id)
+        mastery = await _track_mastery_level(db, user.id, t.id)
+        track_out.append(MasteryTrackResponse(
+            id=str(t.id), emoji=_CATEGORY_EMOJI.get(t.category.value, "📘"),
+            title=t.title, category=t.category.value, mastery_level=mastery.value,
+            stages_completed=done, total_stages=total,
+        ))
+
+    return MasteryOverviewResponse(
+        xp=stats.total_xp, level=(stats.total_xp // 100) + 1,
+        current_streak_days=stats.current_streak_days, longest_streak_days=stats.longest_streak_days,
+        tracks=track_out,
+    )
+
+
+# Streak/level thresholds a badge is awarded at — arbitrary but explicit,
+# same "reasonable default, flag if a different curve is wanted" caveat
+# as LearningStatsBar's own level formula above.
+_STREAK_BADGE_DAYS = [3, 7, 30]
+_LEVEL_BADGE_LEVELS = [5, 10, 25]
+
+
+@router.get("/awards", response_model=AwardsResponse)
+async def get_awards(
+    db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access),
+):
+    """Backs the Site Map's "Awards & Certificates" link (/learn/awards).
+    Badges are computed on the fly from real progress data (streak,
+    level, per-category and full-curriculum completion) rather than
+    stored — there is no seeded badge catalogue to drift out of sync
+    with, and a newly-added track is automatically reflected. Certificates
+    ARE stored rows (the Certificate model already existed but nothing
+    ever wrote to it) — issued by complete_stage() below the moment a
+    track's last stage completes."""
+    stats = await _get_or_create_stats(db, user.id)
+    await db.commit()
+
+    tracks = (await db.execute(select(LearningTrack))).scalars().all()
+    per_track_done: dict = {}
+    for t in tracks:
+        done, total = await _track_stage_counts(db, user.id, t.id)
+        per_track_done[t.id] = (done, total, t.category)
+
+    def _category_complete(cat: TrackCategory) -> tuple[bool, int, int]:
+        cat_tracks = [(d, tot) for (d, tot, c) in per_track_done.values() if c == cat and tot > 0]
+        if not cat_tracks:
+            return False, 0, 0
+        done_count = sum(1 for d, tot in cat_tracks if d >= tot)
+        return done_count == len(cat_tracks), done_count, len(cat_tracks)
+
+    trackable = [(d, tot) for (d, tot, _c) in per_track_done.values() if tot > 0]
+    stages_done_total = sum(d for d, _ in trackable)
+    all_tracks_complete = bool(trackable) and all(d >= tot for d, tot in trackable)
+
+    badges: List[BadgeResponse] = []
+    badges.append(BadgeResponse(
+        id="first-step", title="First Step", icon="🎯",
+        description="Complete your first learning stage.",
+        earned=stages_done_total >= 1,
+        earned_detail="Unlocked" if stages_done_total >= 1 else "0 stages complete",
+    ))
+    for cat, label, icon in [
+        (TrackCategory.BASICS, "Basics Mastered", "📘"),
+        (TrackCategory.BOT_MASTERY, "Bot Mastery Complete", "🤖"),
+        (TrackCategory.PSYCHOLOGY, "Psychology Mastered", "🧠"),
+    ]:
+        complete, done_count, total_count = _category_complete(cat)
+        badges.append(BadgeResponse(
+            id=f"category-{cat.value}", title=label, icon=icon,
+            description=f"Complete every track in the {label.split(' ')[0]} category.",
+            earned=complete,
+            earned_detail="Unlocked" if complete else f"{done_count} of {total_count} tracks complete",
+        ))
+    for days in _STREAK_BADGE_DAYS:
+        earned = stats.longest_streak_days >= days
+        badges.append(BadgeResponse(
+            id=f"streak-{days}", title=f"{days}-Day Streak", icon="🔥",
+            description=f"Reach a {days}-day learning streak.",
+            earned=earned,
+            earned_detail="Unlocked" if earned else f"Best streak so far: {stats.longest_streak_days}d",
+        ))
+    level = (stats.total_xp // 100) + 1
+    for lvl in _LEVEL_BADGE_LEVELS:
+        earned = level >= lvl
+        badges.append(BadgeResponse(
+            id=f"level-{lvl}", title=f"Level {lvl}", icon="⭐",
+            description=f"Reach Level {lvl} ({(lvl - 1) * 100} XP).",
+            earned=earned,
+            earned_detail="Unlocked" if earned else f"Currently Level {level} ({stats.total_xp} XP)",
+        ))
+    badges.append(BadgeResponse(
+        id="full-curriculum", title="Full Curriculum", icon="🏆",
+        description="Complete every track currently published.",
+        earned=all_tracks_complete,
+        earned_detail="Unlocked" if all_tracks_complete else f"{sum(1 for d, tot in trackable if d >= tot)} of {len(trackable)} tracks complete",
+    ))
+
+    certs = (await db.execute(
+        select(Certificate, LearningTrack)
+        .join(LearningTrack, LearningTrack.id == Certificate.track_id)
+        .where(Certificate.user_id == user.id)
+        .order_by(Certificate.issued_at.desc())
+    )).all()
+    cert_out = [
+        CertificateResponse(
+            certificate_number=c.certificate_number, track_title=t.title,
+            category=t.category.value, issued_at=c.issued_at,
+        )
+        for c, t in certs
+    ]
+
+    return AwardsResponse(badges=badges, certificates=cert_out)
+
+
 @router.post("/quiz", response_model=dict)
 async def submit_quiz(
     req: QuizSubmitRequest, db: AsyncSession = Depends(get_db),
@@ -344,8 +538,32 @@ async def complete_stage(
     stats.longest_streak_days = streak.new_longest_streak_days
     stats.last_activity_date = now
     stats.total_xp += xp_awarded
+
+    # Certificate on track completion (Section "Gamification layer" of
+    # the curriculum model) — the Certificate table already existed but
+    # nothing ever wrote to it; issue one here the moment the stage just
+    # completed was the LAST stage in its track, once per (user, track).
+    certificate_issued = False
+    total_stages_in_track = (await db.execute(
+        select(func.count(TrackStage.id)).where(TrackStage.track_id == stage.track_id)
+    )).scalar() or 0
+    stages_now_complete = len(completed_numbers) + 1   # +1 for the StageCompletion just added above
+    if total_stages_in_track > 0 and stages_now_complete >= total_stages_in_track:
+        existing_cert = (await db.execute(
+            select(Certificate).where(
+                Certificate.user_id == user.id, Certificate.track_id == stage.track_id,
+            )
+        )).scalar_one_or_none()
+        if existing_cert is None:
+            db.add(Certificate(
+                user_id=user.id, track_id=stage.track_id,
+                certificate_number=f"PZ-{uuid.uuid4().hex[:10].upper()}",
+            ))
+            certificate_issued = True
+
     await db.commit()
 
     return StageCompleteResponse(
         completed=True, xp_awarded=xp_awarded, new_streak_days=streak.new_streak_days,
+        certificate_issued=certificate_issued,
     )
