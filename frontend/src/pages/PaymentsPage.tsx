@@ -191,9 +191,14 @@ export function PaymentsPage() {
         {tiers.map((t) => {
           const isCorp = !!corporateMode[t.tier];
           const seats = seatCounts[t.tier] ?? (isCorp ? t.corporate_min_seats ?? 1 : 1);
+          // Effective seats for money math and checkout — clamped to the
+          // minimum even if the field is mid-edit below it (e.g. Pay
+          // clicked before a blur has run); the input itself still shows
+          // the raw `seats` value so typing isn't fought.
+          const effectiveSeats = isCorp ? Math.max(t.corporate_min_seats ?? 1, seats) : seats;
           const total = isCorp && t.corporate_ngn_per_seat != null && t.corporate_flat_fee_ngn != null
-            ? t.corporate_ngn_per_seat * seats + t.corporate_flat_fee_ngn
-            : t.individual_ngn * seats;
+            ? t.corporate_ngn_per_seat * effectiveSeats + t.corporate_flat_fee_ngn
+            : t.individual_ngn * effectiveSeats;
 
           return (
             <div key={t.tier} className={cardCls}>
@@ -231,7 +236,18 @@ export function PaymentsPage() {
                       type="number"
                       min={t.corporate_min_seats}
                       value={seats}
-                      onChange={(e) => setSeatCounts((s) => ({ ...s, [t.tier]: Math.max(t.corporate_min_seats!, Number(e.target.value) || 0) }))}
+                      // Clamping to the minimum inside onChange (on every
+                      // keystroke) fought typing a bigger number: typing
+                      // "20" over a min of 10 hit "2" first, got snapped
+                      // straight back to "10", then the "0" landed after
+                      // it as "100" instead — from the outside this just
+                      // looked like "seats can't be edited, always jumps
+                      // back to the minimum." Only the raw value is kept
+                      // while typing now; the minimum is enforced once,
+                      // on blur, so mid-edit keystrokes are never
+                      // overridden.
+                      onChange={(e) => setSeatCounts((s) => ({ ...s, [t.tier]: Number(e.target.value) || 0 }))}
+                      onBlur={() => setSeatCounts((s) => ({ ...s, [t.tier]: Math.max(t.corporate_min_seats!, s[t.tier] ?? t.corporate_min_seats!) }))}
                       className={`w-24 text-sm px-2 py-1.5 rounded-lg border ${dark ? 'bg-corporate-nav-dark border-corporate-border-dark text-white' : 'border-[#dcdce8] text-corporate-text-on-bg'}`}
                     />
                   )}
@@ -241,7 +257,7 @@ export function PaymentsPage() {
               <div className={`text-sm mb-3 ${textCls}`}>Total: <span className="font-bold">{ngn(total)}</span></div>
 
               <button
-                onClick={() => checkout({ tier: t.tier, is_corporate: isCorp, seat_count: seats }, t.tier)}
+                onClick={() => checkout({ tier: t.tier, is_corporate: isCorp, seat_count: effectiveSeats }, t.tier)}
                 disabled={busy === t.tier}
                 className="w-full text-white text-sm font-semibold py-2.5 rounded-lg disabled:opacity-60"
                 style={{ background: HERO_GRADIENT }}
