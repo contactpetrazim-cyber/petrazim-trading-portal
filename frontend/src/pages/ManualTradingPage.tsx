@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
-import { ArrowLeft, FlaskConical, Radio, Settings2, ArrowLeftRight } from 'lucide-react';
+import { ArrowLeft, FlaskConical, Radio, Settings2, ArrowLeftRight, Calculator, ChevronDown } from 'lucide-react';
 import { ChartPanel } from '../components/ChartPanel';
 import { useAuth } from '../hooks/useAuth';
 import { useThemeStore } from '../hooks/useTheme';
@@ -100,6 +100,10 @@ export function ManualTradingPage() {
   const [orderType, setOrderType] = useState<'market' | 'limit' | 'stop'>('market');
   const [entryPrice, setEntryPrice] = useState(preselectPrice || '');
   const [stopLoss, setStopLoss] = useState('');
+  // Position Calculator card — collapsed by default ("default is
+  // closed"), by direct request: "Market / Exits / Position
+  // Calculator" as the ticket's third section.
+  const [posCalcOpen, setPosCalcOpen] = useState(false);
   const [takeProfit, setTakeProfit] = useState('');
   const [takeProfit2, setTakeProfit2] = useState('');
   const [takeProfit3, setTakeProfit3] = useState('');
@@ -703,6 +707,58 @@ export function ManualTradingPage() {
                 </div>
               </div>
             )}
+
+            {/* Position Calculator — third ticket section after Market/Exits,
+                collapsed by default, by direct request. Not a second
+                calculation: lotSizePreview/tradeValuePreview/perUnitRisk are
+                the exact same live numbers this ticket already computes from
+                entry price + stop loss + risk above (and already drive the
+                submit button's own label) — this just surfaces them as their
+                own explicit, auto-updating breakdown instead of leaving the
+                math implicit. */}
+            <div className="rounded-xl border border-gray-200 mb-3 overflow-hidden">
+              <button
+                onClick={() => setPosCalcOpen((v) => !v)}
+                className="w-full flex items-center justify-between px-3 py-2.5 bg-gray-50 hover:bg-gray-100 transition-colors"
+              >
+                <span className="flex items-center gap-1.5 text-sm font-bold text-gray-900">
+                  <Calculator size={14} className="text-gray-400" /> Position Calculator
+                </span>
+                <ChevronDown size={15} className={`text-gray-400 transition-transform ${posCalcOpen ? 'rotate-180' : ''}`} />
+              </button>
+              {posCalcOpen && (
+                <div className="p-3 space-y-1.5">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-gray-500">Entry (reference) price</span>
+                    <span className="font-semibold text-gray-900">{effectiveEntryForPreview > 0 ? effectiveEntryForPreview.toFixed(2) : '—'}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-gray-500">Stop loss</span>
+                    <span className="font-semibold text-gray-900">{stopLoss || '—'}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-gray-500">Distance to stop</span>
+                    <span className="font-semibold text-gray-900">{perUnitRisk > 0 ? perUnitRisk.toFixed(4) : '—'}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-gray-500">Risk amount</span>
+                    <span className="font-semibold text-gray-900">${riskAmountForPreview.toFixed(2)}</span>
+                  </div>
+                  <div className="border-t border-gray-100 my-1.5" />
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-gray-500">Position size</span>
+                    <span className="font-bold text-blue-600">{lotSizePreview > 0 ? lotSizePreview.toFixed(4) : '—'} {symbol.trade}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-gray-500">Trade value</span>
+                    <span className="font-semibold text-gray-900">${tradeValuePreview ? tradeValuePreview.toFixed(2) : '0.00'}</span>
+                  </div>
+                  {!(perUnitRisk > 0) && (
+                    <p className="text-xs text-gray-400 pt-1">Enter an entry price and a stop loss above to see your position size.</p>
+                  )}
+                </div>
+              )}
+            </div>
 
             {result && (
               <p className={`text-xs mb-3 ${result.ok ? 'text-emerald-600' : 'text-red-600'}`}>{result.message}</p>

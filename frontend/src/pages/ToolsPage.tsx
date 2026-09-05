@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
-  Gauge, TrendingUp, Grid3x3, NotebookPen, Wallet, Plus, Trash2, LineChart, Activity,
+  Gauge, TrendingUp, Grid3x3, NotebookPen, Wallet, Plus, Trash2, LineChart, Activity, Maximize2,
 } from 'lucide-react';
 import {
   ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, ResponsiveContainer,
@@ -569,6 +570,18 @@ export function ToolsPage() {
         </FoldedCard>
 
         <FoldedCard title="Order Flow Chart" summary="Free — live tape, delta, and order book, from real crypto market data." icon={<Activity size={19} />} dark={dark} accent={TOOLS_ACCENT}>
+          {/* By direct request ("make the Order flow chart load on a new page
+              so that we can maximise chart area ... whenever triggered open a
+              new page ... with option to return to default card window and
+              close") — this card's own grid column is narrower than a real
+              footprint/DOM chart wants. Same OrderFlowChartTool either way. */}
+          <Link
+            to="/tools/order-flow"
+            className="inline-flex items-center gap-1.5 text-xs font-semibold mb-3 px-2.5 py-1.5 rounded-lg"
+            style={{ color: TOOLS_ACCENT, background: `${TOOLS_ACCENT}1a` }}
+          >
+            <Maximize2 size={13} /> Open full page
+          </Link>
           <OrderFlowChartTool />
         </FoldedCard>
       </div>

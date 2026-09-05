@@ -32,6 +32,7 @@ import { PracticeDrillsPage } from './pages/PracticeDrillsPage';
 import { RetentionReviewPage } from './pages/RetentionReviewPage';
 import { TradingGamePage } from './pages/TradingGamePage';
 import { ToolsPage } from './pages/ToolsPage';
+import { OrderFlowFullPage } from './pages/OrderFlowFullPage';
 import { InsightsPage } from './pages/InsightsPage';
 import { CommunityPage } from './pages/CommunityPage';
 import { ManualTradingPage } from './pages/ManualTradingPage';
@@ -188,6 +189,7 @@ function App() {
         <Route path="/learn/mastery" element={<CorporateLayout><MasteryOverviewPage /></CorporateLayout>} />
         <Route path="/learn/awards" element={<CorporateLayout><AwardsPage /></CorporateLayout>} />
         <Route path="/tools" element={<CorporateLayout><ToolsPage /></CorporateLayout>} />
+        <Route path="/tools/order-flow" element={<CorporateLayout><OrderFlowFullPage /></CorporateLayout>} />
         <Route path="/insights" element={<CorporateLayout><InsightsPage /></CorporateLayout>} />
         <Route path="/community" element={<CorporateLayout><CommunityPage /></CorporateLayout>} />
         <Route path="/trade" element={<CorporateLayout><TradePage /></CorporateLayout>} />
