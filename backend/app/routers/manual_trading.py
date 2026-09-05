@@ -334,19 +334,28 @@ async def cancel_order(
     Two real cases:
       - PENDING (an unfilled limit/stop order): Test mode never
         actually produces one (place_manual_order simulates an
-        instant fill regardless of order_type) — genuinely cancelling
-        a LIVE pending order needs a real per-broker cancel-order call,
-        which doesn't exist anywhere in this codebase yet (no broker
-        integration here implements one); returning a 501 here is
-        honest about that gap rather than silently marking it
-        cancelled locally while it's still resting live at the broker.
-      - ACTIVE: "cancelling" a position that's already open means
-        closing it now, at the best price available — reuses the same
-        real close math partial_close() uses at 100%. Test mode closes
-        at the real live crypto price when the symbol supports one
-        (get_crypto_price), matching this app's own "genuinely real
-        data, not simulated" standard for a rehearsal; falls back to
-        req.exit_price when no live price is resolvable.
+        instant fill regardless of order_type) — a LIVE one now
+        genuinely cancels at the broker that accepted it
+        (execution_engine.cancel_broker_order, using each broker's own
+        real cancel-order call in broker_integrations.py) instead of
+        the 501 this used to honestly return before any broker here
+        implemented one.
+      - ACTIVE: place_manual_order sets ACTIVE the moment a broker
+        *accepts* an order, not once it's actually filled (a resting
+        LIMIT/STOP can still be sitting unfilled on the exchange's own
+        book) — so for a live LIMIT/STOP this tries a genuine broker
+        cancel FIRST; only once the broker says there's nothing left to
+        cancel (already filled, or genuinely not found) does this fall
+        through to "cancelling" it by closing the now-open position at
+        the best price available, the same real close math
+        partial_close() uses at 100%. A MARKET order fills instantly by
+        definition, so this skips straight to closing for those — there
+        was never anything resting to cancel. Test mode always closes
+        locally (never reaches a broker either way); it uses the real
+        live crypto price when the symbol supports one (get_crypto_price),
+        matching this app's own "genuinely real data, not simulated"
+        standard for a rehearsal, falling back to req.exit_price when no
+        live price is resolvable.
     """
     row = (await db.execute(
         select(Trade).where(Trade.trade_id == trade_id, Trade.user_id == user.id)
@@ -356,10 +365,18 @@ async def cancel_order(
 
     if row.status == TradeStatus.PENDING:
         if not row.is_test:
-            raise HTTPException(
-                status_code=501,
-                detail="Cancelling a live pending order isn't wired to your broker yet — cancel it directly on your broker's own platform for now.",
+            cancel_result = await _engine.cancel_broker_order(
+                row.broker_name, row.broker_order_id, row.symbol, row.bot_id, db,
+                is_stop=row.entry_type == EntryType.STOP,
             )
+            if not cancel_result.get("success"):
+                raise HTTPException(
+                    status_code=502,
+                    detail=cancel_result.get("message") or cancel_result.get("error") or "Could not cancel this order at your broker.",
+                )
+            row.status = TradeStatus.CANCELLED
+            await db.commit()
+            return CancelOrderResponse(trade_id=trade_id, status=row.status.value, message="Order cancelled at your broker — it was never filled.")
         row.status = TradeStatus.CANCELLED
         await db.commit()
         return CancelOrderResponse(trade_id=trade_id, status=row.status.value, message="Order cancelled — it was never filled.")
@@ -369,6 +386,23 @@ async def cancel_order(
 
     if not row.is_test:
         await _raise_if_access_expired(db, user)
+
+    if (
+        not row.is_test and row.entry_type in (EntryType.LIMIT, EntryType.STOP)
+        and row.broker_order_id and row.broker_name
+    ):
+        cancel_result = await _engine.cancel_broker_order(
+            row.broker_name, row.broker_order_id, row.symbol, row.bot_id, db,
+            is_stop=row.entry_type == EntryType.STOP,
+        )
+        if cancel_result.get("success"):
+            row.status = TradeStatus.CANCELLED
+            await db.commit()
+            return CancelOrderResponse(trade_id=trade_id, status=row.status.value, message="Order cancelled at your broker — it was never filled.")
+        logger.info(
+            "cancel_order_broker_cancel_failed_falling_back_to_close",
+            trade_id=trade_id, error=cancel_result.get("error") or cancel_result.get("message"),
+        )
 
     exit_price = req.exit_price
     if exit_price is None:

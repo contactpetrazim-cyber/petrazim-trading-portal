@@ -228,6 +228,21 @@ class BingXBroker:
 
         return await self._request("POST", endpoint, body=params)
 
+    async def cancel_order(self, symbol: str, order_id: str, is_stop: bool = False) -> Dict:
+        """
+        Cancel a still-resting (unfilled) order — DELETE on the same
+        /trade/order endpoint place_order posts to, per BingX's own
+        docs. `is_stop` is accepted for interface parity with the other
+        brokers below (MEXC genuinely needs it; BingX's trigger orders
+        share this same endpoint/orderId space, so it doesn't).
+        """
+        endpoint = "/openApi/swap/v2/trade/order"
+        params = {"symbol": symbol.replace("/", "-").upper(), "orderId": order_id}
+        result = await self._request("DELETE", endpoint, params=params)
+        if result["success"]:
+            return {"success": True, "order_id": order_id, "status": "CANCELLED"}
+        return result
+
     async def get_position(self, symbol: str) -> Dict:
         """Get current position for a symbol."""
         endpoint = "/openApi/swap/v2/user/positions"
@@ -411,6 +426,32 @@ class TradeLockerBroker:
         """Close a position by ID."""
         endpoint = f"/positions/{position_id}/close"
         return await self._request("POST", endpoint)
+
+    async def cancel_order(self, symbol: str, order_id: str, is_stop: bool = False) -> Dict:
+        """
+        Cancel a still-resting order — DELETE /orders/{orderId} per
+        TradeLocker's own public API reference, "only available before
+        an order is executed." A successful cancel returns 204 No
+        Content (no JSON body), unlike every other call in this class,
+        so this bypasses the shared _request helper (which always
+        parses a JSON body) rather than teaching it a special case for
+        one endpoint.
+        """
+        if not self.access_token:
+            auth_success = await self.authenticate()
+            if not auth_success:
+                return {"success": False, "error": "Authentication failed"}
+        headers = {"Authorization": f"Bearer {self.access_token}"}
+        try:
+            response = await self.client.delete(f"{self.BASE_URL}/orders/{order_id}", headers=headers)
+            if response.status_code in (200, 204):
+                return {"success": True, "order_id": order_id, "status": "CANCELLED"}
+            detail = response.text
+            logger.error("tradelocker_cancel_failed", status=response.status_code, error=detail)
+            return {"success": False, "error": f"TradeLocker returned {response.status_code}: {detail}"}
+        except Exception as e:
+            logger.error("tradelocker_cancel_error", error=str(e))
+            return {"success": False, "error": str(e)}
 
     async def get_positions(self) -> Dict:
         """Get all open positions."""
@@ -621,6 +662,16 @@ class BinanceBroker:
             "quantity": qty, "reduceOnly": "true",
         })
 
+    async def cancel_order(self, symbol: str, order_id: str, is_stop: bool = False) -> Dict:
+        """Cancel a still-resting order — DELETE /fapi/v1/order per
+        Binance's own docs (symbol + orderId, same signed-request shape
+        _request already handles for GET/POST)."""
+        symbol_clean = symbol.replace("/", "").replace("-", "").upper()
+        result = await self._request("DELETE", "/fapi/v1/order", {"symbol": symbol_clean, "orderId": order_id})
+        if result["success"]:
+            return {"success": True, "order_id": order_id, "status": result["data"].get("status", "CANCELED")}
+        return result
+
     async def get_position(self, symbol: str) -> Dict:
         symbol_clean = symbol.replace("/", "").replace("-", "").upper()
         return await self._request("GET", "/fapi/v2/positionRisk", {"symbol": symbol_clean})
@@ -794,6 +845,18 @@ class BybitBroker:
             "category": "linear", "symbol": symbol_clean, "side": close_side,
             "orderType": "Market", "qty": str(qty), "reduceOnly": True,
         })
+
+    async def cancel_order(self, symbol: str, order_id: str, is_stop: bool = False) -> Dict:
+        """Cancel a still-resting (unfilled or partially filled) order —
+        POST /v5/order/cancel per Bybit's own V5 docs (category + symbol
+        + orderId; Bybit only exposes cancel as POST, no DELETE)."""
+        symbol_clean = symbol.replace("/", "").replace("-", "").upper()
+        result = await self._request("POST", "/v5/order/cancel", {
+            "category": "linear", "symbol": symbol_clean, "orderId": order_id,
+        })
+        if result["success"]:
+            return {"success": True, "order_id": order_id, "status": "CANCELLED"}
+        return result
 
     async def get_position(self, symbol: str) -> Dict:
         symbol_clean = symbol.replace("/", "").replace("-", "").upper()
@@ -1023,6 +1086,51 @@ class MexcBroker:
             "openType": 2, "vol": qty,
         })
 
+    async def cancel_order(self, symbol: str, order_id: str, is_stop: bool = False) -> Dict:
+        """
+        Cancel a still-resting order. MEXC has two separate order books
+        — a regular order (POST .../order/cancel, body a plain JSON
+        array of order ids) and a "plan"/trigger order (POST
+        .../planorder/cancel, body a JSON array of {symbol, orderId}
+        objects) — mirroring the same regular-vs-plan-order split
+        place_order's own STOP branch makes via _place_plan_order.
+        Neither takes a Dict body the way every other endpoint this
+        class's shared _request() handles, so this signs and sends the
+        request directly rather than teaching _request an array-body
+        case used nowhere else.
+        """
+        mexc_symbol = self._mexc_symbol(symbol)
+        endpoint = "/api/v1/private/planorder/cancel" if is_stop else "/api/v1/private/order/cancel"
+        body = [{"symbol": mexc_symbol, "orderId": order_id}] if is_stop else [order_id]
+        timestamp = str(int(datetime.now(timezone.utc).timestamp() * 1000))
+        param_string = json.dumps(body)
+        headers = {
+            "ApiKey": self.api_key,
+            "Request-Time": timestamp,
+            "Signature": self._sign(timestamp, param_string),
+            "Content-Type": "application/json",
+        }
+        try:
+            response = await _send_with_failover(
+                self.client, self.backup_client, "post", f"{self.BASE_URL}{endpoint}",
+                headers=headers, content=param_string,
+            )
+            data = response.json()
+            if not data.get("success", False):
+                logger.error("mexc_cancel_api_error", code=data.get("code"), msg=data.get("message"))
+                return {"success": False, "error": data.get("message", str(data))}
+            # Best-effort per-order result (MEXC returns a list of
+            # {orderId, errorCode, errorMsg} per docs) — an overall
+            # `success: true` with this order individually erroring
+            # (e.g. already filled) still needs to read as a failure.
+            entry = next((r for r in (data.get("data") or []) if str(r.get("orderId")) == str(order_id)), None)
+            if entry and entry.get("errorCode") not in (None, 0):
+                return {"success": False, "error": entry.get("errorMsg") or f"MEXC error {entry.get('errorCode')}"}
+            return {"success": True, "order_id": order_id, "status": "CANCELLED"}
+        except Exception as e:
+            logger.error("mexc_cancel_failed", error=str(e))
+            return {"success": False, "error": str(e)}
+
     async def get_position(self, symbol: str) -> Dict:
         mexc_symbol = self._mexc_symbol(symbol)
         result = await self._request("GET", "/api/v1/private/position/open_positions", {"symbol": mexc_symbol})
@@ -1167,6 +1275,20 @@ class MetaApiBroker:
                 return {"success": False, "error": "No open position found to close"}
             position_id = positions["data"][0]["id"]
         return await self._request("POST", "/trade", {"actionType": "POSITION_CLOSE_ID", "positionId": position_id})
+
+    async def cancel_order(self, symbol: str, order_id: str, is_stop: bool = False) -> Dict:
+        """
+        Cancel a still-pending MT4/5 order (a resting LIMIT/STOP that
+        hasn't triggered into a real position yet) via MetaApi's own
+        "ORDER_CANCEL" trade action — distinct from POSITION_CLOSE_ID
+        above, which closes an already-open position instead. `symbol`
+        is accepted only for interface parity with the other brokers;
+        MetaApi's own cancel call is keyed purely on orderId.
+        """
+        result = await self._request("POST", "/trade", {"actionType": "ORDER_CANCEL", "orderId": order_id})
+        if result["success"]:
+            return {"success": True, "order_id": order_id, "status": result["data"].get("stringCode", "CANCELLED")}
+        return result
 
     async def get_position(self, symbol: str) -> Dict:
         result = await self._request("GET", "/positions")

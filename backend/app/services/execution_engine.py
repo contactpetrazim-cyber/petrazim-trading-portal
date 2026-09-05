@@ -277,6 +277,32 @@ class ExecutionEngine:
                 logger.error("per_bot_credential_lookup_failed", bot_id=bot_id, broker=broker, error=str(e))
         return self.brokers.get(broker)
 
+    async def cancel_broker_order(
+        self, broker: Optional[str], order_id: Optional[str], symbol: str,
+        bot_id: Optional[str], db: Optional[AsyncSession] = None, is_stop: bool = False,
+    ) -> Dict:
+        """
+        Cancel a still-open order at the broker that actually accepted
+        it — the counterpart to _execute_broker_order for the one thing
+        it never needed to do until now (manual_trading.py's own cancel
+        endpoint previously just 501'd here, honestly, since no broker
+        integration implemented a cancel call at all). `broker`/`bot_id`
+        should come from the Trade row's own broker_name/bot_id — the
+        broker that actually filled/accepted this specific order — not
+        re-derived from the symbol the way a fresh order's routing is,
+        since broker config can change after an order was placed.
+        """
+        if not broker or not order_id:
+            return {"success": False, "error": "missing_broker_reference", "message": "No broker order reference stored for this trade — nothing to cancel at a broker."}
+        client = await self._get_broker_client(broker, bot_id, db)
+        if client is None or not hasattr(client, "cancel_order"):
+            return {"success": False, "error": "no_broker_client", "message": f"No {broker} client configured to cancel this order."}
+        try:
+            return await client.cancel_order(symbol, order_id, is_stop=is_stop)
+        except Exception as e:
+            logger.error("broker_cancel_failed", broker=broker, order_id=order_id, error=str(e))
+            return {"success": False, "error": str(e)}
+
     async def _execute_broker_order(self, trade: Dict, db: Optional[AsyncSession] = None) -> Dict:
         """Execute order via configured broker."""
         broker = self._determine_broker(trade["symbol"], trade.get("preferred_broker"))
