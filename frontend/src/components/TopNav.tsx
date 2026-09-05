@@ -5,6 +5,7 @@ import { PetrazimLogo } from './PetrazimLogo';
 import { GlobalSearchModal } from './GlobalSearchModal';
 import { SettingsPanel } from './SettingsPanel';
 import { BackendStatusBadge } from './BackendStatusBadge';
+import { WakeBackendButton } from './WakeBackendButton';
 import { GoHomeButton } from './GoHomeButton';
 import { useThemeStore } from '../hooks/useTheme';
 
@@ -47,6 +48,7 @@ export function TopNav() {
 
           <div className="flex items-center gap-2">
             <GoHomeButton dark={dark} />
+            <WakeBackendButton dark={dark} />
             <button
               onClick={() => setSearchOpen(true)}
               aria-label="Search all features"

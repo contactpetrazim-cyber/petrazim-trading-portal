@@ -2,9 +2,10 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Lock } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
+import { LoadingIndicator } from '../components/LoadingIndicator';
 import { useThemeStore } from '../hooks/useTheme';
 import { useAuth } from '../hooks/useAuth';
-import { apiFetch } from '../components/AccessExpiredGate';
+import { fetchJsonWithRetry, type FetchPhase } from '../lib/resilientFetch';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -64,22 +65,24 @@ export function LearnPage({ categoryFilter }: { categoryFilter?: 'basics' | 'bot
   const [stats, setStats] = useState<Stats | null>(null);
   const [tracks, setTracks] = useState<TrackSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [phase, setPhase] = useState<FetchPhase>('idle');
   const [retryTick, setRetryTick] = useState(0);
 
   useEffect(() => {
     if (!token) return;
     setError(null);
     const headers = { Authorization: `Bearer ${token}` };
+    // Retries through a cold Render free-tier start (up to ~90s) instead
+    // of giving up on the first failed attempt — see resilientFetch.ts
+    // for why that was the actual cause of "can't load Learn progress".
     Promise.all([
-      apiFetch(`${API_URL}/curriculum/stats`, { headers }).then((r) => (r.ok ? r.json() : null)),
-      apiFetch(`${API_URL}/curriculum/tracks`, { headers }).then((r) => (r.ok ? r.json() : null)),
-    ])
-      .then(([s, t]) => {
-        setStats(s);
-        setTracks(t);
-        if (!s || !t) setError('Could not load your Learn progress right now — showing defaults below.');
-      })
-      .catch(() => setError('Could not load your Learn progress right now — showing defaults below.'));
+      fetchJsonWithRetry<Stats>(`${API_URL}/curriculum/stats`, { headers }, setPhase),
+      fetchJsonWithRetry<TrackSummary[]>(`${API_URL}/curriculum/tracks`, { headers }),
+    ]).then(([s, t]) => {
+      setStats(s);
+      setTracks(t);
+      if (!s || !t) setError('Could not load your Learn progress right now — showing defaults below.');
+    });
   }, [token, retryTick]);
 
   // A failed load used to leave the whole page blank below the error
@@ -116,11 +119,17 @@ export function LearnPage({ categoryFilter }: { categoryFilter?: 'basics' | 'bot
     <div>
       <PageHeader title={title} subtitle={subtitle} />
 
+      {(phase === 'loading' || phase === 'stalled') && !stats && (
+        <div className="mb-4">
+          <LoadingIndicator phase={phase} dark={dark} />
+        </div>
+      )}
+
       {error && (
         <div className={`flex items-center justify-between gap-3 text-sm mb-4 rounded-xl p-3 ${dark ? 'bg-red-500/10 text-red-300' : 'bg-red-50 text-red-600'}`}>
           <span>{error}</span>
           <button
-            onClick={() => setRetryTick((n) => n + 1)}
+            onClick={() => { setPhase('idle'); setRetryTick((n) => n + 1); }}
             className={`shrink-0 underline font-medium ${dark ? 'text-white/70 hover:text-white' : 'text-gray-700 hover:text-gray-900'}`}
           >
             Try again

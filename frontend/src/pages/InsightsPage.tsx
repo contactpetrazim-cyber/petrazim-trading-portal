@@ -3,10 +3,11 @@ import { PageHeader } from '../components/PageHeader';
 import { FoldedCard } from '../components/FoldedCard';
 import { ChartPanel } from '../components/ChartPanel';
 import { TradeAnalytics } from '../components/TradeAnalytics';
+import { LoadingIndicator } from '../components/LoadingIndicator';
 import { LineChart, BarChart3 } from 'lucide-react';
 import { useThemeStore } from '../hooks/useTheme';
 import { useAuth } from '../hooks/useAuth';
-import { apiFetch } from '../components/AccessExpiredGate';
+import { fetchJsonWithRetry, type FetchPhase } from '../lib/resilientFetch';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -49,6 +50,7 @@ export function InsightsPage() {
   const dark = theme === 'dark';
   const { token } = useAuth();
   const [tiles, setTiles] = useState<Tile[] | null>(null);
+  const [phase, setPhase] = useState<FetchPhase>('idle');
 
   useEffect(() => {
     if (!token) return;
@@ -58,80 +60,68 @@ export function InsightsPage() {
       const out: Tile[] = [];
 
       // Which bot (if any) to scope Monte Carlo / the go-live gate to.
+      // Retries through a cold Render free-tier start (see
+      // resilientFetch.ts) — previously a single failed attempt here
+      // made every one of the three tiles below show "—", which read as
+      // "Insights isn't working" even though each tile was individually
+      // handling its own real "not enough data" case correctly.
       let botId: string | null = null;
-      try {
-        const botsRes = await apiFetch(`${API_URL}/bots/`, { headers });
-        if (botsRes.ok) {
-          const bots = await botsRes.json();
-          if (bots.length > 0) botId = bots[0].bot_id;
-        }
-      } catch {}
+      const bots = await fetchJsonWithRetry<{ bot_id: string }[]>(`${API_URL}/bots/`, { headers }, setPhase);
+      if (bots && bots.length > 0) botId = bots[0].bot_id;
 
       // 1. Performance Forecast (Monte Carlo)
-      try {
-        const url = new URL(`${API_URL}/api/monte-carlo/metrics`);
-        if (botId) url.searchParams.set('bot_id', botId);
-        const res = await apiFetch(url.toString(), { headers });
-        if (res.ok) {
-          const m = await res.json();
-          out.push({
-            label: 'Expectancy per trade', value: `${m.expectancy_r > 0 ? '+' : ''}${m.expectancy_r.toFixed(2)}R`,
-            color: m.expectancy_r >= 0 ? 'emerald' : 'amber', note: `${m.n_trades} closed trades, ${Math.round(m.win_rate * 100)}% win rate`,
-            barPct: Math.round(m.win_rate * 100),
-          });
-        } else {
-          out.push({ label: 'Performance Forecast', value: '—', color: 'gray', note: 'Not enough closed trades yet.' });
-        }
-      } catch {
-        out.push({ label: 'Performance Forecast', value: '—', color: 'gray', note: 'Not enough closed trades yet.' });
-      }
+      const monteCarloUrl = new URL(`${API_URL}/api/monte-carlo/metrics`);
+      if (botId) monteCarloUrl.searchParams.set('bot_id', botId);
+      const m = await fetchJsonWithRetry<{ expectancy_r: number; n_trades: number; win_rate: number }>(
+        monteCarloUrl.toString(), { headers },
+      );
+      out.push(
+        m
+          ? {
+              label: 'Expectancy per trade', value: `${m.expectancy_r > 0 ? '+' : ''}${m.expectancy_r.toFixed(2)}R`,
+              color: m.expectancy_r >= 0 ? 'emerald' : 'amber', note: `${m.n_trades} closed trades, ${Math.round(m.win_rate * 100)}% win rate`,
+              barPct: Math.round(m.win_rate * 100),
+            }
+          : { label: 'Performance Forecast', value: '—', color: 'gray', note: 'Not enough closed trades yet.' },
+      );
 
       // 2. Weekly Review
-      try {
-        const start = mondayOf(new Date());
-        const end = new Date(start);
-        end.setDate(end.getDate() + 6);
-        const url = new URL(`${API_URL}/api/weekly-review/report`);
-        url.searchParams.set('week_start', iso(start));
-        url.searchParams.set('week_end', iso(end));
-        if (botId) url.searchParams.set('bot_id', botId);
-        const res = await apiFetch(url.toString(), { headers });
-        if (res.ok) {
-          const w = await res.json();
-          out.push({
-            label: 'This week', value: `${w.n_trades} trade${w.n_trades === 1 ? '' : 's'}`,
-            color: w.n_trades > 0 ? 'blue' : 'gray',
-            note: w.n_trades > 0 ? `${Math.round(w.win_rate * 100)}% win rate, ${w.expectancy_r.toFixed(2)}R expectancy` : 'No trades taken this week yet.',
-            barPct: w.n_trades > 0 ? Math.round(w.win_rate * 100) : 0,
-          });
-        } else {
-          out.push({ label: 'Weekly Review', value: '—', color: 'gray', note: 'No trades taken this week yet.' });
-        }
-      } catch {
-        out.push({ label: 'Weekly Review', value: '—', color: 'gray', note: 'No trades taken this week yet.' });
-      }
+      const start = mondayOf(new Date());
+      const end = new Date(start);
+      end.setDate(end.getDate() + 6);
+      const weeklyUrl = new URL(`${API_URL}/api/weekly-review/report`);
+      weeklyUrl.searchParams.set('week_start', iso(start));
+      weeklyUrl.searchParams.set('week_end', iso(end));
+      if (botId) weeklyUrl.searchParams.set('bot_id', botId);
+      const w = await fetchJsonWithRetry<{ n_trades: number; win_rate: number; expectancy_r: number }>(
+        weeklyUrl.toString(), { headers },
+      );
+      out.push(
+        w
+          ? {
+              label: 'This week', value: `${w.n_trades} trade${w.n_trades === 1 ? '' : 's'}`,
+              color: w.n_trades > 0 ? 'blue' : 'gray',
+              note: w.n_trades > 0 ? `${Math.round(w.win_rate * 100)}% win rate, ${w.expectancy_r.toFixed(2)}R expectancy` : 'No trades taken this week yet.',
+              barPct: w.n_trades > 0 ? Math.round(w.win_rate * 100) : 0,
+            }
+          : { label: 'Weekly Review', value: '—', color: 'gray', note: 'No trades taken this week yet.' },
+      );
 
       // 3. Go-Live Checklist
       if (botId) {
-        try {
-          const res = await apiFetch(`${API_URL}/api/validation-gate/evaluate`, {
-            method: 'POST', headers, body: JSON.stringify({ bot_id: botId }),
-          });
-          if (res.ok) {
-            const g = await res.json();
-            const passed = g.checks.filter((c: any) => c.status === 'pass').length;
-            out.push({
-              label: 'Go-Live Checklist', value: `${passed}/${g.checks.length}`,
-              color: g.overall_pass ? 'emerald' : 'amber',
-              note: g.overall_pass ? 'Ready to go live.' : (g.blocking_failures[0] || 'Some checks still incomplete.'),
-              barPct: g.checks.length ? Math.round((passed / g.checks.length) * 100) : 0,
-            });
-          } else {
-            out.push({ label: 'Go-Live Checklist', value: '—', color: 'gray', note: 'No backtest on file for this bot yet.' });
-          }
-        } catch {
-          out.push({ label: 'Go-Live Checklist', value: '—', color: 'gray', note: 'No backtest on file for this bot yet.' });
-        }
+        const g = await fetchJsonWithRetry<{ checks: { status: string }[]; overall_pass: boolean; blocking_failures: string[] }>(
+          `${API_URL}/api/validation-gate/evaluate`, { method: 'POST', headers, body: JSON.stringify({ bot_id: botId }) },
+        );
+        out.push(
+          g
+            ? {
+                label: 'Go-Live Checklist', value: `${g.checks.filter((c) => c.status === 'pass').length}/${g.checks.length}`,
+                color: g.overall_pass ? 'emerald' : 'amber',
+                note: g.overall_pass ? 'Ready to go live.' : (g.blocking_failures[0] || 'Some checks still incomplete.'),
+                barPct: g.checks.length ? Math.round((g.checks.filter((c) => c.status === 'pass').length / g.checks.length) * 100) : 0,
+              }
+            : { label: 'Go-Live Checklist', value: '—', color: 'gray', note: 'No backtest on file for this bot yet.' },
+        );
       } else {
         out.push({ label: 'Go-Live Checklist', value: '—', color: 'gray', note: 'No bot configured yet.' });
       }
@@ -159,7 +149,7 @@ export function InsightsPage() {
         </FoldedCard>
       </div>
 
-      {tiles === null && <p className={`text-sm ${dark ? 'text-white/40' : 'text-gray-400'}`}>Loading…</p>}
+      {tiles === null && <LoadingIndicator phase={phase} dark={dark} />}
 
       {tiles && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

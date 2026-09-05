@@ -2,9 +2,11 @@ import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { PageHeader } from '../components/PageHeader';
 import { FoldedCard } from '../components/FoldedCard';
+import { LoadingIndicator } from '../components/LoadingIndicator';
 import { useThemeStore } from '../hooks/useTheme';
 import { useAuth } from '../hooks/useAuth';
 import { apiFetch } from '../components/AccessExpiredGate';
+import { fetchJsonWithRetry, type FetchPhase } from '../lib/resilientFetch';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -46,6 +48,7 @@ export function PracticeDrillsPage() {
   const [groups, setGroups] = useState<TrackGroup[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [phase, setPhase] = useState<FetchPhase>('idle');
 
   useEffect(() => {
     if (!targetLessonId || !groups) return;
@@ -55,13 +58,14 @@ export function PracticeDrillsPage() {
   const load = () => {
     if (!token) return;
     setError(null);
-    apiFetch(`${API_URL}/practise/drills`, { headers: { Authorization: `Bearer ${token}` } })
-      .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
-      })
-      .then(setGroups)
-      .catch(() => setError('Could not load practice drills right now.'));
+    // Retries through a cold Render free-tier start rather than
+    // failing on the first attempt — see resilientFetch.ts.
+    fetchJsonWithRetry<TrackGroup[]>(
+      `${API_URL}/practise/drills`, { headers: { Authorization: `Bearer ${token}` } }, setPhase,
+    ).then((g) => {
+      if (g) setGroups(g);
+      else setError('Could not load practice drills right now.');
+    });
   };
 
   useEffect(load, [token]);
@@ -114,7 +118,9 @@ export function PracticeDrillsPage() {
           </button>
         </div>
       )}
-      {!groups && !error && <p className={`text-sm ${mutedCls}`}>Loading drills…</p>}
+      {!groups && !error && (
+        <div className="mb-3"><LoadingIndicator phase={phase} dark={dark} /></div>
+      )}
       {!groups && error && <p className={`text-sm ${mutedCls}`}>Your drills will show here once this loads — hit "Try again" above.</p>}
       {groups && groups.length === 0 && (
         <p className={`text-sm ${mutedCls}`}>No practice drills are available yet.</p>
