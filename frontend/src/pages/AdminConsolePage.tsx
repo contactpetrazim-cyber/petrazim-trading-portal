@@ -44,6 +44,8 @@ export function AdminConsolePage() {
   const [error, setError] = useState<string | null>(null);
   const [paymentsMode, setPaymentsMode] = useState<'test' | 'live' | null>(null);
   const [switchingMode, setSwitchingMode] = useState(false);
+  const [paperEnforced, setPaperEnforced] = useState<boolean | null>(null);
+  const [switchingPaper, setSwitchingPaper] = useState(false);
 
   const isSuperAdmin = user?.role === 'super_admin';
 
@@ -64,6 +66,8 @@ export function AdminConsolePage() {
     load();
     fetch(`${API_URL}/payments/mode`, { headers: { Authorization: `Bearer ${token}` } })
       .then((r) => (r.ok ? r.json() : null)).then((d) => d && setPaymentsMode(d.mode)).catch(() => {});
+    fetch(`${API_URL}/manual-trading/master-mode`, { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => (r.ok ? r.json() : null)).then((d) => d && setPaperEnforced(d.paper_enforced)).catch(() => {});
   }, [token]);
 
   async function setMode(mode: 'test' | 'live') {
@@ -81,6 +85,24 @@ export function AdminConsolePage() {
       if (res.ok) setPaymentsMode((await res.json()).mode);
     } finally {
       setSwitchingMode(false);
+    }
+  }
+
+  async function setPaperEnforcement(next: boolean) {
+    if (next === paperEnforced) return;
+    if (!next && !window.confirm(
+      'Turn OFF the platform-wide Paper Trading override? Every trader’s own Test/Live and Paper Trading settings take effect again immediately — anyone already in Live with Paper Trading off will start placing real orders.'
+    )) return;
+    setSwitchingPaper(true);
+    try {
+      const res = await fetch(`${API_URL}/manual-trading/master-mode`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ paper_enforced: next }),
+      });
+      if (res.ok) setPaperEnforced((await res.json()).paper_enforced);
+    } finally {
+      setSwitchingPaper(false);
     }
   }
 
@@ -132,6 +154,44 @@ export function AdminConsolePage() {
               Live
             </button>
             {paymentsMode === null && <span className="text-xs text-gray-500">Loading…</span>}
+          </div>
+        </div>
+      )}
+
+      {/* Trading Master Control — by direct request ("a master control
+          in the super Admin portal"), same pattern as Payments Mode
+          right above it. */}
+      {isSuperAdmin && (
+        <div className="bg-smc-card border border-smc-border rounded-xl p-6 mb-4">
+          <div className="flex items-center gap-2 mb-1">
+            <ShieldAlert size={16} className="text-amber-400" />
+            <h2 className="text-sm font-medium text-gray-300">Trading Master Control</h2>
+          </div>
+          <p className="text-xs text-gray-500 mb-3">
+            On: forces EVERY trader's account into Paper Trading platform-wide, overriding each individual trader's
+            own Test/Live and Paper Trading toggle — a real kill-switch, not a default. Off: every trader's own
+            settings (visible and changeable from the badge in every portal's header) take effect as normal.
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPaperEnforcement(true)}
+              disabled={switchingPaper}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 ${
+                paperEnforced === true ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40' : 'bg-smc-dark text-gray-400 border border-smc-border hover:text-white'
+              }`}
+            >
+              Force Paper Trading — On
+            </button>
+            <button
+              onClick={() => setPaperEnforcement(false)}
+              disabled={switchingPaper}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 ${
+                paperEnforced === false ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40' : 'bg-smc-dark text-gray-400 border border-smc-border hover:text-white'
+              }`}
+            >
+              Off — respect individual settings
+            </button>
+            {paperEnforced === null && <span className="text-xs text-gray-500">Loading…</span>}
           </div>
         </div>
       )}

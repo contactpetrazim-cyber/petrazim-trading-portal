@@ -30,8 +30,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
 
 from app.core.access_gate import _raise_if_access_expired
-from app.core.auth import get_current_user
+from app.core.auth import get_current_user, require_super_admin
 from app.database import get_db
+from app.models.platform_setting import PlatformSetting, TRADING_PAPER_ENFORCED_KEY
 from app.models.trade import EntryType, ExitType, ManualTradingSettings, Trade, TradeDirection, TradeLog, TradeStatus, TradingMode
 from app.models.user import User
 from app.services.execution_engine import ExecutionEngine
@@ -41,6 +42,59 @@ from app.services.manual_trading import check_manual_trade_risk, compute_lot_siz
 router = APIRouter(prefix="/manual-trading", tags=["manual-trading"])
 logger = structlog.get_logger()
 _engine = ExecutionEngine()
+
+
+async def get_master_paper_enforced(db: AsyncSession) -> bool:
+    """The Super Admin platform-wide kill-switch — see
+    TRADING_PAPER_ENFORCED_KEY's own comment. Defaults to False (no
+    override) when never explicitly set, same shape as
+    payments.py::get_payments_mode's own default — this is a NEW
+    control being added on top of individually-configured Test/Live and
+    Paper Trading settings, so it must not silently change anyone's
+    existing behavior the moment it ships; a Super Admin opts INTO the
+    override, it isn't on by default."""
+    row = (await db.execute(
+        select(PlatformSetting).where(PlatformSetting.key == TRADING_PAPER_ENFORCED_KEY)
+    )).scalar_one_or_none()
+    return bool(row and row.value == "true")
+
+
+class MasterModeResponse(BaseModel):
+    paper_enforced: bool
+
+
+@router.get("/master-mode", response_model=MasterModeResponse)
+async def get_master_mode(db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+    """Any authenticated user can read this — every portal shows a
+    banner off it so nobody mistakes a platform-wide-forced paper
+    trade for a real one, by direct request ("I need a visible toggle
+    for both [test/live and paper/live] ... in each portal")."""
+    return MasterModeResponse(paper_enforced=await get_master_paper_enforced(db))
+
+
+class SetMasterModeRequest(BaseModel):
+    paper_enforced: bool
+
+
+@router.patch("/master-mode", response_model=MasterModeResponse)
+async def set_master_mode(
+    req: SetMasterModeRequest, db: AsyncSession = Depends(get_db), admin: User = Depends(require_super_admin),
+):
+    """Super Admin only — "a master control in the super Admin portal."
+    Turning this on forces EVERY manual order platform-wide into Paper
+    Trading regardless of what any individual trader's own Test/Live
+    or Paper Trading toggle says (see place_manual_order's own `paper`
+    computation below) — a genuine kill-switch, not a per-user default."""
+    value = "true" if req.paper_enforced else "false"
+    row = (await db.execute(
+        select(PlatformSetting).where(PlatformSetting.key == TRADING_PAPER_ENFORCED_KEY)
+    )).scalar_one_or_none()
+    if row:
+        row.value = value
+    else:
+        db.add(PlatformSetting(key=TRADING_PAPER_ENFORCED_KEY, value=value))
+    await db.commit()
+    return MasterModeResponse(paper_enforced=req.paper_enforced)
 
 
 async def _get_or_create_settings(db: AsyncSession, user_id) -> ManualTradingSettings:
@@ -170,7 +224,11 @@ async def place_manual_order(
     # own `paper` kwarg) — real broker-selection + price-deviation-
     # guard checks run, the final send-to-broker step is diverted to
     # a simulated fill. Only Live with Paper Trading OFF is real.
-    paper = settings_row.trading_mode == TradingMode.TEST or settings_row.paper_trading_enabled
+    paper = (
+        settings_row.trading_mode == TradingMode.TEST
+        or settings_row.paper_trading_enabled
+        or await get_master_paper_enforced(db)
+    )
 
     # Gated here, not at the dependency level (require_active_access),
     # because whether this needs an active subscription genuinely

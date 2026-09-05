@@ -5,6 +5,7 @@ import { PetrazimLogo } from './PetrazimLogo';
 import { GlobalSearchModal } from './GlobalSearchModal';
 import { SettingsPanel } from './SettingsPanel';
 import { BackendStatusBadge } from './BackendStatusBadge';
+import { TradingModeBadge } from './TradingModeBadge';
 import { WakeBackendButton } from './WakeBackendButton';
 import { GoHomeButton } from './GoHomeButton';
 import { useThemeStore } from '../hooks/useTheme';
@@ -42,8 +43,9 @@ export function TopNav() {
             <PetrazimLogo height={60} />
           </Link>
 
-          <div className="hidden lg:block">
+          <div className="hidden lg:flex items-center gap-3">
             <BackendStatusBadge dark={dark} />
+            <TradingModeBadge dark={dark} />
           </div>
 
           <div className="flex items-center gap-2">

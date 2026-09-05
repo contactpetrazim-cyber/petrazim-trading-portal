@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { BackendStatusBadge } from './BackendStatusBadge';
+import { TradingModeBadge } from './TradingModeBadge';
 import { PetrazimLogo } from './PetrazimLogo';
 import { SettingsPanel } from './SettingsPanel';
 import { GoHomeButton } from './GoHomeButton';
@@ -100,6 +101,7 @@ export function Layout({ children, navItems = TRADER_NAV_ITEMS }: { children: Re
               below: the backend can be reachable but the socket dropped,
               or vice versa while it's waking up. */}
           <BackendStatusBadge />
+          <TradingModeBadge dark={dark} />
 
           {/* Connection Status */}
           <div className="flex items-center gap-2 text-sm">
