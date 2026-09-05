@@ -17,11 +17,52 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 // SL").
 const QUICK_PCTS = [0.5, 1, 2, 3, 4, 5];
 
-const SYMBOLS = [
-  { label: 'BTC/USDT', tv: 'BINANCE:BTCUSDT', trade: 'BTCUSDT' },
-  { label: 'EUR/USD', tv: 'OANDA:EURUSD', trade: 'EURUSD' },
-  { label: 'GBP/USD', tv: 'OANDA:GBPUSD', trade: 'GBPUSD' },
-  { label: 'XAU/USD', tv: 'OANDA:XAUUSD', trade: 'XAUUSD' },
+// Exchange selector — by direct request ("with a Exchange selection,
+// Binance, Bybit, Bingx, Mexc"). Drives BOTH the chart symbol's prefix
+// for a crypto perpetual (below) AND, for real, which exchange an
+// order actually routes to: `id` matches execution_engine.py's own
+// broker keys (self.brokers = {"bingx", "binance", "bybit", "mexc",
+// ...}) exactly, so selecting one here and placing a Live order sends
+// `preferred_broker` straight through to the real broker-routing logic
+// instead of that field sitting unused.
+const EXCHANGES = [
+  { id: 'binance', label: 'Binance', tvPrefix: 'BINANCE' },
+  { id: 'bybit', label: 'Bybit', tvPrefix: 'BYBIT' },
+  { id: 'bingx', label: 'BingX', tvPrefix: 'BINGX' },
+  { id: 'mexc', label: 'MEXC', tvPrefix: 'MEXC' },
+] as const;
+
+// Quick-link symbols — replaced the old BTC/USDT + EUR/USD + GBP/USD +
+// XAU/USD list, by direct bug report ("the quick links ... do not
+// work"). Two kinds:
+//   - `perp`: a real crypto perpetual-futures ticker, listed the same
+//     way on every one of the 4 exchanges above (TradingView really
+//     does use the ".P" suffix for a perpetual chart, distinct from
+//     the plain spot pair) — its chart symbol is built from whichever
+//     exchange is currently selected, so it's never wrong the way a
+//     single hardcoded exchange prefix could be for the others.
+//   - `fixedTv`: a real forex pair / stock index that none of these 4
+//     crypto exchanges actually lists (Binance/Bybit/BingX/MEXC don't
+//     offer USD/JPY or Nasdaq 100 perpetuals) — rather than fabricate
+//     a "BINANCE:NAS100" symbol that wouldn't resolve on TradingView
+//     (repeating the exact bug being fixed here), these keep their own
+//     correct real feed regardless of the exchange selector.
+// `trade` is always the clean ticker used for quick-price + order
+// execution — Binance's public API (services/live_price.py) has no
+// live feed for USDJPY/NAS100, same honest limitation the old EUR/USD
+// etc. already had; the entry-price field stays manually editable for
+// those, exactly as it already does today.
+interface QuickSymbol {
+  label: string;
+  trade: string;
+  perp?: string;
+  fixedTv?: string;
+}
+const QUICK_SYMBOLS: QuickSymbol[] = [
+  { label: 'BTC Perp', trade: 'BTCUSDT', perp: 'BTCUSDT.P' },
+  { label: 'Gold Perp', trade: 'XAUTUSDT', perp: 'XAUTUSDT.P' },
+  { label: 'USD/JPY', trade: 'USDJPY', fixedTv: 'OANDA:USDJPY' },
+  { label: 'Nasdaq 100', trade: 'NAS100', fixedTv: 'OANDA:NAS100USD' },
 ];
 
 interface Settings {
@@ -142,9 +183,21 @@ export function ManualTradingPage() {
 
   const preselect = params.get('symbol');
   const preselectPrice = params.get('price');
-  const [symbol, setSymbol] = useState(
-    SYMBOLS.find((s) => s.trade === preselect) || SYMBOLS[0]
+  const [quickSymbol, setQuickSymbol] = useState<QuickSymbol>(
+    QUICK_SYMBOLS.find((s) => s.trade === preselect) || QUICK_SYMBOLS[0]
   );
+  const [exchange, setExchange] = useState<typeof EXCHANGES[number]>(EXCHANGES[0]);
+  // `symbol` keeps the same {label, tv, trade} shape every downstream
+  // read below already expects — only how it's built changed. A
+  // fixed-feed instrument (USD/JPY, Nasdaq 100) ignores the exchange
+  // selector entirely (see QUICK_SYMBOLS' own comment on why); a
+  // crypto perpetual's chart symbol is built from whichever exchange
+  // is currently selected.
+  const symbol = {
+    label: quickSymbol.label,
+    trade: quickSymbol.trade,
+    tv: quickSymbol.perp ? `${exchange.tvPrefix}:${quickSymbol.perp}` : quickSymbol.fixedTv!,
+  };
   const [direction, setDirection] = useState<'long' | 'short'>('long');
   const [orderType, setOrderType] = useState<'market' | 'limit' | 'stop'>('market');
   const [entryPrice, setEntryPrice] = useState(preselectPrice || '');
@@ -282,6 +335,14 @@ export function ManualTradingPage() {
           account_equity: Number(accountEquity), risk_mode: riskMode,
           risk_amount: riskMode === 'dollar' ? Number(riskAmount) : null,
           risk_percent: riskMode === 'percent' ? Number(riskPercent) : null,
+          // Wires the Exchange selector through to real broker
+          // routing (execution_engine.py's own preferred_broker pin)
+          // — only for a crypto perpetual; the two fixed-feed
+          // instruments (USD/JPY, Nasdaq 100) aren't listed on any of
+          // these 4 crypto exchanges, so this deliberately leaves
+          // preferred_broker unset for them and lets the backend's
+          // own symbol-based routing decide instead.
+          preferred_broker: quickSymbol.perp ? exchange.id : null,
         }),
       });
       const data = await res.json();
@@ -524,12 +585,12 @@ export function ManualTradingPage() {
             top edge — it used to sit only above the chart, pushing the
             chart's own top down below the order form's. */}
         <div className="flex items-center gap-2 mb-3 flex-wrap">
-          {SYMBOLS.map((s) => (
+          {QUICK_SYMBOLS.map((s) => (
             <button
               key={s.trade}
-              onClick={() => setSymbol(s)}
+              onClick={() => setQuickSymbol(s)}
               className={`px-3 py-1.5 rounded-lg text-sm font-medium ${
-                symbol.trade === s.trade
+                quickSymbol.trade === s.trade
                   ? 'bg-corporate-hero text-white'
                   : dark ? 'bg-white/5 text-white/50' : 'bg-white text-gray-500 border border-gray-200'
               }`}
@@ -537,6 +598,29 @@ export function ManualTradingPage() {
               {s.label}
             </button>
           ))}
+
+          {/* Exchange — by direct request ("with a Exchange selection,
+              Binance, Bybit, Bingx, Mexc"). Only actually changes
+              anything for a crypto perpetual (see QUICK_SYMBOLS'
+              own comment); shown regardless so it stays a single,
+              predictable control rather than appearing/disappearing
+              as the symbol changes. */}
+          <div className={`flex items-center gap-1 rounded-lg p-1 ml-1 ${dark ? 'bg-white/5' : 'bg-black/5'}`}>
+            {EXCHANGES.map((ex) => (
+              <button
+                key={ex.id}
+                onClick={() => setExchange(ex)}
+                title={quickSymbol.perp ? `Chart + order routing: ${ex.label}` : `${ex.label} — only affects a crypto perpetual, not ${quickSymbol.label}`}
+                className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-colors ${
+                  exchange.id === ex.id
+                    ? dark ? 'bg-white/20 text-white' : 'bg-white text-corporate-text-on-bg shadow-sm'
+                    : dark ? 'text-white/40' : 'text-gray-500'
+                }`}
+              >
+                {ex.label}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* Order card is fully unmounted (not just hidden) when closed —
