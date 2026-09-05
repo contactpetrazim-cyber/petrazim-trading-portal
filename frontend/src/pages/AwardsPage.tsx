@@ -3,7 +3,8 @@ import { Award, ShieldCheck } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
 import { useThemeStore } from '../hooks/useTheme';
 import { useAuth } from '../hooks/useAuth';
-import { apiFetch } from '../components/AccessExpiredGate';
+import { fetchJsonWithRetry, type FetchPhase } from '../lib/resilientFetch';
+import { LoadingIndicator } from '../components/LoadingIndicator';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -44,16 +45,20 @@ export function AwardsPage() {
   const { token } = useAuth();
   const [data, setData] = useState<Awards | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [phase, setPhase] = useState<FetchPhase>('idle');
 
+  // Was a plain one-shot apiFetch with no retry — on a cold Render
+  // free-tier start the single attempt could fail before the backend
+  // ever woke up, leaving this stuck on "Could not load your awards
+  // right now" (same bug already fixed elsewhere — see
+  // resilientFetch.ts).
   useEffect(() => {
     if (!token) return;
-    apiFetch(`${API_URL}/curriculum/awards`, { headers: { Authorization: `Bearer ${token}` } })
-      .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
-      })
-      .then(setData)
-      .catch(() => setError('Could not load your awards right now.'));
+    fetchJsonWithRetry<Awards>(`${API_URL}/curriculum/awards`, { headers: { Authorization: `Bearer ${token}` } }, setPhase)
+      .then((d) => {
+        if (d) setData(d);
+        else setError('Could not load your awards right now.');
+      });
   }, [token]);
 
   const cardCls = `rounded-2xl border p-5 ${dark ? 'bg-corporate-surface-dark border-corporate-border-dark' : 'bg-white border-[#dcdce8]'}`;
@@ -65,7 +70,11 @@ export function AwardsPage() {
       <PageHeader title="Awards & Certificates" subtitle="Badges earned and certificates issued on track completion." />
 
       {error && <p className={`text-sm mb-4 ${dark ? 'text-red-400' : 'text-red-500'}`}>{error}</p>}
-      {!data && !error && <p className={`text-sm ${mutedCls}`}>Loading your awards…</p>}
+      {!data && !error && (
+        (phase === 'loading' || phase === 'stalled')
+          ? <div className="mb-4"><LoadingIndicator phase={phase} dark={dark} /></div>
+          : <p className={`text-sm ${mutedCls}`}>Loading your awards…</p>
+      )}
 
       {data && (
         <>

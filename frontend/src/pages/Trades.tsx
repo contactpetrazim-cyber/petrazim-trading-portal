@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { TradeRow } from '../components/TradeRow';
 import { LoadingIndicator } from '../components/LoadingIndicator';
+import { SourceToggle, type TradeSource } from '../components/TradeAnalytics';
 import { tradesApi } from '../services/api';
 import { Trade } from '../types';
 import { useThemeStore } from '../hooks/useTheme';
@@ -32,15 +33,24 @@ export function TradesPage() {
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState('all');
   const [search, setSearch] = useState('');
+  // Bots vs Manual — by direct request ("all visuals or analytics
+  // should be differentiated by a toggle bots vs Manual trades").
+  // Same `source` filter analytics/summary uses (routers/trades.py).
+  const [source, setSource] = useState<TradeSource>('all');
+
+  function buildParams(): { status?: string; symbol?: string; source?: string } {
+    const params: { status?: string; symbol?: string; source?: string } = {};
+    if (filter !== 'all') params.status = filter;
+    if (search) params.symbol = search.toUpperCase();
+    if (source !== 'all') params.source = source;
+    return params;
+  }
 
   async function loadTrades() {
     setLoading(true);
     setError(null);
     try {
-      const params: { status?: string; symbol?: string } = {};
-      if (filter !== 'all') params.status = filter;
-      if (search) params.symbol = search.toUpperCase();
-      setTrades(await tradesApi.getTrades(params));
+      setTrades(await tradesApi.getTrades(buildParams()));
     } catch (e: any) {
       setError('Could not load trades.');
     } finally {
@@ -52,7 +62,7 @@ export function TradesPage() {
     const t = setTimeout(loadTrades, 300); // debounce the search input
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filter, search]);
+  }, [filter, search, source]);
 
   // Silent background refresh (no loading-indicator flash) so live
   // unrealized PnL actually updates while an active trade is open,
@@ -60,13 +70,11 @@ export function TradesPage() {
   useEffect(() => {
     if (!trades.some((t) => t.status === 'active')) return;
     const id = setInterval(() => {
-      const params: { status?: string; symbol?: string } = {};
-      if (filter !== 'all') params.status = filter;
-      if (search) params.symbol = search.toUpperCase();
-      tradesApi.getTrades(params).then(setTrades).catch(() => {});
+      tradesApi.getTrades(buildParams()).then(setTrades).catch(() => {});
     }, LIVE_PNL_POLL_MS);
     return () => clearInterval(id);
-  }, [trades, filter, search]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trades, filter, search, source]);
 
   async function handleApprove(tradeId: string) {
     await tradesApi.approveTrade(tradeId, true);
@@ -140,6 +148,8 @@ export function TradesPage() {
             }`}
           />
         </div>
+
+        <SourceToggle value={source} onChange={setSource} dark={dark} />
 
         <div className="flex items-center gap-2">
           <Filter size={16} className="text-gray-400" />

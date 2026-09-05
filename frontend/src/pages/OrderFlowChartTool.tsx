@@ -85,7 +85,13 @@ export function OrderFlowChartTool({
     const load = () => {
       apiFetch(`${API_URL}/order-flow/trades?symbol=${symbol}&limit=40`, { headers })
         .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
-        .then((d) => !cancelled && setTrades(d.reverse()))
+        // Real bug: on a cold Render free-tier start, the very first
+        // poll could land before the backend woke up, setting this
+        // error — which then NEVER cleared even once later polls (this
+        // interval retries every 4s already) started succeeding, so
+        // the tape kept updating live underneath a permanently stuck
+        // "Could not load" banner.
+        .then((d) => { if (!cancelled) { setTrades(d.reverse()); setError(null); } })
         .catch(() => !cancelled && setError('Could not load live order flow data right now.'));
     };
     load();

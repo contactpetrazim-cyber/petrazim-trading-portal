@@ -11,6 +11,12 @@ import { LoadingIndicator } from '../components/LoadingIndicator';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
+// Standard quick %-offset choices for every TP/SL field (TP1/2/3 and
+// SL all share the same list now) — by direct request ("increase
+// standard percentages ... 0.5%, 1%, 2%, 3%, 4%, 5% for both TP and
+// SL").
+const QUICK_PCTS = [0.5, 1, 2, 3, 4, 5];
+
 const SYMBOLS = [
   { label: 'BTC/USDT', tv: 'BINANCE:BTCUSDT', trade: 'BTCUSDT' },
   { label: 'EUR/USD', tv: 'OANDA:EURUSD', trade: 'EURUSD' },
@@ -39,12 +45,12 @@ interface Settings {
  * floating away from short numbers — by direct request, fixed by
  * sizing the input to its own content in `ch` units instead, so the
  * digits sit flush against the sign the same way plain text would). */
-function DollarInput({ value, onChange, placeholder = '0.00' }: {
-  value: string; onChange: (v: string) => void; placeholder?: string;
+function DollarInput({ value, onChange, placeholder = '0.00', dark = false }: {
+  value: string; onChange: (v: string) => void; placeholder?: string; dark?: boolean;
 }) {
   const chWidth = Math.max((value || placeholder).length, 1);
   return (
-    <span className="inline-flex items-center font-semibold text-gray-700 text-sm">
+    <span className={`inline-flex items-center font-semibold text-sm ${dark ? 'text-white/80' : 'text-gray-700'}`}>
       $<input
         className="font-semibold outline-none bg-transparent p-0 border-none text-sm"
         style={{ width: `${chWidth}ch` }}
@@ -56,18 +62,58 @@ function DollarInput({ value, onChange, placeholder = '0.00' }: {
 
 /** Same idea for a percent figure — the number sits flush against a
  * trailing '%' instead. */
-function PercentInput({ value, onChange, placeholder = '0' }: {
-  value: string; onChange: (v: string) => void; placeholder?: string;
+function PercentInput({ value, onChange, placeholder = '0', dark = false }: {
+  value: string; onChange: (v: string) => void; placeholder?: string; dark?: boolean;
 }) {
   const chWidth = Math.max((value || placeholder).length, 1);
   return (
-    <span className="inline-flex items-center font-semibold text-gray-700 text-sm">
+    <span className={`inline-flex items-center font-semibold text-sm ${dark ? 'text-white/80' : 'text-gray-700'}`}>
       <input
         className="font-semibold outline-none bg-transparent p-0 border-none text-sm text-right"
         style={{ width: `${chWidth}ch` }}
         value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder}
       />%
     </span>
+  );
+}
+
+/** Quick %-offset buttons for a TP/SL field, plus a manual %-input as
+ * an additional option alongside them — by direct request ("provide
+ * additional option for manual input for %SL and %TP in addition to
+ * the standard percentages" / "additional TP should have the same
+ * quick % options as the first TP"). Shared by TP, TP2, TP3 and SL so
+ * all four read and behave identically. `onApply` receives the raw
+ * percentage (positive number) — direction (up for TP, down for SL)
+ * is already baked into the caller's own priceForPercentOffset. */
+function PercentOffsetRow({
+  sign, onApply, dark,
+}: { sign: '+' | '-'; onApply: (pct: number) => void; dark: boolean }) {
+  const [custom, setCustom] = useState('');
+  const applyCustom = () => {
+    const n = Number(custom);
+    if (custom && !isNaN(n) && n > 0) onApply(n);
+  };
+  const btnCls = `text-[11px] px-1.5 py-0.5 rounded ${dark ? 'bg-white/5 text-white/40 hover:bg-white/10 hover:text-white/70' : 'bg-gray-50 text-gray-400 hover:bg-gray-100 hover:text-gray-600'}`;
+  return (
+    <div className="flex flex-wrap items-center justify-end gap-1.5 mb-1.5 mt-0.5">
+      {QUICK_PCTS.map((pct) => (
+        <button key={pct} onClick={() => onApply(pct)} className={btnCls}>
+          {sign}{pct}%
+        </button>
+      ))}
+      <span className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 ${dark ? 'bg-white/5' : 'bg-gray-50'}`}>
+        <input
+          type="number" inputMode="decimal" value={custom}
+          onChange={(e) => setCustom(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') applyCustom(); }}
+          placeholder="custom %" title="Manual %"
+          className={`w-14 text-[11px] bg-transparent outline-none ${dark ? 'text-white/70 placeholder:text-white/30' : 'text-gray-600 placeholder:text-gray-300'}`}
+        />
+        <button onClick={applyCustom} className={`text-[11px] font-semibold ${dark ? 'text-white/50 hover:text-white' : 'text-gray-400 hover:text-gray-700'}`}>
+          Set
+        </button>
+      </span>
+    </div>
   );
 }
 
@@ -360,13 +406,13 @@ export function ManualTradingPage() {
                   isTest ? 'bg-amber-500/15 text-amber-500' : 'bg-red-500/15 text-red-500'
                 }`}
               >
-                {isTest ? <FlaskConical size={13} /> : <Radio size={13} />} {isTest ? 'TEST MODE' : 'LIVE — real orders'}
+                {isTest ? <FlaskConical size={13} /> : <Radio size={13} />} {isTest ? 'PAPER TRADING' : 'LIVE — real orders'}
               </span>
               <button
                 onClick={() => updateSettings({ trading_mode: isTest ? 'live' : 'test' })}
                 className={`text-xs font-semibold px-3 py-1.5 rounded-full ${dark ? 'bg-white/10 text-white/70' : 'bg-black/5 text-gray-600'}`}
               >
-                Switch to {isTest ? 'Live' : 'Test'}
+                Switch to {isTest ? 'Live' : 'Paper Trading'}
               </button>
               <button
                 onClick={() => setSettingsOpen((o) => !o)}
@@ -380,7 +426,7 @@ export function ManualTradingPage() {
 
         {isTest && (
           <div className={`rounded-xl p-3 mb-4 text-xs font-medium ${dark ? 'bg-amber-500/10 text-amber-300' : 'bg-amber-50 text-amber-700'}`}>
-            TEST MODE — orders below are simulated instantly. Nothing reaches a real exchange until you switch to Live.
+            PAPER TRADING — orders below fill instantly against a simulated pseudo-exchange and track live price data, exactly like a real position (entries, TP/SL, partial closes, cancellations). No real money moves until you switch to Live.
           </div>
         )}
 
@@ -467,53 +513,59 @@ export function ManualTradingPage() {
           {orderFormOpen && (
           <div>
             {/* Place Buy/Sell Order — rebuilt to match the exact uploaded
-                order-ticket reference: styling is always light, by
-                direct request ("use upload exactly same colours and
-                style and formatting"), independent of the site's own
-                dark/light toggle, same reasoning as StatCard's fix
-                earlier this session. Height 600 on the chart above is
-                chosen to roughly match this card's own natural height
-                ("parallel", by direct request) — an exact pixel match
-                isn't feasible without measuring the DOM at runtime, since
-                this card's height varies with state (extra targets,
-                partial-close panel, result messages). */}
-            <div className="rounded-2xl border border-gray-200 bg-white p-4 h-fit text-gray-900">
-            <div className="text-xs font-semibold mb-3 text-gray-400">{symbol.trade}</div>
+                order-ticket reference. Used to stay always-light
+                regardless of the site's own dark/light toggle, by
+                direct request; reversed by a later direct request
+                ("let the dark or light mode also cover the order
+                form") — every surface below now reads `dark` the same
+                way the rest of this page already does. Height 600 on
+                the chart above is chosen to roughly match this card's
+                own natural height ("parallel", by direct request) — an
+                exact pixel match isn't feasible without measuring the
+                DOM at runtime, since this card's height varies with
+                state (extra targets, partial-close panel, result
+                messages). */}
+            <div className={`rounded-2xl border p-4 h-fit ${dark ? 'bg-corporate-surface-dark border-corporate-border-dark text-white' : 'bg-white border-gray-200 text-gray-900'}`}>
+            <div className={`text-xs font-semibold mb-3 ${dark ? 'text-white/40' : 'text-gray-400'}`}>{symbol.trade}</div>
 
             {/* By direct request ("for loading area put the loading
                 indicator to help user wait") — settings load in the
                 background regardless (the form itself isn't blocked on
                 it), this just makes the wait visible instead of silent. */}
             {!settings && (
-              <div className="mb-3"><LoadingIndicator phase={settingsPhase} dark={false} /></div>
+              <div className="mb-3"><LoadingIndicator phase={settingsPhase} dark={dark} /></div>
             )}
 
             {/* Sell / Buy split header, live reference price on each side */}
-            <div className="flex rounded-xl overflow-hidden mb-4 border border-gray-200">
+            <div className={`flex rounded-xl overflow-hidden mb-4 border ${dark ? 'border-corporate-border-dark' : 'border-gray-200'}`}>
               <button
                 onClick={() => setDirection('short')}
-                className={`flex-1 py-2.5 text-center transition-colors ${direction === 'short' ? 'bg-red-50' : 'bg-white hover:bg-gray-50'}`}
+                className={`flex-1 py-2.5 text-center transition-colors ${
+                  direction === 'short' ? (dark ? 'bg-red-500/10' : 'bg-red-50') : dark ? 'bg-transparent hover:bg-white/5' : 'bg-white hover:bg-gray-50'
+                }`}
               >
-                <div className="text-[11px] font-medium text-gray-400">Sell</div>
-                <div className={`text-base font-bold ${direction === 'short' ? 'text-red-600' : 'text-gray-700'}`}>{quickPrice != null ? quickPrice : '—'}</div>
+                <div className={`text-[11px] font-medium ${dark ? 'text-white/40' : 'text-gray-400'}`}>Sell</div>
+                <div className={`text-base font-bold ${direction === 'short' ? 'text-red-500' : dark ? 'text-white/70' : 'text-gray-700'}`}>{quickPrice != null ? quickPrice : '—'}</div>
               </button>
               <button
                 onClick={() => setDirection('long')}
-                className={`flex-1 py-2.5 text-center transition-colors border-l border-gray-200 ${direction === 'long' ? 'bg-blue-50' : 'bg-white hover:bg-gray-50'}`}
+                className={`flex-1 py-2.5 text-center transition-colors border-l ${dark ? 'border-corporate-border-dark' : 'border-gray-200'} ${
+                  direction === 'long' ? (dark ? 'bg-blue-500/10' : 'bg-blue-50') : dark ? 'bg-transparent hover:bg-white/5' : 'bg-white hover:bg-gray-50'
+                }`}
               >
-                <div className="text-[11px] font-medium text-gray-400">Buy</div>
-                <div className={`text-base font-bold ${direction === 'long' ? 'text-blue-600' : 'text-gray-700'}`}>{quickPrice != null ? quickPrice : '—'}</div>
+                <div className={`text-[11px] font-medium ${dark ? 'text-white/40' : 'text-gray-400'}`}>Buy</div>
+                <div className={`text-base font-bold ${direction === 'long' ? 'text-blue-500' : dark ? 'text-white/70' : 'text-gray-700'}`}>{quickPrice != null ? quickPrice : '—'}</div>
               </button>
             </div>
 
             {/* Market / Limit / Stop */}
-            <div className="flex gap-4 mb-3 border-b border-gray-100">
+            <div className={`flex gap-4 mb-3 border-b ${dark ? 'border-white/10' : 'border-gray-100'}`}>
               {(['market', 'limit', 'stop'] as const).map((t) => (
                 <button
                   key={t}
                   onClick={() => setOrderType(t)}
                   className={`pb-2 text-sm font-semibold capitalize border-b-2 -mb-px ${
-                    orderType === t ? 'border-blue-600 text-gray-900' : 'border-transparent text-gray-400'
+                    orderType === t ? `border-blue-600 ${dark ? 'text-white' : 'text-gray-900'}` : `border-transparent ${dark ? 'text-white/30' : 'text-gray-400'}`
                   }`}
                 >
                   {t}
@@ -532,44 +584,43 @@ export function ManualTradingPage() {
                 from the live price on symbol change (see the
                 symbol.trade effect above) but never overwritten by
                 that seed once you've typed or quick-filled something. */}
-            <div className="flex items-center justify-between py-2 border-b border-gray-100">
-              <span className="text-sm text-gray-500">
+            <div className={`flex items-center justify-between py-2 border-b ${dark ? 'border-white/10' : 'border-gray-100'}`}>
+              <span className={`text-sm ${dark ? 'text-white/50' : 'text-gray-500'}`}>
                 {orderType === 'stop' ? 'Stop price' : orderType === 'market' ? 'Reference price' : 'Price'}
               </span>
               <div className="flex items-center gap-2">
-                <input
-                  className="text-right text-sm font-semibold w-28 outline-none bg-transparent"
-                  value={entryPrice} onChange={(e) => setEntryPrice(e.target.value)} placeholder="0.00"
-                />
+                {/* '$' fused against the number, same as Risk (USD) and
+                    Trade Value — by direct request. */}
+                <DollarInput value={entryPrice} onChange={setEntryPrice} dark={dark} />
                 <button
                   onClick={() => refreshQuickPrice().then((p) => p != null && setEntryPrice(String(p)))}
                   aria-label="Use current price" title="Use current price"
-                  className="text-gray-300 hover:text-gray-500"
+                  className={dark ? 'text-white/30 hover:text-white/60' : 'text-gray-300 hover:text-gray-500'}
                 >
                   <ArrowLeftRight size={13} />
                 </button>
               </div>
             </div>
             {priceDelta != null && (
-              <div className="text-right text-[11px] text-gray-400 mb-1 mt-0.5">
+              <div className={`text-right text-[11px] mb-1 mt-0.5 ${dark ? 'text-white/30' : 'text-gray-400'}`}>
                 {priceDelta >= 0 ? '+' : ''}{priceDelta.toFixed(2)} from current price
               </div>
             )}
 
             {/* Risk row — the field this whole ticket is built around:
                 Risk-in-$ default sizing, swap icon flips to Risk %. */}
-            <div className="flex items-center justify-between py-2 border-b border-gray-100 mt-1">
-              <span className="text-sm text-gray-500">Risk ({riskMode === 'dollar' ? 'USD' : '%'})</span>
+            <div className={`flex items-center justify-between py-2 border-b mt-1 ${dark ? 'border-white/10' : 'border-gray-100'}`}>
+              <span className={`text-sm ${dark ? 'text-white/50' : 'text-gray-500'}`}>Risk ({riskMode === 'dollar' ? 'USD' : '%'})</span>
               <div className="flex items-center gap-2">
                 {riskMode === 'dollar' ? (
-                  <DollarInput value={riskAmount} onChange={setRiskAmount} />
+                  <DollarInput value={riskAmount} onChange={setRiskAmount} dark={dark} />
                 ) : (
-                  <PercentInput value={riskPercent} onChange={setRiskPercent} />
+                  <PercentInput value={riskPercent} onChange={setRiskPercent} dark={dark} />
                 )}
                 <button
                   onClick={() => setRiskMode((m) => (m === 'dollar' ? 'percent' : 'dollar'))}
                   aria-label="Switch between Risk $ and Risk %" title="Switch between Risk $ and Risk %"
-                  className="text-gray-300 hover:text-gray-500"
+                  className={dark ? 'text-white/30 hover:text-white/60' : 'text-gray-300 hover:text-gray-500'}
                 >
                   <ArrowLeftRight size={13} />
                 </button>
@@ -581,12 +632,12 @@ export function ManualTradingPage() {
                 sizing needs (this app has no live broker margin feed
                 to read a real number from, unlike a real exchange). */}
             <div className="flex items-center justify-between py-1.5 text-sm">
-              <span className="text-gray-400">Trade Value</span>
-              <span className="font-semibold text-gray-700">${tradeValuePreview ? tradeValuePreview.toFixed(2) : '0.00'}</span>
+              <span className={dark ? 'text-white/40' : 'text-gray-400'}>Trade Value</span>
+              <span className={`font-semibold ${dark ? 'text-white/80' : 'text-gray-700'}`}>${tradeValuePreview ? tradeValuePreview.toFixed(2) : '0.00'}</span>
             </div>
             <div className="flex items-center justify-between py-1.5 mb-3">
-              <span className="text-sm text-gray-400">Available Margin</span>
-              <DollarInput value={accountEquity} onChange={setAccountEquity} />
+              <span className={`text-sm ${dark ? 'text-white/40' : 'text-gray-400'}`}>Available Margin</span>
+              <DollarInput value={accountEquity} onChange={setAccountEquity} dark={dark} />
             </div>
 
             {/* Exits — each price field has a small toggle next to it to
@@ -603,24 +654,24 @@ export function ManualTradingPage() {
                 price off the chart itself; that would need TradingView's
                 paid Advanced Charts Library. These buttons are the
                 real, buildable substitute — one click, no typing. */}
-            <div className="text-sm font-bold text-gray-900 mb-1">Exits</div>
-            <div className="flex items-center justify-between py-2 border-b border-gray-100">
-              <span className="text-sm text-gray-500">Take Profit ({tpMode === 'amount' ? 'Amount' : 'Price'})</span>
+            <div className={`text-sm font-bold mb-1 ${dark ? 'text-white' : 'text-gray-900'}`}>Exits</div>
+            <div className={`flex items-center justify-between py-2 border-b ${dark ? 'border-white/10' : 'border-gray-100'}`}>
+              <span className={`text-sm ${dark ? 'text-white/50' : 'text-gray-500'}`}>Take Profit ({tpMode === 'amount' ? 'Amount' : 'Price'})</span>
               <div className="flex items-center gap-2">
                 {tpEnabled && (
                   <>
                     {tpMode === 'amount' ? (
-                      <DollarInput value={tpAmount} onChange={(v) => { setTpAmount(v); applyDollarAmount('tp', v); }} placeholder="0.00" />
+                      <DollarInput value={tpAmount} onChange={(v) => { setTpAmount(v); applyDollarAmount('tp', v); }} placeholder="0.00" dark={dark} />
                     ) : (
                       <input
-                        className="text-right text-sm font-semibold w-24 outline-none bg-transparent"
+                        className={`text-right text-sm font-semibold w-24 outline-none bg-transparent ${dark ? 'text-white' : ''}`}
                         value={takeProfit} onChange={(e) => setTakeProfit(e.target.value)} placeholder="0.00"
                       />
                     )}
                     <button
                       onClick={() => setTpMode((m) => (m === 'price' ? 'amount' : 'price'))}
                       aria-label="Switch take profit between price and $ amount" title="Switch between price and $ amount"
-                      className="text-gray-300 hover:text-gray-500"
+                      className={dark ? 'text-white/30 hover:text-white/60' : 'text-gray-300 hover:text-gray-500'}
                     >
                       <ArrowLeftRight size={13} />
                     </button>
@@ -628,40 +679,30 @@ export function ManualTradingPage() {
                 )}
                 <button
                   onClick={() => setTpEnabled((v) => !v)} aria-label="Toggle take profit"
-                  className={`relative w-9 h-5 rounded-full transition-colors shrink-0 ${tpEnabled ? 'bg-blue-600' : 'bg-gray-200'}`}
+                  className={`relative w-9 h-5 rounded-full transition-colors shrink-0 ${tpEnabled ? 'bg-blue-600' : dark ? 'bg-white/10' : 'bg-gray-200'}`}
                 >
                   <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${tpEnabled ? 'translate-x-4' : ''}`} />
                 </button>
               </div>
             </div>
             {tpEnabled && tpMode === 'price' && effectiveEntryForPreview > 0 && (
-              <div className="flex justify-end gap-1.5 mb-1 mt-0.5">
-                {[1, 2, 3].map((pct) => (
-                  <button
-                    key={pct}
-                    onClick={() => setTakeProfit(String((priceForPercentOffset(pct, 'tp') ?? 0).toFixed(2)))}
-                    className="text-[11px] px-1.5 py-0.5 rounded bg-gray-50 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
-                  >
-                    +{pct}%
-                  </button>
-                ))}
-              </div>
+              <PercentOffsetRow sign="+" dark={dark} onApply={(pct) => setTakeProfit(String((priceForPercentOffset(pct, 'tp') ?? 0).toFixed(2)))} />
             )}
-            <div className="flex items-center justify-between py-2 mb-2">
-              <span className="text-sm text-gray-500">Stop Loss ({slMode === 'amount' ? 'Amount' : 'Price'})</span>
+            <div className={`flex items-center justify-between py-2 mb-2`}>
+              <span className={`text-sm ${dark ? 'text-white/50' : 'text-gray-500'}`}>Stop Loss ({slMode === 'amount' ? 'Amount' : 'Price'})</span>
               <div className="flex items-center gap-2">
                 {slMode === 'amount' ? (
-                  <DollarInput value={slAmount} onChange={(v) => { setSlAmount(v); applyDollarAmount('sl', v); }} placeholder="0.00" />
+                  <DollarInput value={slAmount} onChange={(v) => { setSlAmount(v); applyDollarAmount('sl', v); }} placeholder="0.00" dark={dark} />
                 ) : (
                   <input
-                    className="text-right text-sm font-semibold w-24 outline-none bg-transparent"
+                    className={`text-right text-sm font-semibold w-24 outline-none bg-transparent ${dark ? 'text-white' : ''}`}
                     value={stopLoss} onChange={(e) => setStopLoss(e.target.value)} placeholder="0.00"
                   />
                 )}
                 <button
                   onClick={toggleSlMode}
                   aria-label="Switch stop loss between price and $ amount" title="Switch between price and $ amount"
-                  className="text-gray-300 hover:text-gray-500"
+                  className={dark ? 'text-white/30 hover:text-white/60' : 'text-gray-300 hover:text-gray-500'}
                 >
                   <ArrowLeftRight size={13} />
                 </button>
@@ -673,58 +714,61 @@ export function ManualTradingPage() {
               </div>
             </div>
             {slMode === 'price' && effectiveEntryForPreview > 0 && (
-              <div className="flex justify-end gap-1.5 mb-2 -mt-1">
-                {[0.5, 1, 2].map((pct) => (
-                  <button
-                    key={pct}
-                    onClick={() => setStopLoss(String((priceForPercentOffset(pct, 'sl') ?? 0).toFixed(2)))}
-                    className="text-[11px] px-1.5 py-0.5 rounded bg-gray-50 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
-                  >
-                    -{pct}%
-                  </button>
-                ))}
-              </div>
+              <PercentOffsetRow sign="-" dark={dark} onApply={(pct) => setStopLoss(String((priceForPercentOffset(pct, 'sl') ?? 0).toFixed(2)))} />
             )}
 
             {!showExtraTargets ? (
-              <button onClick={() => setShowExtraTargets(true)} className="text-xs font-medium mb-3 text-gray-400">
+              <button onClick={() => setShowExtraTargets(true)} className={`text-xs font-medium mb-3 ${dark ? 'text-white/40' : 'text-gray-400'}`}>
                 + Add more targets (partial exits)
               </button>
             ) : (
               <div className="mb-3 space-y-2">
-                <div className="flex items-center justify-between py-1.5 border-b border-gray-100">
-                  <span className="text-sm text-gray-500">Take Profit 2 ({tp2Mode === 'amount' ? 'Amount' : 'Price'})</span>
-                  <div className="flex items-center gap-2">
-                    {tp2Mode === 'amount' ? (
-                      <DollarInput value={tp2Amount} onChange={(v) => { setTp2Amount(v); applyDollarAmount('tp2', v); }} placeholder="0.00" />
-                    ) : (
-                      <input className="text-right text-sm font-semibold w-24 outline-none bg-transparent" value={takeProfit2} onChange={(e) => setTakeProfit2(e.target.value)} placeholder="0.00" />
-                    )}
-                    <button
-                      onClick={() => setTp2Mode((m) => (m === 'price' ? 'amount' : 'price'))}
-                      aria-label="Switch take profit 2 between price and $ amount" title="Switch between price and $ amount"
-                      className="text-gray-300 hover:text-gray-500"
-                    >
-                      <ArrowLeftRight size={13} />
-                    </button>
+                <div className={`py-1.5 border-b ${dark ? 'border-white/10' : 'border-gray-100'}`}>
+                  <div className="flex items-center justify-between">
+                    <span className={`text-sm ${dark ? 'text-white/50' : 'text-gray-500'}`}>Take Profit 2 ({tp2Mode === 'amount' ? 'Amount' : 'Price'})</span>
+                    <div className="flex items-center gap-2">
+                      {tp2Mode === 'amount' ? (
+                        <DollarInput value={tp2Amount} onChange={(v) => { setTp2Amount(v); applyDollarAmount('tp2', v); }} placeholder="0.00" dark={dark} />
+                      ) : (
+                        <input className={`text-right text-sm font-semibold w-24 outline-none bg-transparent ${dark ? 'text-white' : ''}`} value={takeProfit2} onChange={(e) => setTakeProfit2(e.target.value)} placeholder="0.00" />
+                      )}
+                      <button
+                        onClick={() => setTp2Mode((m) => (m === 'price' ? 'amount' : 'price'))}
+                        aria-label="Switch take profit 2 between price and $ amount" title="Switch between price and $ amount"
+                        className={dark ? 'text-white/30 hover:text-white/60' : 'text-gray-300 hover:text-gray-500'}
+                      >
+                        <ArrowLeftRight size={13} />
+                      </button>
+                    </div>
                   </div>
+                  {/* Same quick % options as the first Take Profit — by
+                      direct request ("additional TP should have the
+                      same quick % options as the first TP"). */}
+                  {tp2Mode === 'price' && effectiveEntryForPreview > 0 && (
+                    <PercentOffsetRow sign="+" dark={dark} onApply={(pct) => setTakeProfit2(String((priceForPercentOffset(pct, 'tp') ?? 0).toFixed(2)))} />
+                  )}
                 </div>
-                <div className="flex items-center justify-between py-1.5">
-                  <span className="text-sm text-gray-500">Take Profit 3 ({tp3Mode === 'amount' ? 'Amount' : 'Price'})</span>
-                  <div className="flex items-center gap-2">
-                    {tp3Mode === 'amount' ? (
-                      <DollarInput value={tp3Amount} onChange={(v) => { setTp3Amount(v); applyDollarAmount('tp3', v); }} placeholder="0.00" />
-                    ) : (
-                      <input className="text-right text-sm font-semibold w-24 outline-none bg-transparent" value={takeProfit3} onChange={(e) => setTakeProfit3(e.target.value)} placeholder="0.00" />
-                    )}
-                    <button
-                      onClick={() => setTp3Mode((m) => (m === 'price' ? 'amount' : 'price'))}
-                      aria-label="Switch take profit 3 between price and $ amount" title="Switch between price and $ amount"
-                      className="text-gray-300 hover:text-gray-500"
-                    >
-                      <ArrowLeftRight size={13} />
-                    </button>
+                <div className="py-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className={`text-sm ${dark ? 'text-white/50' : 'text-gray-500'}`}>Take Profit 3 ({tp3Mode === 'amount' ? 'Amount' : 'Price'})</span>
+                    <div className="flex items-center gap-2">
+                      {tp3Mode === 'amount' ? (
+                        <DollarInput value={tp3Amount} onChange={(v) => { setTp3Amount(v); applyDollarAmount('tp3', v); }} placeholder="0.00" dark={dark} />
+                      ) : (
+                        <input className={`text-right text-sm font-semibold w-24 outline-none bg-transparent ${dark ? 'text-white' : ''}`} value={takeProfit3} onChange={(e) => setTakeProfit3(e.target.value)} placeholder="0.00" />
+                      )}
+                      <button
+                        onClick={() => setTp3Mode((m) => (m === 'price' ? 'amount' : 'price'))}
+                        aria-label="Switch take profit 3 between price and $ amount" title="Switch between price and $ amount"
+                        className={dark ? 'text-white/30 hover:text-white/60' : 'text-gray-300 hover:text-gray-500'}
+                      >
+                        <ArrowLeftRight size={13} />
+                      </button>
+                    </div>
                   </div>
+                  {tp3Mode === 'price' && effectiveEntryForPreview > 0 && (
+                    <PercentOffsetRow sign="+" dark={dark} onApply={(pct) => setTakeProfit3(String((priceForPercentOffset(pct, 'tp') ?? 0).toFixed(2)))} />
+                  )}
                 </div>
               </div>
             )}
@@ -737,71 +781,71 @@ export function ManualTradingPage() {
                 submit button's own label) — this just surfaces them as their
                 own explicit, auto-updating breakdown instead of leaving the
                 math implicit. */}
-            <div className="rounded-xl border border-gray-200 mb-3 overflow-hidden">
+            <div className={`rounded-xl border mb-3 overflow-hidden ${dark ? 'border-white/10' : 'border-gray-200'}`}>
               <button
                 onClick={() => setPosCalcOpen((v) => !v)}
-                className="w-full flex items-center justify-between px-3 py-2.5 bg-gray-50 hover:bg-gray-100 transition-colors"
+                className={`w-full flex items-center justify-between px-3 py-2.5 transition-colors ${dark ? 'bg-white/5 hover:bg-white/10' : 'bg-gray-50 hover:bg-gray-100'}`}
               >
-                <span className="flex items-center gap-1.5 text-sm font-bold text-gray-900">
-                  <Calculator size={14} className="text-gray-400" /> Position Calculator
+                <span className={`flex items-center gap-1.5 text-sm font-bold ${dark ? 'text-white' : 'text-gray-900'}`}>
+                  <Calculator size={14} className={dark ? 'text-white/40' : 'text-gray-400'} /> Position Calculator
                 </span>
-                <ChevronDown size={15} className={`text-gray-400 transition-transform ${posCalcOpen ? 'rotate-180' : ''}`} />
+                <ChevronDown size={15} className={`transition-transform ${dark ? 'text-white/40' : 'text-gray-400'} ${posCalcOpen ? 'rotate-180' : ''}`} />
               </button>
               {posCalcOpen && (
                 <div className="p-3 space-y-1.5">
                   <div className="flex items-center justify-between text-sm">
-                    <span className="text-gray-500">Entry (reference) price</span>
-                    <span className="font-semibold text-gray-900">{effectiveEntryForPreview > 0 ? effectiveEntryForPreview.toFixed(2) : '—'}</span>
+                    <span className={dark ? 'text-white/50' : 'text-gray-500'}>Entry (reference) price</span>
+                    <span className={`font-semibold ${dark ? 'text-white' : 'text-gray-900'}`}>{effectiveEntryForPreview > 0 ? effectiveEntryForPreview.toFixed(2) : '—'}</span>
                   </div>
                   <div className="flex items-center justify-between text-sm">
-                    <span className="text-gray-500">Stop loss</span>
-                    <span className="font-semibold text-gray-900">{stopLoss || '—'}</span>
+                    <span className={dark ? 'text-white/50' : 'text-gray-500'}>Stop loss</span>
+                    <span className={`font-semibold ${dark ? 'text-white' : 'text-gray-900'}`}>{stopLoss || '—'}</span>
                   </div>
                   <div className="flex items-center justify-between text-sm">
-                    <span className="text-gray-500">Distance to stop</span>
-                    <span className="font-semibold text-gray-900">{perUnitRisk > 0 ? perUnitRisk.toFixed(4) : '—'}</span>
+                    <span className={dark ? 'text-white/50' : 'text-gray-500'}>Distance to stop</span>
+                    <span className={`font-semibold ${dark ? 'text-white' : 'text-gray-900'}`}>{perUnitRisk > 0 ? perUnitRisk.toFixed(4) : '—'}</span>
                   </div>
                   <div className="flex items-center justify-between text-sm">
-                    <span className="text-gray-500">Risk amount</span>
-                    <span className="font-semibold text-gray-900">${riskAmountForPreview.toFixed(2)}</span>
+                    <span className={dark ? 'text-white/50' : 'text-gray-500'}>Risk amount</span>
+                    <span className={`font-semibold ${dark ? 'text-white' : 'text-gray-900'}`}>${riskAmountForPreview.toFixed(2)}</span>
                   </div>
-                  <div className="border-t border-gray-100 my-1.5" />
+                  <div className={`border-t my-1.5 ${dark ? 'border-white/10' : 'border-gray-100'}`} />
                   <div className="flex items-center justify-between text-sm">
-                    <span className="text-gray-500">Position size</span>
-                    <span className="font-bold text-blue-600">{lotSizePreview > 0 ? lotSizePreview.toFixed(4) : '—'} {symbol.trade}</span>
+                    <span className={dark ? 'text-white/50' : 'text-gray-500'}>Position size</span>
+                    <span className="font-bold text-blue-500">{lotSizePreview > 0 ? lotSizePreview.toFixed(4) : '—'} {symbol.trade}</span>
                   </div>
                   <div className="flex items-center justify-between text-sm">
-                    <span className="text-gray-500">Trade value</span>
-                    <span className="font-semibold text-gray-900">${tradeValuePreview ? tradeValuePreview.toFixed(2) : '0.00'}</span>
+                    <span className={dark ? 'text-white/50' : 'text-gray-500'}>Trade value</span>
+                    <span className={`font-semibold ${dark ? 'text-white' : 'text-gray-900'}`}>${tradeValuePreview ? tradeValuePreview.toFixed(2) : '0.00'}</span>
                   </div>
                   {!(perUnitRisk > 0) && (
-                    <p className="text-xs text-gray-400 pt-1">Enter an entry price and a stop loss above to see your position size.</p>
+                    <p className={`text-xs pt-1 ${dark ? 'text-white/30' : 'text-gray-400'}`}>Enter an entry price and a stop loss above to see your position size.</p>
                   )}
                 </div>
               )}
             </div>
 
             {result && (
-              <p className={`text-xs mb-3 ${result.ok ? 'text-emerald-600' : 'text-red-600'}`}>{result.message}</p>
+              <p className={`text-xs mb-3 ${result.ok ? 'text-emerald-500' : 'text-red-500'}`}>{result.message}</p>
             )}
 
             {result?.ok && result.tradeId ? (
-              <div className="rounded-lg p-3 mb-3 border border-gray-200">
-                <div className="text-xs font-semibold mb-2 text-gray-600">Partial close this position</div>
+              <div className={`rounded-lg p-3 mb-3 border ${dark ? 'border-white/10' : 'border-gray-200'}`}>
+                <div className={`text-xs font-semibold mb-2 ${dark ? 'text-white/60' : 'text-gray-600'}`}>Partial close this position</div>
                 <div className="grid grid-cols-2 gap-2 mb-2">
-                  <label className="text-xs font-medium block mb-1 text-gray-500">
+                  <label className={`text-xs font-medium block mb-1 ${dark ? 'text-white/50' : 'text-gray-500'}`}>
                     % to close
-                    <input className="w-full rounded-lg px-3 py-2 text-sm outline-none border border-gray-200" value={closePercent} onChange={(e) => setClosePercent(e.target.value)} />
+                    <input className={inputCls} value={closePercent} onChange={(e) => setClosePercent(e.target.value)} />
                   </label>
-                  <label className="text-xs font-medium block mb-1 text-gray-500">
+                  <label className={`text-xs font-medium block mb-1 ${dark ? 'text-white/50' : 'text-gray-500'}`}>
                     Exit price
-                    <input className="w-full rounded-lg px-3 py-2 text-sm outline-none border border-gray-200" value={closePrice} onChange={(e) => setClosePrice(e.target.value)} />
+                    <input className={inputCls} value={closePrice} onChange={(e) => setClosePrice(e.target.value)} />
                   </label>
                 </div>
                 <button
                   onClick={submitPartialClose}
                   disabled={closing || !closePrice}
-                  className="w-full py-2 rounded-lg text-xs font-bold disabled:opacity-50 bg-gray-100 text-gray-700"
+                  className={`w-full py-2 rounded-lg text-xs font-bold disabled:opacity-50 ${dark ? 'bg-white/10 text-white/80' : 'bg-gray-100 text-gray-700'}`}
                 >
                   {closing ? 'Closing…' : 'Close position'}
                 </button>
@@ -814,7 +858,7 @@ export function ManualTradingPage() {
               >
                 {submitting
                   ? 'Placing…'
-                  : `${direction === 'long' ? 'Buy' : 'Sell'} ${lotSizePreview > 0 ? lotSizePreview.toFixed(4) : ''} ${symbol.trade} @ ${entryPrice || quickPrice || '—'} ${orderType.toUpperCase()}${isTest ? ' (Test)' : ''}`}
+                  : `${direction === 'long' ? 'Buy' : 'Sell'} ${lotSizePreview > 0 ? lotSizePreview.toFixed(4) : ''} ${symbol.trade} @ ${entryPrice || quickPrice || '—'} ${orderType.toUpperCase()}${isTest ? ' (Paper)' : ''}`}
               </button>
             )}
             </div>

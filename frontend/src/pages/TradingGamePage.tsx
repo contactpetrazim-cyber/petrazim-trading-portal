@@ -5,6 +5,8 @@ import { PageHeader } from '../components/PageHeader';
 import { useThemeStore } from '../hooks/useTheme';
 import { useAuth } from '../hooks/useAuth';
 import { apiFetch } from '../components/AccessExpiredGate';
+import { fetchJsonWithRetry, type FetchPhase } from '../lib/resilientFetch';
+import { LoadingIndicator } from '../components/LoadingIndicator';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -43,6 +45,7 @@ export function TradingGamePage() {
   const [finished, setFinished] = useState(false);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [phase, setPhase] = useState<FetchPhase>('idle');
 
   const loadLeaderboard = () => {
     if (!token) return;
@@ -54,6 +57,12 @@ export function TradingGamePage() {
 
   useEffect(loadLeaderboard, [token]);
 
+  // Was a plain one-shot apiFetch with no retry — on a cold Render
+  // free-tier start the single attempt could fail before the backend
+  // ever woke up, leaving this stuck on "Could not start a round right
+  // now" with no way out short of a manual retry click (same bug
+  // already fixed on Learn/Practice Drills/Retention Review/Trade
+  // Analytics — see resilientFetch.ts).
   const startRound = async () => {
     if (!token) return;
     setError(null);
@@ -62,13 +71,12 @@ export function TradingGamePage() {
     setRevealed(false);
     setStreak(0);
     setBestThisRound(0);
-    try {
-      const r = await apiFetch(`${API_URL}/practise/game/round?count=10`, { headers: { Authorization: `Bearer ${token}` } });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const items: RoundItem[] = await r.json();
-      if (items.length === 0) throw new Error('empty');
+    const items = await fetchJsonWithRetry<RoundItem[]>(
+      `${API_URL}/practise/game/round?count=10`, { headers: { Authorization: `Bearer ${token}` } }, setPhase
+    );
+    if (items && items.length > 0) {
       setRound(items);
-    } catch {
+    } else {
       setError('Could not start a round right now.');
     }
   };
@@ -154,13 +162,17 @@ export function TradingGamePage() {
             10 rapid-fire questions pulled from everything you've studied. Answer honestly — this is a
             self-check, not an auto-grader.
           </p>
-          <button
-            onClick={startRound}
-            className="text-sm font-semibold px-5 py-2.5 rounded-xl text-white"
-            style={{ background: 'linear-gradient(105deg, #003876 0%, #005FB8 50%, #00829B 100%)' }}
-          >
-            Start round
-          </button>
+          {phase === 'loading' || phase === 'stalled' ? (
+            <div className="max-w-xs mx-auto"><LoadingIndicator phase={phase} dark={dark} /></div>
+          ) : (
+            <button
+              onClick={startRound}
+              className="text-sm font-semibold px-5 py-2.5 rounded-xl text-white"
+              style={{ background: 'linear-gradient(105deg, #003876 0%, #005FB8 50%, #00829B 100%)' }}
+            >
+              Start round
+            </button>
+          )}
         </div>
       )}
 

@@ -19,6 +19,8 @@ import {
   LineChart as LineChartIcon,
 } from 'lucide-react';
 import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
+import { LoadingIndicator } from '../components/LoadingIndicator';
+import type { FetchPhase } from '../lib/resilientFetch';
 
 interface EquityPoint {
   timestamp: string;
@@ -49,8 +51,14 @@ export function DashboardPage() {
   const [performance, setPerformance] = useState<Record<string, BotPerformance>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [phase, setPhase] = useState<FetchPhase>('idle');
 
-  async function loadData() {
+  /** Returns whether it actually succeeded, so the mount effect below
+   * can retry through a cold Render free-tier start instead of the
+   * old behavior: one attempt, and if that lands mid-wake-up, a dead
+   * "Could not load dashboard data" that only clears on the next
+   * scheduled 30s refresh. */
+  async function loadData(): Promise<boolean> {
     try {
       const [statsData, curve, pendingApprovals, trades, botList] = await Promise.all([
         dashboardApi.getStats(),
@@ -72,15 +80,36 @@ export function DashboardPage() {
       for (const [id, perf] of perfEntries) if (perf) perfMap[id] = perf;
       setPerformance(perfMap);
       setError(null);
+      return true;
     } catch (e: any) {
       setError('Could not load dashboard data.');
-    } finally {
-      setLoading(false);
+      return false;
     }
   }
 
+  // Same cold-start-aware retry window resilientFetch.ts uses
+  // elsewhere (Learn/Practice/Analytics/...) — this page's own data
+  // goes through the axios-based api client rather than fetch, so it
+  // gets its own small retry loop instead of fetchJsonWithRetry
+  // directly, but the same delay ladder and grey→orange→red→green
+  // phase language.
+  const RETRY_DELAYS_MS = [1500, 3000, 5000, 8000, 12000, 15000, 20000, 20000];
+  async function loadWithRetry() {
+    setPhase('loading');
+    for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+      const ok = await loadData();
+      if (ok) { setPhase('ready'); setLoading(false); return; }
+      setPhase(attempt >= 2 ? 'stalled' : 'loading');
+      if (attempt < RETRY_DELAYS_MS.length) {
+        await new Promise((r) => setTimeout(r, RETRY_DELAYS_MS[attempt]));
+      }
+    }
+    setPhase('failed');
+    setLoading(false);
+  }
+
   useEffect(() => {
-    loadData();
+    loadWithRetry();
     const interval = setInterval(loadData, 30000); // Refresh every 30s
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -97,9 +126,17 @@ export function DashboardPage() {
   }
 
   if (loading) {
+    // Was a bare spinner regardless of how long this was taking — on a
+    // cold Render free-tier start (see resilientFetch.ts) that read as
+    // hung rather than "waking up." Swaps to the shared grey/orange/
+    // red/green indicator once a retry is actually in flight.
     return (
       <div className="flex items-center justify-center h-96">
-        <div className={`animate-spin rounded-full h-12 w-12 border-b-2 ${dark ? 'border-smc-accent' : 'border-corporate-hero'}`}></div>
+        {phase === 'stalled' ? (
+          <div className="w-full max-w-xs"><LoadingIndicator phase={phase} dark={dark} /></div>
+        ) : (
+          <div className={`animate-spin rounded-full h-12 w-12 border-b-2 ${dark ? 'border-smc-accent' : 'border-corporate-hero'}`}></div>
+        )}
       </div>
     );
   }

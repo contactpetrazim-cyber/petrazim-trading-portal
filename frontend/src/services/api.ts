@@ -33,7 +33,7 @@ export const dashboardApi = {
 };
 
 export const tradesApi = {
-  getTrades: (params?: { status?: string; bot_id?: string; symbol?: string; direction?: string; limit?: number; offset?: number }) =>
+  getTrades: (params?: { status?: string; bot_id?: string; symbol?: string; direction?: string; source?: string; limit?: number; offset?: number }) =>
     api.get<Trade[]>('/trades/', { params }).then(r => r.data),
   getPendingApprovals: () => api.get<Trade[]>('/trades/pending-approvals').then(r => r.data),
   approveTrade: (tradeId: string, approved: boolean, notes?: string) =>

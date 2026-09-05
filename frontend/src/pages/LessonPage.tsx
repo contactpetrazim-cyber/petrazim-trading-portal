@@ -11,7 +11,8 @@ import { BookmarkButton } from '../components/BookmarkButton';
 import { NotebookWidget } from '../components/NotebookWidget';
 import { useThemeStore } from '../hooks/useTheme';
 import { useAuth } from '../hooks/useAuth';
-import { apiFetch } from '../components/AccessExpiredGate';
+import { fetchJsonWithRetry, type FetchPhase } from '../lib/resilientFetch';
+import { LoadingIndicator } from '../components/LoadingIndicator';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -254,21 +255,27 @@ export function LessonPage() {
   const { token } = useAuth();
   const [lesson, setLesson] = useState<LessonDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [phase, setPhase] = useState<FetchPhase>('idle');
 
+  // Was a plain one-shot apiFetch with no retry — on a cold Render
+  // free-tier start the single attempt could fail before the backend
+  // ever woke up, leaving this stuck on "Could not load this lesson
+  // right now" (same bug already fixed elsewhere — see
+  // resilientFetch.ts). onErrorDetail still surfaces a real 4xx's own
+  // message (e.g. a genuinely missing lesson id) instead of the
+  // generic fallback below.
   useEffect(() => {
     if (!token || !lessonId) return;
     setLesson(null);
     setError(null);
-    apiFetch(`${API_URL}/curriculum/lessons/${lessonId}`, { headers: { Authorization: `Bearer ${token}` } })
-      .then(async (r) => {
-        if (!r.ok) {
-          const body = await r.json().catch(() => null);
-          throw new Error(body?.detail || `HTTP ${r.status}`);
-        }
-        return r.json();
-      })
-      .then(setLesson)
-      .catch((e) => setError(e.message || 'Could not load this lesson right now.'));
+    let detail: string | null = null;
+    fetchJsonWithRetry<LessonDetail>(
+      `${API_URL}/curriculum/lessons/${lessonId}`, { headers: { Authorization: `Bearer ${token}` } },
+      setPhase, (d) => { detail = d; },
+    ).then((d) => {
+      if (d) setLesson(d);
+      else setError(detail || 'Could not load this lesson right now.');
+    });
   }, [token, lessonId]);
 
   const backHref = trackId ? `/learn/tracks/${trackId}` : '/learn';
@@ -286,7 +293,9 @@ export function LessonPage() {
       )}
 
       {!lesson && !error && (
-        <p className={`text-sm ${dark ? 'text-white/40' : 'text-gray-400'}`}>Loading lesson…</p>
+        (phase === 'loading' || phase === 'stalled')
+          ? <LoadingIndicator phase={phase} dark={dark} />
+          : <p className={`text-sm ${dark ? 'text-white/40' : 'text-gray-400'}`}>Loading lesson…</p>
       )}
 
       {lesson && (

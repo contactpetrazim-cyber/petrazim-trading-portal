@@ -6,6 +6,8 @@ import { PageHeader } from '../components/PageHeader';
 import { useThemeStore } from '../hooks/useTheme';
 import { useAuth } from '../hooks/useAuth';
 import { apiFetch } from '../components/AccessExpiredGate';
+import { fetchJsonWithRetry, type FetchPhase } from '../lib/resilientFetch';
+import { LoadingIndicator } from '../components/LoadingIndicator';
 
 const GAME_TITLES: Record<string, string> = {
   'setup-spotter': 'Setup Spotter', 'risk-triage': 'Risk Triage', 'bias-check': 'Bias Check',
@@ -63,17 +65,21 @@ export function MasteryOverviewPage() {
   const [error, setError] = useState<string | null>(null);
   const [revisitFlags, setRevisitFlags] = useState<RevisitFlag[]>([]);
   const [gameSummaries, setGameSummaries] = useState<GameSummary[] | null>(null);
+  const [phase, setPhase] = useState<FetchPhase>('idle');
 
+  // Was a plain one-shot apiFetch with no retry — on a cold Render
+  // free-tier start the single attempt could fail before the backend
+  // ever woke up, leaving this stuck on "Could not load your mastery
+  // overview right now" (same bug already fixed elsewhere — see
+  // resilientFetch.ts).
   useEffect(() => {
     if (!token) return;
     const headers = { Authorization: `Bearer ${token}` };
-    apiFetch(`${API_URL}/curriculum/mastery`, { headers })
-      .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
-      })
-      .then(setData)
-      .catch(() => setError('Could not load your mastery overview right now.'));
+    fetchJsonWithRetry<Overview>(`${API_URL}/curriculum/mastery`, { headers }, setPhase)
+      .then((d) => {
+        if (d) setData(d);
+        else setError('Could not load your mastery overview right now.');
+      });
 
     // Section 6's confidence-accuracy gap flag (RQ01) and a real Game
     // Performance analytics section — by direct request ("increase and
@@ -260,7 +266,11 @@ export function MasteryOverviewPage() {
         </div>
       )}
 
-      {!data && !error && <p className={`text-sm ${mutedCls}`}>Loading your mastery overview…</p>}
+      {!data && !error && (
+        (phase === 'loading' || phase === 'stalled')
+          ? <div className="mb-4"><LoadingIndicator phase={phase} dark={dark} /></div>
+          : <p className={`text-sm ${mutedCls}`}>Loading your mastery overview…</p>
+      )}
 
       {data && data.tracks.length === 0 && (
         <p className={`text-sm ${mutedCls}`}>No learning tracks are seeded yet.</p>

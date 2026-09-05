@@ -31,6 +31,24 @@ def _scope_to_owner(query, user: User):
     return query
 
 
+# A manual-trading order's bot_id is always "manual_{user_id}" (set in
+# routers/manual_trading.py::place_order) — every other bot_id belongs
+# to a real trading bot. This is the one place that distinction is
+# turned into a query filter, shared by list_trades and
+# analytics_summary, so "bots vs Manual" reads the same way everywhere
+# — by direct request ("all visuals or analytics should be
+# differentiated by a toggle bots vs Manual trades").
+def _apply_source_filter(query, source: Optional[str]):
+    if not source or source.lower() == "all":
+        return query
+    src = source.lower()
+    if src == "manual":
+        return query.where(Trade.bot_id.like("manual\\_%", escape="\\"))
+    if src == "bots":
+        return query.where(~Trade.bot_id.like("manual\\_%", escape="\\"))
+    raise HTTPException(status_code=400, detail="Invalid source — expected one of 'all', 'bots', 'manual'")
+
+
 async def _enrich_live_pnl(trades: List[Trade]) -> None:
     """Mutates each ACTIVE trade's unrealized_pnl in place with a REAL
     live-computed value (never committed — this is a read-time
@@ -73,6 +91,7 @@ async def list_trades(
     bot_id: Optional[str] = Query(None),
     symbol: Optional[str] = Query(None),
     direction: Optional[str] = Query(None),
+    source: Optional[str] = Query(None, description="'all' (default), 'bots', or 'manual'"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
@@ -80,6 +99,7 @@ async def list_trades(
 ):
     """List the caller's own trades with filtering (Admin/Super Admin see all)."""
     query = _scope_to_owner(select(Trade), user)
+    query = _apply_source_filter(query, source)
 
     # Real bug, found while wiring TradeSpecsPanel's "?status=active"
     # call: comparing an Enum column directly to a raw query-param
@@ -178,6 +198,7 @@ async def today_stats(db: AsyncSession = Depends(get_db), user: User = Depends(r
 @router.get("/analytics/summary")
 async def analytics_summary(
     bot_id: Optional[str] = Query(None),
+    source: Optional[str] = Query(None, description="'all' (default), 'bots', or 'manual'"),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_active_access),
 ):
@@ -198,6 +219,7 @@ async def analytics_summary(
     query = _scope_to_owner(select(Trade), user).where(Trade.status == TradeStatus.CLOSED)
     if bot_id:
         query = query.where(Trade.bot_id == bot_id)
+    query = _apply_source_filter(query, source)
     result = await db.execute(query)
     trades = result.scalars().all()
 

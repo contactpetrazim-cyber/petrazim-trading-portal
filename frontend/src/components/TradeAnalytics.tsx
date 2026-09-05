@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../hooks/useAuth';
-import { apiFetch } from './AccessExpiredGate';
+import { fetchJsonWithRetry, type FetchPhase } from '../lib/resilientFetch';
+import { LoadingIndicator } from './LoadingIndicator';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -211,51 +212,103 @@ function profitFactorLabel(pf: number | null): { text: string; cls: string } {
  * from the caller's own closed trades — see
  * routers/trades.py::analytics_summary.
  */
+/** Bots vs Manual segmented toggle — by direct request ("all visuals
+ * or analytics should be differentiated by a toggle bots vs Manual
+ * trades"). Backed by the `source` query param on
+ * GET /trades/analytics/summary (routers/trades.py), which buckets by
+ * whether a trade's bot_id is this trader's manual-trading id
+ * ("manual_{user_id}", set in routers/manual_trading.py) or a real
+ * bot's own id — not a new concept, just a new way to slice trades
+ * that already carry that distinction. */
+export type TradeSource = 'all' | 'bots' | 'manual';
+const SOURCE_OPTIONS: { id: TradeSource; label: string }[] = [
+  { id: 'all', label: 'All' }, { id: 'bots', label: 'Bots' }, { id: 'manual', label: 'Manual' },
+];
+
+export function SourceToggle({ value, onChange, dark }: { value: TradeSource; onChange: (v: TradeSource) => void; dark: boolean }) {
+  return (
+    <div className={`inline-flex items-center gap-1 rounded-lg p-1 ${dark ? 'bg-white/5' : 'bg-black/5'}`}>
+      {SOURCE_OPTIONS.map((o) => (
+        <button
+          key={o.id}
+          onClick={() => onChange(o.id)}
+          className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-colors ${
+            value === o.id
+              ? dark ? 'bg-white/20 text-white' : 'bg-white text-corporate-text-on-bg shadow-sm'
+              : dark ? 'text-white/40' : 'text-gray-500'
+          }`}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function TradeAnalytics({ dark = false }: { dark?: boolean }) {
   const { token } = useAuth();
   const [summary, setSummary] = useState<Summary | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [phase, setPhase] = useState<FetchPhase>('idle');
   const [dailyPage, setDailyPage] = useState(0);
   const [monthPage, setMonthPage] = useState(0);
   const [retryTick, setRetryTick] = useState(0);
+  const [source, setSource] = useState<TradeSource>('all');
 
+  // Was a plain one-shot apiFetch with no retry — on a cold Render
+  // free-tier start the single attempt could fail before the backend
+  // ever woke up, leaving this stuck on "Could not load trade
+  // analytics right now" (same bug already fixed on Learn/Practice
+  // Drills — see resilientFetch.ts).
   useEffect(() => {
     if (!token) return;
+    setSummary(null);
     setError(null);
-    apiFetch(`${API_URL}/trades/analytics/summary`, { headers: { Authorization: `Bearer ${token}` } })
-      .then((r) => {
-        // A 402 (access expired) is already surfaced by the global
-        // AccessExpiredGate — apiFetch triggers that card itself, so
-        // this component just needs to stop claiming to be "loading."
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
-      })
-      .then(setSummary)
-      .catch(() => setError('Could not load trade analytics right now.'));
-  }, [token, retryTick]);
+    const qs = source === 'all' ? '' : `?source=${source}`;
+    fetchJsonWithRetry<Summary>(`${API_URL}/trades/analytics/summary${qs}`, { headers: { Authorization: `Bearer ${token}` } }, setPhase)
+      .then((s) => {
+        if (s) setSummary(s);
+        else setError('Could not load trade analytics right now.');
+      });
+  }, [token, retryTick, source]);
 
   const cardCls = `rounded-2xl p-5 border ${dark ? 'bg-corporate-surface-dark border-corporate-border-dark' : 'bg-white border-corporate-bg'}`;
   const titleCls = `text-xs font-semibold uppercase tracking-wide mb-4 ${dark ? 'text-white/40' : 'text-gray-400'}`;
   const mutedCls = dark ? 'text-white/40' : 'text-gray-400';
 
+  const toggle = <div className="mb-4"><SourceToggle value={source} onChange={setSource} dark={dark} /></div>;
+
   if (error) {
     return (
-      <div className={`text-sm ${dark ? 'text-red-400' : 'text-red-500'}`}>
-        {error}{' '}
-        <button
-          onClick={() => setRetryTick((n) => n + 1)}
-          className={`underline font-medium ${dark ? 'text-white/70 hover:text-white' : 'text-gray-700 hover:text-gray-900'}`}
-        >
-          Try again
-        </button>
+      <div>
+        {toggle}
+        <div className={`text-sm ${dark ? 'text-red-400' : 'text-red-500'}`}>
+          {error}{' '}
+          <button
+            onClick={() => { setPhase('idle'); setRetryTick((n) => n + 1); }}
+            className={`underline font-medium ${dark ? 'text-white/70 hover:text-white' : 'text-gray-700 hover:text-gray-900'}`}
+          >
+            Try again
+          </button>
+        </div>
       </div>
     );
   }
   if (summary === null) {
-    return <p className={`text-sm ${mutedCls}`}>Loading trade analytics…</p>;
+    return (
+      <div>
+        {toggle}
+        {(phase === 'loading' || phase === 'stalled') ? <LoadingIndicator phase={phase} dark={dark} /> : <p className={`text-sm ${mutedCls}`}>Loading trade analytics…</p>}
+      </div>
+    );
   }
   if (summary.total_closed_trades === 0) {
-    return <p className={`text-sm ${mutedCls}`}>No closed trades yet — analytics fill in once you have some trade history.</p>;
+    return (
+      <div>
+        {toggle}
+        <p className={`text-sm ${mutedCls}`}>No closed trades yet for this filter — analytics fill in once you have some trade history.</p>
+      </div>
+    );
   }
 
   const ta = summary.trade_analysis;
@@ -264,6 +317,8 @@ export function TradeAnalytics({ dark = false }: { dark?: boolean }) {
   const monthPageCount = Math.max(1, Math.ceil(summary.monthly_pnl.length / PAGE_SIZE));
 
   return (
+    <div>
+    {toggle}
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
       <div className={cardCls}>
         <div className={titleCls}>Trade Analysis</div>
@@ -346,6 +401,7 @@ export function TradeAnalytics({ dark = false }: { dark?: boolean }) {
         </div>
         <Pager page={dailyPage} pageCount={dailyPageCount} onChange={setDailyPage} dark={dark} />
       </div>
+    </div>
     </div>
   );
 }

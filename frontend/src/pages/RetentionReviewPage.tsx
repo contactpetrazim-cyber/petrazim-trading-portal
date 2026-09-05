@@ -4,6 +4,8 @@ import { PageHeader } from '../components/PageHeader';
 import { useThemeStore } from '../hooks/useTheme';
 import { useAuth } from '../hooks/useAuth';
 import { apiFetch } from '../components/AccessExpiredGate';
+import { fetchJsonWithRetry, type FetchPhase } from '../lib/resilientFetch';
+import { LoadingIndicator } from '../components/LoadingIndicator';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -34,20 +36,25 @@ export function RetentionReviewPage() {
   const { token } = useAuth();
   const [due, setDue] = useState<DueCheck[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [phase, setPhase] = useState<FetchPhase>('idle');
   const [revealed, setRevealed] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<string | null>(null);
 
+  // Was a plain one-shot apiFetch with no retry — on a cold Render
+  // free-tier start (see resilientFetch.ts) the single attempt could
+  // fail before the backend ever woke up, leaving this page stuck on
+  // "Could not load your retention review right now" with only a
+  // manual "Try again" click to recover — same bug already fixed on
+  // Learn/Practice Drills/What Happens Next, now fixed here too.
   const load = () => {
     if (!token) return;
     setError(null);
-    apiFetch(`${API_URL}/practise/retention/due`, { headers: { Authorization: `Bearer ${token}` } })
-      .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
-      })
-      .then(setDue)
-      .catch(() => setError('Could not load your retention review right now.'));
+    fetchJsonWithRetry<DueCheck[]>(`${API_URL}/practise/retention/due`, { headers: { Authorization: `Bearer ${token}` } }, setPhase)
+      .then((d) => {
+        if (d) setDue(d);
+        else setError('Could not load your retention review right now.');
+      });
   };
 
   useEffect(load, [token]);
@@ -80,10 +87,14 @@ export function RetentionReviewPage() {
     <div>
       <PageHeader title="Retention Review" subtitle="Spaced-recall check-ins so what you learned actually sticks." />
 
+      {(phase === 'loading' || phase === 'stalled') && !due && (
+        <div className="mb-4"><LoadingIndicator phase={phase} dark={dark} /></div>
+      )}
+
       {error && (
         <div className={`flex items-center justify-between gap-3 text-sm mb-4 rounded-xl p-3 ${dark ? 'bg-red-500/10 text-red-300' : 'bg-red-50 text-red-600'}`}>
           <span>{error}</span>
-          <button onClick={load} className={`shrink-0 underline font-medium ${dark ? 'text-white/70 hover:text-white' : 'text-gray-700 hover:text-gray-900'}`}>
+          <button onClick={() => { setPhase('idle'); load(); }} className={`shrink-0 underline font-medium ${dark ? 'text-white/70 hover:text-white' : 'text-gray-700 hover:text-gray-900'}`}>
             Try again
           </button>
         </div>
@@ -91,7 +102,7 @@ export function RetentionReviewPage() {
       {lastResult && (
         <p className={`text-sm mb-4 ${dark ? 'text-emerald-400' : 'text-emerald-600'}`}>{lastResult}</p>
       )}
-      {!due && !error && <p className={`text-sm ${mutedCls}`}>Loading due reviews…</p>}
+      {!due && !error && phase !== 'loading' && phase !== 'stalled' && <p className={`text-sm ${mutedCls}`}>Loading due reviews…</p>}
       {!due && error && <p className={`text-sm ${mutedCls}`}>Your due reviews will show here once this loads — hit "Try again" above.</p>}
 
       {due && due.length === 0 && (

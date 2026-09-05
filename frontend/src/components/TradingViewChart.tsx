@@ -138,6 +138,24 @@ function buildOverrides(colors: CandleColors | undefined, chartStyle: ChartStyle
   }
 }
 
+/** Volume's own up/down bars follow the same up/down colors chosen for
+ * the candles — by direct request ("let the volume also follow the
+ * chart colour selected"). This is TradingView's built-in Volume
+ * study, added by default so there's always a volume pane to color
+ * rather than only styling one if a user happens to add it themselves
+ * via the indicators picker. `studies_overrides` (a distinct
+ * namespace from the candle `overrides` above) is the widget's real
+ * option for a study's own plot colors. */
+function buildStudiesOverrides(colors: CandleColors | undefined): Record<string, string | number> {
+  const upColor = colors?.upColor || '#26a69a';
+  const downColor = colors?.downColor || '#ef5350';
+  return {
+    'volume.volume.color.0': downColor,
+    'volume.volume.color.1': upColor,
+    'volume.volume.transparency': 50,
+  };
+}
+
 function TradingViewChartBase({
   symbol = 'OANDA:EURUSD',
   interval = '60',
@@ -178,6 +196,8 @@ function TradingViewChartBase({
           withdateranges: true,
           container_id: containerId.current,
           overrides: buildOverrides(candleColors, chartStyle),
+          studies: ['Volume@tv-basicstudies'],
+          studies_overrides: buildStudiesOverrides(candleColors),
         });
       }
     }
