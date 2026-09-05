@@ -1,6 +1,7 @@
-import { useNavigate } from 'react-router-dom';
+import { useState } from 'react';
 import { ArrowRight } from 'lucide-react';
 import { HERO_GRADIENT } from '../config/theme';
+import { ProgrammeStepsModal } from './ProgrammeStepsModal';
 
 function threeD(background: string) {
   // Same "keycap" 3D button treatment as the design handover's
@@ -26,9 +27,15 @@ function threeD(background: string) {
  * are exactly the same either way, only the outer card wrapper is
  * conditional, so a future standalone use of this component (its own
  * card) still works unchanged.
+ *
+ * "Begin registration" now opens ProgrammeStepsModal instead of
+ * jumping straight to /onboarding, by direct request ("this loads
+ * after Start Here is clicked and leads you step wise ... so you are
+ * not lost") — see that component's own docstring for the real
+ * per-step progress it shows.
  */
 export function StartHereCard({ embedded = false }: { embedded?: boolean }) {
-  const navigate = useNavigate();
+  const [stepsOpen, setStepsOpen] = useState(false);
 
   const content = (
     <div className="relative z-10 max-w-xl">
@@ -37,7 +44,7 @@ export function StartHereCard({ embedded = false }: { embedded?: boolean }) {
         <span>Register</span><ArrowRight size={15} /><span>Pay</span><ArrowRight size={15} /><span>Join Community</span><ArrowRight size={15} /><span>Trade</span>
       </div>
       <button
-        onClick={() => navigate('/onboarding')}
+        onClick={() => setStepsOpen(true)}
         className="text-white font-semibold text-sm px-6 py-3 rounded-xl transition-all active:translate-y-0.5 active:shadow-none"
         style={threeD(HERO_GRADIENT)}
       >
@@ -46,12 +53,17 @@ export function StartHereCard({ embedded = false }: { embedded?: boolean }) {
     </div>
   );
 
-  if (embedded) return <div id="start-here">{content}</div>;
-
   return (
-    <div id="start-here" className="rounded-3xl p-8 md:p-10 relative overflow-hidden" style={{ background: HERO_GRADIENT }}>
-      {content}
-      <div className="absolute -right-10 -bottom-16 w-64 h-64 rounded-full" style={{ background: 'radial-gradient(circle, rgba(255,255,255,0.15), transparent 70%)' }} />
-    </div>
+    <>
+      {embedded ? (
+        <div id="start-here">{content}</div>
+      ) : (
+        <div id="start-here" className="rounded-3xl p-8 md:p-10 relative overflow-hidden" style={{ background: HERO_GRADIENT }}>
+          {content}
+          <div className="absolute -right-10 -bottom-16 w-64 h-64 rounded-full" style={{ background: 'radial-gradient(circle, rgba(255,255,255,0.15), transparent 70%)' }} />
+        </div>
+      )}
+      <ProgrammeStepsModal open={stepsOpen} onClose={() => setStepsOpen(false)} />
+    </>
   );
 }

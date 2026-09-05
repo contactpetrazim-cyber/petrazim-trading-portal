@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { LogIn, UserPlus } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { useThemeStore } from '../hooks/useTheme';
@@ -48,7 +48,10 @@ function inputClass(dark: boolean) {
  * same credentials to actually establish a session.
  */
 export function LoginPage() {
-  const [mode, setMode] = useState<Mode>('signin');
+  const [searchParams] = useSearchParams();
+  // ?mode=register — ProgrammeStepsModal's step-1 "Go" lands straight
+  // on the Register tab instead of Sign In, by direct request.
+  const [mode, setMode] = useState<Mode>(searchParams.get('mode') === 'register' ? 'register' : 'signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
