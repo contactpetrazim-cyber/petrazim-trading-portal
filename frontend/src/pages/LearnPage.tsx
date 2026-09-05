@@ -52,6 +52,11 @@ interface TrackSummary {
  * badges/certificates model exists) — those two route to the
  * unfiltered page instead of a dead end.
  */
+// Shown instead of blank space whenever real stats haven't loaded (yet,
+// or at all) — zeroed, not fabricated, and clearly a placeholder via
+// the page's own "Loading…"/error messaging around it.
+const DEFAULT_STATS: Stats = { overall_mastery_pct: 0, xp: 0, level: 1, current_streak_days: 0 };
+
 export function LearnPage({ categoryFilter }: { categoryFilter?: 'basics' | 'bot_mastery' | 'psychology' } = {}) {
   const { theme } = useThemeStore();
   const dark = theme === 'dark';
@@ -59,9 +64,11 @@ export function LearnPage({ categoryFilter }: { categoryFilter?: 'basics' | 'bot
   const [stats, setStats] = useState<Stats | null>(null);
   const [tracks, setTracks] = useState<TrackSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [retryTick, setRetryTick] = useState(0);
 
   useEffect(() => {
     if (!token) return;
+    setError(null);
     const headers = { Authorization: `Bearer ${token}` };
     Promise.all([
       apiFetch(`${API_URL}/curriculum/stats`, { headers }).then((r) => (r.ok ? r.json() : null)),
@@ -70,17 +77,28 @@ export function LearnPage({ categoryFilter }: { categoryFilter?: 'basics' | 'bot
       .then(([s, t]) => {
         setStats(s);
         setTracks(t);
-        if (!s || !t) setError('Could not load your Learn progress right now.');
+        if (!s || !t) setError('Could not load your Learn progress right now — showing defaults below.');
       })
-      .catch(() => setError('Could not load your Learn progress right now.'));
-  }, [token]);
+      .catch(() => setError('Could not load your Learn progress right now — showing defaults below.'));
+  }, [token, retryTick]);
 
-  const statTiles = stats
+  // A failed load used to leave the whole page blank below the error
+  // line (stats/tracks both stayed null, and every render branch below
+  // required one of them to be non-null) — by direct bug report ("fix
+  // can not load learn progress ... you should be able to show default
+  // template"). The template below now always has something to render:
+  // zeroed stat tiles instead of none at all, and a real retry action
+  // instead of a dead end. Likely cause in practice: this backend runs
+  // on Render's free tier (see BackendStatusBadge's own sleep/wake
+  // handling) — a cold-start request can outrun this page's first
+  // fetch before the "Try again" retry ever fires.
+  const effectiveStats = stats ?? (error ? DEFAULT_STATS : null);
+  const statTiles = effectiveStats
     ? [
-        { label: 'Overall mastery', value: `${stats.overall_mastery_pct}%` },
-        { label: 'Experience', value: `${stats.xp} XP` },
-        { label: 'Level', value: stats.level },
-        { label: 'Learning streak', value: `${stats.current_streak_days}d` },
+        { label: 'Overall mastery', value: `${effectiveStats.overall_mastery_pct}%` },
+        { label: 'Experience', value: `${effectiveStats.xp} XP` },
+        { label: 'Level', value: effectiveStats.level },
+        { label: 'Learning streak', value: `${effectiveStats.current_streak_days}d` },
       ]
     : [];
 
@@ -98,9 +116,19 @@ export function LearnPage({ categoryFilter }: { categoryFilter?: 'basics' | 'bot
     <div>
       <PageHeader title={title} subtitle={subtitle} />
 
-      {error && <p className={`text-sm mb-4 ${dark ? 'text-red-400' : 'text-red-500'}`}>{error}</p>}
+      {error && (
+        <div className={`flex items-center justify-between gap-3 text-sm mb-4 rounded-xl p-3 ${dark ? 'bg-red-500/10 text-red-300' : 'bg-red-50 text-red-600'}`}>
+          <span>{error}</span>
+          <button
+            onClick={() => setRetryTick((n) => n + 1)}
+            className={`shrink-0 underline font-medium ${dark ? 'text-white/70 hover:text-white' : 'text-gray-700 hover:text-gray-900'}`}
+          >
+            Try again
+          </button>
+        </div>
+      )}
 
-      {stats && (
+      {effectiveStats && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
           {statTiles.map((tile) => (
             <div
@@ -116,6 +144,12 @@ export function LearnPage({ categoryFilter }: { categoryFilter?: 'basics' | 'bot
 
       {filteredTracks === null && !error && (
         <p className={`text-sm ${dark ? 'text-white/40' : 'text-gray-400'}`}>Loading your tracks…</p>
+      )}
+
+      {filteredTracks === null && error && (
+        <p className={`text-sm ${dark ? 'text-white/40' : 'text-gray-400'}`}>
+          Your tracks will show here once this loads — hit "Try again" above.
+        </p>
       )}
 
       {filteredTracks && filteredTracks.length === 0 && (

@@ -54,6 +54,7 @@ export function PracticeDrillsPage() {
 
   const load = () => {
     if (!token) return;
+    setError(null);
     apiFetch(`${API_URL}/practise/drills`, { headers: { Authorization: `Bearer ${token}` } })
       .then((r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -101,8 +102,20 @@ export function PracticeDrillsPage() {
     <div>
       <PageHeader title="Practice Drills" subtitle="Repeated, scored scenario drills per concept." />
 
-      {error && <p className={`text-sm mb-4 ${dark ? 'text-red-400' : 'text-red-500'}`}>{error}</p>}
+      {/* A failed load used to leave the page blank below the error
+          line — by direct bug report ("same for practice - fix you
+          can not show"). Always a real "try again" action and a
+          default message now, never dead blank space. */}
+      {error && (
+        <div className={`flex items-center justify-between gap-3 text-sm mb-4 rounded-xl p-3 ${dark ? 'bg-red-500/10 text-red-300' : 'bg-red-50 text-red-600'}`}>
+          <span>{error}</span>
+          <button onClick={load} className={`shrink-0 underline font-medium ${dark ? 'text-white/70 hover:text-white' : 'text-gray-700 hover:text-gray-900'}`}>
+            Try again
+          </button>
+        </div>
+      )}
       {!groups && !error && <p className={`text-sm ${mutedCls}`}>Loading drills…</p>}
+      {!groups && error && <p className={`text-sm ${mutedCls}`}>Your drills will show here once this loads — hit "Try again" above.</p>}
       {groups && groups.length === 0 && (
         <p className={`text-sm ${mutedCls}`}>No practice drills are available yet.</p>
       )}
