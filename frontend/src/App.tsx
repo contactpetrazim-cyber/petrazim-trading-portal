@@ -3,6 +3,7 @@ import { Layout } from './components/Layout';
 import { TopNav } from './components/TopNav';
 import { BottomNav } from './components/BottomNav';
 import { FloatingTradeAI } from './components/FloatingTradeAI';
+import { GoHomeButton } from './components/GoHomeButton';
 import { useThemeStore } from './hooks/useTheme';
 import { DashboardPage } from './pages/Dashboard';
 import { AnalyticsPage } from './pages/AnalyticsPage';
@@ -77,6 +78,7 @@ function App() {
   return (
     <BrowserRouter>
       <AccessExpiredGate>
+      <GoHomeButton />
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/onboarding" element={<OnboardingPage />} />
