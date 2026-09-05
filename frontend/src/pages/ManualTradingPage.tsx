@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
-import { ArrowLeft, FlaskConical, Radio, Settings2, ArrowLeftRight, Calculator, ChevronDown } from 'lucide-react';
+import { ArrowLeft, FlaskConical, Radio, Settings2, ArrowLeftRight, Calculator, ChevronDown, Receipt } from 'lucide-react';
 import { ChartPanel } from '../components/ChartPanel';
 import { useAuth } from '../hooks/useAuth';
 import { useThemeStore } from '../hooks/useTheme';
 import { useQuickPrice } from '../hooks/useQuickPrice';
 import { apiFetch } from '../components/AccessExpiredGate';
+import { fetchJsonWithRetry, type FetchPhase } from '../lib/resilientFetch';
+import { LoadingIndicator } from '../components/LoadingIndicator';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -130,6 +132,11 @@ export function ManualTradingPage() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const { price: quickPrice, refresh: refreshQuickPrice } = useQuickPrice(symbol.trade);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Order form default-closed, toggled by an "Order" button working
+  // exactly like ChartPanel's own Chart-colors button (CandleColorPicker)
+  // — one click opens, another click hides the whole form — by direct
+  // request.
+  const [orderFormOpen, setOrderFormOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; message: string; tradeId?: string } | null>(null);
   const [closePercent, setClosePercent] = useState('100');
@@ -140,12 +147,18 @@ export function ManualTradingPage() {
     ? { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
     : { 'Content-Type': 'application/json' };
 
+  const [settingsPhase, setSettingsPhase] = useState<FetchPhase>('idle');
+
   function loadSettings() {
     if (!token) return;
-    apiFetch(`${API_URL}/manual-trading/settings`, { headers })
-      .then((r) => (r.ok ? r.json() : null))
-      .then(setSettings)
-      .catch(() => {});
+    // Was a plain one-shot apiFetch — on a cold Render free-tier start
+    // (see resilientFetch.ts) the single attempt could fail before the
+    // backend ever woke up, leaving `settings` null forever and every
+    // "Place Order" click showing "your trading settings haven't
+    // loaded yet" with no way out short of a manual page refresh, by
+    // direct bug report. Now retries through the wake window.
+    fetchJsonWithRetry<Settings>(`${API_URL}/manual-trading/settings`, { headers }, setSettingsPhase)
+      .then((s) => { if (s) setSettings(s); });
   }
 
   useEffect(loadSettings, [token]);
@@ -444,14 +457,23 @@ export function ManualTradingPage() {
             {/* Matches ChartPanel's own toolbar row height (light/dark
                 toggle + Price/Chart-colors/Trade buttons, 41px: a
                 33px button row plus its own 8px bottom margin) so this
-                card's white top edge lines up with the chart's actual
-                white surface below that toolbar, not with the toolbar
-                itself — by direct request ("use the white chart level
-                ... where the camera icon is, so all the white
-                background flush at the same level"). Tied to
-                ChartPanel's current toolbar markup; if that markup's
-                height changes, this number needs to move with it. */}
-            <div style={{ height: 41 }} aria-hidden="true" />
+                row lines up level with the chart's own toolbar — by
+                direct request ("triggered by an 'Order' button similar
+                to the colour chart next to the price icon or button").
+                The toggle button itself matches CandleColorPicker's
+                exact interaction: one click opens, a second click on
+                the same button hides the whole form again. */}
+            <div className="flex justify-end" style={{ height: 41 }}>
+              <button
+                onClick={() => setOrderFormOpen((o) => !o)}
+                aria-label={orderFormOpen ? 'Hide order form' : 'Show order form'}
+                className={`p-1.5 rounded-md flex items-center gap-1.5 text-xs font-medium h-fit ${
+                  orderFormOpen ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-gray-700 bg-black/5'
+                }`}
+              >
+                <Receipt size={13} /> Order
+              </button>
+            </div>
 
             {/* Place Buy/Sell Order — rebuilt to match the exact uploaded
                 order-ticket reference: styling is always light, by
@@ -463,9 +485,29 @@ export function ManualTradingPage() {
                 ("parallel", by direct request) — an exact pixel match
                 isn't feasible without measuring the DOM at runtime, since
                 this card's height varies with state (extra targets,
-                partial-close panel, result messages). */}
+                partial-close panel, result messages).
+
+                Collapsed behind the "Order" toggle above by default —
+                everything from here down only mounts once opened. */}
+            {!orderFormOpen ? (
+              <button
+                onClick={() => setOrderFormOpen(true)}
+                className="w-full rounded-2xl border border-dashed border-gray-300 bg-white p-8 text-center text-sm text-gray-400 hover:border-gray-400 hover:text-gray-500 transition-colors"
+              >
+                <Receipt size={20} className="mx-auto mb-2" />
+                Click "Order" above to place a trade
+              </button>
+            ) : (
             <div className="rounded-2xl border border-gray-200 bg-white p-4 h-fit text-gray-900">
             <div className="text-xs font-semibold mb-3 text-gray-400">{symbol.trade}</div>
+
+            {/* By direct request ("for loading area put the loading
+                indicator to help user wait") — settings load in the
+                background regardless (the form itself isn't blocked on
+                it), this just makes the wait visible instead of silent. */}
+            {!settings && (
+              <div className="mb-3"><LoadingIndicator phase={settingsPhase} dark={false} /></div>
+            )}
 
             {/* Sell / Buy split header, live reference price on each side */}
             <div className="flex rounded-xl overflow-hidden mb-4 border border-gray-200">
@@ -797,6 +839,7 @@ export function ManualTradingPage() {
               </button>
             )}
             </div>
+            )}
           </div>
         </div>
       </div>

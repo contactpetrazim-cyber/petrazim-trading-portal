@@ -1,10 +1,18 @@
 
 import { useEffect, useState } from 'react';
 import { TradeRow } from '../components/TradeRow';
+import { LoadingIndicator } from '../components/LoadingIndicator';
 import { tradesApi } from '../services/api';
 import { Trade } from '../types';
 import { useThemeStore } from '../hooks/useTheme';
 import { Filter, Search, Download, RefreshCw } from 'lucide-react';
+
+// Live unrealized PnL only means something if it's actually kept
+// current — by direct request ("the order should show as an existing
+// trade with live PnL that can be seen or tracked"). Matches
+// ChartPanel/OrderFlowChartTool's own polling cadence for "live-
+// feeling" data elsewhere in this app.
+const LIVE_PNL_POLL_MS = 10_000;
 
 /**
  * TradesPage — "Trade Management". Was a static array of 5 mock
@@ -46,6 +54,20 @@ export function TradesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filter, search]);
 
+  // Silent background refresh (no loading-indicator flash) so live
+  // unrealized PnL actually updates while an active trade is open,
+  // rather than only refreshing on a manual click.
+  useEffect(() => {
+    if (!trades.some((t) => t.status === 'active')) return;
+    const id = setInterval(() => {
+      const params: { status?: string; symbol?: string } = {};
+      if (filter !== 'all') params.status = filter;
+      if (search) params.symbol = search.toUpperCase();
+      tradesApi.getTrades(params).then(setTrades).catch(() => {});
+    }, LIVE_PNL_POLL_MS);
+    return () => clearInterval(id);
+  }, [trades, filter, search]);
+
   async function handleApprove(tradeId: string) {
     await tradesApi.approveTrade(tradeId, true);
     loadTrades();
@@ -54,6 +76,16 @@ export function TradesPage() {
   async function handleReject(tradeId: string) {
     await tradesApi.approveTrade(tradeId, false);
     loadTrades();
+  }
+
+  async function handleCancel(tradeId: string) {
+    try {
+      await tradesApi.cancelOrder(tradeId);
+      setError(null);
+      loadTrades();
+    } catch (e: any) {
+      setError(e?.response?.data?.detail || 'Could not cancel — try again in a moment.');
+    }
   }
 
   function exportCsv() {
@@ -129,10 +161,17 @@ export function TradesPage() {
 
       {error && <div className="text-sm text-red-400">{error}</div>}
 
+      {/* By direct request ("for loading area put the loading
+          indicator to help user wait") — only for the initial/manual
+          load, not the silent background live-PnL refresh above. */}
+      {loading && trades.length === 0 && (
+        <div className="py-2"><LoadingIndicator phase="loading" dark={dark} /></div>
+      )}
+
       {/* Trade List */}
       <div className="space-y-2">
         {trades.map((trade) => (
-          <TradeRow key={trade.trade_id} trade={trade} onApprove={handleApprove} onReject={handleReject} />
+          <TradeRow key={trade.trade_id} trade={trade} onApprove={handleApprove} onReject={handleReject} onCancel={handleCancel} />
         ))}
       </div>
 

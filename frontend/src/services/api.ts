@@ -42,6 +42,12 @@ export const tradesApi = {
   getTodayStats: () => api.get('/trades/stats/today').then(r => r.data),
   getTrade: (tradeId: string) => api.get<Trade>(`/trades/${tradeId}`).then(r => r.data),
   getTradeLogs: (tradeId: string) => api.get(`/trades/${tradeId}/logs`).then(r => r.data),
+  // Manual cancellation — by direct request ("partial or manual
+  // cancellations ... even in test mode"). Lives under /manual-trading/
+  // (see that router's own cancel_order docstring for what this
+  // actually does for a PENDING vs an ACTIVE trade).
+  cancelOrder: (tradeId: string, exitPrice?: number) =>
+    api.post(`/manual-trading/${tradeId}/cancel`, { exit_price: exitPrice ?? null }).then(r => r.data),
 };
 
 export const botsApi = {

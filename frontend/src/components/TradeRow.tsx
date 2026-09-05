@@ -1,6 +1,6 @@
 
 import { Trade } from '../types';
-import { ArrowUpRight, ArrowDownRight, Clock, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
+import { ArrowUpRight, ArrowDownRight, Clock, CheckCircle, XCircle, AlertCircle, Ban } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { useThemeStore } from '../hooks/useTheme';
 
@@ -8,9 +8,10 @@ interface TradeRowProps {
   trade: Trade;
   onApprove?: (tradeId: string) => void;
   onReject?: (tradeId: string) => void;
+  onCancel?: (tradeId: string) => void;
 }
 
-export function TradeRow({ trade, onApprove, onReject }: TradeRowProps) {
+export function TradeRow({ trade, onApprove, onReject, onCancel }: TradeRowProps) {
   const { theme } = useThemeStore();
   const dark = theme === 'dark';
   const isLong = trade.direction === 'long';
@@ -103,6 +104,22 @@ export function TradeRow({ trade, onApprove, onReject }: TradeRowProps) {
                 Reject
               </button>
             </div>
+          )}
+
+          {/* Manual cancel/close — by direct request ("partial or
+              manual cancellations ... even in test mode"). Scoped to
+              this trader's OWN manual trades (not bot-managed ones —
+              cancelling a bot's own active position out from under it
+              here would desync the bot's own logic from what's
+              actually still open). */}
+          {trade.strategy_type === 'manual' && (trade.status === 'pending' || trade.status === 'active') && (
+            <button
+              onClick={() => onCancel?.(trade.trade_id)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-500/20 text-gray-400 rounded-lg text-sm font-medium hover:bg-gray-500/30 hover:text-gray-300 transition-colors"
+              title={trade.status === 'pending' ? 'Cancel this order' : 'Close this position now'}
+            >
+              <Ban size={13} /> {trade.status === 'pending' ? 'Cancel' : 'Close'}
+            </button>
           )}
 
           {/* Time */}

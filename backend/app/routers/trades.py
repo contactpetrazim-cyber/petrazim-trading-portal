@@ -1,4 +1,5 @@
 
+import asyncio
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, func
@@ -10,6 +11,7 @@ from app.models.user import User, UserRole
 from app.core.access_gate import require_active_access
 from app.schemas import TradeCreate, TradeResponse, TradeApproval
 from app.services.execution_engine import ExecutionEngine
+from app.services.live_price import get_crypto_price
 import structlog
 
 router = APIRouter(prefix="/trades", tags=["trades"])
@@ -27,6 +29,31 @@ def _scope_to_owner(query, user: User):
     if user.role not in STAFF_ROLES:
         query = query.where(Trade.user_id == user.id)
     return query
+
+
+async def _enrich_live_pnl(trades: List[Trade]) -> None:
+    """Mutates each ACTIVE trade's unrealized_pnl in place with a REAL
+    live-computed value (never committed — this is a read-time
+    enrichment, not a write) — by direct bug report ("the order should
+    show as an existing trade with live PnL that can be seen or
+    tracked ... I can't currently do that"). The stored column
+    defaults to 0.0 and nothing was ever writing to it; scoped
+    honestly to crypto symbols get_crypto_price can actually resolve
+    (same free-tier limitation as the quick-price lookup) — a forex/
+    metals trade's unrealized_pnl stays whatever was last stored
+    rather than a fabricated number."""
+    active = [t for t in trades if t.status == TradeStatus.ACTIVE and t.entry_price]
+    if not active:
+        return
+    symbols = list({t.symbol for t in active})
+    prices = await asyncio.gather(*(get_crypto_price(s) for s in symbols))
+    price_by_symbol = dict(zip(symbols, prices))
+    for t in active:
+        price = price_by_symbol.get(t.symbol)
+        if price is None:
+            continue
+        sign = 1 if t.direction == TradeDirection.LONG else -1
+        t.unrealized_pnl = round(t.lot_size * (price - t.entry_price) * sign, 2)
 
 
 async def _get_owned_trade(trade_id: str, user: User, db: AsyncSession) -> Trade:
@@ -81,6 +108,7 @@ async def list_trades(
     query = query.order_by(Trade.created_at.desc()).offset(offset).limit(limit)
     result = await db.execute(query)
     trades = result.scalars().all()
+    await _enrich_live_pnl(trades)
 
     return trades
 
@@ -120,7 +148,9 @@ async def active_trades(db: AsyncSession = Depends(get_db), user: User = Depends
         Trade.status == TradeStatus.ACTIVE
     ).order_by(Trade.created_at.desc())
     result = await db.execute(query)
-    return result.scalars().all()
+    trades = result.scalars().all()
+    await _enrich_live_pnl(trades)
+    return trades
 
 @router.get("/stats/today")
 async def today_stats(db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access)):
@@ -231,7 +261,9 @@ async def analytics_summary(
 @router.get("/{trade_id}", response_model=TradeResponse)
 async def get_trade(trade_id: str, db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access)):
     """Get detailed trade information."""
-    return await _get_owned_trade(trade_id, user, db)
+    trade = await _get_owned_trade(trade_id, user, db)
+    await _enrich_live_pnl([trade])
+    return trade
 
 @router.get("/{trade_id}/logs")
 async def get_trade_logs(trade_id: str, db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access)):

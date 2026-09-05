@@ -27,6 +27,7 @@ from app.database import get_db
 from app.models.trade import EntryType, ExitType, ManualTradingSettings, Trade, TradeDirection, TradeStatus, TradingMode
 from app.models.user import User
 from app.services.execution_engine import ExecutionEngine
+from app.services.live_price import get_crypto_price
 from app.services.manual_trading import check_manual_trade_risk, compute_lot_size, effective_limits
 
 router = APIRouter(prefix="/manual-trading", tags=["manual-trading"])
@@ -309,6 +310,100 @@ async def partial_close(
     )
 
 
+class CancelOrderRequest(BaseModel):
+    # Only used to close an ACTIVE position when no live crypto price
+    # is resolvable (forex/metals) — a still-PENDING order needs no
+    # exit price at all, there's nothing to price yet.
+    exit_price: Optional[float] = Field(default=None, gt=0)
+
+
+class CancelOrderResponse(BaseModel):
+    trade_id: str
+    status: str
+    message: str
+    realized_pnl_this_close: Optional[float] = None
+
+
+@router.post("/{trade_id}/cancel", response_model=CancelOrderResponse)
+async def cancel_order(
+    trade_id: str, req: CancelOrderRequest,
+    db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user),
+):
+    """Manual cancellation — by direct request ("both entries, TP and
+    SL or partial or manual cancellations ... even in test mode").
+    Two real cases:
+      - PENDING (an unfilled limit/stop order): Test mode never
+        actually produces one (place_manual_order simulates an
+        instant fill regardless of order_type) — genuinely cancelling
+        a LIVE pending order needs a real per-broker cancel-order call,
+        which doesn't exist anywhere in this codebase yet (no broker
+        integration here implements one); returning a 501 here is
+        honest about that gap rather than silently marking it
+        cancelled locally while it's still resting live at the broker.
+      - ACTIVE: "cancelling" a position that's already open means
+        closing it now, at the best price available — reuses the same
+        real close math partial_close() uses at 100%. Test mode closes
+        at the real live crypto price when the symbol supports one
+        (get_crypto_price), matching this app's own "genuinely real
+        data, not simulated" standard for a rehearsal; falls back to
+        req.exit_price when no live price is resolvable.
+    """
+    row = (await db.execute(
+        select(Trade).where(Trade.trade_id == trade_id, Trade.user_id == user.id)
+    )).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Trade not found")
+
+    if row.status == TradeStatus.PENDING:
+        if not row.is_test:
+            raise HTTPException(
+                status_code=501,
+                detail="Cancelling a live pending order isn't wired to your broker yet — cancel it directly on your broker's own platform for now.",
+            )
+        row.status = TradeStatus.CANCELLED
+        await db.commit()
+        return CancelOrderResponse(trade_id=trade_id, status=row.status.value, message="Order cancelled — it was never filled.")
+
+    if row.status != TradeStatus.ACTIVE:
+        raise HTTPException(status_code=409, detail=f"Trade is {row.status.value} — nothing to cancel.")
+
+    if not row.is_test:
+        await _raise_if_access_expired(db, user)
+
+    exit_price = req.exit_price
+    if exit_price is None:
+        exit_price = await get_crypto_price(row.symbol)
+    if exit_price is None:
+        raise HTTPException(
+            status_code=400,
+            detail="No live price available for this symbol — pass exit_price to close it at a specific price.",
+        )
+
+    closed_size = row.lot_size
+    direction_sign = 1 if row.direction == TradeDirection.LONG else -1
+    pnl_this_close = direction_sign * (exit_price - row.entry_price) * closed_size
+
+    row.realized_pnl = (row.realized_pnl or 0.0) + pnl_this_close
+    row.lot_size = 0.0
+    # CLOSED, not CANCELLED — this position was actually filled and is
+    # now exited, the same real outcome as partial_close() at 100%
+    # (and status this endpoint's own analytics_summary filters on for
+    # realized PnL — marking it CANCELLED would silently drop it from
+    # the trader's own stats). CANCELLED stays reserved for the
+    # PENDING/never-filled case above.
+    row.status = TradeStatus.CLOSED
+    row.exit_price = exit_price
+    row.exit_timestamp = datetime.now(timezone.utc)
+    row.exit_type = ExitType.MANUAL
+    await db.commit()
+
+    return CancelOrderResponse(
+        trade_id=trade_id, status=row.status.value,
+        message=f"Position closed at {exit_price} (cancelled by trader).",
+        realized_pnl_this_close=round(pnl_this_close, 2),
+    )
+
+
 class ModifyTargetsRequest(BaseModel):
     stop_loss: Optional[float] = Field(default=None, gt=0)
     take_profit: Optional[float] = Field(default=None, gt=0)
@@ -372,55 +467,23 @@ async def modify_targets(
     )
 
 
-# CoinGecko's fallback — used only when Binance's own response isn't
-# a clean 200. Binance's public endpoints are known to block requests
-# from data-center/cloud IP ranges outright (a real, observed failure
-# once this endpoint was actually deployed on Render — confirmed by a
-# 404 on a perfectly valid symbol, BTCUSDT, in production logs), so
-# Binance alone isn't reliable enough to be the only source. CoinGecko
-# doesn't apply that kind of IP blocking, but needs its own coin id
-# rather than a trading-pair symbol, hence the small map — only covers
-# the crypto pairs this app actually offers, not a general symbol
-# translator.
-_COINGECKO_IDS = {"BTCUSDT": "bitcoin", "ETHUSDT": "ethereum", "BNBUSDT": "binancecoin", "SOLUSDT": "solana"}
-
-
 @router.get("/quick-price/{symbol}")
 async def quick_price(symbol: str):
     """A free, no-credential "what's it trading at right now" lookup
     for the order form's "Use current price" quick-fill button — by
-    direct request ("ensure quick fill works"). Real data, not
-    invented — tries Binance's public ticker first, CoinGecko second.
-    Scoped honestly to crypto pairs — this app has no free,
-    credential-less price source for forex/metals (EURUSD, XAUUSD,
-    ...); those need the trader's own connected broker, which is a
-    per-user credential this endpoint deliberately doesn't require.
+    direct request ("ensure quick fill works"). Real data via
+    services/live_price.py (Binance through the proxy pair, CoinGecko
+    fallback) — this used to call Binance directly with no proxy, the
+    exact bug already observed in production (a 404 on a perfectly
+    valid symbol, BTCUSDT, once actually deployed on Render — Binance
+    geofences cloud-host IP ranges). Scoped honestly to crypto pairs —
+    this app has no free, credential-less price source for forex/
+    metals (EURUSD, XAUUSD, ...); those need the trader's own
+    connected broker, a per-user credential this endpoint deliberately
+    doesn't require.
     """
-    import httpx
     clean = symbol.upper().replace("BINANCE:", "").replace("/", "")
-
-    try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get("https://api.binance.com/api/v3/ticker/price", params={"symbol": clean})
-        if resp.status_code == 200:
-            return {"symbol": clean, "price": float(resp.json()["price"]), "source": "binance"}
-        logger.warning("quick_price_binance_non_200", symbol=clean, status=resp.status_code, body=resp.text[:200])
-    except httpx.HTTPError as e:
-        logger.warning("quick_price_binance_failed", symbol=clean, error=str(e))
-
-    coingecko_id = _COINGECKO_IDS.get(clean)
-    if coingecko_id:
-        try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                resp = await client.get(
-                    "https://api.coingecko.com/api/v3/simple/price",
-                    params={"ids": coingecko_id, "vs_currencies": "usd"},
-                )
-            if resp.status_code == 200:
-                price = resp.json().get(coingecko_id, {}).get("usd")
-                if price is not None:
-                    return {"symbol": clean, "price": float(price), "source": "coingecko"}
-        except httpx.HTTPError as e:
-            logger.warning("quick_price_coingecko_failed", symbol=clean, error=str(e))
-
-    raise HTTPException(status_code=404, detail=f"No live crypto price for {clean} — enter your price manually.")
+    price = await get_crypto_price(clean)
+    if price is None:
+        raise HTTPException(status_code=404, detail=f"No live crypto price for {clean} — enter your price manually.")
+    return {"symbol": clean, "price": price}
