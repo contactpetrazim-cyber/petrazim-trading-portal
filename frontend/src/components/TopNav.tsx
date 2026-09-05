@@ -5,15 +5,20 @@ import { PetrazimLogo } from './PetrazimLogo';
 import { GlobalSearchModal } from './GlobalSearchModal';
 import { SettingsPanel } from './SettingsPanel';
 import { BackendStatusBadge } from './BackendStatusBadge';
+import { GoHomeButton } from './GoHomeButton';
 import { useThemeStore } from '../hooks/useTheme';
 
 /**
- * TopNav — slim ribbon: logo, search, settings gear. Reconciled
- * against petrazim_preview_v13_FINAL.jsx: the 8 area tabs moved OUT
- * of the top bar and into BottomNav (a mobile-app-style tab bar) —
- * the top ribbon is logo + utility icons only now, not inline nav
- * links. White in light mode, matching the logo's own background;
+ * TopNav — slim ribbon: logo, Home shortcut, search, settings gear.
+ * Reconciled against petrazim_preview_v13_FINAL.jsx: the 8 area tabs
+ * moved OUT of the top bar and into BottomNav (a mobile-app-style tab
+ * bar) — the top ribbon is logo + utility icons only now, not inline
+ * nav links. White in light mode, matching the logo's own background;
  * dark navy in dark mode.
+ *
+ * GoHomeButton sits in the right-side icon cluster, beside Search —
+ * it used to float fixed over the top-left corner, which obstructed
+ * the logo also living there; relocated by direct follow-up request.
  *
  * The logo links to /home (CorporateHomePage) rather than /dashboard
  * — the reference's own "click the logo -> the dashboard view"
@@ -41,6 +46,7 @@ export function TopNav() {
           </div>
 
           <div className="flex items-center gap-2">
+            <GoHomeButton dark={dark} />
             <button
               onClick={() => setSearchOpen(true)}
               aria-label="Search all features"

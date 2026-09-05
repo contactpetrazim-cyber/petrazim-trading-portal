@@ -17,6 +17,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { BackendStatusBadge } from './BackendStatusBadge';
 import { PetrazimLogo } from './PetrazimLogo';
 import { SettingsPanel } from './SettingsPanel';
+import { GoHomeButton } from './GoHomeButton';
 import { useThemeStore } from '../hooks/useTheme';
 
 export interface NavItem {
@@ -115,6 +116,8 @@ export function Layout({ children, navItems = TRADER_NAV_ITEMS }: { children: Re
               </span>
             </div>
           )}
+
+          <GoHomeButton dark={dark} />
 
           <button
             onClick={() => setSettingsOpen(true)}
