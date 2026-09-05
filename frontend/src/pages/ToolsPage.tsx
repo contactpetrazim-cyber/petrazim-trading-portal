@@ -9,7 +9,6 @@ import {
 import { PageHeader } from '../components/PageHeader';
 import { FoldedCard } from '../components/FoldedCard';
 import { ChartPanel } from '../components/ChartPanel';
-import { OrderFlowChartTool } from './OrderFlowChartTool';
 import { useThemeStore } from '../hooks/useTheme';
 import { useAuth } from '../hooks/useAuth';
 import { apiFetch } from '../components/AccessExpiredGate';
@@ -569,21 +568,28 @@ export function ToolsPage() {
           </div>
         </FoldedCard>
 
-        <FoldedCard title="Order Flow Chart" summary="Free — live tape, delta, and order book, from real crypto market data." icon={<Activity size={19} />} dark={dark} accent={TOOLS_ACCENT}>
-          {/* By direct request ("make the Order flow chart load on a new page
-              so that we can maximise chart area ... whenever triggered open a
-              new page ... with option to return to default card window and
-              close") — this card's own grid column is narrower than a real
-              footprint/DOM chart wants. Same OrderFlowChartTool either way. */}
-          <Link
-            to="/tools/order-flow"
-            className="inline-flex items-center gap-1.5 text-xs font-semibold mb-3 px-2.5 py-1.5 rounded-lg"
-            style={{ color: TOOLS_ACCENT, background: `${TOOLS_ACCENT}1a` }}
-          >
-            <Maximize2 size={13} /> Open full page
-          </Link>
-          <OrderFlowChartTool />
-        </FoldedCard>
+        {/* Order Flow Chart — always opens its own full page rather than
+            expanding inline, by direct request ("ensure that the Order
+            flow chart opens on a new page ... whenever triggered"). A
+            real footprint/DOM chart needs more room than this grid's
+            column, and running its 3 independently-polled live streams
+            twice (here AND on the full page) would double its own
+            request load for nothing — so this card is a straight link,
+            not a FoldedCard, and OrderFlowChartTool is no longer
+            embedded on this page at all. */}
+        <Link
+          to="/tools/order-flow"
+          className={`rounded-2xl border p-5 flex items-center gap-3 transition-shadow hover:shadow-[0_8px_30px_rgba(15,45,110,0.08)] ${dark ? 'bg-corporate-surface-dark border-corporate-border-dark' : 'bg-white border-[#dcdce8]'}`}
+        >
+          <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: `${TOOLS_ACCENT}1a`, color: TOOLS_ACCENT }}>
+            <Activity size={19} />
+          </span>
+          <div className="flex-1 min-w-0">
+            <div className={`font-semibold ${dark ? 'text-white' : 'text-corporate-text-on-bg'}`}>Order Flow Chart</div>
+            <div className={`text-xs mt-0.5 ${dark ? 'text-white/40' : 'text-[#7c839c]'}`}>Free — live tape, delta, and order book, from real crypto market data.</div>
+          </div>
+          <Maximize2 size={16} className={dark ? 'text-white/30' : 'text-gray-300'} />
+        </Link>
       </div>
     </div>
   );

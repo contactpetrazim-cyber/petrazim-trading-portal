@@ -45,13 +45,25 @@ const CHART_POLL_MS = 15000;
  * so this tool doesn't claim to cover the same symbols this
  * platform's own bots trade.
  */
-export function OrderFlowChartTool() {
+export function OrderFlowChartTool({
+  symbol: controlledSymbol,
+  onSymbolChange,
+}: {
+  /** Optional controlled symbol — pass both this and onSymbolChange to
+   * keep an external chart (e.g. OrderFlowFullPage's own ChartPanel)
+   * showing the same instrument. Omit either and this manages its own
+   * symbol internally, unchanged from before (ToolsPage's embedded use). */
+  symbol?: string;
+  onSymbolChange?: (symbol: string) => void;
+} = {}) {
   const { theme } = useThemeStore();
   const dark = theme === 'dark';
   const { token } = useAuth();
 
   const [symbols, setSymbols] = useState<string[]>([]);
-  const [symbol, setSymbol] = useState('BTCUSDT');
+  const [internalSymbol, setInternalSymbol] = useState('BTCUSDT');
+  const symbol = controlledSymbol ?? internalSymbol;
+  const setSymbol = onSymbolChange ?? setInternalSymbol;
   const [trades, setTrades] = useState<TradePrint[] | null>(null);
   const [depth, setDepth] = useState<Depth | null>(null);
   const [chart, setChart] = useState<FootprintChart | null>(null);
