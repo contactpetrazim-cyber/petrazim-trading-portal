@@ -9,6 +9,7 @@ import type { ThemeName } from '../hooks/useTheme';
 import { useAuth } from '../hooks/useAuth';
 import { useTradeAIStore } from '../hooks/useTradeAI';
 import { PortalSelectionCard, PortalOption } from './PortalSelectionCard';
+import { BackupOfflinePanel } from './BackupOfflinePanel';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -31,9 +32,12 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
  * to any LLM endpoint (no provider/API key exists in this codebase at
  * all; see that component's docstring), and standing that up is a real
  * integration + ongoing-cost decision for you to make, not one to wire
- * up silently. The remaining two (Backup and Offline, Quick Links) are
- * still informational rows only, same as the reference — this doesn't
- * invent navigation the design didn't specify.
+ * up silently. "Backup and Offline" now opens BackupOfflinePanel too —
+ * see that component's own docstring for what it backs up and why,
+ * adapted from the reference site's own panel (screenshot supplied
+ * directly) to what this app can honestly back up. "Quick Links" is
+ * the one remaining informational row, same as the reference — this
+ * doesn't invent navigation the design didn't specify.
  */
 export function SettingsPanel({
   open,
@@ -52,6 +56,7 @@ export function SettingsPanel({
   const { token } = useAuth();
   const { setOpen: setTradeAIOpen } = useTradeAIStore();
   const [switchPortals, setSwitchPortals] = useState<PortalOption[] | null>(null);
+  const [backupOfflineOpen, setBackupOfflineOpen] = useState(false);
 
   if (!open) return null;
 
@@ -76,7 +81,7 @@ export function SettingsPanel({
     { icon: GraduationCap, label: 'Ask Trading Coach', detail: 'Open Trade AI', onClick: openTradeAI },
     { icon: CalendarClock, label: 'Facilitator Sessions', detail: 'Book time with a Manager or Partner (Tier 2/3)', to: '/meetings' },
     { icon: LayoutGrid, label: 'Switch Portal', detail: 'Trader / Fund Manager / Partner / Admin — jump to a console you have access to', onClick: openSwitchPortal },
-    { icon: HardDriveDownload, label: 'Backup and Offline', detail: 'Manage local data and sync' },
+    { icon: HardDriveDownload, label: 'Backup and Offline', detail: 'Manage local data and sync', onClick: () => setBackupOfflineOpen(true) },
     { icon: Link2, label: 'Quick Links', detail: 'Shortcuts to frequent pages' },
   ];
 
@@ -150,6 +155,8 @@ export function SettingsPanel({
           }}
         />
       )}
+
+      {backupOfflineOpen && <BackupOfflinePanel onClose={() => setBackupOfflineOpen(false)} />}
     </div>
   );
 }

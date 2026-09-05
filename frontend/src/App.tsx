@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { TopNav } from './components/TopNav';
@@ -5,6 +6,7 @@ import { BottomNav } from './components/BottomNav';
 import { FloatingTradeAI } from './components/FloatingTradeAI';
 import { GoHomeButton } from './components/GoHomeButton';
 import { useThemeStore } from './hooks/useTheme';
+import { useInstallPromptStore } from './hooks/useInstallPrompt';
 import { DashboardPage } from './pages/Dashboard';
 import { AnalyticsPage } from './pages/AnalyticsPage';
 import { TradesPage } from './pages/Trades';
@@ -75,6 +77,29 @@ function CorporateLayout({ children }: { children: React.ReactNode }) {
 }
 
 function App() {
+  const { setEvent, setInstalled } = useInstallPromptStore();
+
+  // Captured once, here at the root, so it's ready whenever
+  // BackupOfflinePanel's own "Install app" button asks for it — the
+  // browser only ever fires this once and only if nothing has called
+  // preventDefault() on it yet.
+  useEffect(() => {
+    function onBeforeInstallPrompt(e: Event) {
+      e.preventDefault();
+      setEvent(e);
+    }
+    function onInstalled() {
+      setInstalled(true);
+      setEvent(null);
+    }
+    window.addEventListener('beforeinstallprompt', onBeforeInstallPrompt);
+    window.addEventListener('appinstalled', onInstalled);
+    return () => {
+      window.removeEventListener('beforeinstallprompt', onBeforeInstallPrompt);
+      window.removeEventListener('appinstalled', onInstalled);
+    };
+  }, [setEvent, setInstalled]);
+
   return (
     <BrowserRouter>
       <AccessExpiredGate>
