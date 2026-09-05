@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AlertTriangle, Gamepad2 } from 'lucide-react';
-import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import { BarChart, Bar, LineChart, Line, PieChart, Pie, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { PageHeader } from '../components/PageHeader';
 import { useThemeStore } from '../hooks/useTheme';
 import { useAuth } from '../hooks/useAuth';
@@ -125,6 +125,46 @@ export function MasteryOverviewPage() {
               <div className={`text-xs mt-1 ${mutedCls}`}>{tile.label}</div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Mastery distribution donut — how many tracks sit at each
+          level, computed client-side from the same per-track array the
+          rows below already render, so it can't drift from them. */}
+      {data && data.tracks.length > 0 && (
+        <div className="mb-6">
+          <div className={`text-xs font-semibold mb-2 ${mutedCls}`}>Mastery distribution</div>
+          <div className={`${cardCls} flex items-center gap-5 flex-wrap`}>
+            <ResponsiveContainer width={140} height={140}>
+              <PieChart>
+                <Pie
+                  data={(Object.keys(LEVEL_META) as MasteryTrack['mastery_level'][])
+                    .map((level) => ({ name: LEVEL_META[level].label, value: data.tracks.filter((t) => t.mastery_level === level).length, color: LEVEL_META[level].color }))
+                    .filter((d) => d.value > 0)}
+                  dataKey="value" nameKey="name" innerRadius={38} outerRadius={60} paddingAngle={2}
+                >
+                  {(Object.keys(LEVEL_META) as MasteryTrack['mastery_level'][])
+                    .map((level) => ({ name: LEVEL_META[level].label, value: data.tracks.filter((t) => t.mastery_level === level).length, color: LEVEL_META[level].color }))
+                    .filter((d) => d.value > 0)
+                    .map((d, i) => <Cell key={i} fill={d.color} />)}
+                </Pie>
+                <Tooltip contentStyle={{ backgroundColor: dark ? '#111827' : '#fff', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 12 }} />
+              </PieChart>
+            </ResponsiveContainer>
+            <div className="space-y-1.5">
+              {(Object.keys(LEVEL_META) as MasteryTrack['mastery_level'][]).map((level) => {
+                const count = data.tracks.filter((t) => t.mastery_level === level).length;
+                if (count === 0) return null;
+                return (
+                  <div key={level} className="flex items-center gap-2 text-xs">
+                    <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: LEVEL_META[level].color }} />
+                    <span className={dark ? 'text-white/70' : 'text-gray-600'}>{LEVEL_META[level].label}</span>
+                    <span className={dark ? 'text-white/40' : 'text-gray-400'}>: {count} track{count === 1 ? '' : 's'}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </div>
       )}
 

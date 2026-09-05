@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { BarChart3, Percent, Target, TrendingDown, TrendingUp, DollarSign } from 'lucide-react';
-import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Legend } from 'recharts';
+import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Legend, Cell } from 'recharts';
 import { StatCard } from '../components/StatCard';
 import { FoldedCard } from '../components/FoldedCard';
+import { TradeAnalytics } from '../components/TradeAnalytics';
 import { dashboardApi } from '../services/api';
 import { PerformanceSummary } from '../types';
 import { useThemeStore } from '../hooks/useTheme';
@@ -65,6 +66,8 @@ export function AnalyticsPage() {
     win_rate: allPeriods[p.id]?.win_rate ?? 0,
     profit_factor: allPeriods[p.id]?.profit_factor ?? 0,
     max_drawdown_pct: allPeriods[p.id]?.max_drawdown_pct ?? 0,
+    net_pnl: allPeriods[p.id]?.net_pnl ?? 0,
+    average_r_multiple: allPeriods[p.id]?.average_r_multiple ?? 0,
   }));
 
   return (
@@ -112,31 +115,80 @@ export function AnalyticsPage() {
         </div>
       )}
 
-      <FoldedCard title="Win Rate & Profit Factor by Period" summary="How your edge holds up over 1D/7D/30D/90D" dark={dark} defaultOpen>
-        <ResponsiveContainer width="100%" height={260}>
-          <BarChart data={comparisonData}>
-            <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
-            <XAxis dataKey="period" stroke={axisColor} fontSize={12} />
-            <YAxis stroke={axisColor} fontSize={12} />
-            <Tooltip contentStyle={{ backgroundColor: dark ? '#111827' : '#fff', border: `1px solid ${gridColor}`, borderRadius: 8, fontSize: 12 }} />
-            <Legend wrapperStyle={{ fontSize: 12 }} />
-            <Bar dataKey="win_rate" name="Win Rate %" fill="#3b82f6" radius={[3, 3, 0, 0]} />
-            <Bar dataKey="profit_factor" name="Profit Factor" fill="#22c55e" radius={[3, 3, 0, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
-      </FoldedCard>
+      {/* 4 comparison charts, up from 2 and each noticeably taller, by
+          direct request ("the two charts are too small develop more
+          charts and visuals"). Same comparisonData either way — every
+          number here already existed in the 4 period fetches above,
+          this just charts more of them instead of leaving Net P&L and
+          Avg R-Multiple as StatCard-only numbers with no per-period
+          comparison view. */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <FoldedCard title="Win Rate & Profit Factor by Period" summary="How your edge holds up over 1D/7D/30D/90D" dark={dark} defaultOpen>
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart data={comparisonData}>
+              <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
+              <XAxis dataKey="period" stroke={axisColor} fontSize={12} />
+              <YAxis stroke={axisColor} fontSize={12} />
+              <Tooltip contentStyle={{ backgroundColor: dark ? '#111827' : '#fff', border: `1px solid ${gridColor}`, borderRadius: 8, fontSize: 12 }} />
+              <Legend wrapperStyle={{ fontSize: 12 }} />
+              <Bar dataKey="win_rate" name="Win Rate %" fill="#3b82f6" radius={[3, 3, 0, 0]} />
+              <Bar dataKey="profit_factor" name="Profit Factor" fill="#22c55e" radius={[3, 3, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </FoldedCard>
 
-      <FoldedCard title="Max Drawdown by Period" summary="Peak-to-trough decline, each window compared" dark={dark} defaultOpen>
-        <ResponsiveContainer width="100%" height={220}>
-          <BarChart data={comparisonData}>
-            <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
-            <XAxis dataKey="period" stroke={axisColor} fontSize={12} />
-            <YAxis stroke={axisColor} fontSize={12} unit="%" />
-            <Tooltip contentStyle={{ backgroundColor: dark ? '#111827' : '#fff', border: `1px solid ${gridColor}`, borderRadius: 8, fontSize: 12 }} />
-            <Bar dataKey="max_drawdown_pct" name="Max Drawdown %" fill="#ef4444" radius={[3, 3, 0, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
-      </FoldedCard>
+        <FoldedCard title="Max Drawdown by Period" summary="Peak-to-trough decline, each window compared" dark={dark} defaultOpen>
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart data={comparisonData}>
+              <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
+              <XAxis dataKey="period" stroke={axisColor} fontSize={12} />
+              <YAxis stroke={axisColor} fontSize={12} unit="%" />
+              <Tooltip contentStyle={{ backgroundColor: dark ? '#111827' : '#fff', border: `1px solid ${gridColor}`, borderRadius: 8, fontSize: 12 }} />
+              <Bar dataKey="max_drawdown_pct" name="Max Drawdown %" fill="#ef4444" radius={[3, 3, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </FoldedCard>
+
+        <FoldedCard title="Net P&L by Period" summary="Realized profit/loss, each window compared" dark={dark} defaultOpen>
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart data={comparisonData}>
+              <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
+              <XAxis dataKey="period" stroke={axisColor} fontSize={12} />
+              <YAxis stroke={axisColor} fontSize={12} tickFormatter={(v) => `$${v}`} />
+              <Tooltip formatter={(v: number) => `$${v.toFixed(2)}`} contentStyle={{ backgroundColor: dark ? '#111827' : '#fff', border: `1px solid ${gridColor}`, borderRadius: 8, fontSize: 12 }} />
+              <Bar dataKey="net_pnl" name="Net P&L" radius={[3, 3, 0, 0]}>
+                {comparisonData.map((d, i) => <Cell key={i} fill={d.net_pnl >= 0 ? '#22c55e' : '#ef4444'} />)}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </FoldedCard>
+
+        <FoldedCard title="Avg R-Multiple by Period" summary="Realized R per trade, each window compared" dark={dark} defaultOpen>
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart data={comparisonData}>
+              <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
+              <XAxis dataKey="period" stroke={axisColor} fontSize={12} />
+              <YAxis stroke={axisColor} fontSize={12} unit="R" />
+              <Tooltip formatter={(v: number) => `${v.toFixed(2)}R`} contentStyle={{ backgroundColor: dark ? '#111827' : '#fff', border: `1px solid ${gridColor}`, borderRadius: 8, fontSize: 12 }} />
+              <Bar dataKey="average_r_multiple" name="Avg R-Multiple" radius={[3, 3, 0, 0]}>
+                {comparisonData.map((d, i) => <Cell key={i} fill={d.average_r_multiple >= 0 ? '#22c55e' : '#ef4444'} />)}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </FoldedCard>
+      </div>
+
+      {/* Win-rate ring, Most Traded Pairs donut, performance-by-symbol
+          bars, monthly PnL, and the daily table — real per-account
+          analytics that already existed (TradeAnalytics.tsx) but had
+          only ever been wired onto the separate corporate /insights
+          page, never onto the Trader console's own Analytics page. Same
+          component, same real /trades/analytics/summary data — not a
+          second implementation. */}
+      <div>
+        <h3 className={`text-sm font-bold uppercase tracking-wide mb-3 ${dark ? 'text-white/40' : 'text-gray-500'}`}>Trade Analysis</h3>
+        <TradeAnalytics dark={dark} />
+      </div>
     </div>
   );
 }
