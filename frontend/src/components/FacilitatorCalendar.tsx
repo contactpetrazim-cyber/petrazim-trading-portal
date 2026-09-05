@@ -26,12 +26,22 @@ interface DayAvailability {
  * the booking modal stays plain white regardless, matching every
  * other "decision moment" card in this app (AccessExpiredGate,
  * LoginCardStyleB, PortalSelectionCard all do the same).
+ *
+ * `token` — POST /meetings/book requires an active-access user
+ * (require_active_access -> get_current_user, both reading a Bearer
+ * token via FastAPI's OAuth2PasswordBearer) but this component never
+ * received or sent one; confirmBooking sent `credentials: 'include'`
+ * instead, which does nothing against a Bearer-only backend. Every
+ * booking attempt 401'd — by direct bug report ("Facilitator sessions
+ * booking not working"). Now the real token is required and sent.
  */
 export function FacilitatorCalendar({
   userTier,
+  token,
   dark = false,
 }: {
   userTier: 'essential' | 'professional' | 'executive' | null;
+  token: string | null;
   dark?: boolean;
 }) {
   const [strip, setStrip] = useState<DayAvailability[]>([]);
@@ -59,13 +69,16 @@ export function FacilitatorCalendar({
 
   async function confirmBooking() {
     if (!selected || !topic.trim()) return;
+    if (!token) {
+      setError('Your session has expired — please sign in again.');
+      return;
+    }
     setBooking(true);
     setError(null);
     try {
       const res = await fetch(`${API_BASE}/meetings/book`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ day: selected.day, band: selected.band, topic }),
       });
       if (!res.ok) {

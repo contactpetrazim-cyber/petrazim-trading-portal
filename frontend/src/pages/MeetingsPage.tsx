@@ -56,7 +56,7 @@ export function MeetingsPage() {
 
       <div>
         <h2 className={`text-sm font-semibold mb-3 ${dark ? 'text-white/40' : 'text-gray-500'}`}>Availability</h2>
-        <FacilitatorCalendar userTier={userTier} dark={dark} />
+        <FacilitatorCalendar userTier={userTier} token={token} dark={dark} />
       </div>
     </div>
   );
