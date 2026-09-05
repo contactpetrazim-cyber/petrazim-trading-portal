@@ -41,6 +41,7 @@ import { WhatHappensNextGame } from './pages/WhatHappensNextGame';
 import { ConceptSpotterGame } from './pages/ConceptSpotterGame';
 import { CaseStudyWalkthroughPage } from './pages/CaseStudyWalkthroughPage';
 import { ZoneTapperGame } from './pages/ZoneTapperGame';
+import { TeamEmpireSimPage } from './pages/TeamEmpireSimPage';
 import { PracticeDrillsPage } from './pages/PracticeDrillsPage';
 import { RetentionReviewPage } from './pages/RetentionReviewPage';
 import { TradingGamePage } from './pages/TradingGamePage';
@@ -248,6 +249,7 @@ function App() {
         <Route path="/practise/games/concept-spotter" element={<CorporateLayout><ConceptSpotterGame /></CorporateLayout>} />
         <Route path="/learn/case-study" element={<CorporateLayout><CaseStudyWalkthroughPage /></CorporateLayout>} />
         <Route path="/practise/games/zone-tapper" element={<CorporateLayout><ZoneTapperGame /></CorporateLayout>} />
+        <Route path="/practise/team-sim" element={<CorporateLayout><TeamEmpireSimPage /></CorporateLayout>} />
 
         {/* Fallback — most FEATURE_REGISTRY *sub*-features (e.g. /learn/basics,
             /tools/risk-of-ruin) have no page component built yet; see

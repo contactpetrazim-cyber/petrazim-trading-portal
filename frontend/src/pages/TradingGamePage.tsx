@@ -129,6 +129,18 @@ export function TradingGamePage() {
         ))}
       </div>
 
+      {/* Section 10b's Team Empire Simulation — a same-screen group
+          activity, kept visually separate from the solo games above. */}
+      <Link
+        to="/practise/team-sim"
+        className={`flex items-center justify-between rounded-xl p-4 border mb-6 transition-shadow hover:shadow-[0_4px_16px_rgba(0,0,0,0.06)] ${dark ? 'bg-corporate-surface-dark border-corporate-border-dark' : 'bg-white border-corporate-bg'}`}
+      >
+        <div>
+          <div className={`text-sm font-semibold ${dark ? 'text-white' : 'text-corporate-text-on-bg'}`}>👥 Team Empire Simulation</div>
+          <div className={`text-xs mt-1 ${mutedCls}`}>Prop Firm Growth Challenge — 4-5 teams, same-screen pass-and-play</div>
+        </div>
+      </Link>
+
       {error && <p className={`text-sm mb-4 ${dark ? 'text-red-400' : 'text-red-500'}`}>{error}</p>}
 
       {!round && (
