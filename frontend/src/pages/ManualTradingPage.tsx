@@ -623,6 +623,21 @@ export function ManualTradingPage() {
           </div>
         </div>
 
+        {/* Visible confirmation of exactly which chart symbol is being
+            requested — by direct bug report ("the quick link
+            instrument does not change for each selection and exchange
+            ... always defaults to BTC binance"). This label reflects
+            this page's own state the instant you click a quick-link or
+            exchange button; if it updates but the chart itself still
+            doesn't, that's TradingView's own data feed not carrying
+            that exchange's perpetual under this symbol (a real
+            limitation on their end, not this app silently ignoring the
+            click) — if the label itself never changes, that's a real
+            bug here to keep chasing. */}
+        <div className={`text-[11px] mb-3 font-mono ${dark ? 'text-white/30' : 'text-gray-400'}`}>
+          Chart symbol: {symbol.tv}
+        </div>
+
         {/* Order card is fully unmounted (not just hidden) when closed —
             by direct request ("remove the order card completely to
             provide more space to the chart") — so the grid collapses
@@ -634,6 +649,7 @@ export function ManualTradingPage() {
             instead of a separate row above the ticket. */}
         <div className={`grid grid-cols-1 ${orderFormOpen ? 'lg:grid-cols-[1fr_340px]' : ''} gap-4 items-start`}>
           <ChartPanel
+            key={symbol.tv}
             symbol={symbol.tv} height={600} dark={dark}
             specsSymbol={symbol.trade}
             onQuickFill={(price) => setEntryPrice(String(price))}
