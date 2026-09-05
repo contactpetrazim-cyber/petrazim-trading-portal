@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Dumbbell } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
 import { useThemeStore } from '../hooks/useTheme';
 import { useAuth } from '../hooks/useAuth';
@@ -206,6 +206,16 @@ function LessonBody({ content, dark }: { content: string; dark: boolean }) {
  * Nothing ever let a learner read a lesson's full authored content
  * (Core Teaching, Worked Example, Key Takeaways, etc.) until this page
  * and its backing endpoint (GET /curriculum/lessons/{id}).
+ *
+ * "Practice this lesson" — connects Learn to Practice, by direct
+ * request ("fix and connect learn page and practise page"). Detects a
+ * "### Practice Drill" heading in this lesson's own content_body (the
+ * exact section routers/practise.py's list_drills already extracts
+ * server-side) rather than a second fetch just to ask "does this
+ * lesson have a drill" — the full content_body is already sitting
+ * right here. Links to /practise/drills?lesson={id}, which
+ * PracticeDrillsPage reads to auto-expand and scroll to that lesson's
+ * own drill instead of leaving you to hunt across every track's card.
  */
 export function LessonPage() {
   const { trackId, lessonId } = useParams<{ trackId: string; lessonId: string }>();
@@ -262,6 +272,17 @@ export function LessonPage() {
               <p className={`text-sm ${dark ? 'text-white/40' : 'text-gray-400'}`}>Not yet authored.</p>
             )}
           </div>
+
+          {lesson.content_body?.includes('### Practice Drill') && (
+            <Link
+              to={`/practise/drills?lesson=${lesson.id}`}
+              className={`inline-flex items-center gap-2 text-sm font-medium mt-4 px-4 py-2.5 rounded-xl transition-colors ${
+                dark ? 'bg-white/5 text-white hover:bg-white/10' : 'bg-corporate-bg text-corporate-hero hover:bg-corporate-hero/10'
+              }`}
+            >
+              <Dumbbell size={16} /> Practice this lesson →
+            </Link>
+          )}
         </>
       )}
     </div>

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { PageHeader } from '../components/PageHeader';
 import { FoldedCard } from '../components/FoldedCard';
 import { useThemeStore } from '../hooks/useTheme';
@@ -29,14 +30,27 @@ interface TrackGroup {
  * Marking a drill correct writes the same PracticeAttempt row the
  * Learn dual-gate reads, so practicing here for real counts toward a
  * track's stage-completion requirement too.
+ *
+ * `?lesson={id}` — arrives from LessonPage's "Practice this lesson"
+ * link, by direct request ("connect learn page and practise page").
+ * Auto-expands the track group containing that lesson and scrolls to
+ * it, rather than landing here with every group folded and no
+ * indication which one the reader was sent for.
  */
 export function PracticeDrillsPage() {
   const { theme } = useThemeStore();
   const dark = theme === 'dark';
   const { token } = useAuth();
+  const [searchParams] = useSearchParams();
+  const targetLessonId = searchParams.get('lesson');
   const [groups, setGroups] = useState<TrackGroup[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!targetLessonId || !groups) return;
+    document.getElementById(`drill-${targetLessonId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [targetLessonId, groups]);
 
   const load = () => {
     if (!token) return;
@@ -95,10 +109,22 @@ export function PracticeDrillsPage() {
 
       <div className="space-y-3">
         {groups?.map((g) => (
-          <FoldedCard key={g.track_id} title={g.track_title} summary={`${g.drills.length} drill${g.drills.length === 1 ? '' : 's'}`} dark={dark}>
+          <FoldedCard
+            key={g.track_id}
+            title={g.track_title}
+            summary={`${g.drills.length} drill${g.drills.length === 1 ? '' : 's'}`}
+            dark={dark}
+            defaultOpen={g.drills.some((d) => d.lesson_id === targetLessonId)}
+          >
             <div className="space-y-4">
               {g.drills.map((d) => (
-                <div key={d.lesson_id} className={`pb-4 last:pb-0 border-b last:border-0 ${dark ? 'border-white/5' : 'border-gray-50'}`}>
+                <div
+                  key={d.lesson_id}
+                  id={`drill-${d.lesson_id}`}
+                  className={`pb-4 last:pb-0 border-b last:border-0 -mx-2 px-2 rounded-lg transition-colors ${dark ? 'border-white/5' : 'border-gray-50'} ${
+                    d.lesson_id === targetLessonId ? (dark ? 'bg-corporate-hero/10' : 'bg-corporate-hero/5') : ''
+                  }`}
+                >
                   <div className={`text-xs font-semibold mb-1 ${dark ? 'text-white/70' : 'text-gray-600'}`}>{d.lesson_title}</div>
                   <p className={`text-sm mb-3 leading-relaxed ${dark ? 'text-white/80' : 'text-gray-700'}`}>{d.prompt}</p>
                   <div className="flex items-center gap-2">
