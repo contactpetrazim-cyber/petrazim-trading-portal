@@ -58,12 +58,30 @@ interface QuickSymbol {
   perp?: string;
   fixedTv?: string;
 }
-const QUICK_SYMBOLS: QuickSymbol[] = [
+const DEFAULT_QUICK_SYMBOLS: QuickSymbol[] = [
   { label: 'BTC Perp', trade: 'BTCUSDT', perp: 'BTCUSDT.P' },
   { label: 'Gold Perp', trade: 'XAUTUSDT', perp: 'XAUTUSDT.P' },
   { label: 'USD/JPY', trade: 'USDJPY', fixedTv: 'OANDA:USDJPY' },
   { label: 'Nasdaq 100', trade: 'NAS100', fixedTv: 'OANDA:NAS100USD' },
 ];
+// The quick-link list is now dynamic — by direct request ("create an
+// option to manually select specific instruments from selected
+// exchanges ... max is 5 ... so that the list can be dynamic"), capped
+// at 5 and persisted per-browser (localStorage — this is a personal
+// chart-shortcut preference, not account data worth a DB migration for).
+const MAX_QUICK_SYMBOLS = 5;
+const QUICK_SYMBOLS_STORAGE_KEY = 'manualTrading.quickSymbols';
+
+function loadStoredQuickSymbols(): QuickSymbol[] {
+  try {
+    const raw = localStorage.getItem(QUICK_SYMBOLS_STORAGE_KEY);
+    if (!raw) return DEFAULT_QUICK_SYMBOLS;
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) && parsed.length > 0 ? parsed.slice(0, MAX_QUICK_SYMBOLS) : DEFAULT_QUICK_SYMBOLS;
+  } catch {
+    return DEFAULT_QUICK_SYMBOLS;
+  }
+}
 
 interface Settings {
   use_global_defaults: boolean;
@@ -183,10 +201,54 @@ export function ManualTradingPage() {
 
   const preselect = params.get('symbol');
   const preselectPrice = params.get('price');
+  const [quickSymbols, setQuickSymbols] = useState<QuickSymbol[]>(loadStoredQuickSymbols);
   const [quickSymbol, setQuickSymbol] = useState<QuickSymbol>(
-    QUICK_SYMBOLS.find((s) => s.trade === preselect) || QUICK_SYMBOLS[0]
+    () => loadStoredQuickSymbols().find((s) => s.trade === preselect) || loadStoredQuickSymbols()[0]
   );
   const [exchange, setExchange] = useState<typeof EXCHANGES[number]>(EXCHANGES[0]);
+  const [addingSymbol, setAddingSymbol] = useState(false);
+  const [addExchange, setAddExchange] = useState<typeof EXCHANGES[number]>(EXCHANGES[0]);
+  const [addQuery, setAddQuery] = useState('');
+  const [addResults, setAddResults] = useState<{ symbol: string; base_asset: string; quote_asset: string }[]>([]);
+
+  function persistQuickSymbols(next: QuickSymbol[]) {
+    setQuickSymbols(next);
+    try { localStorage.setItem(QUICK_SYMBOLS_STORAGE_KEY, JSON.stringify(next)); } catch { /* private-window etc. — fine, just doesn't persist */ }
+  }
+
+  function addQuickSymbol(rawSymbol: string) {
+    const clean = rawSymbol.trim().toUpperCase();
+    if (!clean || quickSymbols.length >= MAX_QUICK_SYMBOLS || quickSymbols.some((s) => s.trade === clean)) return;
+    const next: QuickSymbol = { label: clean, trade: clean, perp: `${clean}.P` };
+    persistQuickSymbols([...quickSymbols, next]);
+    setQuickSymbol(next);
+    setExchange(addExchange);
+    setAddingSymbol(false);
+    setAddQuery('');
+    setAddResults([]);
+  }
+
+  function removeQuickSymbol(trade: string) {
+    const next = quickSymbols.filter((s) => s.trade !== trade);
+    persistQuickSymbols(next.length ? next : DEFAULT_QUICK_SYMBOLS);
+    if (quickSymbol.trade === trade) setQuickSymbol((next.length ? next : DEFAULT_QUICK_SYMBOLS)[0]);
+  }
+
+  // Real, live-searchable Binance instruments — the exact same source
+  // the Create Bot form uses (GET /order-flow/instruments), reused
+  // here so "manually select specific instruments" means picking a
+  // real, valid ticker rather than typing one that might not exist.
+  useEffect(() => {
+    if (!addingSymbol) return;
+    const t = setTimeout(() => {
+      apiFetch(`${API_URL}/order-flow/instruments?q=${encodeURIComponent(addQuery)}&limit=20`, { headers })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => setAddResults(d?.instruments || []))
+        .catch(() => setAddResults([]));
+    }, 250);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [addQuery, addingSymbol]);
   // `symbol` keeps the same {label, tv, trade} shape every downstream
   // read below already expects — only how it's built changed. A
   // fixed-feed instrument (USD/JPY, Nasdaq 100) ignores the exchange
@@ -585,19 +647,48 @@ export function ManualTradingPage() {
             top edge — it used to sit only above the chart, pushing the
             chart's own top down below the order form's. */}
         <div className="flex items-center gap-2 mb-3 flex-wrap">
-          {QUICK_SYMBOLS.map((s) => (
-            <button
-              key={s.trade}
-              onClick={() => setQuickSymbol(s)}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium ${
-                quickSymbol.trade === s.trade
-                  ? 'bg-corporate-hero text-white'
-                  : dark ? 'bg-white/5 text-white/50' : 'bg-white text-gray-500 border border-gray-200'
-              }`}
-            >
-              {s.label}
-            </button>
-          ))}
+          {/* Instrument quick-links — same pill "format and dimension"
+              as the Exchange group right next to it, by direct
+              request, and now a DYNAMIC list (max 5) rather than a
+              fixed 4 — "create an option to manually select specific
+              instruments from selected exchanges ... so that the list
+              can be dynamic." A small × removes one (hover to reveal);
+              the "+" opens the real instrument search below. */}
+          <div className={`flex items-center gap-1 rounded-lg p-1 ${dark ? 'bg-white/5' : 'bg-black/5'}`}>
+            {quickSymbols.map((s) => (
+              <span key={s.trade} className="relative group">
+                <button
+                  onClick={() => setQuickSymbol(s)}
+                  className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-colors ${
+                    quickSymbol.trade === s.trade
+                      ? dark ? 'bg-white/20 text-white' : 'bg-white text-corporate-text-on-bg shadow-sm'
+                      : dark ? 'text-white/40' : 'text-gray-500'
+                  }`}
+                >
+                  {s.label}
+                </button>
+                {quickSymbols.length > 1 && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); removeQuickSymbol(s.trade); }}
+                    aria-label={`Remove ${s.label}`}
+                    className={`hidden group-hover:flex absolute -top-1.5 -right-1.5 w-3.5 h-3.5 rounded-full items-center justify-center text-[9px] ${dark ? 'bg-red-500/80 text-white' : 'bg-red-500 text-white'}`}
+                  >
+                    ×
+                  </button>
+                )}
+              </span>
+            ))}
+            {quickSymbols.length < MAX_QUICK_SYMBOLS && (
+              <button
+                onClick={() => setAddingSymbol((v) => !v)}
+                title="Add an instrument quick-link"
+                aria-label="Add an instrument quick-link"
+                className={`px-2 py-1 rounded-md text-xs font-bold ${dark ? 'text-white/40 hover:text-white hover:bg-white/10' : 'text-gray-400 hover:text-gray-700 hover:bg-white'}`}
+              >
+                +
+              </button>
+            )}
+          </div>
 
           {/* Exchange — by direct request ("with a Exchange selection,
               Binance, Bybit, Bingx, Mexc"). Only actually changes
@@ -622,6 +713,54 @@ export function ManualTradingPage() {
             ))}
           </div>
         </div>
+
+        {addingSymbol && (
+          <div className={`rounded-lg border p-3 mb-3 ${dark ? 'bg-corporate-surface-dark border-corporate-border-dark' : 'bg-white border-gray-200'}`}>
+            <div className={`text-xs mb-1.5 ${dark ? 'text-white/50' : 'text-gray-500'}`}>
+              Exchange for this instrument
+            </div>
+            <div className="flex flex-wrap gap-1.5 mb-2.5">
+              {EXCHANGES.map((ex) => (
+                <button
+                  key={ex.id}
+                  onClick={() => setAddExchange(ex)}
+                  className={`px-2.5 py-1 rounded-md text-xs font-semibold capitalize ${
+                    addExchange.id === ex.id
+                      ? dark ? 'bg-white text-corporate-text-on-bg' : 'bg-corporate-hero text-white'
+                      : dark ? 'bg-white/10 text-white/60' : 'bg-black/5 text-gray-500'
+                  }`}
+                >
+                  {ex.label}
+                </button>
+              ))}
+            </div>
+            <input
+              autoFocus
+              placeholder="Search real instruments — e.g. ETH, SOL, DOGE…"
+              value={addQuery}
+              onChange={(e) => setAddQuery(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && addQuery.trim()) addQuickSymbol(addQuery); }}
+              className={`w-full rounded-lg px-3 py-2 text-sm outline-none border ${dark ? 'bg-corporate-nav-dark border-corporate-border-dark text-white' : 'bg-white border-gray-200'}`}
+            />
+            {addResults.length > 0 && (
+              <div className={`mt-1.5 max-h-40 overflow-y-auto rounded-lg border ${dark ? 'border-corporate-border-dark' : 'border-gray-200'}`}>
+                {addResults.map((i) => (
+                  <button
+                    key={i.symbol}
+                    onClick={() => addQuickSymbol(i.symbol)}
+                    className={`w-full flex items-center justify-between px-2.5 py-1.5 text-xs text-left ${dark ? 'hover:bg-white/5 text-white/80' : 'hover:bg-gray-50 text-corporate-text-on-bg'}`}
+                  >
+                    <span className="font-semibold">{i.symbol}</span>
+                    <span className={dark ? 'text-white/40' : 'text-gray-400'}>{i.base_asset}/{i.quote_asset}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className={`text-[11px] mt-2 ${dark ? 'text-white/30' : 'text-gray-400'}`}>
+              Added as a real perpetual on {addExchange.label} — press Enter to add a typed symbol not in the results too.
+            </div>
+          </div>
+        )}
 
         {/* Visible confirmation of exactly which chart symbol is being
             requested — by direct bug report ("the quick link
