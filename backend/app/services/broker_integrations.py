@@ -8,6 +8,7 @@ import hmac
 import hashlib
 import base64
 import json
+import uuid
 from datetime import datetime, timezone
 from typing import Dict, Optional
 import httpx
@@ -16,6 +17,53 @@ import structlog
 logger = structlog.get_logger()
 
 _FAILOVER_EXCEPTIONS = (httpx.ConnectError, httpx.ConnectTimeout, httpx.ProxyError, httpx.ReadTimeout)
+
+
+async def _paper_place_order(
+    client, symbol: str, order_type: str, price: Optional[float],
+) -> Dict:
+    """
+    Shared paper-trading fill simulator every broker's place_order()
+    below routes to when constructed with paper=True — by direct
+    request ("paper trading assumes that the pseudo exchange gets the
+    info and responds accurately"): this genuinely calls that same
+    broker's own real, public, unauthenticated get_ticker_price() for
+    a MARKET fill instead of trusting the caller's entry_price
+    uncritically, so the "exchange" side of a paper trade is accurate
+    real market data, not a fabrication — only the actual order-
+    placement call (the part that would need real credentials and put
+    real money at risk) is skipped. A LIMIT/STOP order fills at its own
+    given price — paper mode has no real order book to rest on, so
+    there's no "still waiting to be touched" state to simulate, the
+    same instant-fill simplification this app's original Test mode
+    already made.
+    """
+    fill_price = price
+    if order_type.upper() == "MARKET" or fill_price is None:
+        ticker = await client.get_ticker_price(symbol)
+        if ticker.get("success"):
+            fill_price = ticker["price"]
+    return {
+        "success": True, "order_id": f"PAPER-{uuid.uuid4().hex[:10]}", "symbol": symbol,
+        "status": "FILLED", "fill_price": fill_price, "paper": True,
+    }
+
+
+def _paper_cancel_order(order_id: str) -> Dict:
+    """
+    A paper order fills instantly the moment it's placed (see
+    _paper_place_order above — there's no real order book for one to
+    rest on unfilled), so by the time anything tries to cancel one it
+    has already "filled." Reporting that honestly as a cancel failure
+    (rather than a hollow always-succeeds CANCELLED) is what makes
+    manual_trading.py's own cancel endpoint correctly fall through to
+    closing it as an open position instead of wrongly marking an
+    already-open paper trade CANCELLED as if it never happened.
+    """
+    return {
+        "success": False, "error": "already_filled", "order_id": order_id,
+        "message": "Paper orders fill instantly — there's nothing left to cancel.",
+    }
 
 
 async def _send_with_failover(primary_client: httpx.AsyncClient, backup_client: Optional[httpx.AsyncClient], method: str, url: str, **kwargs):
@@ -56,10 +104,16 @@ class BingXBroker:
 
     BASE_URL = "https://open-api.bingx.com"
 
-    def __init__(self, api_key: str, api_secret: str, demo: bool = True, proxy: Optional[str] = None, backup_proxy: Optional[str] = None):
+    def __init__(self, api_key: str, api_secret: str, demo: bool = True, proxy: Optional[str] = None, backup_proxy: Optional[str] = None, paper: bool = False):
         self.api_key = api_key
         self.api_secret = api_secret
         self.demo = demo
+        # paper=True: place_order/cancel_order below never make a real,
+        # credentialed call — a Paper Trading instance is constructed
+        # with no real key/secret at all (see execution_engine.py's
+        # paper_brokers), so this only matters for that gate, not for
+        # anything api_key-shaped.
+        self.paper = paper
         self.client = httpx.AsyncClient(timeout=30.0, proxy=proxy or None)
         self.backup_client = httpx.AsyncClient(timeout=30.0, proxy=backup_proxy) if backup_proxy else None
 
@@ -173,6 +227,8 @@ class BingXBroker:
                 take_profit=48000
             )
         """
+        if self.paper:
+            return await _paper_place_order(self, symbol, order_type, price)
         endpoint = "/openApi/swap/v2/trade/order"
         is_stop = order_type.upper() == "STOP"
 
@@ -236,6 +292,8 @@ class BingXBroker:
         brokers below (MEXC genuinely needs it; BingX's trigger orders
         share this same endpoint/orderId space, so it doesn't).
         """
+        if self.paper:
+            return _paper_cancel_order(order_id)
         endpoint = "/openApi/swap/v2/trade/order"
         params = {"symbol": symbol.replace("/", "-").upper(), "orderId": order_id}
         result = await self._request("DELETE", endpoint, params=params)
@@ -285,11 +343,12 @@ class TradeLockerBroker:
 
     BASE_URL = "https://api.tradelocker.com"
 
-    def __init__(self, api_key: str, api_secret: str, account_id: Optional[str] = None, proxy: Optional[str] = None):
+    def __init__(self, api_key: str, api_secret: str, account_id: Optional[str] = None, proxy: Optional[str] = None, paper: bool = False):
         self.api_key = api_key
         self.api_secret = api_secret
         self.account_id = account_id
         self.access_token = None
+        self.paper = paper
         self.client = httpx.AsyncClient(timeout=30.0, proxy=proxy or None)
 
     async def authenticate(self) -> bool:
@@ -381,6 +440,8 @@ class TradeLockerBroker:
                 take_profit=1.0950
             )
         """
+        if self.paper:
+            return await _paper_place_order(self, symbol, order_type, price)
         endpoint = "/orders"
         is_stop = order_type.lower() == "stop"
 
@@ -437,6 +498,8 @@ class TradeLockerBroker:
         parses a JSON body) rather than teaching it a special case for
         one endpoint.
         """
+        if self.paper:
+            return _paper_cancel_order(order_id)
         if not self.access_token:
             auth_success = await self.authenticate()
             if not auth_success:
@@ -520,10 +583,16 @@ class BinanceBroker:
 
     BASE_URL = "https://fapi.binance.com"
 
-    def __init__(self, api_key: str, api_secret: str, demo: bool = True, proxy: Optional[str] = None, backup_proxy: Optional[str] = None):
+    def __init__(self, api_key: str, api_secret: str, demo: bool = True, proxy: Optional[str] = None, backup_proxy: Optional[str] = None, paper: bool = False):
         self.api_key = api_key
         self.api_secret = api_secret
         self.demo = demo
+        # paper=True: place_order/cancel_order below never make a real,
+        # credentialed call — a Paper Trading instance is constructed
+        # with no real key/secret at all (see execution_engine.py's
+        # paper_brokers), so this only matters for that gate, not for
+        # anything api_key-shaped.
+        self.paper = paper
         self.client = httpx.AsyncClient(timeout=30.0, proxy=proxy or None)
         self.backup_client = httpx.AsyncClient(timeout=30.0, proxy=backup_proxy) if backup_proxy else None
 
@@ -596,6 +665,8 @@ class BinanceBroker:
         no timeInForce/price is sent, matching Binance's own docs
         ("STOP_MARKET does not use timeInForce or price").
         """
+        if self.paper:
+            return await _paper_place_order(self, symbol, order_type, price)
         symbol_clean = symbol.replace("/", "").replace("-", "").upper()
         is_stop = order_type.upper() == "STOP"
         params = {
@@ -666,6 +737,8 @@ class BinanceBroker:
         """Cancel a still-resting order — DELETE /fapi/v1/order per
         Binance's own docs (symbol + orderId, same signed-request shape
         _request already handles for GET/POST)."""
+        if self.paper:
+            return _paper_cancel_order(order_id)
         symbol_clean = symbol.replace("/", "").replace("-", "").upper()
         result = await self._request("DELETE", "/fapi/v1/order", {"symbol": symbol_clean, "orderId": order_id})
         if result["success"]:
@@ -709,10 +782,16 @@ class BybitBroker:
     BASE_URL = "https://api.bybit.com"
     RECV_WINDOW = "5000"
 
-    def __init__(self, api_key: str, api_secret: str, demo: bool = True, proxy: Optional[str] = None, backup_proxy: Optional[str] = None):
+    def __init__(self, api_key: str, api_secret: str, demo: bool = True, proxy: Optional[str] = None, backup_proxy: Optional[str] = None, paper: bool = False):
         self.api_key = api_key
         self.api_secret = api_secret
         self.demo = demo
+        # paper=True: place_order/cancel_order below never make a real,
+        # credentialed call — a Paper Trading instance is constructed
+        # with no real key/secret at all (see execution_engine.py's
+        # paper_brokers), so this only matters for that gate, not for
+        # anything api_key-shaped.
+        self.paper = paper
         self.client = httpx.AsyncClient(timeout=30.0, proxy=proxy or None)
         self.backup_client = httpx.AsyncClient(timeout=30.0, proxy=backup_proxy) if backup_proxy else None
 
@@ -798,6 +877,8 @@ class BybitBroker:
         Stop" breakdown-below-market — the same convention this app's
         MetaApi (MT4/5) integration relies on for BUY_STOP/SELL_STOP.
         """
+        if self.paper:
+            return await _paper_place_order(self, symbol, order_type, price)
         symbol_clean = symbol.replace("/", "").replace("-", "").upper()
         is_stop = order_type.upper() == "STOP"
         params = {
@@ -850,6 +931,8 @@ class BybitBroker:
         """Cancel a still-resting (unfilled or partially filled) order —
         POST /v5/order/cancel per Bybit's own V5 docs (category + symbol
         + orderId; Bybit only exposes cancel as POST, no DELETE)."""
+        if self.paper:
+            return _paper_cancel_order(order_id)
         symbol_clean = symbol.replace("/", "").replace("-", "").upper()
         result = await self._request("POST", "/v5/order/cancel", {
             "category": "linear", "symbol": symbol_clean, "orderId": order_id,
@@ -905,10 +988,16 @@ class MexcBroker:
 
     BASE_URL = "https://contract.mexc.com"
 
-    def __init__(self, api_key: str, api_secret: str, demo: bool = True, proxy: Optional[str] = None, backup_proxy: Optional[str] = None):
+    def __init__(self, api_key: str, api_secret: str, demo: bool = True, proxy: Optional[str] = None, backup_proxy: Optional[str] = None, paper: bool = False):
         self.api_key = api_key
         self.api_secret = api_secret
         self.demo = demo
+        # paper=True: place_order/cancel_order below never make a real,
+        # credentialed call — a Paper Trading instance is constructed
+        # with no real key/secret at all (see execution_engine.py's
+        # paper_brokers), so this only matters for that gate, not for
+        # anything api_key-shaped.
+        self.paper = paper
         self.client = httpx.AsyncClient(timeout=30.0, proxy=proxy or None)
         self.backup_client = httpx.AsyncClient(timeout=30.0, proxy=backup_proxy) if backup_proxy else None
 
@@ -999,6 +1088,8 @@ class MexcBroker:
         so this branches to _place_plan_order rather than bolting a
         trigger field onto the request built below.
         """
+        if self.paper:
+            return await _paper_place_order(self, symbol, order_type, price)
         if order_type.upper() == "STOP":
             return await self._place_plan_order(symbol, side, quantity, price)
 
@@ -1099,6 +1190,8 @@ class MexcBroker:
         request directly rather than teaching _request an array-body
         case used nowhere else.
         """
+        if self.paper:
+            return _paper_cancel_order(order_id)
         mexc_symbol = self._mexc_symbol(symbol)
         endpoint = "/api/v1/private/planorder/cancel" if is_stop else "/api/v1/private/order/cancel"
         body = [{"symbol": mexc_symbol, "orderId": order_id}] if is_stop else [order_id]
@@ -1187,10 +1280,11 @@ class MetaApiBroker:
     the crypto exchanges use.
     """
 
-    def __init__(self, token: str, account_id: str, region: str = "new-york"):
+    def __init__(self, token: str, account_id: str, region: str = "new-york", paper: bool = False):
         self.token = token
         self.account_id = account_id
         self.base_url = f"https://mt-client-api-v1.{region}.agiliumtrade.ai/users/current/accounts/{account_id}"
+        self.paper = paper
         self.client = httpx.AsyncClient(timeout=30.0)
 
     async def _request(self, method: str, path: str, json_body: Dict = None, params: Dict = None) -> Dict:
@@ -1230,6 +1324,8 @@ class MetaApiBroker:
                          price: Optional[float] = None,
                          stop_loss: Optional[float] = None,
                          take_profit: Optional[float] = None) -> Dict:
+        if self.paper:
+            return await _paper_place_order(self, symbol, order_type, price)
         # STOP maps onto MT4/5's own native pending-order types —
         # BUY_STOP triggers as price rises to openPrice (the classic
         # "breakout above" entry), SELL_STOP as it falls to openPrice
@@ -1285,6 +1381,8 @@ class MetaApiBroker:
         is accepted only for interface parity with the other brokers;
         MetaApi's own cancel call is keyed purely on orderId.
         """
+        if self.paper:
+            return _paper_cancel_order(order_id)
         result = await self._request("POST", "/trade", {"actionType": "ORDER_CANCEL", "orderId": order_id})
         if result["success"]:
             return {"success": True, "order_id": order_id, "status": result["data"].get("stringCode", "CANCELLED")}

@@ -74,6 +74,26 @@ class ExecutionEngine:
                 self.settings.METAAPI_REGION,
             )
 
+        # One instance per exchange, always available regardless of
+        # whether that exchange has a real API key configured above —
+        # backs the manual-trading Paper Trading toggle (independent of
+        # Test/Live), not to be confused with this class's own
+        # pre-existing "paper" fallback string in _determine_broker/
+        # _execute_broker_order (that one means "no broker could be
+        # determined at all"; this is a deliberate, per-exchange
+        # simulated fill). Each broker's own paper=True short-circuits
+        # place_order/cancel_order before any signed/authenticated call
+        # would go out (see broker_integrations.py), so no real
+        # credentials are needed here — empty strings are fine.
+        self.paper_brokers = {
+            "bingx": BingXBroker("", "", paper=True),
+            "tradelocker": TradeLockerBroker("", "", paper=True),
+            "binance": BinanceBroker("", "", paper=True),
+            "bybit": BybitBroker("", "", paper=True),
+            "mexc": MexcBroker("", "", paper=True),
+            "metatrader": MetaApiBroker("", "", paper=True),
+        }
+
     async def process_signal(self, signal: BotSignal, mode: str = "human_in_loop", db: Optional[AsyncSession] = None) -> Dict:
         """
         Process a bot signal into a trade action. `db` is optional (a
@@ -259,15 +279,26 @@ class ExecutionEngine:
             self.pending_trades.remove(trade)
             return {"success": True, "message": "Trade rejected", "trade_id": trade_id}
 
-    async def _get_broker_client(self, broker: str, bot_id: Optional[str], db: Optional[AsyncSession]):
+    async def _get_broker_client(self, broker: str, bot_id: Optional[str], db: Optional[AsyncSession], paper: bool = False):
         """
-        A bot-specific credential (see broker_credentials.py, one of
-        your 4-6 sub-accounts per exchange) wins when one exists;
-        otherwise falls back to the single global-key client for that
-        exchange (self.brokers, from BINANCE_API_KEY etc.) so a bot
-        with no credential row of its own keeps working exactly as
-        before. Returns None if neither exists (-> paper mode).
+        `paper=True` (the manual-trading Paper Trading toggle — see
+        __init__'s self.paper_brokers) always wins outright and skips
+        the per-bot-credential lookup entirely: a paper fill needs no
+        real credentials of any kind, and a bot/user's real per-broker
+        key is exactly the thing paper mode exists to avoid touching.
+
+        Otherwise, a bot-specific credential (see broker_credentials.py,
+        one of your 4-6 sub-accounts per exchange) wins when one exists;
+        falls back to the single global-key client for that exchange
+        (self.brokers, from BINANCE_API_KEY etc.) so a bot with no
+        credential row of its own keeps working exactly as before.
+        Returns None if neither exists (-> the OTHER, pre-existing
+        "paper" meaning in _determine_broker/_execute_broker_order below:
+        no broker could be determined at all, unrelated to the Paper
+        Trading toggle).
         """
+        if paper:
+            return self.paper_brokers.get(broker)
         if db is not None and bot_id is not None:
             try:
                 credential_client = await build_broker_client(db, bot_id, broker)
@@ -280,6 +311,7 @@ class ExecutionEngine:
     async def cancel_broker_order(
         self, broker: Optional[str], order_id: Optional[str], symbol: str,
         bot_id: Optional[str], db: Optional[AsyncSession] = None, is_stop: bool = False,
+        paper: bool = False,
     ) -> Dict:
         """
         Cancel a still-open order at the broker that actually accepted
@@ -291,10 +323,16 @@ class ExecutionEngine:
         broker that actually filled/accepted this specific order — not
         re-derived from the symbol the way a fresh order's routing is,
         since broker config can change after an order was placed.
+        `paper` should mirror whatever the order was actually placed
+        with (Trade.is_test, once manual_trading.py unifies Test/Paper
+        onto it) — a real trade needs a real broker client to cancel
+        against, a paper one needs the matching paper client so its own
+        instant-fill semantics apply (see broker_integrations.py's
+        _paper_cancel_order).
         """
         if not broker or not order_id:
             return {"success": False, "error": "missing_broker_reference", "message": "No broker order reference stored for this trade — nothing to cancel at a broker."}
-        client = await self._get_broker_client(broker, bot_id, db)
+        client = await self._get_broker_client(broker, bot_id, db, paper=paper)
         if client is None or not hasattr(client, "cancel_order"):
             return {"success": False, "error": "no_broker_client", "message": f"No {broker} client configured to cancel this order."}
         try:
@@ -303,10 +341,15 @@ class ExecutionEngine:
             logger.error("broker_cancel_failed", broker=broker, order_id=order_id, error=str(e))
             return {"success": False, "error": str(e)}
 
-    async def _execute_broker_order(self, trade: Dict, db: Optional[AsyncSession] = None) -> Dict:
-        """Execute order via configured broker."""
+    async def _execute_broker_order(self, trade: Dict, db: Optional[AsyncSession] = None, paper: bool = False) -> Dict:
+        """Execute order via configured broker. `paper=True` is the
+        manual-trading Paper Trading toggle: still runs the exact same
+        broker-routing/order-shape/price-deviation-guard logic below
+        against a real, live-priced ticker, it just never places a real
+        order (see _get_broker_client and broker_integrations.py's
+        per-broker paper=True short-circuits)."""
         broker = self._determine_broker(trade["symbol"], trade.get("preferred_broker"))
-        client = await self._get_broker_client(broker, trade.get("bot_id"), db) if broker != "paper" else None
+        client = await self._get_broker_client(broker, trade.get("bot_id"), db, paper=paper) if broker != "paper" else None
 
         try:
             if client is not None:
