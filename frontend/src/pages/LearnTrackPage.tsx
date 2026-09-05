@@ -12,11 +12,29 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 // Decision Lab routes, matched by track title substring — 4 of 18
 // tracks so far (Section 11's own template, not every track yet; see
 // RiskManagementDecisionLab's docstring).
+// Match strings are deliberately the full "Core N — Title" / "Bot N —
+// Title" text (not a short word like "Liquidity" alone) — several bot
+// tracks share words with core tracks (e.g. Bot 4/5 both have
+// "Liquidity" in their own title), so a short substring would show the
+// wrong track's Decision Lab link alongside the right one.
 const DECISION_LABS: [string, string][] = [
-  ['Risk Management', '/learn/decision-lab/risk-management'],
+  ['Core 1 — Market Basics', '/learn/decision-lab/market-basics'],
+  ['Core 2 — Market Structure', '/learn/decision-lab/market-structure'],
+  ['Core 3 — Liquidity', '/learn/decision-lab/liquidity'],
+  ['Supply, Demand & Zones', '/learn/decision-lab/supply-demand'],
+  ['Fair Value Gaps', '/learn/decision-lab/fair-value-gaps'],
+  ['Premium / Discount', '/learn/decision-lab/premium-discount'],
+  ['Multi-Timeframe Analysis', '/learn/decision-lab/multi-timeframe'],
+  ['Core 8 — Risk Management', '/learn/decision-lab/risk-management'],
+  ['Core 9 — Trade Management', '/learn/decision-lab/trade-management'],
   ['Trading Psychology', '/learn/decision-lab/trading-psychology'],
-  ['Market Structure', '/learn/decision-lab/market-structure'],
   ['Order Flow Trading', '/learn/decision-lab/order-flow-trading'],
+  ['Book Knowledge', '/learn/decision-lab/book-knowledge'],
+  ['Bot 1 — Macro Swing Structure', '/learn/decision-lab/bot-1'],
+  ['Bot 2 — Order Block Reversal', '/learn/decision-lab/bot-2'],
+  ['Bot 3 — Imbalance Expansion', '/learn/decision-lab/bot-3'],
+  ['Bot 4 — Volume & Liquidity Sweep', '/learn/decision-lab/bot-4'],
+  ['Bot 5 — Liquidity Purge Specialist', '/learn/decision-lab/bot-5'],
 ];
 
 interface Stage {
@@ -122,9 +140,9 @@ export function LearnTrackPage() {
         Mastery level: <span className="text-corporate-hero">{track.mastery_level}</span>
       </div>
 
-      {/* Section 11's Decision Lab — currently seeded for 4 of 18
-          tracks, matched by title (see RiskManagementDecisionLab's own
-          docstring on why this is a template, not every track yet). */}
+      {/* Section 11's Decision Lab — one per real content track (17 of
+          18; Honest Gap Orientation is a meta/orientation track, not a
+          real decision-scenario pillar), matched by exact track title. */}
       {DECISION_LABS.filter(([title]) => track.title.includes(title)).map(([title, route]) => (
         <Link
           key={route}

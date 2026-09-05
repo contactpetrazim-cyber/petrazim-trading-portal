@@ -38,6 +38,19 @@ import { RiskManagementDecisionLab } from './pages/RiskManagementDecisionLab';
 import { TradingPsychologyDecisionLab } from './pages/TradingPsychologyDecisionLab';
 import { MarketStructureDecisionLab } from './pages/MarketStructureDecisionLab';
 import { OrderFlowDecisionLab } from './pages/OrderFlowDecisionLab';
+import { MarketBasicsDecisionLab } from './pages/decisionLabs/MarketBasicsDecisionLab';
+import { LiquidityDecisionLab } from './pages/decisionLabs/LiquidityDecisionLab';
+import { SupplyDemandDecisionLab } from './pages/decisionLabs/SupplyDemandDecisionLab';
+import { FVGDecisionLab } from './pages/decisionLabs/FVGDecisionLab';
+import { PremiumDiscountDecisionLab } from './pages/decisionLabs/PremiumDiscountDecisionLab';
+import { MTFDecisionLab } from './pages/decisionLabs/MTFDecisionLab';
+import { TradeManagementDecisionLab } from './pages/decisionLabs/TradeManagementDecisionLab';
+import { BookKnowledgeDecisionLab } from './pages/decisionLabs/BookKnowledgeDecisionLab';
+import { Bot1DecisionLab } from './pages/decisionLabs/Bot1DecisionLab';
+import { Bot2DecisionLab } from './pages/decisionLabs/Bot2DecisionLab';
+import { Bot3DecisionLab } from './pages/decisionLabs/Bot3DecisionLab';
+import { Bot4DecisionLab } from './pages/decisionLabs/Bot4DecisionLab';
+import { Bot5DecisionLab } from './pages/decisionLabs/Bot5DecisionLab';
 import { VisualGlossaryPage } from './pages/VisualGlossaryPage';
 import { WhatHappensNextGame } from './pages/WhatHappensNextGame';
 import { ConceptSpotterGame } from './pages/ConceptSpotterGame';
@@ -252,6 +265,19 @@ function App() {
         <Route path="/learn/decision-lab/trading-psychology" element={<CorporateLayout><TradingPsychologyDecisionLab /></CorporateLayout>} />
         <Route path="/learn/decision-lab/market-structure" element={<CorporateLayout><MarketStructureDecisionLab /></CorporateLayout>} />
         <Route path="/learn/decision-lab/order-flow-trading" element={<CorporateLayout><OrderFlowDecisionLab /></CorporateLayout>} />
+        <Route path="/learn/decision-lab/market-basics" element={<CorporateLayout><MarketBasicsDecisionLab /></CorporateLayout>} />
+        <Route path="/learn/decision-lab/liquidity" element={<CorporateLayout><LiquidityDecisionLab /></CorporateLayout>} />
+        <Route path="/learn/decision-lab/supply-demand" element={<CorporateLayout><SupplyDemandDecisionLab /></CorporateLayout>} />
+        <Route path="/learn/decision-lab/fair-value-gaps" element={<CorporateLayout><FVGDecisionLab /></CorporateLayout>} />
+        <Route path="/learn/decision-lab/premium-discount" element={<CorporateLayout><PremiumDiscountDecisionLab /></CorporateLayout>} />
+        <Route path="/learn/decision-lab/multi-timeframe" element={<CorporateLayout><MTFDecisionLab /></CorporateLayout>} />
+        <Route path="/learn/decision-lab/trade-management" element={<CorporateLayout><TradeManagementDecisionLab /></CorporateLayout>} />
+        <Route path="/learn/decision-lab/book-knowledge" element={<CorporateLayout><BookKnowledgeDecisionLab /></CorporateLayout>} />
+        <Route path="/learn/decision-lab/bot-1" element={<CorporateLayout><Bot1DecisionLab /></CorporateLayout>} />
+        <Route path="/learn/decision-lab/bot-2" element={<CorporateLayout><Bot2DecisionLab /></CorporateLayout>} />
+        <Route path="/learn/decision-lab/bot-3" element={<CorporateLayout><Bot3DecisionLab /></CorporateLayout>} />
+        <Route path="/learn/decision-lab/bot-4" element={<CorporateLayout><Bot4DecisionLab /></CorporateLayout>} />
+        <Route path="/learn/decision-lab/bot-5" element={<CorporateLayout><Bot5DecisionLab /></CorporateLayout>} />
         <Route path="/learn/visual-glossary" element={<CorporateLayout><VisualGlossaryPage /></CorporateLayout>} />
         <Route path="/practise/games/what-happens-next" element={<CorporateLayout><WhatHappensNextGame /></CorporateLayout>} />
         <Route path="/practise/games/concept-spotter" element={<CorporateLayout><ConceptSpotterGame /></CorporateLayout>} />
