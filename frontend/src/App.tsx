@@ -5,6 +5,7 @@ import { BottomNav } from './components/BottomNav';
 import { FloatingTradeAI } from './components/FloatingTradeAI';
 import { useThemeStore } from './hooks/useTheme';
 import { DashboardPage } from './pages/Dashboard';
+import { AnalyticsPage } from './pages/AnalyticsPage';
 import { TradesPage } from './pages/Trades';
 import { BotsPage } from './pages/Bots';
 import { RiskPage } from './pages/RiskPage';
@@ -99,7 +100,7 @@ function App() {
         } />
         <Route path="/analytics" element={
           <ProtectedRoute allowedRoles={TRADER_CONSOLE_ROLES}>
-            <Layout><DashboardPage /></Layout>
+            <Layout><AnalyticsPage /></Layout>
           </ProtectedRoute>
         } />
         <Route path="/risk" element={

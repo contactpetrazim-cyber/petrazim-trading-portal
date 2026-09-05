@@ -133,13 +133,32 @@ async def performance_summary(
     r_multiples = [t.r_multiple for t in trades if t.r_multiple is not None]
     avg_r = sum(r_multiples) / len(r_multiples) if r_multiples else 0
 
+    # Max drawdown — was hardcoded 0.0 ("Calculate properly"), a real,
+    # confirmed gap (Analytics/Trader-analytics fix, by direct report).
+    # Same peak-to-trough-of-running-equity definition as dashboard_stats'
+    # own intraday $ drawdown above, walked in chronological (exit) order
+    # over this period's own closed trades, expressed as a % against the
+    # same 10000.0 starting-equity placeholder equity_curve() already
+    # uses — so this number is consistent with what the equity curve
+    # chart actually plots, not a second invented baseline.
+    STARTING_EQUITY = 10000.0
+    chronological = sorted(trades, key=lambda t: t.exit_timestamp or t.created_at)
+    equity = STARTING_EQUITY
+    peak = STARTING_EQUITY
+    max_dd_pct = 0.0
+    for t in chronological:
+        equity += t.realized_pnl or 0.0
+        peak = max(peak, equity)
+        if peak > 0:
+            max_dd_pct = max(max_dd_pct, (peak - equity) / peak * 100)
+
     return [PerformanceSummary(
         period=period,
         total_trades=total,
         win_rate=round(len(wins) / total * 100, 2),
         profit_factor=round(profit_factor, 2),
         average_r_multiple=round(avg_r, 2),
-        max_drawdown_pct=0.0,  # Calculate properly
+        max_drawdown_pct=round(max_dd_pct, 2),
         net_pnl=round(sum(t.realized_pnl for t in trades), 2)
     )]
 
