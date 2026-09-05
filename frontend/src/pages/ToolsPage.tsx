@@ -4,7 +4,7 @@ import {
   Gauge, TrendingUp, Grid3x3, NotebookPen, Wallet, Plus, Trash2, LineChart, Activity, Maximize2,
 } from 'lucide-react';
 import {
-  ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, ResponsiveContainer,
+  ComposedChart, Area, Line, Bar, BarChart, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, ResponsiveContainer,
 } from 'recharts';
 import { PageHeader } from '../components/PageHeader';
 import { FoldedCard } from '../components/FoldedCard';
@@ -169,6 +169,108 @@ function CorrelationHeatMap({ labels, matrix, dark }: { labels: string[]; matrix
   );
 }
 
+interface PayoutAccountRow {
+  account_id: string;
+  daily_loss_limit_pct: number;
+  total_drawdown_limit_pct: number;
+  current_daily_loss_pct: number;
+  current_total_drawdown_pct: number;
+}
+
+/**
+ * PayoutRunwayChart — "a chart ... similar to the risk of ruin chart"
+ * for the Payout Optimizer, by direct request: same idea (a real
+ * number plotted against a hard limit, with the danger zone shaded)
+ * applied to funded-account limits instead of equity. One bar per
+ * account per limit — how much of the daily-loss and total-drawdown
+ * budget is already used, out of that limit's own 100% — with a
+ * dashed reference line at the safety margin PayoutOptimizer itself
+ * refuses to allocate new risk past (the same safety_margin_pct the
+ * optimize call already uses server-side) and a solid line at the
+ * hard 100% breach point. Reads live off the account rows already
+ * typed into the form above — no server round-trip needed for "how
+ * close am I right now," the same always-show-something-real spirit
+ * as this card's own post-run allocation list further down.
+ */
+function PayoutRunwayChart({ accounts, safetyMarginPct, dark }: { accounts: PayoutAccountRow[]; safetyMarginPct: number; dark: boolean }) {
+  const gridColor = dark ? '#1f2937' : '#e5e7eb';
+  const axisColor = '#6b7280';
+  const dangerZoneStart = 100 - safetyMarginPct;
+  const data = accounts.flatMap((a, i) => {
+    const label = a.account_id || `Account ${i + 1}`;
+    return [
+      { key: `${label} · Daily loss`, used: Math.min(100, Math.max(0, (a.current_daily_loss_pct / (a.daily_loss_limit_pct || 1)) * 100)) },
+      { key: `${label} · Total DD`, used: Math.min(100, Math.max(0, (a.current_total_drawdown_pct / (a.total_drawdown_limit_pct || 1)) * 100)) },
+    ];
+  });
+  return (
+    <div className="mt-3">
+      <div className={`text-xs mb-1 ${dark ? 'text-white/40' : 'text-gray-500'}`}>
+        % of each limit already used, live from the form above — the red zone past {dangerZoneStart}% is where
+        the {safetyMarginPct}% safety margin stops new risk being allocated at all; 100% is the account's hard breach line.
+      </div>
+      <ResponsiveContainer width="100%" height={Math.max(90, data.length * 34)}>
+        <BarChart data={data} layout="vertical" margin={{ top: 4, right: 16, bottom: 4, left: 8 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke={gridColor} horizontal={false} />
+          <XAxis type="number" domain={[0, 100]} stroke={axisColor} fontSize={11} tickFormatter={(v) => `${v}%`} />
+          <YAxis type="category" dataKey="key" stroke={axisColor} fontSize={11} width={150} />
+          <Tooltip
+            formatter={(v: number) => [`${v.toFixed(1)}%`, 'Used']}
+            contentStyle={{ backgroundColor: dark ? '#111827' : '#fff', border: `1px solid ${gridColor}`, borderRadius: 8, fontSize: 12 }}
+          />
+          <ReferenceLine x={dangerZoneStart} stroke="#ef4444" strokeDasharray="5 4" strokeWidth={1.5} />
+          <ReferenceLine x={100} stroke="#7f1d1d" strokeWidth={1.5} />
+          <Bar dataKey="used" radius={[0, 4, 4, 0]} isAnimationActive={false}>
+            {data.map((d, i) => (
+              <Cell key={i} fill={d.used >= dangerZoneStart ? '#ef4444' : d.used >= dangerZoneStart * 0.6 ? '#f59e0b' : '#22c55e'} />
+            ))}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+const DEFAULT_ENTRY_TIMING = [
+  { session: 'Asian', pct: 15 },
+  { session: 'London', pct: 30 },
+  { session: 'NY', pct: 38 },
+  { session: 'London/NY overlap', pct: 17 },
+];
+
+/**
+ * EntryTimingChart — "show the zone or time of entry," by direct
+ * request, sitting next to the correlation heat map: which session
+ * each series' trades actually cluster in. The most common real reason
+ * two bots/positions correlate is trading the exact same window, not
+ * sharing an "edge" — this makes that visible instead of leaving
+ * correlation looking like an unexplained coincidence. Illustrative
+ * default distribution (weighted toward the London/NY overlap, the
+ * highest-volume real FX/crypto window) until real per-trade entry
+ * timestamps feed this in — same "default now, real data later"
+ * pattern as every other Tools card.
+ */
+function EntryTimingChart({ data, dark }: { data: { session: string; pct: number }[]; dark: boolean }) {
+  const gridColor = dark ? '#1f2937' : '#e5e7eb';
+  const axisColor = '#6b7280';
+  return (
+    <div className="mt-3">
+      <div className={`text-xs mb-1 ${dark ? 'text-white/40' : 'text-gray-500'}`}>
+        Entry zone by session — illustrative until real trade timestamps feed this in.
+      </div>
+      <ResponsiveContainer width="100%" height={140}>
+        <BarChart data={data} margin={{ top: 4, right: 8, bottom: 0, left: -20 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
+          <XAxis dataKey="session" stroke={axisColor} fontSize={10.5} />
+          <YAxis stroke={axisColor} fontSize={11} width={36} tickFormatter={(v) => `${v}%`} />
+          <Tooltip formatter={(v: number) => [`${v}%`, 'Share of entries']} contentStyle={{ backgroundColor: dark ? '#111827' : '#fff', border: `1px solid ${gridColor}`, borderRadius: 8, fontSize: 12 }} />
+          <Bar dataKey="pct" fill={TOOLS_ACCENT} radius={[4, 4, 0, 0]} isAnimationActive={false} />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
 /**
  * ToolsPage — real UI for all 5 Tools engines, none of which had any
  * frontend before (or any API endpoint, until routers/tools.py). Kept
@@ -245,7 +347,17 @@ export function ToolsPage() {
 
   // --- Correlation ---
   const [series, setSeries] = useState([{ label: 'Bot 1', returns: '1,-0.5,2,0.8,-1' }, { label: 'Bot 2', returns: '0.9,-0.4,1.8,0.7,-1.1' }]);
-  const [corrResult, setCorrResult] = useState<any>(null);
+  // Illustrative default heat map for the two placeholder series above
+  // (their numbers are near-identical shapes, so ~0.99 correlation is
+  // the real Pearson value, not a made-up one) — shows immediately, no
+  // auth or click needed, same "always show a real-looking chart"
+  // pattern as Risk-of-Ruin/Prop-Firm/Payout's own defaults. A real
+  // authenticated run (below) replaces it outright.
+  const [corrResult, setCorrResult] = useState<any>({
+    labels: ['Bot 1', 'Bot 2'], matrix: [[1, 0.99], [0.99, 1]],
+    flags: [{ label_a: 'Bot 1', label_b: 'Bot 2', correlation: 0.99, severity: 'high' }],
+  });
+  const [corrIsDefault, setCorrIsDefault] = useState(true);
   const [corrBusy, setCorrBusy] = useState(false);
 
   async function runCorrelation() {
@@ -260,6 +372,7 @@ export function ToolsPage() {
       });
       const data = await res.json();
       setCorrResult(res.ok ? data : { error: data.detail || 'Could not compute correlation.' });
+      setCorrIsDefault(false);
     } finally {
       setCorrBusy(false);
     }
@@ -404,6 +517,20 @@ export function ToolsPage() {
               that can later be replaced with real data and refreshed"). */}
           <div className="mt-3">
             {propResult?.error && <ResultBox dark={dark}>{propResult.error}</ResultBox>}
+            {(() => {
+              // Same default-chart pattern as Risk-of-Ruin's own gauge,
+              // reused here to literally "indicate zone of passing or
+              // failing" by direct request: >=50% probability of pass
+              // reads as the pass zone, 25-49% a borderline zone worth
+              // tightening risk for, <25% a real fail zone — same
+              // thresholds Risk-of-Ruin already uses for its own
+              // probability-of-ruin coloring, just mirrored (higher is
+              // better here, not worse).
+              const passPct = propResult && !propResult.error ? propResult.probability_of_pass : 45;
+              const zoneLabel = passPct >= 50 ? 'Pass zone' : passPct >= 25 ? 'Borderline zone' : 'Fail zone';
+              const zoneColor = passPct >= 50 ? '#22c55e' : passPct >= 25 ? '#f59e0b' : '#ef4444';
+              return <GaugeBar pct={passPct} dark={dark} color={zoneColor} label={`Probability of passing — ${passPct}% (${zoneLabel})`} />;
+            })()}
             <StackedBar
               dark={dark}
               segments={
@@ -455,6 +582,12 @@ export function ToolsPage() {
                       <div key={i}>{f.label_a} × {f.label_b}: {f.correlation} ({f.severity})</div>
                     ))}
                   </ResultBox>
+                )}
+                <EntryTimingChart data={DEFAULT_ENTRY_TIMING} dark={dark} />
+                {corrIsDefault && (
+                  <div className={`text-xs mt-1.5 italic ${dark ? 'text-white/30' : 'text-gray-400'}`}>
+                    Example correlation — edit the series above and Compute for your own bots.
+                  </div>
                 )}
               </div>
             )
@@ -536,6 +669,17 @@ export function ToolsPage() {
               <Plus size={13} /> Add account
             </button>
           </div>
+          <PayoutRunwayChart
+            accounts={accounts.map((a) => ({
+              account_id: a.account_id,
+              daily_loss_limit_pct: Number(a.daily_loss_limit_pct) || 1,
+              total_drawdown_limit_pct: Number(a.total_drawdown_limit_pct) || 1,
+              current_daily_loss_pct: Number(a.current_daily_loss_pct) || 0,
+              current_total_drawdown_pct: Number(a.current_total_drawdown_pct) || 0,
+            }))}
+            safetyMarginPct={20}
+            dark={dark}
+          />
           <button onClick={runPayoutOptimizer} disabled={payoutBusy} className="text-xs font-semibold px-3 py-1.5 rounded-lg text-white disabled:opacity-50" style={{ background: TOOLS_ACCENT }}>
             {payoutBusy ? 'Optimizing…' : 'Optimize'}
           </button>
