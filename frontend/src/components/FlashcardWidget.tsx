@@ -33,9 +33,10 @@ export function FlashcardWidget({ lessonId, dark }: { lessonId: string; dark: bo
       `${API_URL}/curriculum/lessons/${lessonId}/flashcards`,
       { headers: { Authorization: `Bearer ${token}` } },
       setPhase,
+      setError,
     ).then((r) => {
       if (r && r.length) setCards(r);
-      else setError('No flashcards available for this lesson right now.');
+      else setError((prev) => prev ?? 'No flashcards available for this lesson right now.');
     });
   }
 

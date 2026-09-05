@@ -32,7 +32,7 @@ export function RecapPanel({ lessonId, dark }: { lessonId: string; dark: boolean
     setOpen(true);
     setError(null);
     const headers = { Authorization: `Bearer ${token}` };
-    fetchJsonWithRetry<Recap>(`${API_URL}/curriculum/lessons/${lessonId}/recap`, { headers }, setPhase)
+    fetchJsonWithRetry<Recap>(`${API_URL}/curriculum/lessons/${lessonId}/recap`, { headers }, setPhase, setError)
       .then((r) => {
         if (r) {
           setRecap(r);
@@ -40,7 +40,7 @@ export function RecapPanel({ lessonId, dark }: { lessonId: string; dark: boolean
           // block the trainee from reading the recap they already got.
           fetch(`${API_URL}/curriculum/lessons/${lessonId}/recap/open`, { method: 'POST', headers }).catch(() => {});
         } else {
-          setError('Could not generate a recap for this lesson right now — try again in a moment.');
+          setError((prev) => prev ?? 'Could not generate a recap for this lesson right now — try again in a moment.');
         }
       });
   }

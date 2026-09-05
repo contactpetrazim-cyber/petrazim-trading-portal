@@ -36,6 +36,12 @@ export async function fetchJsonWithRetry<T>(
   url: string,
   init: RequestInit,
   onPhase?: (phase: FetchPhase, attempt: number) => void,
+  /** Optional — receives the backend's own `detail` message from the
+   * last failed response (e.g. an AI feature's real "no provider
+   * configured" vs "temporarily unavailable" distinction) instead of
+   * the caller having to fall back to one fixed local string
+   * regardless of why the call actually failed. */
+  onErrorDetail?: (detail: string) => void,
 ): Promise<T | null> {
   onPhase?.('loading', 0);
   for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
@@ -45,6 +51,8 @@ export async function fetchJsonWithRetry<T>(
         onPhase?.('ready', attempt);
         return (await res.json()) as T;
       }
+      const body = await res.clone().json().catch(() => null);
+      if (body?.detail && typeof body.detail === 'string') onErrorDetail?.(body.detail);
       // A real 4xx (401/402/404/...) is a definitive answer, not a
       // transient cold-start symptom — retrying it changes nothing, so
       // stop immediately instead of burning the whole retry window.

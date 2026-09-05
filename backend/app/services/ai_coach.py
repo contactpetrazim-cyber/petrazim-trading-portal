@@ -140,6 +140,15 @@ async def _call_gemini(client: httpx.AsyncClient, api_key: str, system_prompt: s
     return data["candidates"][0]["content"]["parts"][0]["text"].strip()
 
 
+def any_provider_configured() -> bool:
+    """Lets a caller distinguish "no AI provider configured at all"
+    from "a provider is configured but this call failed" — every AI
+    feature needs a clearly-labeled placeholder for the FORMER
+    specifically (Section 17's own checklist item), not just a generic
+    "try again" that reads the same in both cases."""
+    return bool(_providers())
+
+
 def _providers() -> List[tuple[str, str, Callable]]:
     """(name, api_key, call_fn) for every provider that actually has a
     key configured — an unconfigured provider is skipped, not tried

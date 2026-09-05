@@ -53,6 +53,7 @@ export function CorporateHomePage() {
   const [learningStats, setLearningStats] = useState({
     xp: 0, streak: 0, longestStreak: 0, masteryPct: 0, stagesComplete: 0, stagesTotal: 0,
   });
+  const [continuePoint, setContinuePoint] = useState<{ track_id: string; lesson_id: string | null } | null>(null);
 
   useEffect(() => {
     fetch(`${API_URL}/bots/`)
@@ -78,6 +79,19 @@ export function CorporateHomePage() {
           stagesTotal: s.stages_total,
         });
       })
+      .catch(() => {});
+  }, [token]);
+
+  // Section 2's real "Continue where you left off" (SF01) — see
+  // GET /curriculum/continue's own docstring for how this is derived
+  // without a new per-view write. null (never started, or the last
+  // track is fully complete) means the button below falls back to a
+  // plain /learn link rather than claiming a resume point that isn't real.
+  useEffect(() => {
+    if (!token) return;
+    fetch(`${API_URL}/curriculum/continue`, { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then(setContinuePoint)
       .catch(() => {});
   }, [token]);
 
@@ -120,7 +134,13 @@ export function CorporateHomePage() {
 
           <div className="flex flex-wrap gap-3 mb-8">
             <Link
-              to="/learn"
+              to={
+                continuePoint
+                  ? continuePoint.lesson_id
+                    ? `/learn/tracks/${continuePoint.track_id}/lessons/${continuePoint.lesson_id}`
+                    : `/learn/tracks/${continuePoint.track_id}`
+                  : '/learn'
+              }
               className="flex items-center gap-2 bg-white text-[#0f2547] font-semibold text-sm px-5 py-3 rounded-xl transition-transform hover:scale-[1.02]"
             >
               Continue Learning →

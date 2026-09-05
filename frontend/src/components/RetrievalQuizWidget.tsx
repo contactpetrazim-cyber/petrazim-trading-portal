@@ -45,9 +45,10 @@ export function RetrievalQuizWidget({ lessonId, dark }: { lessonId: string; dark
       `${API_URL}/curriculum/lessons/${lessonId}/retrieval-quiz`,
       { headers: { Authorization: `Bearer ${token}` } },
       setPhase,
+      setError,
     ).then((r) => {
       if (r) setQuestions(r.questions);
-      else setError("A quick check isn't available for this lesson right now.");
+      else setError((prev) => prev ?? "A quick check isn't available for this lesson right now.");
     });
   }
 

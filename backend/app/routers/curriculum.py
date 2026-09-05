@@ -46,6 +46,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.access_gate import require_active_access, learner_progress_snapshot
 from app.database import get_db
 from app.engines.learning_content_ai import generate_flashcards, generate_recap, generate_retrieval_questions
+from app.services.ai_coach import any_provider_configured
 from app.engines.progression_engine import (
     MasteryInput, StreakUpdateResult, can_attempt_stage, compute_mastery_level,
     schedule_next_retention_check, stage_completion_meets_requirements, update_streak, xp_for_stage,
@@ -298,6 +299,57 @@ async def _get_or_create_stats(db: AsyncSession, user_id) -> UserLearningStats:
 # Routes
 # --------------------------------------------------------------------------
 
+class ContinueResponse(BaseModel):
+    track_id: str
+    track_title: str
+    stage_id: str
+    stage_title: str
+    stage_number: int
+    lesson_id: Optional[str] = None
+
+
+@router.get("/continue", response_model=Optional[ContinueResponse])
+async def get_continue_point(db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access)):
+    """Section 2's "Continue where you left off" (SF01) — real, not a
+    generic /learn link. This app has no per-view lastInteractionAt
+    (the spec's own version updates on every stage VIEW, not just
+    completion; building that would mean a new write on every lesson
+    page load) — this derives the same real behavior from data that
+    already exists: the most recently COMPLETED stage tells you which
+    track the trainee was last actually working in, and the next
+    not-yet-completed stage in that track is where "continue" should
+    resume. A track completed in full simply has no continue point
+    (no error — the caller shows nothing rather than a stale link)."""
+    last = (await db.execute(
+        select(StageCompletion, TrackStage)
+        .join(TrackStage, TrackStage.id == StageCompletion.stage_id)
+        .where(StageCompletion.user_id == user.id)
+        .order_by(StageCompletion.completed_at.desc())
+        .limit(1)
+    )).first()
+    if last is None:
+        return None
+
+    _, last_stage = last
+    track = (await db.execute(select(LearningTrack).where(LearningTrack.id == last_stage.track_id))).scalar_one_or_none()
+    if track is None:
+        return None
+
+    completed_numbers = set(await _completed_stage_numbers(db, user.id, track.id))
+    remaining = (await db.execute(
+        select(TrackStage).where(TrackStage.track_id == track.id).order_by(TrackStage.stage_number)
+    )).scalars().all()
+    next_stage = next((s for s in remaining if s.stage_number not in completed_numbers), None)
+    if next_stage is None:
+        return None   # this track is fully complete — nothing to resume here
+
+    return ContinueResponse(
+        track_id=str(track.id), track_title=track.title,
+        stage_id=str(next_stage.id), stage_title=next_stage.title, stage_number=next_stage.stage_number,
+        lesson_id=str(next_stage.lesson_id) if next_stage.lesson_id else None,
+    )
+
+
 @router.get("/stats", response_model=StatsResponse)
 async def get_stats(db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access)):
     snap = await learner_progress_snapshot(db, user.id)
@@ -432,6 +484,17 @@ def _content_hash(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def _ai_unavailable_detail(feature: str) -> str:
+    """Section 17's own checklist: "every AI feature has a working,
+    clearly-labeled placeholder state with no provider configured" —
+    distinct from a transient failure with one actually configured,
+    matching Coach's own two-message pattern (get_coach_reply) rather
+    than one generic "try again" that reads the same in both cases."""
+    if not any_provider_configured():
+        return f"{feature} isn't wired to a live AI provider yet — no API key is configured on the backend."
+    return f"{feature} is temporarily unavailable — every configured AI provider failed to respond. Try again in a moment."
+
+
 async def _get_lesson_or_404(db: AsyncSession, lesson_id: str) -> Lesson:
     lesson = (await db.execute(select(Lesson).where(Lesson.id == lesson_id))).scalar_one_or_none()
     if lesson is None:
@@ -459,10 +522,7 @@ async def get_lesson_recap(
     if cached is None or cached.content_hash != current_hash:
         summary = await generate_recap(lesson.title, lesson.content_body)
         if summary is None:
-            raise HTTPException(
-                status_code=503,
-                detail="Recap isn't available right now — no AI provider responded. Try again in a moment.",
-            )
+            raise HTTPException(status_code=503, detail=_ai_unavailable_detail("Recap"))
         if cached is None:
             cached = LessonRecap(lesson_id=lesson.id, summary=summary, content_hash=current_hash)
             db.add(cached)
@@ -528,10 +588,7 @@ async def get_retrieval_quiz(
     if cached is None or cached.content_hash != current_hash:
         drafts = await generate_retrieval_questions(lesson.title, lesson.content_body)
         if not drafts:
-            raise HTTPException(
-                status_code=503,
-                detail="A quick check isn't available for this lesson right now — try again in a moment.",
-            )
+            raise HTTPException(status_code=503, detail=_ai_unavailable_detail("Retrieval quiz"))
         questions = [
             {"id": f"{lesson.id}-{i}", "prompt": d.prompt, "type": d.type, "correct_answer": d.correct_answer}
             for i, d in enumerate(drafts)
@@ -1183,10 +1240,7 @@ async def get_lesson_flashcards(
     if cached is None or cached.content_hash != current_hash:
         drafts = await generate_flashcards(lesson.title, lesson.content_body)
         if not drafts:
-            raise HTTPException(
-                status_code=503,
-                detail="Flashcards aren't available for this lesson right now — try again in a moment.",
-            )
+            raise HTTPException(status_code=503, detail=_ai_unavailable_detail("Flashcards"))
         payload = json.dumps([{"term": d.term, "definition": d.definition} for d in drafts])
         if cached is None:
             cached = FlashcardCache(lesson_id=lesson.id, cards_json=payload, content_hash=current_hash)
