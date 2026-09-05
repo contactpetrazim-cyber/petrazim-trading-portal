@@ -75,22 +75,26 @@ function buildOverrides(colors: CandleColors | undefined, chartStyle: ChartStyle
   if (!colors) return {};
   const { upColor, downColor, wickUpColor, wickDownColor, borderUpColor, borderDownColor } = colors;
   switch (chartStyle) {
-    // Hollow Candles and Heikin Ashi both only expose a single shared
-    // `wickColor` key (unlike plain Candles, which has separate
-    // wickUpColor/wickDownColor) — confirmed against TradingView's own
-    // override key reference. Selected colors previously only reached
-    // upColor/downColor/border here, leaving wicks their default gray
-    // regardless of what was picked — by direct request ("the hollow
-    // candle type should take the selected colours - including the
-    // wicks ... colours selected should always apply to body and
-    // wicks"), wickColor is now always set too, from the up color
-    // (the closest single-color stand-in this style's API allows).
+    // Hollow Candles and Heikin Ashi actually DO expose separate
+    // wickUpColor/wickDownColor keys, same as plain Candles — the prior
+    // comment here claiming only a single shared `wickColor` existed
+    // was wrong (re-confirmed against TradingView's own
+    // ChartPropertiesOverrides reference). Setting only the generic
+    // `wickColor` left the real wickUpColor/wickDownColor at their
+    // library defaults (green/red), which take precedence over it, so
+    // selecting e.g. Monochrome still showed red/green wicks on Hollow
+    // Candles — by direct bug report. Now both direction-specific keys
+    // are set (mirroring the Candles case below), with `wickColor` kept
+    // too as a same-value fallback for any older widget build that only
+    // understands the unified key.
     case '9': // Hollow Candles
       return {
         ...(upColor && { 'mainSeriesProperties.hollowCandleStyle.upColor': upColor }),
         ...(downColor && { 'mainSeriesProperties.hollowCandleStyle.downColor': downColor }),
         ...(borderUpColor && { 'mainSeriesProperties.hollowCandleStyle.borderUpColor': borderUpColor }),
         ...(borderDownColor && { 'mainSeriesProperties.hollowCandleStyle.borderDownColor': borderDownColor }),
+        ...(wickUpColor && { 'mainSeriesProperties.hollowCandleStyle.wickUpColor': wickUpColor }),
+        ...(wickDownColor && { 'mainSeriesProperties.hollowCandleStyle.wickDownColor': wickDownColor }),
         ...((wickUpColor || upColor) && { 'mainSeriesProperties.hollowCandleStyle.wickColor': wickUpColor || upColor }),
       };
     case '8': // Heikin Ashi
@@ -99,6 +103,8 @@ function buildOverrides(colors: CandleColors | undefined, chartStyle: ChartStyle
         ...(downColor && { 'mainSeriesProperties.haStyle.downColor': downColor }),
         ...(borderUpColor && { 'mainSeriesProperties.haStyle.borderUpColor': borderUpColor }),
         ...(borderDownColor && { 'mainSeriesProperties.haStyle.borderDownColor': borderDownColor }),
+        ...(wickUpColor && { 'mainSeriesProperties.haStyle.wickUpColor': wickUpColor }),
+        ...(wickDownColor && { 'mainSeriesProperties.haStyle.wickDownColor': wickDownColor }),
         ...((wickUpColor || upColor) && { 'mainSeriesProperties.haStyle.wickColor': wickUpColor || upColor }),
       };
     case '0': // Bars
