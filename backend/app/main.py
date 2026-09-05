@@ -38,6 +38,7 @@ from app.database import engine, Base
 from app.db.session import engine as legacy_engine, Base as LegacyBase
 from app.services.execution_engine import ExecutionEngine
 from app.services.market_scanner import MarketScanner
+from app.services.position_monitor import PositionMonitor
 
 settings = get_settings()
 logger = structlog.get_logger()
@@ -135,10 +136,21 @@ async def lifespan(app: FastAPI):
     else:
         logger.info("market_scanner_disabled", note="set MARKET_SCANNER_ENABLED=true to turn on autonomous scanning")
 
+    # Position monitor — auto-closes/partial-closes a Paper Trade for
+    # real once live price touches its SL/TP (see position_monitor.py's
+    # own module docstring for why this is Test-mode-only and safe to
+    # run on by default, unlike the market scanner above).
+    position_monitor = None
+    if settings.POSITION_MONITOR_ENABLED:
+        position_monitor = PositionMonitor()
+        position_monitor.start()
+
     yield
 
     if scanner is not None:
         await scanner.stop()
+    if position_monitor is not None:
+        await position_monitor.stop()
 
     logger.info("app_shutdown")
     await engine.dispose()

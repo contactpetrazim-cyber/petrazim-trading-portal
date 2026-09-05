@@ -77,6 +77,14 @@ class Trade(Base):
     initial_stop_loss = Column(Float)
     initial_take_profit_1 = Column(Float)
 
+    # Which intermediate take-profit levels the position_monitor.py
+    # background worker has already auto-triggered for this trade —
+    # see migrations/013_position_monitor.sql's own comment for why
+    # only the intermediate ones (not the final target or stop-loss)
+    # need tracking.
+    tp1_triggered = Column(Boolean, default=False)
+    tp2_triggered = Column(Boolean, default=False)
+
     @property
     def take_profit(self) -> Optional[float]:
         """Alias for take_profit_1 — schemas.TradeResponse has always

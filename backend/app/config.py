@@ -116,6 +116,22 @@ class Settings(BaseSettings):
     # balance to read (paper mode, or no credential configured yet).
     MARKET_SCANNER_DEFAULT_ACCOUNT_BALANCE: float = 10000.0
 
+    # Position monitor (services/position_monitor.py) — the real fix
+    # for "no automated TP/SL-hit detection," flagged as an outstanding
+    # gap in the platform audit. Scoped to is_test=True trades ONLY: a
+    # genuinely LIVE order already has its SL/TP placed as real
+    # broker-side conditional orders (see each _execute_* method in
+    # execution_engine.py, which passes stop_loss/take_profit straight
+    # to the broker's own place_order call) — the exchange itself
+    # already closes those, so this worker would be redundant (and a
+    # real risk of a conflicting double-close) there. For paper/Test
+    # trades there is no broker enforcing anything, so this is pure
+    # simulation with zero real-money exposure — on by default, unlike
+    # MARKET_SCANNER_ENABLED, which makes real exchange API calls with
+    # real execution consequences.
+    POSITION_MONITOR_ENABLED: bool = True
+    POSITION_MONITOR_INTERVAL_SECONDS: int = 20
+
     # Per-bot broker credentials (models/broker_credential.py) are
     # encrypted at rest with this key rather than the JWT SECRET_KEY,
     # so rotating one doesn't affect the other. Generate with:
