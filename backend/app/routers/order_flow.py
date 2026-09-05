@@ -292,3 +292,51 @@ async def get_footprint_chart(
         symbol=symbol, tick_size=round(tick, 8), candles=candles,
         volume_profile=volume_profile, poc_price=poc_price,
     )
+
+
+# ---------------------------------------------------------------------------
+# Klines (OHLC candles) — real historical price data, backing the
+# "What Happens Next?" chart-prediction game and case-study
+# walkthroughs (by direct request: "add games with price charts what
+# will happen next ... past price simulation cases"). Deliberately
+# real Binance history, not synthetic candles — the whole point of a
+# prediction game is that the outcome is a genuine, already-settled
+# fact the trainee didn't get to see yet, not something authored to
+# have a "correct" answer.
+# ---------------------------------------------------------------------------
+
+ALLOWED_INTERVALS = ["15m", "1h", "4h", "1d"]
+
+
+class KlineBar(BaseModel):
+    time_ms: int
+    open: float
+    high: float
+    low: float
+    close: float
+
+
+class KlinesResponse(BaseModel):
+    symbol: str
+    interval: str
+    candles: List[KlineBar]
+
+
+@router.get("/klines", response_model=KlinesResponse)
+async def get_klines(
+    symbol: str = "BTCUSDT", interval: str = "4h", limit: int = 60,
+    user: User = Depends(require_active_access),
+):
+    symbol = _validate_symbol(symbol)
+    if interval not in ALLOWED_INTERVALS:
+        raise HTTPException(status_code=400, detail=f"interval must be one of {ALLOWED_INTERVALS}")
+    limit = max(10, min(limit, 500))
+    resp = await _binance_get("/klines", {"symbol": symbol, "interval": interval, "limit": limit})
+    raw = resp.json()
+    return KlinesResponse(
+        symbol=symbol, interval=interval,
+        candles=[
+            KlineBar(time_ms=int(row[0]), open=float(row[1]), high=float(row[2]), low=float(row[3]), close=float(row[4]))
+            for row in raw
+        ],
+    )

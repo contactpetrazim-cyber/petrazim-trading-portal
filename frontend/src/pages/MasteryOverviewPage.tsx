@@ -81,6 +81,9 @@ export function MasteryOverviewPage() {
         <Link to="/learn/revision" className={`text-sm font-medium ${dark ? 'text-white/60 hover:text-white' : 'text-corporate-hero'}`}>
           Revision Planner →
         </Link>
+        <Link to="/learn/visual-glossary" className={`text-sm font-medium ${dark ? 'text-white/60 hover:text-white' : 'text-corporate-hero'}`}>
+          Visual Glossary →
+        </Link>
       </div>
 
       {error && <p className={`text-sm mb-4 ${dark ? 'text-red-400' : 'text-red-500'}`}>{error}</p>}

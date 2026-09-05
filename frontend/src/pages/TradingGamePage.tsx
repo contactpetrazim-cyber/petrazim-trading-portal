@@ -113,6 +113,9 @@ export function TradingGamePage() {
           { to: '/practise/games/setup-spotter', title: 'Setup Spotter', desc: 'Market structure & order flow', color: '#0891b2' },
           { to: '/practise/games/risk-triage', title: 'Risk Triage', desc: 'Risk management under pressure', color: '#f59e0b' },
           { to: '/practise/games/bias-check', title: 'Bias Check', desc: 'Trading psychology', color: '#8b5cf6' },
+          { to: '/practise/games/what-happens-next', title: 'What Happens Next?', desc: 'Predict real historical price', color: '#22c55e' },
+          { to: '/practise/games/concept-spotter', title: 'Concept Spotter', desc: 'Name the pattern from the chart', color: '#0ea5e9' },
+          { to: '/learn/case-study', title: 'Case Study Walkthrough', desc: 'Step through a real price window', color: '#ec4899' },
         ].map((g) => (
           <Link
             key={g.to}

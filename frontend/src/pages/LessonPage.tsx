@@ -6,6 +6,7 @@ import { ListenButton } from '../components/ListenButton';
 import { RecapPanel } from '../components/RecapPanel';
 import { RetrievalQuizWidget } from '../components/RetrievalQuizWidget';
 import { FlashcardWidget } from '../components/FlashcardWidget';
+import { SMCDiagram, type SMCDiagramKey } from '../components/SMCDiagram';
 import { BookmarkButton } from '../components/BookmarkButton';
 import { NotebookWidget } from '../components/NotebookWidget';
 import { useThemeStore } from '../hooks/useTheme';
@@ -24,6 +25,26 @@ interface LessonDetail {
   title: string;
   content_body: string;
   estimated_minutes: number;
+}
+
+// Keyword -> matching SMCDiagram key. Scanned against a lesson's own
+// real content_body so the relevant annotated schematic appears right
+// where the concept is actually taught, without hand-wiring a diagram
+// list per lesson id (new authored content picks this up for free).
+const DIAGRAM_KEYWORDS: [RegExp, SMCDiagramKey][] = [
+  [/fair value gap|\bfvg\b/i, 'fair-value-gap'],
+  [/order block/i, 'order-block'],
+  [/liquidity sweep|stop hunt|liquidity grab/i, 'liquidity-sweep'],
+  [/premium.{0,3}discount|premium\/discount|equilibrium/i, 'premium-discount'],
+  [/break of structure|\bbos\b|change of character|\bchoch\b/i, 'break-of-structure'],
+];
+
+function matchingDiagrams(content: string): SMCDiagramKey[] {
+  const found = new Set<SMCDiagramKey>();
+  for (const [pattern, key] of DIAGRAM_KEYWORDS) {
+    if (pattern.test(content)) found.add(key);
+  }
+  return Array.from(found);
 }
 
 type Block =
@@ -286,6 +307,14 @@ export function LessonPage() {
               <p className={`text-sm ${dark ? 'text-white/40' : 'text-gray-400'}`}>Not yet authored.</p>
             )}
           </div>
+
+          {lesson.content_body && matchingDiagrams(lesson.content_body).length > 0 && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+              {matchingDiagrams(lesson.content_body).map((key) => (
+                <SMCDiagram key={key} concept={key} dark={dark} />
+              ))}
+            </div>
+          )}
 
           {lesson.content_body && (
             <div className="flex flex-col gap-3 mt-4">
