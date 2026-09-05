@@ -99,14 +99,23 @@ export function OrderFlowChartTool({
     return () => { cancelled = true; clearInterval(id); };
   }, [token, symbol]);
 
+  // Depth and footprint-chart used to swallow every failure into a
+  // silent no-op, so a genuinely broken fetch (the require_active_access
+  // 402 this tool used to wrongly return before it was fixed, or any
+  // other real error) left these two panels stuck on "Loading…"
+  // forever with zero visible signal, while the tape above at least
+  // showed a (generic) error banner — the real cause behind "order
+  // flow chart is still not loading, I only see a regular candle
+  // chart" reading as if nothing below it was even trying. Both now
+  // share the same error state the tape already sets/clears.
   useEffect(() => {
     if (!token) return;
     let cancelled = false;
     const load = () => {
       apiFetch(`${API_URL}/order-flow/depth?symbol=${symbol}&limit=10`, { headers })
-        .then((r) => (r.ok ? r.json() : null))
-        .then((d) => !cancelled && d && setDepth(d))
-        .catch(() => {});
+        .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
+        .then((d) => { if (!cancelled) { setDepth(d); setError(null); } })
+        .catch(() => !cancelled && setError('Could not load live order flow data right now.'));
     };
     load();
     const id = setInterval(load, DEPTH_POLL_MS);
@@ -118,9 +127,9 @@ export function OrderFlowChartTool({
     let cancelled = false;
     const load = () => {
       apiFetch(`${API_URL}/order-flow/footprint-chart?symbol=${symbol}&trade_limit=1000&num_candles=15&target_rows=40`, { headers })
-        .then((r) => (r.ok ? r.json() : null))
-        .then((d) => !cancelled && d && setChart(d))
-        .catch(() => {});
+        .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
+        .then((d) => { if (!cancelled) { setChart(d); setError(null); } })
+        .catch(() => !cancelled && setError('Could not load live order flow data right now.'));
     };
     load();
     const id = setInterval(load, CHART_POLL_MS);

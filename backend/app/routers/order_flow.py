@@ -24,6 +24,24 @@ This is deliberately scoped to Binance's spot market data only:
 Symbols are restricted to a small allow-list of liquid pairs rather
 than an open passthrough, to keep this platform's own exposure to
 Binance's public rate limits bounded and predictable.
+
+Auth: every endpoint here was gated on require_active_access (paid
+access) — a real bug, found from a cross-session bug report ("order
+flow chart is still not loading ... I only see a regular candle
+chart"). ToolsPage.tsx and OrderFlowFullPage.tsx both market this tool
+as "Free — live tape, delta, and order book," matching this module's
+own free-lead-magnet framing above, so any trader without an active
+paid subscription got a 402 on every single request here — the tape
+showed a generic error, but the DOM and footprint-chart panels swallow
+their own fetch error silently and sit on "Loading…" forever, which
+reads exactly like the reported symptom (the real ChartPanel candle
+chart above it needs no access at all, so it always rendered fine).
+Fixed to plain get_current_user, the same "logged in, not necessarily
+paid" gate manual_trading.py's own settings routes already use for
+their equivalent case — still a real account, just not a paywall,
+matching the "Free" claim already made twice in the frontend rather
+than rewriting that copy to admit a paywall that was never the
+intent.
 """
 
 from __future__ import annotations
@@ -36,7 +54,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.config import get_settings
-from app.core.access_gate import require_active_access
+from app.core.auth import get_current_user
 from app.models.user import User
 from app.services.broker_integrations import _FAILOVER_EXCEPTIONS, _send_with_failover
 
@@ -96,7 +114,7 @@ class SymbolsResponse(BaseModel):
 
 
 @router.get("/symbols", response_model=SymbolsResponse)
-async def list_symbols(user: User = Depends(require_active_access)):
+async def list_symbols(user: User = Depends(get_current_user)):
     return SymbolsResponse(symbols=ALLOWED_SYMBOLS)
 
 
@@ -110,7 +128,7 @@ class TradePrint(BaseModel):
 @router.get("/trades", response_model=List[TradePrint])
 async def get_trades(
     symbol: str = "BTCUSDT", limit: int = 60,
-    user: User = Depends(require_active_access),
+    user: User = Depends(get_current_user),
 ):
     """Real, live time & sales — the tape (OF-02). `limit` is capped at
     200 (Binance's own recent-trades endpoint doesn't need more for a
@@ -144,7 +162,7 @@ class DepthResponse(BaseModel):
 @router.get("/depth", response_model=DepthResponse)
 async def get_depth(
     symbol: str = "BTCUSDT", limit: int = 10,
-    user: User = Depends(require_active_access),
+    user: User = Depends(get_current_user),
 ):
     """Real resting order-book depth (OF-05's DOM) — snapshot only, not
     a live-updating stream (that needs a websocket, a larger feature;
@@ -205,7 +223,7 @@ class FootprintChartResponse(BaseModel):
 @router.get("/footprint-chart", response_model=FootprintChartResponse)
 async def get_footprint_chart(
     symbol: str = "BTCUSDT", trade_limit: int = 1000, num_candles: int = 15, target_rows: int = 40,
-    user: User = Depends(require_active_access),
+    user: User = Depends(get_current_user),
 ):
     """Real bid/ask volume clusters per price level per candle — the
     same chart type as a professional footprint tool, built from
@@ -325,7 +343,7 @@ class KlinesResponse(BaseModel):
 @router.get("/klines", response_model=KlinesResponse)
 async def get_klines(
     symbol: str = "BTCUSDT", interval: str = "4h", limit: int = 60,
-    user: User = Depends(require_active_access),
+    user: User = Depends(get_current_user),
 ):
     symbol = _validate_symbol(symbol)
     if interval not in ALLOWED_INTERVALS:
