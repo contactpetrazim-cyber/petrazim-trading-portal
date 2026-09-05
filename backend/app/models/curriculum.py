@@ -166,6 +166,85 @@ class UserLearningStats(Base):
     best_quiz_streak = Column(Integer, nullable=False, default=0)
 
 
+class LessonRecap(Base):
+    """AI-condensed version of a lesson's real content_body — cached
+    per lesson, regenerated only if content_hash changes (the lesson
+    was re-authored), matching Section 3 of the Learning Design Spec's
+    "fetch from cache first, regenerate only on miss/version change".
+    One row per lesson; summary/content_hash are overwritten in place
+    on regeneration rather than versioned, since nothing here needs
+    history of past recaps."""
+    __tablename__ = "lesson_recaps"
+
+    lesson_id = Column(UUID(as_uuid=True), ForeignKey("lessons.id"), primary_key=True)
+    summary = Column(Text, nullable=False)
+    content_hash = Column(String(64), nullable=False)   # sha256 of the lesson's content_body this was generated from
+    generated_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+
+
+class RecapEngagement(Base):
+    """Per-user open-count on a lesson's Recap — feeds Insights as a
+    behavioral-engagement signal alongside quiz/mastery data (Section
+    15 of the spec): opening the Recap 5x on a lesson you scored low
+    on is a "still confused here" signal a score alone doesn't show."""
+    __tablename__ = "recap_engagements"
+
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), primary_key=True)
+    lesson_id = Column(UUID(as_uuid=True), ForeignKey("lessons.id"), primary_key=True)
+    open_count = Column(Integer, nullable=False, default=0)
+    last_opened_at = Column(DateTime(timezone=True), nullable=True)
+
+
+class RetrievalQuizCache(Base):
+    """AI-generated retrieval-practice questions, grounded ONLY in the
+    named lesson's own real content_body (never open-ended) — cached
+    per lesson the same way LessonRecap is. `questions_json` is a JSON-
+    encoded list of {id, prompt, type, correct_answer}. Distinct from
+    QuizAttempt (the real end-of-stage graded assessment, unchanged);
+    these are ungraded — see RetrievalResponse below."""
+    __tablename__ = "retrieval_quiz_cache"
+
+    lesson_id = Column(UUID(as_uuid=True), ForeignKey("lessons.id"), primary_key=True)
+    questions_json = Column(Text, nullable=False)
+    content_hash = Column(String(64), nullable=False)
+    generated_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+
+
+class RetrievalResponse(Base):
+    """One row per answered retrieval question. Ungraded — never reads
+    into QuizAttempt.score_pct or any mastery calculation. confidence
+    is always captured BEFORE the correct answer is revealed
+    (enforced client-side by RetrievalQuizWidget's own flow, and
+    server-side here by requiring it on submission)."""
+    __tablename__ = "retrieval_responses"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    lesson_id = Column(UUID(as_uuid=True), ForeignKey("lessons.id"), nullable=False)
+    question_id = Column(String(50), nullable=False)
+    # Null until the trainee self-grades against the revealed answer
+    # (RetrievalResponse is created at confidence-capture time, before
+    # the answer is shown — see routers/curriculum.py's two-step
+    # answer/grade flow); 1/0 once graded, matching PracticeAttempt's
+    # own self-graded-drill convention.
+    answered_correctly = Column(Integer, nullable=True, default=None)
+    confidence = Column(String(20), nullable=False)         # 'not_sure' | 'fairly_sure' | 'very_sure'
+    answered_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+
+
+class ReflectionEntry(Base):
+    """Free-text reflection, one prompt per track/module end — no AI
+    grading, no required length (Section 9 of the spec: "deliberately
+    low-complexity")."""
+    __tablename__ = "reflection_entries"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    track_id = Column(UUID(as_uuid=True), ForeignKey("learning_tracks.id"), nullable=False)
+    text = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+
+
 class Certificate(Base):
     """Issued when a user completes every stage in a track — matches the
     Academy's certificate-on-completion pattern. Certificate content

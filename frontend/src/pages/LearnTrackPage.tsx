@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, BookOpen, CheckCircle2, Lock } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
+import { ReflectionPrompt } from '../components/ReflectionPrompt';
 import { useThemeStore } from '../hooks/useTheme';
 import { useAuth } from '../hooks/useAuth';
 import { apiFetch } from '../components/AccessExpiredGate';
@@ -156,6 +157,7 @@ export function LearnTrackPage() {
               <button
                 onClick={() => completeStage(s.id)}
                 disabled={busyStage === s.id}
+                title="Tip: read the lesson's Recap Summary first — a soft nudge, not required to mark this complete"
                 className="shrink-0 text-xs font-semibold px-3 py-1.5 rounded-lg bg-corporate-accent text-white disabled:opacity-50"
               >
                 {busyStage === s.id ? '…' : 'Mark complete'}
@@ -165,6 +167,10 @@ export function LearnTrackPage() {
           </div>
         ))}
       </div>
+
+      {track.stages.length > 0 && track.stages.every((s) => s.completed) && (
+        <ReflectionPrompt trackId={track.id} dark={dark} />
+      )}
     </div>
   );
 }

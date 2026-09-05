@@ -2,6 +2,9 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, Dumbbell } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
+import { ListenButton } from '../components/ListenButton';
+import { RecapPanel } from '../components/RecapPanel';
+import { RetrievalQuizWidget } from '../components/RetrievalQuizWidget';
 import { useThemeStore } from '../hooks/useTheme';
 import { useAuth } from '../hooks/useAuth';
 import { apiFetch } from '../components/AccessExpiredGate';
@@ -267,11 +270,21 @@ export function LessonPage() {
           />
           <div className={`rounded-2xl p-6 border ${dark ? 'bg-corporate-surface-dark border-corporate-border-dark' : 'bg-white border-corporate-bg'}`}>
             {lesson.content_body ? (
-              <LessonBody content={lesson.content_body} dark={dark} />
+              <>
+                <div className="mb-4"><ListenButton text={lesson.content_body} dark={dark} /></div>
+                <LessonBody content={lesson.content_body} dark={dark} />
+              </>
             ) : (
               <p className={`text-sm ${dark ? 'text-white/40' : 'text-gray-400'}`}>Not yet authored.</p>
             )}
           </div>
+
+          {lesson.content_body && (
+            <div className="flex flex-col gap-3 mt-4">
+              <RecapPanel lessonId={lesson.id} dark={dark} />
+              <RetrievalQuizWidget lessonId={lesson.id} dark={dark} />
+            </div>
+          )}
 
           {lesson.content_body?.includes('### Practice Drill') && (
             <Link

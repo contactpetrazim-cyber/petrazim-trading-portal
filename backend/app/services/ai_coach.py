@@ -22,20 +22,27 @@ direct instruction ("use free tier AI only"):
 Each provider's API key lives in Settings (config.py), read from env
 vars only — never hardcoded. A provider with no key set is skipped
 entirely. If every configured provider fails (or none are configured),
-get_coach_reply returns an honest message instead of raising, so a
-transient outage or an exhausted free quota degrades to "try again in
-a moment," not a 500.
+callers get None (generate_text) or an honest fallback message
+(get_coach_reply) instead of a 500, so a transient outage or an
+exhausted free quota degrades gracefully.
 
-Voice: reuses COACH_VOICE_RULES from weekly_review_engine.py — the
-same coach personality already established for the Weekly Review and
-(per FloatingTradeAI's own docstring) TradeCoachPanel/ReasoningPanel —
-adapted here for a live back-and-forth chat instead of a written report.
+generate_text() is the general-purpose entry point — same provider
+rotation, any system prompt — added when the Learning Design Spec's
+Recap system and Retrieval Quiz generator needed the exact same
+free-tier rotation the Coach already had, per Section 16's own "one AI
+provider abstraction... features plug into shared primitives rather
+than each building their own." get_coach_reply() is a thin wrapper
+kept for FloatingTradeAI's existing call site.
+
+Voice (chat only): reuses COACH_VOICE_RULES from weekly_review_engine.py
+— the same coach personality already established for the Weekly Review
+and (per FloatingTradeAI's own docstring) TradeCoachPanel/ReasoningPanel
+— adapted for a live back-and-forth chat instead of a written report.
 """
 
 from __future__ import annotations
 
 import itertools
-from dataclasses import dataclass
 from typing import Callable, List, Optional
 
 import httpx
@@ -57,16 +64,9 @@ CHAT_SYSTEM_PROMPT = (
 REQUEST_TIMEOUT_SECONDS = 20.0
 
 
-@dataclass
-class ProviderResult:
-    name: str
-    reply: Optional[str]
-    error: Optional[str] = None
-
-
 async def _call_openai_compatible(
     client: httpx.AsyncClient, *, base_url: str, api_key: str, model: str,
-    message: str, extra_headers: Optional[dict] = None,
+    system_prompt: str, message: str, max_tokens: int, extra_headers: Optional[dict] = None,
 ) -> str:
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     if extra_headers:
@@ -77,10 +77,10 @@ async def _call_openai_compatible(
         json={
             "model": model,
             "messages": [
-                {"role": "system", "content": CHAT_SYSTEM_PROMPT},
+                {"role": "system", "content": system_prompt},
                 {"role": "user", "content": message},
             ],
-            "max_tokens": 500,
+            "max_tokens": max_tokens,
             "temperature": 0.4,
         },
         timeout=REQUEST_TIMEOUT_SECONDS,
@@ -90,44 +90,48 @@ async def _call_openai_compatible(
     return data["choices"][0]["message"]["content"].strip()
 
 
-async def _call_groq(client: httpx.AsyncClient, api_key: str, message: str) -> str:
+async def _call_groq(client: httpx.AsyncClient, api_key: str, system_prompt: str, message: str, max_tokens: int) -> str:
     return await _call_openai_compatible(
         client, base_url="https://api.groq.com/openai/v1/chat/completions",
-        api_key=api_key, model="llama-3.3-70b-versatile", message=message,
+        api_key=api_key, model="llama-3.3-70b-versatile",
+        system_prompt=system_prompt, message=message, max_tokens=max_tokens,
     )
 
 
-async def _call_cerebras(client: httpx.AsyncClient, api_key: str, message: str) -> str:
+async def _call_cerebras(client: httpx.AsyncClient, api_key: str, system_prompt: str, message: str, max_tokens: int) -> str:
     return await _call_openai_compatible(
         client, base_url="https://api.cerebras.ai/v1/chat/completions",
-        api_key=api_key, model="llama-3.3-70b", message=message,
+        api_key=api_key, model="llama-3.3-70b",
+        system_prompt=system_prompt, message=message, max_tokens=max_tokens,
     )
 
 
-async def _call_mistral(client: httpx.AsyncClient, api_key: str, message: str) -> str:
+async def _call_mistral(client: httpx.AsyncClient, api_key: str, system_prompt: str, message: str, max_tokens: int) -> str:
     return await _call_openai_compatible(
         client, base_url="https://api.mistral.ai/v1/chat/completions",
-        api_key=api_key, model="mistral-small-latest", message=message,
+        api_key=api_key, model="mistral-small-latest",
+        system_prompt=system_prompt, message=message, max_tokens=max_tokens,
     )
 
 
-async def _call_openrouter(client: httpx.AsyncClient, api_key: str, message: str) -> str:
+async def _call_openrouter(client: httpx.AsyncClient, api_key: str, system_prompt: str, message: str, max_tokens: int) -> str:
     return await _call_openai_compatible(
         client, base_url="https://openrouter.ai/api/v1/chat/completions",
-        api_key=api_key, model="meta-llama/llama-3.3-70b-instruct:free", message=message,
+        api_key=api_key, model="meta-llama/llama-3.3-70b-instruct:free",
+        system_prompt=system_prompt, message=message, max_tokens=max_tokens,
         # Non-required but recommended by OpenRouter to identify the caller.
         extra_headers={"HTTP-Referer": "https://petrazim.online", "X-Title": "Petrazim Trading Portal"},
     )
 
 
-async def _call_gemini(client: httpx.AsyncClient, api_key: str, message: str) -> str:
+async def _call_gemini(client: httpx.AsyncClient, api_key: str, system_prompt: str, message: str, max_tokens: int) -> str:
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
     resp = await client.post(
         url,
         json={
-            "system_instruction": {"parts": [{"text": CHAT_SYSTEM_PROMPT}]},
+            "system_instruction": {"parts": [{"text": system_prompt}]},
             "contents": [{"role": "user", "parts": [{"text": message}]}],
-            "generationConfig": {"maxOutputTokens": 500, "temperature": 0.4},
+            "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0.4},
         },
         timeout=REQUEST_TIMEOUT_SECONDS,
     )
@@ -159,13 +163,17 @@ def _providers() -> List[tuple[str, str, Callable]]:
 _rotation_counter = itertools.count()
 
 
-async def get_coach_reply(message: str) -> str:
+async def generate_text(system_prompt: str, message: str, *, max_tokens: int = 500) -> Optional[str]:
+    """The shared entry point every AI feature calls through (Coach,
+    Recap, Retrieval Quiz generator) — one provider rotation, never a
+    direct SDK call from feature code, per Section 16 of the Learning
+    Design Spec. Returns None (not a raised exception) if no provider
+    is configured or every one fails, so a caller can supply its own
+    honest, feature-specific fallback message rather than this module
+    guessing one for every use case."""
     providers = _providers()
     if not providers:
-        return (
-            "Ask Coach isn't wired to a live AI provider yet — no API key is configured on the backend. "
-            "Ask a specific question about a setup or your trade history once it's set up, and I'll answer for real."
-        )
+        return None
 
     start = next(_rotation_counter) % len(providers)
     ordered = providers[start:] + providers[:start]
@@ -174,13 +182,25 @@ async def get_coach_reply(message: str) -> str:
     async with httpx.AsyncClient() as client:
         for name, api_key, call_fn in ordered:
             try:
-                reply = await call_fn(client, api_key, message)
+                reply = await call_fn(client, api_key, system_prompt, message, max_tokens)
                 if reply:
                     return reply
             except Exception as e:  # noqa: BLE001 — deliberately broad: any provider failure just tries the next one
                 last_error = f"{name}: {e}"
-                logger.warning("ai_coach_provider_failed", provider=name, error=str(e))
+                logger.warning("ai_provider_failed", provider=name, error=str(e))
                 continue
 
-    logger.error("ai_coach_all_providers_failed", last_error=last_error)
+    logger.error("ai_all_providers_failed", last_error=last_error)
+    return None
+
+
+async def get_coach_reply(message: str) -> str:
+    reply = await generate_text(CHAT_SYSTEM_PROMPT, message, max_tokens=500)
+    if reply is not None:
+        return reply
+    if not _providers():
+        return (
+            "Ask Coach isn't wired to a live AI provider yet — no API key is configured on the backend. "
+            "Ask a specific question about a setup or your trade history once it's set up, and I'll answer for real."
+        )
     return "Coach is temporarily unavailable — every configured AI provider failed to respond. Try again in a moment."

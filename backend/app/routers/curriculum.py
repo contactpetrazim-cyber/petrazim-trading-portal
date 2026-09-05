@@ -32,6 +32,8 @@ they're a reasonable default rather than an extracted spec:
 
 from __future__ import annotations
 
+import hashlib
+import json
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
@@ -43,13 +45,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.access_gate import require_active_access, learner_progress_snapshot
 from app.database import get_db
+from app.engines.learning_content_ai import generate_recap, generate_retrieval_questions
 from app.engines.progression_engine import (
     MasteryInput, StreakUpdateResult, can_attempt_stage, compute_mastery_level,
     stage_completion_meets_requirements, update_streak, xp_for_stage,
 )
 from app.models.curriculum import (
-    Certificate, Lesson, LearningTrack, MasteryLevel, PracticeAttempt, QuizAttempt,
-    RetentionCheck, StageCompletion, TrackCategory, TrackStage, UserLearningStats,
+    Certificate, Lesson, LearningTrack, LessonRecap, MasteryLevel, PracticeAttempt,
+    QuizAttempt, RecapEngagement, ReflectionEntry, RetentionCheck, RetrievalQuizCache,
+    RetrievalResponse, StageCompletion, TrackCategory, TrackStage, UserLearningStats,
 )
 from app.models.user import User
 
@@ -120,6 +124,39 @@ class LessonResponse(BaseModel):
     title: str
     content_body: str
     estimated_minutes: int
+
+
+class RecapResponse(BaseModel):
+    lesson_id: str
+    summary: str
+    generated_at: str
+    open_count: int
+
+
+class RetrievalQuestionResponse(BaseModel):
+    id: str
+    prompt: str
+    type: str
+
+
+class RetrievalQuizResponse(BaseModel):
+    lesson_id: str
+    questions: List[RetrievalQuestionResponse]
+
+
+class RetrievalConfidenceRequest(BaseModel):
+    question_id: str
+    confidence: str   # 'not_sure' | 'fairly_sure' | 'very_sure'
+
+
+class RetrievalRevealResponse(BaseModel):
+    response_id: str
+    correct_answer: str
+
+
+class RetrievalGradeRequest(BaseModel):
+    response_id: str
+    self_reported_correct: bool
 
 
 class QuizSubmitRequest(BaseModel):
@@ -373,6 +410,188 @@ async def get_lesson(
         title=lesson.title, content_body=lesson.content_body or "",
         estimated_minutes=lesson.estimated_minutes,
     )
+
+
+def _content_hash(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+async def _get_lesson_or_404(db: AsyncSession, lesson_id: str) -> Lesson:
+    lesson = (await db.execute(select(Lesson).where(Lesson.id == lesson_id))).scalar_one_or_none()
+    if lesson is None:
+        raise HTTPException(status_code=404, detail="Lesson not found")
+    if not lesson.content_body:
+        raise HTTPException(status_code=404, detail="This lesson has no content yet to generate from")
+    return lesson
+
+
+@router.get("/lessons/{lesson_id}/recap", response_model=RecapResponse)
+async def get_lesson_recap(
+    lesson_id: str, db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access),
+):
+    """Section 3 of the Learning Design Spec — an AI-condensed version
+    of this lesson's own real content, cached in LessonRecap and only
+    regenerated if the lesson's content_body has actually changed
+    (content_hash mismatch) since the cached copy was made."""
+    lesson = await _get_lesson_or_404(db, lesson_id)
+    current_hash = _content_hash(lesson.content_body)
+
+    cached = (await db.execute(
+        select(LessonRecap).where(LessonRecap.lesson_id == lesson.id)
+    )).scalar_one_or_none()
+
+    if cached is None or cached.content_hash != current_hash:
+        summary = await generate_recap(lesson.title, lesson.content_body)
+        if summary is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Recap isn't available right now — no AI provider responded. Try again in a moment.",
+            )
+        if cached is None:
+            cached = LessonRecap(lesson_id=lesson.id, summary=summary, content_hash=current_hash)
+            db.add(cached)
+        else:
+            cached.summary = summary
+            cached.content_hash = current_hash
+            cached.generated_at = datetime.utcnow()
+        await db.commit()
+        await db.refresh(cached)
+
+    engagement = (await db.execute(
+        select(RecapEngagement).where(
+            RecapEngagement.user_id == user.id, RecapEngagement.lesson_id == lesson.id,
+        )
+    )).scalar_one_or_none()
+
+    return RecapResponse(
+        lesson_id=str(lesson.id), summary=cached.summary,
+        generated_at=cached.generated_at.isoformat(),
+        open_count=engagement.open_count if engagement else 0,
+    )
+
+
+@router.post("/lessons/{lesson_id}/recap/open", response_model=dict)
+async def open_lesson_recap(
+    lesson_id: str, db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access),
+):
+    """Every real open of the Recap panel increments this — feeds
+    Insights (Section 15) as a behavioral-engagement signal. Called
+    once per panel-open by the frontend, separate from GET .../recap
+    itself so re-renders/refetches of the same open don't double-count."""
+    engagement = (await db.execute(
+        select(RecapEngagement).where(
+            RecapEngagement.user_id == user.id, RecapEngagement.lesson_id == uuid.UUID(lesson_id),
+        )
+    )).scalar_one_or_none()
+    if engagement is None:
+        engagement = RecapEngagement(user_id=user.id, lesson_id=lesson_id, open_count=0)
+        db.add(engagement)
+    engagement.open_count += 1
+    engagement.last_opened_at = datetime.utcnow()
+    await db.commit()
+    return {"open_count": engagement.open_count}
+
+
+@router.get("/lessons/{lesson_id}/retrieval-quiz", response_model=RetrievalQuizResponse)
+async def get_retrieval_quiz(
+    lesson_id: str, db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access),
+):
+    """Section 6 — 3-5 ungraded retrieval-practice questions, grounded
+    strictly in this lesson's own real content (never QuizAttempt's
+    graded assessmentScore). Cached the same way Recap is; correct
+    answers are withheld from this response (RetrievalAnswerResponse
+    reveals them only after an answer is submitted with a confidence
+    rating, per the spec's "confidence before reveal, every time")."""
+    lesson = await _get_lesson_or_404(db, lesson_id)
+    current_hash = _content_hash(lesson.content_body)
+
+    cached = (await db.execute(
+        select(RetrievalQuizCache).where(RetrievalQuizCache.lesson_id == lesson.id)
+    )).scalar_one_or_none()
+
+    if cached is None or cached.content_hash != current_hash:
+        drafts = await generate_retrieval_questions(lesson.title, lesson.content_body)
+        if not drafts:
+            raise HTTPException(
+                status_code=503,
+                detail="A quick check isn't available for this lesson right now — try again in a moment.",
+            )
+        questions = [
+            {"id": f"{lesson.id}-{i}", "prompt": d.prompt, "type": d.type, "correct_answer": d.correct_answer}
+            for i, d in enumerate(drafts)
+        ]
+        payload = json.dumps(questions)
+        if cached is None:
+            cached = RetrievalQuizCache(lesson_id=lesson.id, questions_json=payload, content_hash=current_hash)
+            db.add(cached)
+        else:
+            cached.questions_json = payload
+            cached.content_hash = current_hash
+            cached.generated_at = datetime.utcnow()
+        await db.commit()
+        await db.refresh(cached)
+
+    questions = json.loads(cached.questions_json)
+    return RetrievalQuizResponse(
+        lesson_id=str(lesson.id),
+        questions=[RetrievalQuestionResponse(id=q["id"], prompt=q["prompt"], type=q["type"]) for q in questions],
+    )
+
+
+@router.post("/lessons/{lesson_id}/retrieval-quiz/confidence", response_model=RetrievalRevealResponse)
+async def submit_retrieval_confidence(
+    lesson_id: str, req: RetrievalConfidenceRequest,
+    db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access),
+):
+    """Step 1 of 2 — confidence is logged and the answer revealed only
+    after that, never before, per the spec's "confidence captured
+    before the answer is revealed, every time." Creates the
+    RetrievalResponse row ungraded (answered_correctly stays null);
+    the frontend calls .../grade next, once the trainee has compared
+    their own recall against correct_answer."""
+    if req.confidence not in ("not_sure", "fairly_sure", "very_sure"):
+        raise HTTPException(status_code=400, detail="confidence must be 'not_sure', 'fairly_sure', or 'very_sure'")
+
+    cached = (await db.execute(
+        select(RetrievalQuizCache).where(RetrievalQuizCache.lesson_id == uuid.UUID(lesson_id))
+    )).scalar_one_or_none()
+    if cached is None:
+        raise HTTPException(status_code=404, detail="No quiz cached for this lesson — fetch it first")
+
+    questions = json.loads(cached.questions_json)
+    question = next((q for q in questions if q["id"] == req.question_id), None)
+    if question is None:
+        raise HTTPException(status_code=404, detail="Question not found")
+
+    response = RetrievalResponse(
+        user_id=user.id, lesson_id=uuid.UUID(lesson_id), question_id=req.question_id,
+        confidence=req.confidence, answered_correctly=None,
+    )
+    db.add(response)
+    await db.commit()
+    await db.refresh(response)
+
+    return RetrievalRevealResponse(response_id=str(response.id), correct_answer=question["correct_answer"])
+
+
+@router.post("/retrieval-quiz/grade", response_model=dict)
+async def grade_retrieval_response(
+    req: RetrievalGradeRequest, db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access),
+):
+    """Step 2 of 2 — the trainee self-grades against the answer .../confidence
+    just revealed (same self-graded pattern as PracticeAttempt's drills
+    elsewhere in this app). Ungraded/untracked toward assessmentScore
+    either way; only feeds the confidence-accuracy "worth revisiting" flag."""
+    response = (await db.execute(
+        select(RetrievalResponse).where(
+            RetrievalResponse.id == uuid.UUID(req.response_id), RetrievalResponse.user_id == user.id,
+        )
+    )).scalar_one_or_none()
+    if response is None:
+        raise HTTPException(status_code=404, detail="Response not found")
+    response.answered_correctly = 1 if req.self_reported_correct else 0
+    await db.commit()
+    return {"ok": True}
 
 
 @router.get("/mastery", response_model=MasteryOverviewResponse)
@@ -638,3 +857,65 @@ async def complete_stage(
         completed=True, xp_awarded=xp_awarded, new_streak_days=streak.new_streak_days,
         certificate_issued=certificate_issued,
     )
+
+
+# --------------------------------------------------------------------------
+# Reflection Journal (Section 9) — free-text, one prompt per track,
+# deliberately low-complexity: no AI grading, no required length, not
+# mandatory (an empty/skipped reflection is allowed, just not useful).
+# --------------------------------------------------------------------------
+
+class ReflectionSubmitRequest(BaseModel):
+    track_id: str
+    text: str
+
+
+class ReflectionEntryResponse(BaseModel):
+    id: str
+    track_id: str
+    track_title: str
+    text: str
+    created_at: str
+
+
+@router.post("/reflections", response_model=ReflectionEntryResponse)
+async def submit_reflection(
+    req: ReflectionSubmitRequest, db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access),
+):
+    track = (await db.execute(select(LearningTrack).where(LearningTrack.id == req.track_id))).scalar_one_or_none()
+    if track is None:
+        raise HTTPException(status_code=404, detail="Track not found")
+    entry = ReflectionEntry(user_id=user.id, track_id=track.id, text=req.text)
+    db.add(entry)
+    await db.commit()
+    await db.refresh(entry)
+    return ReflectionEntryResponse(
+        id=str(entry.id), track_id=str(track.id), track_title=track.title,
+        text=entry.text, created_at=entry.created_at.isoformat(),
+    )
+
+
+@router.get("/reflections", response_model=List[ReflectionEntryResponse])
+async def list_reflections(
+    track_id: Optional[str] = None, db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access),
+):
+    """"My Reflections" — chronological, filterable by track (EP-style
+    read view, Section 9's RJ02 test case)."""
+    query = select(ReflectionEntry).where(ReflectionEntry.user_id == user.id)
+    if track_id:
+        query = query.where(ReflectionEntry.track_id == track_id)
+    entries = (await db.execute(query.order_by(ReflectionEntry.created_at.desc()))).scalars().all()
+    if not entries:
+        return []
+
+    track_ids = {e.track_id for e in entries}
+    tracks = (await db.execute(select(LearningTrack).where(LearningTrack.id.in_(track_ids)))).scalars().all()
+    title_by_id = {t.id: t.title for t in tracks}
+
+    return [
+        ReflectionEntryResponse(
+            id=str(e.id), track_id=str(e.track_id), track_title=title_by_id.get(e.track_id, "Unknown track"),
+            text=e.text, created_at=e.created_at.isoformat(),
+        )
+        for e in entries
+    ]
