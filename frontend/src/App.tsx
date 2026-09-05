@@ -35,10 +35,12 @@ import { SetupSpotterGame } from './pages/SetupSpotterGame';
 import { RiskTriageGame } from './pages/RiskTriageGame';
 import { BiasCheckGame } from './pages/BiasCheckGame';
 import { RiskManagementDecisionLab } from './pages/RiskManagementDecisionLab';
+import { TradingPsychologyDecisionLab } from './pages/TradingPsychologyDecisionLab';
 import { VisualGlossaryPage } from './pages/VisualGlossaryPage';
 import { WhatHappensNextGame } from './pages/WhatHappensNextGame';
 import { ConceptSpotterGame } from './pages/ConceptSpotterGame';
 import { CaseStudyWalkthroughPage } from './pages/CaseStudyWalkthroughPage';
+import { ZoneTapperGame } from './pages/ZoneTapperGame';
 import { PracticeDrillsPage } from './pages/PracticeDrillsPage';
 import { RetentionReviewPage } from './pages/RetentionReviewPage';
 import { TradingGamePage } from './pages/TradingGamePage';
@@ -240,10 +242,12 @@ function App() {
         <Route path="/practise/games/risk-triage" element={<CorporateLayout><RiskTriageGame /></CorporateLayout>} />
         <Route path="/practise/games/bias-check" element={<CorporateLayout><BiasCheckGame /></CorporateLayout>} />
         <Route path="/learn/decision-lab/risk-management" element={<CorporateLayout><RiskManagementDecisionLab /></CorporateLayout>} />
+        <Route path="/learn/decision-lab/trading-psychology" element={<CorporateLayout><TradingPsychologyDecisionLab /></CorporateLayout>} />
         <Route path="/learn/visual-glossary" element={<CorporateLayout><VisualGlossaryPage /></CorporateLayout>} />
         <Route path="/practise/games/what-happens-next" element={<CorporateLayout><WhatHappensNextGame /></CorporateLayout>} />
         <Route path="/practise/games/concept-spotter" element={<CorporateLayout><ConceptSpotterGame /></CorporateLayout>} />
         <Route path="/learn/case-study" element={<CorporateLayout><CaseStudyWalkthroughPage /></CorporateLayout>} />
+        <Route path="/practise/games/zone-tapper" element={<CorporateLayout><ZoneTapperGame /></CorporateLayout>} />
 
         {/* Fallback — most FEATURE_REGISTRY *sub*-features (e.g. /learn/basics,
             /tools/risk-of-ruin) have no page component built yet; see

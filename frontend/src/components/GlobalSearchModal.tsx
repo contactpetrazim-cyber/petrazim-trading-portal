@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Search, X, Home } from 'lucide-react';
+import { Search, X, Home, BookMarked } from 'lucide-react';
 import { FEATURE_AREAS, searchFeatures } from '../config/featureRegistry';
+import { SMC_DIAGRAM_DATA, SMC_DIAGRAM_KEYS } from './SMCDiagram';
 import { useThemeStore } from '../hooks/useTheme';
 
 // Not a FEATURE_REGISTRY entry — Home is the dashboard, not one of the
@@ -47,6 +48,14 @@ export function GlobalSearchModal({ open, onClose }: { open: boolean; onClose: (
   const results = searchFeatures(query);
   const areaLabel = (id: string) => FEATURE_AREAS.find((a) => a.id === id)?.label ?? id;
 
+  // Section 12's Global Search: "returns the stage AND the flashcard
+  // glossary term, grouped separately" (EP01) — matched against the
+  // same Visual Glossary terms surfaced inline on lessons, static and
+  // local so this costs no extra request.
+  const glossaryMatches = q
+    ? SMC_DIAGRAM_KEYS.filter((k) => SMC_DIAGRAM_DATA[k].title.toLowerCase().includes(q))
+    : [];
+
   return (
     <div className="fixed inset-0 z-50 bg-black/40 flex items-start justify-center pt-24 px-4" onClick={onClose}>
       <div
@@ -68,7 +77,7 @@ export function GlobalSearchModal({ open, onClose }: { open: boolean; onClose: (
         </div>
 
         <div className="max-h-96 overflow-y-auto">
-          {query && results.length === 0 && !homeMatches && (
+          {query && results.length === 0 && glossaryMatches.length === 0 && !homeMatches && (
             <p className={`text-sm px-4 py-6 text-center ${dark ? 'text-white/40' : 'text-gray-500'}`}>No matches for "{query}"</p>
           )}
           {homeMatches && (
@@ -98,6 +107,24 @@ export function GlobalSearchModal({ open, onClose }: { open: boolean; onClose: (
               <span className="text-xs font-medium text-corporate-accent shrink-0 pt-0.5">
                 {areaLabel(r.area)}
               </span>
+            </Link>
+          ))}
+          {glossaryMatches.length > 0 && (
+            <div className={`px-4 pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wide ${dark ? 'text-white/30' : 'text-gray-400'}`}>
+              Visual Glossary
+            </div>
+          )}
+          {glossaryMatches.map((k) => (
+            <Link
+              key={k}
+              to="/learn/visual-glossary"
+              onClick={onClose}
+              className={`flex items-start justify-between gap-3 px-4 py-3 transition-colors ${dark ? 'hover:bg-white/5' : 'hover:bg-corporate-bg'}`}
+            >
+              <div className="flex items-start gap-2.5">
+                <BookMarked size={15} className="text-corporate-hero shrink-0 mt-0.5" />
+                <div className={`text-sm font-medium ${dark ? 'text-white' : 'text-corporate-text-on-bg'}`}>{SMC_DIAGRAM_DATA[k].title}</div>
+              </div>
             </Link>
           ))}
           {!query && (

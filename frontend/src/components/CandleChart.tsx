@@ -13,6 +13,9 @@ export interface ChartZone {
   priceBottom: number;
   color: string;
   label?: string;
+  /** Makes the zone itself tappable (Zone Tapper's "select on the chart"
+   * mechanic, distinct from choosing from a separate button list). */
+  onClick?: () => void;
 }
 
 export interface ChartMarker {
@@ -123,6 +126,8 @@ export function CandleChart({
             stroke={z.color}
             strokeOpacity={0.5}
             strokeWidth={0.2}
+            onClick={z.onClick}
+            style={z.onClick ? { cursor: 'pointer' } : undefined}
           />
           {z.label && (
             <text
