@@ -1,6 +1,6 @@
 
-import { useEffect, useState } from 'react';
-import { Shield, Save, AlertTriangle, DollarSign } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Shield, Save, AlertTriangle, DollarSign, Calculator, TrendingDown } from 'lucide-react';
 import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, BarChart, Bar, Cell } from 'recharts';
 import { StatCard } from '../components/StatCard';
 import { FoldedCard } from '../components/FoldedCard';
@@ -17,6 +17,21 @@ import { useThemeStore } from '../hooks/useTheme';
  * caps (risk per trade, daily/concurrent trade limits, portfolio
  * exposure, min R:R), each shown against real live usage and editable
  * in place via the same PATCH /bots/{id}/metrics Bots.tsx uses.
+ *
+ * Two additions, by direct request ("include dynamic position sizing
+ * and drawdown"):
+ *   - Max Drawdown stat card, computed peak-to-trough over the same
+ *     real closed-trade cumulative-P&L series already built below for
+ *     the "Cumulative P&L" chart — not a second, disconnected number.
+ *   - A Position Size Calculator: "dynamic" in the sense that it
+ *     recomputes live from account balance + risk % + entry/stop price
+ *     as you type, unlike a bot's risk_per_trade cap above (a fixed
+ *     setting, not a per-trade sizing tool). No stored "account
+ *     balance" exists anywhere in this app (grepped — Tools/Payout
+ *     Optimizer's own `balance` field is a funded-account concept, not
+ *     a Trader account balance), so this is a self-contained client-
+ *     side calculator, seeded from the risk_per_trade of whichever bot
+ *     you last edited above when there is one, editable either way.
  */
 export function RiskPage() {
   const { theme } = useThemeStore();
@@ -32,6 +47,16 @@ export function RiskPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editing, setEditing] = useState<BotMetricsUpdate | null>(null);
   const [saving, setSaving] = useState(false);
+
+  // Position Size Calculator — client-side, "dynamic" (recomputes as
+  // you type). Seeded from the first configured bot's own risk_per_trade
+  // once bots load, so it starts from a real number rather than an
+  // arbitrary default; still freely editable either way.
+  const [accountBalance, setAccountBalance] = useState(10000);
+  const [sizingRiskPct, setSizingRiskPct] = useState(1);
+  const [entryPrice, setEntryPrice] = useState<number | ''>('');
+  const [stopPrice, setStopPrice] = useState<number | ''>('');
+  const [seededSizing, setSeededSizing] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -53,6 +78,15 @@ export function RiskPage() {
   }
 
   useEffect(() => { load(); }, []);
+
+  // Seed the calculator's risk % from the first real bot once, the
+  // first time bots load — never overwrites a value you've since typed.
+  useEffect(() => {
+    if (!seededSizing && bots.length > 0) {
+      setSizingRiskPct(bots[0].risk_per_trade);
+      setSeededSizing(true);
+    }
+  }, [bots, seededSizing]);
 
   function startEdit(bot: BotConfig) {
     if (editingId === bot.bot_id) {
@@ -106,6 +140,29 @@ export function RiskPage() {
     };
   });
   const totalPnl = running;
+
+  // Max Drawdown — peak-to-trough of the same cumulative P&L series
+  // above, in $ (this page's own real closed trades have no equity
+  // baseline to express it as a %, same honest-unit reasoning as
+  // dashboard.py's own intraday drawdown).
+  const maxDrawdown = seriesData.reduce(
+    (acc, d) => {
+      const peak = Math.max(acc.peak, d.cumulative);
+      return { peak, maxDd: Math.max(acc.maxDd, peak - d.cumulative) };
+    },
+    { peak: 0, maxDd: 0 }
+  ).maxDd;
+
+  // Dynamic Position Size — riskAmount / stopDistance, recomputed live.
+  const sizing = useMemo(() => {
+    const riskAmount = accountBalance * (sizingRiskPct / 100);
+    const entry = typeof entryPrice === 'number' ? entryPrice : null;
+    const stop = typeof stopPrice === 'number' ? stopPrice : null;
+    const stopDistance = entry != null && stop != null ? Math.abs(entry - stop) : null;
+    const positionSize = stopDistance && stopDistance > 0 ? riskAmount / stopDistance : null;
+    return { riskAmount, stopDistance, positionSize };
+  }, [accountBalance, sizingRiskPct, entryPrice, stopPrice]);
+
   const gridColor = dark ? '#1f2937' : '#e5e7eb';
   const axisColor = '#6b7280';
 
@@ -116,7 +173,7 @@ export function RiskPage() {
         <p className="text-gray-400 text-sm mt-1">Live exposure and per-bot risk caps</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
         <StatCard
           title="Open Risk Exposure"
           value={`${exposurePct.toFixed(2)}%`}
@@ -130,6 +187,13 @@ export function RiskPage() {
           value={`${totalPnl >= 0 ? '+' : ''}$${totalPnl.toFixed(2)}`}
           icon={<DollarSign size={20} />}
           color={totalPnl >= 0 ? 'green' : 'red'} dark={dark}
+        />
+        <StatCard
+          title="Max Drawdown"
+          subtitle="Peak-to-trough, closed trades below"
+          value={`-$${maxDrawdown.toFixed(2)}`}
+          icon={<TrendingDown size={20} />}
+          color={maxDrawdown > 0 ? 'amber' : 'blue'} dark={dark}
         />
         <StatCard
           title="Trades Today"
@@ -146,6 +210,56 @@ export function RiskPage() {
           color="purple" dark={dark}
         />
       </div>
+
+      {/* Dynamic Position Size Calculator — by direct request ("include
+          dynamic position sizing"). Purely client-side; recomputes live
+          as any input changes. */}
+      <FoldedCard title="Position Size Calculator" summary="Risk amount and position size, recomputed live" icon={<Calculator size={19} />} dark={dark} defaultOpen>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <label className="text-xs text-gray-400">
+            Account balance ($)
+            <input type="number" step="1" min="0" value={accountBalance}
+              onChange={(e) => setAccountBalance(Number(e.target.value) || 0)}
+              className={inputCls} />
+          </label>
+          <label className="text-xs text-gray-400">
+            Risk (%)
+            <input type="number" step="0.1" min="0.1" max="100" value={sizingRiskPct}
+              onChange={(e) => setSizingRiskPct(Number(e.target.value) || 0)}
+              className={inputCls} />
+          </label>
+          <label className="text-xs text-gray-400">
+            Entry price
+            <input type="number" step="any" value={entryPrice}
+              onChange={(e) => setEntryPrice(e.target.value === '' ? '' : Number(e.target.value))}
+              placeholder="e.g. 1.0950" className={inputCls} />
+          </label>
+          <label className="text-xs text-gray-400">
+            Stop-loss price
+            <input type="number" step="any" value={stopPrice}
+              onChange={(e) => setStopPrice(e.target.value === '' ? '' : Number(e.target.value))}
+              placeholder="e.g. 1.0920" className={inputCls} />
+          </label>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-4">
+          <div className={`text-center p-3 rounded-lg ${dark ? 'bg-white/5' : 'bg-corporate-bg'}`}>
+            <div className="text-sm font-bold">${sizing.riskAmount.toFixed(2)}</div>
+            <div className="text-xs text-gray-400">Risk amount</div>
+          </div>
+          <div className={`text-center p-3 rounded-lg ${dark ? 'bg-white/5' : 'bg-corporate-bg'}`}>
+            <div className="text-sm font-bold">{sizing.stopDistance != null ? sizing.stopDistance.toFixed(5) : '—'}</div>
+            <div className="text-xs text-gray-400">Stop distance</div>
+          </div>
+          <div className={`text-center p-3 rounded-lg ${dark ? 'bg-white/5' : 'bg-corporate-bg'}`}>
+            <div className="text-sm font-bold">{sizing.positionSize != null ? sizing.positionSize.toFixed(2) : '—'}</div>
+            <div className="text-xs text-gray-400">Position size (units)</div>
+          </div>
+        </div>
+        <p className="text-xs text-gray-400 mt-3">
+          Position size = (account balance × risk%) ÷ |entry − stop|. Units are whatever your entry/stop
+          prices are quoted in — for FX pairs convert to lots using your broker's own lot/unit size.
+        </p>
+      </FoldedCard>
 
       {/* Risk, P/L, and cumulative profiles over time — "so you can see
           both risk and benefit," by direct request — from the same
