@@ -12,15 +12,18 @@ export interface TriageScenario { id: string; prompt: string; options: TriageOpt
 
 /**
  * TriageGameEngine — shared "read a scenario, choose under a countdown"
- * harness, playable in well under 5 minutes (GM04). Three of the
+ * harness, playable in well under 5 minutes (GM04). Five of the
  * spec's 10 solo pillar games (Setup Spotter / Risk Triage / Bias
- * Check) currently sit on this ONE engine with different content —
- * an honest simplification given real build-time constraints, not the
- * full "10 separate mechanics" from Section 10a. Each is tap-based
- * (no drag), so the mobile-fallback requirement (GM02) is inherent
- * rather than a separate fallback path. Later additions should favor
- * genuinely different interaction patterns (drag/sort, pipeline
- * allocation, branching) over a fourth reskin of this one.
+ * Check / MTF Alignment / Trade Management) sit on this ONE engine
+ * with different content — an honest simplification given real
+ * build-time constraints, not the full "10 separate mechanics" from
+ * Section 10a. The other 5 games use 4 genuinely different mechanics:
+ * ZoneTapperGame (tap-on-chart), WhatHappensNextGame/ConceptSpotterGame
+ * (real/schematic chart reads), SequenceGameEngine (tap-to-order), and
+ * MatchingGameEngine (tap-to-pair) — so half the roster is this one
+ * engine, half is genuinely distinct. Each is tap-based (no drag), so
+ * the mobile-fallback requirement (GM02) is inherent rather than a
+ * separate fallback path.
  */
 export function TriageGameEngine({
   gameId, trackId, title, icon, accent, scenarios, secondsPerQuestion, baseXp, backHref, dark,

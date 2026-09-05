@@ -119,6 +119,8 @@ export function TradingGamePage() {
           { to: '/practise/games/zone-tapper', title: 'Zone Tapper', desc: 'Tap the real zone on the chart', color: '#f97316' },
           { to: '/practise/games/mtf-alignment', title: 'MTF Alignment', desc: 'Multi-timeframe analysis', color: '#0ea5e9' },
           { to: '/practise/games/trade-management', title: 'Trade Management', desc: 'Manage an open position', color: '#14b8a6' },
+          { to: '/practise/games/wyckoff-phase-sorter', title: 'Wyckoff Phase Sorter', desc: 'Tap-to-order the real market cycle', color: '#a855f7' },
+          { to: '/practise/games/liquidity-match', title: 'Liquidity Match', desc: 'Match term to definition', color: '#0ea5e9' },
         ].map((g) => (
           <Link
             key={g.to}
