@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Flame, Trophy } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
 import { useThemeStore } from '../hooks/useTheme';
@@ -103,6 +104,26 @@ export function TradingGamePage() {
   return (
     <div>
       <PageHeader title="Trading Simulator Game" subtitle="Gamified paper-trading challenges with streaks and leaderboards." />
+
+      {/* Section 10a's per-pillar solo games — "🎮 Practice" entry
+          point, reachable from every module page. See TriageGameEngine's
+          docstring for the honest scope note. */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
+        {[
+          { to: '/practise/games/setup-spotter', title: 'Setup Spotter', desc: 'Market structure & order flow', color: '#0891b2' },
+          { to: '/practise/games/risk-triage', title: 'Risk Triage', desc: 'Risk management under pressure', color: '#f59e0b' },
+          { to: '/practise/games/bias-check', title: 'Bias Check', desc: 'Trading psychology', color: '#8b5cf6' },
+        ].map((g) => (
+          <Link
+            key={g.to}
+            to={g.to}
+            className={`rounded-xl p-4 border transition-shadow hover:shadow-[0_4px_16px_rgba(0,0,0,0.06)] ${dark ? 'bg-corporate-surface-dark border-corporate-border-dark' : 'bg-white border-corporate-bg'}`}
+          >
+            <div className={`text-sm font-semibold ${dark ? 'text-white' : 'text-corporate-text-on-bg'}`}>{g.title}</div>
+            <div className={`text-xs mt-1 ${mutedCls}`}>{g.desc}</div>
+          </Link>
+        ))}
+      </div>
 
       {error && <p className={`text-sm mb-4 ${dark ? 'text-red-400' : 'text-red-500'}`}>{error}</p>}
 

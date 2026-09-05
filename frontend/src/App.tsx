@@ -31,6 +31,10 @@ import { AwardsPage } from './pages/AwardsPage';
 import { MyReflectionsPage } from './pages/MyReflectionsPage';
 import { MyNotesPage } from './pages/MyNotesPage';
 import { RevisionPlannerPage } from './pages/RevisionPlannerPage';
+import { SetupSpotterGame } from './pages/SetupSpotterGame';
+import { RiskTriageGame } from './pages/RiskTriageGame';
+import { BiasCheckGame } from './pages/BiasCheckGame';
+import { RiskManagementDecisionLab } from './pages/RiskManagementDecisionLab';
 import { PracticeDrillsPage } from './pages/PracticeDrillsPage';
 import { RetentionReviewPage } from './pages/RetentionReviewPage';
 import { TradingGamePage } from './pages/TradingGamePage';
@@ -228,6 +232,10 @@ function App() {
         <Route path="/practise/drills" element={<CorporateLayout><PracticeDrillsPage /></CorporateLayout>} />
         <Route path="/practise/review" element={<CorporateLayout><RetentionReviewPage /></CorporateLayout>} />
         <Route path="/practise/game" element={<CorporateLayout><TradingGamePage /></CorporateLayout>} />
+        <Route path="/practise/games/setup-spotter" element={<CorporateLayout><SetupSpotterGame /></CorporateLayout>} />
+        <Route path="/practise/games/risk-triage" element={<CorporateLayout><RiskTriageGame /></CorporateLayout>} />
+        <Route path="/practise/games/bias-check" element={<CorporateLayout><BiasCheckGame /></CorporateLayout>} />
+        <Route path="/learn/decision-lab/risk-management" element={<CorporateLayout><RiskManagementDecisionLab /></CorporateLayout>} />
 
         {/* Fallback — most FEATURE_REGISTRY *sub*-features (e.g. /learn/basics,
             /tools/risk-of-ruin) have no page component built yet; see

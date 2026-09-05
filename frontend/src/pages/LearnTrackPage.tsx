@@ -112,6 +112,18 @@ export function LearnTrackPage() {
         Mastery level: <span className="text-corporate-hero">{track.mastery_level}</span>
       </div>
 
+      {/* Section 11's Decision Lab — currently seeded for Risk
+          Management only, matched by title (see RiskManagementDecisionLab's
+          own docstring on why this is a template, not all 18 tracks). */}
+      {track.title.includes('Risk Management') && (
+        <Link
+          to="/learn/decision-lab/risk-management"
+          className={`inline-flex items-center gap-1.5 text-sm font-medium mb-4 px-3 py-2 rounded-xl ${dark ? 'bg-white/5 text-white hover:bg-white/10' : 'bg-corporate-bg text-corporate-hero hover:bg-corporate-hero/10'}`}
+        >
+          🧭 Decision Lab — untimed, no score
+        </Link>
+      )}
+
       {message && (
         <div className={`text-sm rounded-xl p-3 mb-4 ${dark ? 'bg-white/5 text-white/80' : 'bg-blue-50 text-corporate-text-on-bg'}`}>
           {message}

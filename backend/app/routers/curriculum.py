@@ -51,10 +51,10 @@ from app.engines.progression_engine import (
     schedule_next_retention_check, stage_completion_meets_requirements, update_streak, xp_for_stage,
 )
 from app.models.curriculum import (
-    BookmarkedStage, Certificate, FlashcardCache, FlashcardReview, Lesson, LearningTrack,
-    LessonRecap, MasteryLevel, NotebookEntry, PracticeAttempt, QuizAttempt, RecapEngagement,
-    ReflectionEntry, RetentionCheck, RetrievalQuizCache, RetrievalResponse, StageCompletion,
-    TrackCategory, TrackStage, UserLearningStats,
+    BookmarkedStage, Certificate, FlashcardCache, FlashcardReview, GameResult, Lesson,
+    LearningTrack, LessonRecap, MasteryLevel, NotebookEntry, PracticeAttempt, QuizAttempt,
+    RecapEngagement, ReflectionEntry, RetentionCheck, RetrievalQuizCache, RetrievalResponse,
+    StageCompletion, TrackCategory, TrackStage, UserLearningStats,
 )
 from app.models.user import User
 
@@ -1170,3 +1170,87 @@ async def review_flashcard(
 
     await db.commit()
     return {"ok": True, "scheduled_for_review": scheduled}
+
+
+# --------------------------------------------------------------------------
+# Games (Section 10a) — shared results-screen contract + XP, one row
+# per play (never overwritten — GM03). Games are frontend-owned content
+# (scenario text/mechanics live in the component, not the database);
+# this only records outcomes and awards XP through the SAME
+# xp_for_stage/update_streak path stage completion already uses, per
+# Section 16's "single source of truth" for XP/streaks.
+# --------------------------------------------------------------------------
+
+class GameCompleteRequest(BaseModel):
+    track_id: Optional[str] = None
+    score: int
+    performance_summary: str
+    missed_items: List[str] = []
+    base_xp: int = 15
+
+
+class GameResultResponse(BaseModel):
+    id: str
+    game_id: str
+    score: int
+    performance_summary: str
+    missed_items: List[str]
+    xp_awarded: int
+    new_streak_days: int
+    completed_at: str
+
+
+@router.post("/games/{game_id}/complete", response_model=GameResultResponse)
+async def complete_game(
+    game_id: str, req: GameCompleteRequest,
+    db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access),
+):
+    stats = await _get_or_create_stats(db, user.id)
+    now = datetime.utcnow()
+
+    streak = update_streak(
+        last_activity_date=stats.last_activity_date, current_streak_days=stats.current_streak_days,
+        longest_streak_days=stats.longest_streak_days, activity_date=now,
+    )
+    xp_awarded = xp_for_stage(req.base_xp, streak.new_streak_days) if streak.xp_awarded_today else 0
+
+    stats.total_xp += xp_awarded
+    stats.current_streak_days = streak.new_streak_days
+    stats.longest_streak_days = streak.new_longest_streak_days
+    stats.last_activity_date = now
+
+    result = GameResult(
+        user_id=user.id, game_id=game_id, track_id=uuid.UUID(req.track_id) if req.track_id else None,
+        score=req.score, performance_summary=req.performance_summary,
+        missed_items_json=json.dumps(req.missed_items), xp_awarded=xp_awarded, completed_at=now,
+    )
+    db.add(result)
+    await db.commit()
+    await db.refresh(result)
+
+    return GameResultResponse(
+        id=str(result.id), game_id=game_id, score=result.score,
+        performance_summary=result.performance_summary, missed_items=req.missed_items,
+        xp_awarded=xp_awarded, new_streak_days=streak.new_streak_days,
+        completed_at=result.completed_at.isoformat(),
+    )
+
+
+@router.get("/games/{game_id}/history", response_model=List[GameResultResponse])
+async def game_history(
+    game_id: str, db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access),
+):
+    rows = (await db.execute(
+        select(GameResult)
+        .where(GameResult.user_id == user.id, GameResult.game_id == game_id)
+        .order_by(GameResult.completed_at.desc())
+        .limit(20)
+    )).scalars().all()
+    return [
+        GameResultResponse(
+            id=str(r.id), game_id=r.game_id, score=r.score, performance_summary=r.performance_summary,
+            missed_items=json.loads(r.missed_items_json), xp_awarded=r.xp_awarded,
+            new_streak_days=0, completed_at=r.completed_at.isoformat(),
+        )
+        for r in rows
+    ]

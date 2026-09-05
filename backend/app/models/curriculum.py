@@ -302,6 +302,26 @@ class FlashcardReview(Base):
     reviewed_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
 
 
+class GameResult(Base):
+    """Section 10's shared results-screen contract, persisted. One row
+    per play — a replay is a NEW row, the previous score is never
+    overwritten (GM03: "New session, previous score not overwritten in
+    history (both stored)"). game_id is a fixed string slug (e.g.
+    'setup-spotter'), not a foreign key — games are content owned by
+    the frontend, this table only records outcomes."""
+    __tablename__ = "game_results"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    game_id = Column(String(50), nullable=False)
+    track_id = Column(UUID(as_uuid=True), ForeignKey("learning_tracks.id"), nullable=True)
+    score = Column(Integer, nullable=False)
+    performance_summary = Column(Text, nullable=False)
+    missed_items_json = Column(Text, nullable=False, default="[]")
+    xp_awarded = Column(Integer, nullable=False, default=0)
+    completed_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+
+
 class Certificate(Base):
     """Issued when a user completes every stage in a track — matches the
     Academy's certificate-on-completion pattern. Certificate content
