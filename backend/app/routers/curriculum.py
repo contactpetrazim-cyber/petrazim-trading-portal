@@ -192,6 +192,19 @@ class MasteryTrackResponse(BaseModel):
     mastery_level: str
     stages_completed: int
     total_stages: int
+    # Section 15's Insights, folded into this same overview rather than
+    # a second endpoint duplicating the per-track loop above — "Insights
+    # numbers never drift from the same numbers shown elsewhere" is
+    # easiest to guarantee when there's only ever one place they're
+    # computed.
+    avg_quiz_score_pct: Optional[float] = None
+    last_activity_at: Optional[str] = None
+    recap_opens: int = 0
+
+
+class ActivityDay(BaseModel):
+    date: str          # YYYY-MM-DD
+    active: bool
 
 
 class MasteryOverviewResponse(BaseModel):
@@ -200,6 +213,7 @@ class MasteryOverviewResponse(BaseModel):
     current_streak_days: int
     longest_streak_days: int
     tracks: List[MasteryTrackResponse]
+    activity_last_30_days: List[ActivityDay] = []
 
 
 class BadgeResponse(BaseModel):
@@ -616,16 +630,64 @@ async def get_mastery_overview(
     for t in tracks:
         done, total = await _track_stage_counts(db, user.id, t.id)
         mastery = await _track_mastery_level(db, user.id, t.id)
+
+        lesson_ids = (await db.execute(select(Lesson.id).where(Lesson.track_id == t.id))).scalars().all()
+        avg_quiz: Optional[float] = None
+        recap_opens = 0
+        if lesson_ids:
+            avg_quiz = (await db.execute(
+                select(func.avg(QuizAttempt.score_pct)).where(
+                    QuizAttempt.user_id == user.id, QuizAttempt.lesson_id.in_(lesson_ids),
+                )
+            )).scalar()
+            avg_quiz = round(avg_quiz, 1) if avg_quiz is not None else None
+            recap_opens = (await db.execute(
+                select(func.coalesce(func.sum(RecapEngagement.open_count), 0)).where(
+                    RecapEngagement.user_id == user.id, RecapEngagement.lesson_id.in_(lesson_ids),
+                )
+            )).scalar() or 0
+
+        stage_ids = (await db.execute(select(TrackStage.id).where(TrackStage.track_id == t.id))).scalars().all()
+        last_activity = None
+        if stage_ids:
+            last_activity = (await db.execute(
+                select(func.max(StageCompletion.completed_at)).where(
+                    StageCompletion.user_id == user.id, StageCompletion.stage_id.in_(stage_ids),
+                )
+            )).scalar()
+
         track_out.append(MasteryTrackResponse(
             id=str(t.id), emoji=_CATEGORY_EMOJI.get(t.category.value, "📘"),
             title=t.title, category=t.category.value, mastery_level=mastery.value,
             stages_completed=done, total_stages=total,
+            avg_quiz_score_pct=avg_quiz,
+            last_activity_at=last_activity.isoformat() if last_activity else None,
+            recap_opens=int(recap_opens),
         ))
+
+    # Activity strip (Section 15) — real completion dates over the last
+    # 30 days, reusing the same StageCompletion rows every "stages
+    # complete" number on this page already comes from (not a second,
+    # separately-tracked activity log that could drift from it).
+    thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+    completion_dates = (await db.execute(
+        select(StageCompletion.completed_at).where(
+            StageCompletion.user_id == user.id, StageCompletion.completed_at >= thirty_days_ago,
+        )
+    )).scalars().all()
+    active_dates = {d.date() for d in completion_dates}
+    activity = [
+        ActivityDay(
+            date=(thirty_days_ago + timedelta(days=i)).date().isoformat(),
+            active=(thirty_days_ago + timedelta(days=i)).date() in active_dates,
+        )
+        for i in range(31)
+    ]
 
     return MasteryOverviewResponse(
         xp=stats.total_xp, level=(stats.total_xp // 100) + 1,
         current_streak_days=stats.current_streak_days, longest_streak_days=stats.longest_streak_days,
-        tracks=track_out,
+        tracks=track_out, activity_last_30_days=activity,
     )
 
 

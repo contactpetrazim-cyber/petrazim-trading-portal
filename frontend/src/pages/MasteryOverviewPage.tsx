@@ -15,13 +15,18 @@ interface MasteryTrack {
   mastery_level: 'novice' | 'developing' | 'competent' | 'proficient' | 'mastery';
   stages_completed: number;
   total_stages: number;
+  avg_quiz_score_pct: number | null;
+  last_activity_at: string | null;
+  recap_opens: number;
 }
+interface ActivityDay { date: string; active: boolean }
 interface Overview {
   xp: number;
   level: number;
   current_streak_days: number;
   longest_streak_days: number;
   tracks: MasteryTrack[];
+  activity_last_30_days: ActivityDay[];
 }
 
 const LEVEL_META: Record<MasteryTrack['mastery_level'], { label: string; pct: number; color: string }> = {
@@ -96,6 +101,25 @@ export function MasteryOverviewPage() {
         </div>
       )}
 
+      {/* Section 15's activity strip — real StageCompletion dates over
+          the last 30 days, the same rows every "stages complete" number
+          on this page already comes from. */}
+      {data && data.activity_last_30_days.length > 0 && (
+        <div className="mb-6">
+          <div className={`text-xs font-semibold mb-2 ${mutedCls}`}>Last 30 days</div>
+          <div className="flex gap-1">
+            {data.activity_last_30_days.map((d) => (
+              <div
+                key={d.date}
+                title={`${d.date}${d.active ? ' — active' : ''}`}
+                className="flex-1 h-4 rounded-sm"
+                style={{ background: d.active ? '#10b981' : dark ? 'rgba(255,255,255,0.08)' : '#eef0f6' }}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
       {!data && !error && <p className={`text-sm ${mutedCls}`}>Loading your mastery overview…</p>}
 
       {data && data.tracks.length === 0 && (
@@ -127,6 +151,9 @@ export function MasteryOverviewPage() {
                   </div>
                   <div className={`text-xs ${mutedCls}`}>
                     {t.stages_completed} of {t.total_stages} stages complete ({stagePct}%)
+                    {t.avg_quiz_score_pct !== null && ` · Avg quiz ${t.avg_quiz_score_pct}%`}
+                    {t.recap_opens > 0 && ` · Recap opened ${t.recap_opens}×`}
+                    {t.last_activity_at && ` · Last active ${new Date(t.last_activity_at).toLocaleDateString()}`}
                   </div>
                 </div>
               </Link>

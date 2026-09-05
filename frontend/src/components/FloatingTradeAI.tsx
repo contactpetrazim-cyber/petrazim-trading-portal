@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { MessageCircle, X, Send } from 'lucide-react';
 import { useTradeAIStore } from '../hooks/useTradeAI';
 import { useAuth } from '../hooks/useAuth';
@@ -25,13 +26,13 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
  * Coach is not working"). The bubble button below still works exactly
  * as before, just reading/writing the shared store now.
  */
-async function defaultOnSend(message: string, token: string | null): Promise<string> {
+async function defaultOnSend(message: string, token: string | null, contextLessonId: string | null): Promise<string> {
   if (!token) return 'Sign in to ask Coach a question.';
   try {
     const res = await apiFetch(`${API_URL}/coach/ask`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ message }),
+      body: JSON.stringify({ message, context_lesson_id: contextLessonId }),
     });
     if (!res.ok) {
       const body = await res.json().catch(() => null);
@@ -51,9 +52,18 @@ export function FloatingTradeAI({
 }) {
   const { open, setOpen } = useTradeAIStore();
   const { token } = useAuth();
+  const location = useLocation();
   const [messages, setMessages] = useState<{ role: 'user' | 'ai'; text: string }[]>([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
+
+  // Section 4 of the Learning Design Spec — "every query is answered
+  // using only the current pillar/stage's actual content as context."
+  // Detected from the route rather than lifted state, since this
+  // component is mounted once at the app root with no other way to
+  // know what the trainee is currently reading.
+  const lessonMatch = location.pathname.match(/^\/learn\/tracks\/[^/]+\/lessons\/([^/]+)/);
+  const contextLessonId = lessonMatch ? lessonMatch[1] : null;
 
   async function handleSend() {
     if (!input.trim()) return;
@@ -62,7 +72,7 @@ export function FloatingTradeAI({
     setInput('');
     setSending(true);
     try {
-      const reply = onSend ? await onSend(userMsg) : await defaultOnSend(userMsg, token);
+      const reply = onSend ? await onSend(userMsg) : await defaultOnSend(userMsg, token, contextLessonId);
       setMessages((m) => [...m, { role: 'ai', text: reply }]);
     } finally {
       setSending(false);
@@ -76,7 +86,10 @@ export function FloatingTradeAI({
       {open && (
         <div className="mb-3 w-80 bg-white rounded-xl shadow-2xl overflow-hidden flex flex-col" style={{ height: 420 }}>
           <div className="bg-corporate-hero text-white px-4 py-3 flex items-center justify-between">
-            <span className="font-medium text-sm">Trade AI</span>
+            <div>
+              <span className="font-medium text-sm block">Trade AI</span>
+              {contextLessonId && <span className="text-[10px] text-white/70">Grounded in the lesson you're reading</span>}
+            </div>
             <button onClick={() => setOpen(false)} aria-label="Close Trade AI">
               <X size={16} />
             </button>
