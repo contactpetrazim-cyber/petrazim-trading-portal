@@ -103,6 +103,44 @@ const DIAGRAMS: Record<string, DiagramConfig> = {
     caption:
       'A prior swing high (105) gets taken out with a genuine CLOSE above it (candle 4), not just a wick — that\'s a Break of Structure, confirming the trend has (or is resuming) an upward bias. The same logic applies downward for a bearish BOS.',
   },
+  'supply-demand-zone': {
+    title: 'Demand Zone',
+    candles: [
+      { open: 102, high: 103, low: 100, close: 101 },
+      { open: 101, high: 102, low: 99, close: 100 },
+      { open: 100, high: 101.5, low: 98.5, close: 99.5 },
+      { open: 99.5, high: 100.5, low: 98, close: 99 },
+      { open: 99, high: 108, low: 98.5, close: 107 },
+      { open: 107, high: 111, low: 106, close: 109 },
+      { open: 109, high: 110, low: 101, close: 103 },
+      { open: 103, high: 106, low: 102, close: 105 },
+    ],
+    zones: [{ fromIndex: 0, toIndex: 3, priceTop: 103, priceBottom: 98, color: '#22c55e', label: 'Demand' }],
+    markers: [{ index: 4, price: 108, label: 'rally away', color: '#22c55e', side: 'above' }],
+    caption:
+      'A tight consolidation "base" (candles 1-4) right before a strong rally is a demand zone — unlike an order block (one specific candle), this is a small RANGE of accumulation. Price returning to retest it (candle 7) often finds buyers again, the same origin the original move left from.',
+  },
+  'equal-highs-lows': {
+    title: 'Equal Highs (Liquidity Pool)',
+    candles: [
+      { open: 100, high: 102, low: 99, close: 101 },
+      { open: 101, high: 105, low: 100.5, close: 104 },
+      { open: 104, high: 105.2, low: 102, close: 103 },
+      { open: 103, high: 104, low: 101, close: 102 },
+      { open: 102, high: 105.1, low: 101.5, close: 103.5 },
+      { open: 103.5, high: 104.5, low: 102, close: 103 },
+      { open: 103, high: 107, low: 102.5, close: 106 },
+      { open: 106, high: 106.5, low: 100, close: 101 },
+    ],
+    lines: [{ price: 105.15, label: 'equal highs', color: '#ef4444', dashed: true }],
+    markers: [
+      { index: 1, price: 105.2, label: 'high #1', color: '#ef4444', side: 'above' },
+      { index: 4, price: 105.1, label: 'high #2', color: '#ef4444', side: 'above' },
+      { index: 6, price: 107, label: 'sweep both, then reverses', color: '#ef4444', side: 'above' },
+    ],
+    caption:
+      'Two swing highs at nearly the same price form "equal highs" — a liquidity pool, since every trader who sold at either high has a stop resting just above both. Price often runs above BOTH (candle 7) to collect that liquidity before reversing, exactly like a single-level sweep but with two levels stacked.',
+  },
 };
 
 export type SMCDiagramKey = keyof typeof DIAGRAMS;

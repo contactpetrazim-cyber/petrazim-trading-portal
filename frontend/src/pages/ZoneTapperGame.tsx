@@ -10,15 +10,16 @@ import { useThemeStore } from '../hooks/useTheme';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
-const CONCEPTS: ('fair-value-gap' | 'order-block')[] = [
-  'fair-value-gap', 'order-block', 'fair-value-gap', 'order-block', 'fair-value-gap',
+type ZoneConcept = 'fair-value-gap' | 'order-block' | 'supply-demand-zone';
+const CONCEPTS: ZoneConcept[] = [
+  'fair-value-gap', 'order-block', 'supply-demand-zone', 'fair-value-gap', 'order-block', 'supply-demand-zone',
 ];
 const DECOY_COLOR = '#9ca3af';
 const LABELS = ['A', 'B', 'C'];
 
-interface Round { concept: 'fair-value-gap' | 'order-block'; zones: (ChartZone & { isCorrect: boolean })[] }
+interface Round { concept: ZoneConcept; zones: (ChartZone & { isCorrect: boolean })[] }
 
-function buildRound(concept: 'fair-value-gap' | 'order-block'): Round {
+function buildRound(concept: ZoneConcept): Round {
   const diagram = SMC_DIAGRAM_DATA[concept];
   const real = diagram.zones![0];
   const span = real.toIndex - real.fromIndex;

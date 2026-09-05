@@ -117,6 +117,8 @@ export function TradingGamePage() {
           { to: '/practise/games/concept-spotter', title: 'Concept Spotter', desc: 'Name the pattern from the chart', color: '#0ea5e9' },
           { to: '/learn/case-study', title: 'Case Study Walkthrough', desc: 'Step through a real price window', color: '#ec4899' },
           { to: '/practise/games/zone-tapper', title: 'Zone Tapper', desc: 'Tap the real zone on the chart', color: '#f97316' },
+          { to: '/practise/games/mtf-alignment', title: 'MTF Alignment', desc: 'Multi-timeframe analysis', color: '#0ea5e9' },
+          { to: '/practise/games/trade-management', title: 'Trade Management', desc: 'Manage an open position', color: '#14b8a6' },
         ].map((g) => (
           <Link
             key={g.to}

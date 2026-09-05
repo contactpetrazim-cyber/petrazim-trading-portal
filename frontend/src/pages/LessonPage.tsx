@@ -37,6 +37,8 @@ const DIAGRAM_KEYWORDS: [RegExp, SMCDiagramKey][] = [
   [/liquidity sweep|stop hunt|liquidity grab/i, 'liquidity-sweep'],
   [/premium.{0,3}discount|premium\/discount|equilibrium/i, 'premium-discount'],
   [/break of structure|\bbos\b|change of character|\bchoch\b/i, 'break-of-structure'],
+  [/demand zone|supply zone|supply.{0,3}demand/i, 'supply-demand-zone'],
+  [/equal highs|equal lows|liquidity pool/i, 'equal-highs-lows'],
 ];
 
 function matchingDiagrams(content: string): SMCDiagramKey[] {
