@@ -115,7 +115,17 @@ class BotConfigCreate(BaseModel):
     execution_mode: Literal["human_in_loop", "fully_autonomous"] = "human_in_loop"
     use_trailing_stop: bool = True
     strategy_params: Optional[Dict] = {}
-    exchange: Optional[Literal["bingx", "binance", "bybit", "mexc", "tradelocker", "metatrader"]] = None
+    # Was a closed Literal of the 6 exchanges this platform has a real
+    # broker integration for — loosened to a free string by direct
+    # request ("option to type in specific Exchange"), so the Create
+    # Bot form's quick buttons (bingx/binance/bybit/mexc) can sit
+    # alongside a genuine free-text field rather than blocking anything
+    # not on that fixed list. Degrades safely either way: an
+    # unrecognized name just means execution_engine._get_broker_client
+    # finds no client for it and falls through to its existing paper
+    # fallback (same as today for any bot with no exchange pinned at
+    # all) — never a crash.
+    exchange: Optional[str] = Field(default=None, max_length=50)
 
 class BotConfigResponse(BaseModel):
     id: UUID
@@ -143,8 +153,13 @@ class BotToggle(BaseModel):
     bot_id: str
     active: bool
 
+class BotRename(BaseModel):
+    bot_name: str = Field(..., min_length=1, max_length=100)
+
 class BotExchangeUpdate(BaseModel):
-    exchange: Literal["bingx", "binance", "bybit", "mexc", "tradelocker", "metatrader"]
+    # Same loosening as BotConfigCreate.exchange above, for consistency
+    # between creating a bot and re-pinning its exchange later.
+    exchange: str = Field(max_length=50)
 
 class BotMetricsUpdate(BaseModel):
     """The editable risk/entry metrics a Trader can tune on their own

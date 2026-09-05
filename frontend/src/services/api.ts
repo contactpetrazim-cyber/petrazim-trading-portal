@@ -58,6 +58,9 @@ export const botsApi = {
     timeframes?: string[]; risk_per_trade?: number; max_daily_trades?: number;
     max_concurrent_trades?: number; min_rr_ratio?: number;
     execution_mode?: 'human_in_loop' | 'fully_autonomous'; use_trailing_stop?: boolean;
+    // Free-typed (not a closed list) — by direct request ("option to
+    // type in specific Exchange"); routers/bots.py normalizes casing.
+    exchange?: string | null;
   }) => api.post<BotConfig>('/bots/', config).then(r => r.data),
   toggleBot: (botId: string, active: boolean) =>
     api.patch(`/bots/${botId}/toggle`, { bot_id: botId, active }).then(r => r.data),
@@ -66,6 +69,19 @@ export const botsApi = {
   updateMetrics: (botId: string, update: BotMetricsUpdate) =>
     api.patch<BotConfig>(`/bots/${botId}/metrics`, update).then(r => r.data),
   getPerformance: (botId: string) => api.get<BotPerformance>(`/bots/${botId}/performance`).then(r => r.data),
+  // Rename/delete — by direct request ("create options to edit bot
+  // names and also to delete bots").
+  renameBot: (botId: string, botName: string) =>
+    api.patch<BotConfig>(`/bots/${botId}/name`, { bot_name: botName }).then(r => r.data),
+  deleteBot: (botId: string) => api.delete(`/bots/${botId}`).then(r => r.data),
+  // Real, live-searchable Binance instrument list — by direct request
+  // ("a search instrument space that searches the instrument - exactly
+  // like the one on the chart ... removing errors"). Reuses the same
+  // proxy order_flow.py already has for the Order Flow tool.
+  searchInstruments: (q: string) =>
+    api.get<{ instruments: { symbol: string; base_asset: string; quote_asset: string }[] }>(
+      '/order-flow/instruments', { params: { q, limit: 25 } }
+    ).then(r => r.data.instruments),
 };
 
 export interface TraderBotSummary {

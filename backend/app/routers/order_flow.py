@@ -46,6 +46,7 @@ intent.
 
 from __future__ import annotations
 
+import time
 from collections import defaultdict
 from typing import Dict, List, Literal, Optional
 
@@ -358,3 +359,66 @@ async def get_klines(
             for row in raw
         ],
     )
+
+
+# ---------------------------------------------------------------------------
+# Instrument search — the Create Bot form's real symbol picker, by direct
+# request ("for instrument include a search instrument space that
+# searches the instrument - exactly like the one on the chart ... allow
+# selection ... removing errors"). Backed by Binance's own public
+# exchangeInfo listing (every genuinely tradable pair, ~2000+), the
+# same real-data-not-a-guess standard the rest of this router already
+# holds to, rather than a short fixed list or free-typed text a trader
+# could mistype. Deliberately crypto-only, same honest scope as the
+# rest of this proxy: a bot trading forex (e.g. EURUSD) has no live
+# instrument list to search here, and the Create Bot form still lets a
+# trader type one in directly for that case.
+# ---------------------------------------------------------------------------
+
+class InstrumentInfo(BaseModel):
+    symbol: str
+    base_asset: str
+    quote_asset: str
+
+
+class InstrumentsResponse(BaseModel):
+    instruments: List[InstrumentInfo]
+
+
+_INSTRUMENTS_CACHE_TTL_SECONDS = 3600  # exchangeInfo's tradable-pair list barely changes hour to hour
+_instruments_cache: Dict[str, object] = {"data": None, "fetched_at": 0.0}
+
+
+async def _get_all_instruments() -> List[InstrumentInfo]:
+    now = time.monotonic()
+    cached = _instruments_cache["data"]
+    if cached is not None and now - _instruments_cache["fetched_at"] < _INSTRUMENTS_CACHE_TTL_SECONDS:
+        return cached  # type: ignore[return-value]
+    resp = await _binance_get("/exchangeInfo", {})
+    raw = resp.json()
+    instruments = [
+        InstrumentInfo(symbol=s["symbol"], base_asset=s["baseAsset"], quote_asset=s["quoteAsset"])
+        for s in raw.get("symbols", [])
+        if s.get("status") == "TRADING"
+    ]
+    _instruments_cache["data"] = instruments
+    _instruments_cache["fetched_at"] = now
+    return instruments
+
+
+@router.get("/instruments", response_model=InstrumentsResponse)
+async def search_instruments(
+    q: str = "", limit: int = 25, user: User = Depends(get_current_user),
+):
+    """Real, live-tradable Binance symbols matching `q` (substring,
+    case-insensitive) — an empty query returns the first `limit`
+    alphabetically, so the field has something to show before a trader
+    types anything."""
+    limit = max(1, min(limit, 100))
+    all_instruments = await _get_all_instruments()
+    query = q.strip().upper()
+    matches = (
+        [i for i in all_instruments if query in i.symbol]
+        if query else sorted(all_instruments, key=lambda i: i.symbol)
+    )
+    return InstrumentsResponse(instruments=matches[:limit])
