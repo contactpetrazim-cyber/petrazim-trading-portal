@@ -7,8 +7,15 @@ import { useThemeStore } from '../hooks/useTheme';
 
 /**
  * OnboardingPage — the forced sequence after login/register:
- *   Pay -> Community (mandatory, no skip) -> choose:
- *   "Start Trading" (-> /dashboard) or "Explore Site" (-> /explore)
+ *   Pay -> Community (mandatory, no skip) -> Home dashboard.
+ *
+ * The step used to end on a "Start Trading" (-> /dashboard) vs
+ * "Explore Site" (-> /explore) choice screen; by direct request
+ * ("make the Home dashboard page the default page to land after ...
+ * registration / pay"), completing the flow now lands straight on
+ * /home instead — which already surfaces both trading and exploring
+ * one tap away (its own area grid + Start Here card), so neither
+ * destination is lost, only the extra intermediate screen.
  *
  * Used to have its own "registration" step (RegistrationGateCard) at
  * the front, but that form only ever collected name/email/phone with
@@ -32,10 +39,10 @@ import { useThemeStore } from '../hooks/useTheme';
  * server actually thinks their state is.
  */
 
-type Step = 'payment' | 'community' | 'choice';
+type Step = 'payment' | 'community';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
-const STEP_ORDER: Step[] = ['payment', 'community', 'choice'];
+const STEP_ORDER: Step[] = ['payment', 'community'];
 
 export function OnboardingPage() {
   const navigate = useNavigate();
@@ -52,7 +59,7 @@ export function OnboardingPage() {
     if (!res.ok) return;
     const data = await res.json();
     if (data.current_step === 'community') setStep('community');
-    else if (data.current_step === 'complete') setStep('choice');
+    else if (data.current_step === 'complete') navigate('/home');
     else setStep('payment');
   }
 
@@ -79,7 +86,7 @@ export function OnboardingPage() {
   }
 
   function handleCommunityContinue() {
-    setStep('choice');
+    navigate('/home');
   }
 
   return (
@@ -122,27 +129,6 @@ export function OnboardingPage() {
 
       {!loading && step === 'community' && (
         <CommunityGateStep apiBaseUrl={API_BASE} channel="individual" onContinue={handleCommunityContinue} />
-      )}
-
-      {!loading && step === 'choice' && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-lg w-full">
-          <button
-            onClick={() => navigate('/dashboard')}
-            className="bg-corporate-hero text-white rounded-xl p-6 text-left hover:opacity-90 transition-opacity"
-          >
-            <h3 className="font-bold text-lg mb-1">Start Trading</h3>
-            <p className="text-white/70 text-sm">Go straight to the live trading console.</p>
-          </button>
-          <button
-            onClick={() => navigate('/explore')}
-            className={`rounded-xl p-6 text-left border transition-shadow hover:shadow-md ${
-              dark ? 'bg-corporate-surface-dark border-corporate-border-dark' : 'bg-white border-corporate-bg'
-            }`}
-          >
-            <h3 className={`font-bold text-lg mb-1 ${dark ? 'text-white' : 'text-corporate-text-on-bg'}`}>Explore Site</h3>
-            <p className={`text-sm ${dark ? 'text-white/50' : 'text-gray-500'}`}>Look around Learn, Insights, Tools, and Community first.</p>
-          </button>
-        </div>
       )}
     </div>
   );

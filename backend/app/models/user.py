@@ -37,8 +37,17 @@ ROLE_BADGE_COLOR = {
     UserRole.SUPER_ADMIN: "#111827",
 }
 
+# Trader's landing route was "/dashboard" (the separate, legacy Trade
+# console) — by direct request ("make the Home dashboard page the
+# default page to land after login ... or just a return login"), a
+# returning Trader now lands on the real Home dashboard (CorporateHomePage
+# at /home) instead, same as the post-registration/payment flow
+# (OnboardingPage). Fund Manager/Partner/Admin keep their own consoles
+# as their landing route — those weren't part of this request, and each
+# is already reachable from /home's own area grid (portal-hierarchy:
+# every console is a superset of the one below it, /home included).
 ROLE_LANDING_ROUTE = {
-    UserRole.TRADER: "/dashboard",
+    UserRole.TRADER: "/home",
     UserRole.FUND_MANAGER: "/manager",
     UserRole.PARTNER: "/partner",
     UserRole.ADMIN: "/admin",
