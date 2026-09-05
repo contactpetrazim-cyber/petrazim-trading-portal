@@ -1298,6 +1298,100 @@ async def complete_game(
     )
 
 
+class GameSummaryResponse(BaseModel):
+    game_id: str
+    attempts: int
+    best_score: int
+    latest_score: int
+    total_xp_earned: int
+    last_played_at: str
+    # Real per-attempt scores, oldest first — for a genuine trend line
+    # rather than a single aggregate number (analytics visuals, by
+    # direct request: "increase and provide more analytics visuals and
+    # metrics").
+    score_history: List[int]
+
+
+@router.get("/games/summary", response_model=List[GameSummaryResponse])
+async def games_summary(db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access)):
+    """Every game this user has ever played, aggregated — powers a
+    real 'Game Performance' analytics section without the frontend
+    needing to know every game_id in advance (queries DISTINCT game_id
+    off this user's own real GameResult rows)."""
+    game_ids = (await db.execute(
+        select(GameResult.game_id).where(GameResult.user_id == user.id).distinct()
+    )).scalars().all()
+
+    out: List[GameSummaryResponse] = []
+    for game_id in game_ids:
+        rows = (await db.execute(
+            select(GameResult)
+            .where(GameResult.user_id == user.id, GameResult.game_id == game_id)
+            .order_by(GameResult.completed_at.asc())
+        )).scalars().all()
+        if not rows:
+            continue
+        out.append(GameSummaryResponse(
+            game_id=game_id, attempts=len(rows),
+            best_score=max(r.score for r in rows), latest_score=rows[-1].score,
+            total_xp_earned=sum(r.xp_awarded for r in rows),
+            last_played_at=rows[-1].completed_at.isoformat(),
+            score_history=[r.score for r in rows[-10:]],
+        ))
+    out.sort(key=lambda g: g.last_played_at, reverse=True)
+    return out
+
+
+class RevisitFlagResponse(BaseModel):
+    lesson_id: str
+    lesson_title: str
+    track_title: str
+    very_sure_wrong_count: int
+
+
+@router.get("/insights/revisit-flags", response_model=List[RevisitFlagResponse])
+async def get_revisit_flags(db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access)):
+    """Section 6's RQ01 — 'answer wrong with very_sure confidence
+    [multiple] times -> Insights surfaces a specific revisit flag.'
+    Grouped per lesson (this app's retrieval questions aren't tagged
+    with the spec's finer-grained skillTags) — threshold of 2+ rather
+    than the spec's illustrative 4, since this app has far fewer total
+    retrieval attempts than the reference's own volume; the PRINCIPLE
+    (confidence-accuracy gap, not just raw wrongness, drives the flag)
+    is what's real here, not the specific number 4."""
+    rows = (await db.execute(
+        select(RetrievalResponse.lesson_id, func.count(RetrievalResponse.id))
+        .where(
+            RetrievalResponse.user_id == user.id,
+            RetrievalResponse.confidence == "very_sure",
+            RetrievalResponse.answered_correctly == 0,
+        )
+        .group_by(RetrievalResponse.lesson_id)
+        .having(func.count(RetrievalResponse.id) >= 2)
+    )).all()
+    if not rows:
+        return []
+
+    lesson_ids = [r[0] for r in rows]
+    lessons = (await db.execute(select(Lesson).where(Lesson.id.in_(lesson_ids)))).scalars().all()
+    lesson_by_id = {l.id: l for l in lessons}
+    track_ids = {l.track_id for l in lessons}
+    tracks = (await db.execute(select(LearningTrack).where(LearningTrack.id.in_(track_ids)))).scalars().all()
+    track_title_by_id = {t.id: t.title for t in tracks}
+
+    out = []
+    for lesson_id, count in rows:
+        lesson = lesson_by_id.get(lesson_id)
+        if lesson is None:
+            continue
+        out.append(RevisitFlagResponse(
+            lesson_id=str(lesson_id), lesson_title=lesson.title,
+            track_title=track_title_by_id.get(lesson.track_id, "Unknown track"),
+            very_sure_wrong_count=count,
+        ))
+    return sorted(out, key=lambda f: f.very_sure_wrong_count, reverse=True)
+
+
 @router.get("/games/{game_id}/history", response_model=List[GameResultResponse])
 async def game_history(
     game_id: str, db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access),
