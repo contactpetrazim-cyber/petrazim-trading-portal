@@ -4,6 +4,7 @@ import { Compass } from 'lucide-react';
 import { HERO_GRADIENT } from '../config/theme';
 import { FEATURE_AREAS } from '../config/featureRegistry';
 import { StartHereCard } from '../components/StartHereCard';
+import { openProgrammeSteps } from '../components/ProgrammeStepsModal';
 import { useAuth } from '../hooks/useAuth';
 import { useThemeStore } from '../hooks/useTheme';
 
@@ -126,6 +127,7 @@ export function CorporateHomePage() {
             </Link>
             <a
               href="#start-here"
+              onClick={openProgrammeSteps}
               className="flex items-center gap-2 border border-white/30 text-white font-semibold text-sm px-5 py-3 rounded-xl hover:bg-white/10 transition-colors"
             >
               <Compass size={16} /> Start Here

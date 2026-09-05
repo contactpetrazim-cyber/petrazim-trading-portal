@@ -57,12 +57,33 @@ const STEPS: StepDef[] = [
  * from GET /onboarding/status (has_paid_access / community_joined),
  * the exact same state OnboardingPage itself polls — this modal never
  * invents a step the backend doesn't actually think you're on.
+ *
+ * Self-contained global trigger (same pattern as AccessExpiredGate's
+ * triggerAccessExpired): mounted once (CorporateLayout, alongside
+ * FloatingTradeAI) so any entry point can open the exact same instance
+ * instead of each caller owning its own open/close state and its own
+ * <ProgrammeStepsModal>. By direct request ("Let the Start Here button
+ * on the Home dashboard also trigger the How the programme works
+ * [modal]") — the Home hero's own "Start Here" quick-link used to only
+ * scroll to the StartHereCard section below; it now also opens this,
+ * same as StartHereCard's "Begin registration" button already did.
  */
-export function ProgrammeStepsModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+let globalSetOpen: ((open: boolean) => void) | null = null;
+export function openProgrammeSteps() {
+  globalSetOpen?.(true);
+}
+
+export function ProgrammeStepsModal() {
   const navigate = useNavigate();
   const { token } = useAuth();
+  const [open, setOpen] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    globalSetOpen = setOpen;
+    return () => { globalSetOpen = null; };
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -85,6 +106,8 @@ export function ProgrammeStepsModal({ open, onClose }: { open: boolean; onClose:
   }, [open, token]);
 
   if (!open) return null;
+
+  const onClose = () => setOpen(false);
 
   function handleGo() {
     const dest = STEPS[currentStep].goTo;

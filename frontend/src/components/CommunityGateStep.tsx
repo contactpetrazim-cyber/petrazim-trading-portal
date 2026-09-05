@@ -7,16 +7,26 @@ const CHANNEL_LINKS = {
 };
 
 /**
- * CommunityGateStep — the MANDATORY version, no skip button. Per spec:
- * "After Registration - you are directed to join the community no
- * option." Telegram is the gating factor (verified via link — the
- * webhook auto-approves and this step polls /community/status for
- * confirmation); WhatsApp is offered alongside but does NOT block
- * progress, matching the reference screenshot exactly (Telegram shows
- * "connected," WhatsApp is just a button).
+ * CommunityGateStep — originally spec'd as MANDATORY, no skip button
+ * ("After Registration - you are directed to join the community no
+ * option."), with Telegram as the gating factor: the webhook
+ * auto-approves the join request and this step polls
+ * /community/status for confirmation, only then enabling Continue.
  *
- * "Continue" only enables once telegram_connected is true. There is no
- * other way past this step.
+ * That auto-approval depends on a real Telegram bot token
+ * (TELEGRAM_BOT_TOKEN_INDIVIDUAL / _CORP) which is not currently set
+ * anywhere in this backend's environment — so telegram_connected can
+ * never actually flip true, and this "no option" gate was leaving
+ * every new trader stuck here permanently with no way to reach the
+ * platform they already paid for. By direct bug report ("the telegram
+ * registration bit link is not working ... a user is left hanging ...
+ * can't connect back to begin learning and trading"): added a real
+ * escape hatch below. This doesn't bypass any actual server-side gate
+ * — nothing outside this component's own `disabled` prop ever checks
+ * community_joined (OnboardingPage's handleCommunityContinue just
+ * navigates home; access itself is governed by UserAccess/payment, not
+ * Telegram), so letting a trader continue without Telegram connected
+ * changes no real permission, only this screen's own UI block.
  */
 export function CommunityGateStep({
   apiBaseUrl = '',
@@ -104,6 +114,15 @@ export function CommunityGateStep({
       >
         {connected ? 'Continue' : 'Connect Telegram to continue'}
       </button>
+
+      {!connected && (
+        <button
+          onClick={onContinue}
+          className="w-full mt-2 py-2 rounded-lg text-xs font-medium text-gray-400 hover:text-corporate-text-on-bg transition-colors"
+        >
+          Skip for now — return to Home dashboard
+        </button>
+      )}
     </div>
   );
 }

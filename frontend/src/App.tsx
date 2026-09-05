@@ -4,6 +4,7 @@ import { Layout } from './components/Layout';
 import { TopNav } from './components/TopNav';
 import { BottomNav } from './components/BottomNav';
 import { FloatingTradeAI } from './components/FloatingTradeAI';
+import { ProgrammeStepsModal } from './components/ProgrammeStepsModal';
 import { useThemeStore } from './hooks/useTheme';
 import { useInstallPromptStore } from './hooks/useInstallPrompt';
 import { DashboardPage } from './pages/Dashboard';
@@ -71,6 +72,7 @@ function CorporateLayout({ children }: { children: React.ReactNode }) {
       <main className="max-w-5xl mx-auto px-5 py-8">{children}</main>
       <BottomNav />
       <FloatingTradeAI />
+      <ProgrammeStepsModal />
     </div>
   );
 }

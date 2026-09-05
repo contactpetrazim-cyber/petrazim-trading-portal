@@ -1,3 +1,6 @@
+import { Link } from 'react-router-dom';
+import { ArrowRight } from 'lucide-react';
+
 /**
  * CommunityJoinButtons — shown right after registration/payment, same
  * placement as the Academy build. Routes to the correct Telegram
@@ -11,6 +14,23 @@
  * webhook checks their access, and approves automatically within
  * seconds. The button copy below reflects that honestly rather than
  * promising instant membership.
+ *
+ * KNOWN GAP, not something this component can fix on its own: neither
+ * TELEGRAM_BOT_TOKEN_INDIVIDUAL nor TELEGRAM_BOT_TOKEN_CORP is set in
+ * this backend's environment (backend/.env), so approve_join_request()
+ * can never actually run — every join request sits pending forever no
+ * matter how correct this link is. That's the real cause behind "the
+ * telegram registration bit link is not working ... no join". Fixing
+ * it for real needs a real bot token from @BotFather (one bot added as
+ * admin to each channel with "Add Members" permission), set as an env
+ * var locally and on the live backend — the same pattern as the AI
+ * Coach provider keys.
+ *
+ * A return path back to Home was missing entirely, by direct report
+ * ("a user is left hanging ... can't connect back to begin learning
+ * and trading") — added below regardless of the bot-token gap above,
+ * since a trader who already has real access shouldn't be stranded on
+ * this screen while that gets sorted out.
  */
 
 const CHANNEL_LINKS = {
@@ -51,6 +71,12 @@ export function CommunityJoinButtons({
           </a>
         )}
       </div>
+      <Link
+        to="/home"
+        className="mt-3 flex items-center justify-center gap-1.5 text-sm font-medium text-gray-400 hover:text-white transition py-1"
+      >
+        Return to Home dashboard <ArrowRight size={14} />
+      </Link>
     </div>
   );
 }

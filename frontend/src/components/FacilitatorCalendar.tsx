@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Lock, Video, X } from 'lucide-react';
 
 const BAND_LABELS: Record<string, string> = { am: 'AM', afternoon: 'Afternoon', evening: 'Evening' };
@@ -34,16 +35,28 @@ interface DayAvailability {
  * instead, which does nothing against a Bearer-only backend. Every
  * booking attempt 401'd — by direct bug report ("Facilitator sessions
  * booking not working"). Now the real token is required and sent.
+ *
+ * `tierLoading` — MeetingsPage's own tier check is separate from and
+ * can resolve slower than this component's calendar-strip fetch (its
+ * own `loading` below only covers that strip). Rendering `!eligible`
+ * the instant the strip loads — before the tier check has actually
+ * finished — showed a genuinely Professional/Executive trader the
+ * upgrade gate as if it were final, by direct bug report ("Professional
+ * /Executive feature ... not working"). Now withheld until the tier
+ * check itself has actually settled.
  */
 export function FacilitatorCalendar({
   userTier,
+  tierLoading,
   token,
   dark = false,
 }: {
   userTier: 'essential' | 'professional' | 'executive' | null;
+  tierLoading: boolean;
   token: string | null;
   dark?: boolean;
 }) {
+  const navigate = useNavigate();
   const [strip, setStrip] = useState<DayAvailability[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<{ day: string; band: string } | null>(null);
@@ -98,7 +111,7 @@ export function FacilitatorCalendar({
 
   return (
     <div>
-      {!eligible && (
+      {!tierLoading && !eligible && (
         <div className={`rounded-xl p-4 mb-4 flex items-start gap-3 border ${dark ? 'bg-amber-500/10 border-amber-500/30' : 'bg-amber-50 border-amber-200'}`}>
           <Lock size={18} className={`shrink-0 mt-0.5 ${dark ? 'text-amber-400' : 'text-amber-600'}`} />
           <div>
@@ -107,7 +120,10 @@ export function FacilitatorCalendar({
               Facilitator sessions are available on Professional and Executive tiers. Upgrade to book time
               with a facilitator, Fund Manager, or Partner.
             </div>
-            <button className="mt-2 text-xs font-semibold text-white px-3 py-1.5 rounded-lg bg-corporate-accent">
+            <button
+              onClick={() => navigate('/payments')}
+              className="mt-2 text-xs font-semibold text-white px-3 py-1.5 rounded-lg bg-corporate-accent"
+            >
               View plans
             </button>
           </div>

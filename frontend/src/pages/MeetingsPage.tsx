@@ -3,6 +3,7 @@ import { ConnectorCards } from '../components/ConnectorCards';
 import { FacilitatorCalendar } from '../components/FacilitatorCalendar';
 import { useAuth } from '../hooks/useAuth';
 import { useThemeStore } from '../hooks/useTheme';
+import { fetchJsonWithRetry } from '../lib/resilientFetch';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -22,21 +23,34 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
  * (built alongside the checkout page) instead of a hardcoded null —
  * this was the exact integration point this file's own comment
  * flagged as missing.
+ *
+ * `tierLoading` — separate from FacilitatorCalendar's own internal
+ * `loading` (which only covers the calendar strip fetch): this used a
+ * one-shot plain fetch() with a silent catch, so a cold Render
+ * free-tier start (or any transient failure) left userTier null
+ * forever, and the calendar rendered the "Professional/Executive
+ * feature — Upgrade" gate as if that were the real, final answer — by
+ * direct bug report, a genuinely Professional/Executive trader saw
+ * "not working" instead of the booking calendar. Now retries through a
+ * cold start (fetchJsonWithRetry, see resilientFetch.ts) and the
+ * calendar withholds the gate entirely until this has actually settled.
  */
 export function MeetingsPage() {
   const { theme } = useThemeStore();
   const dark = theme === 'dark';
   const { token } = useAuth();
   const [userTier, setUserTier] = useState<'essential' | 'professional' | 'executive' | null>(null);
+  const [tierLoading, setTierLoading] = useState(true);
 
   useEffect(() => {
-    if (!token) return;
-    fetch(`${API_URL}/payments/access-status`, { headers: { Authorization: `Bearer ${token}` } })
-      .then((r) => (r.ok ? r.json() : null))
+    if (!token) { setTierLoading(false); return; }
+    fetchJsonWithRetry<{ has_active_access: boolean; tier: string }>(
+      `${API_URL}/payments/access-status`, { headers: { Authorization: `Bearer ${token}` } },
+    )
       .then((s) => {
-        if (s?.has_active_access && s.tier !== 'community') setUserTier(s.tier);
+        if (s?.has_active_access && s.tier !== 'community') setUserTier(s.tier as any);
       })
-      .catch(() => {});
+      .finally(() => setTierLoading(false));
   }, [token]);
 
   return (
@@ -56,7 +70,7 @@ export function MeetingsPage() {
 
       <div>
         <h2 className={`text-sm font-semibold mb-3 ${dark ? 'text-white/40' : 'text-gray-500'}`}>Availability</h2>
-        <FacilitatorCalendar userTier={userTier} token={token} dark={dark} />
+        <FacilitatorCalendar userTier={userTier} tierLoading={tierLoading} token={token} dark={dark} />
       </div>
     </div>
   );
