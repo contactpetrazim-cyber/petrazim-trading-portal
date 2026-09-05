@@ -8,14 +8,20 @@ meeting invite/calendar event, or via Fireflies' API for platforms
 they directly support. Jitsi isn't one of Fireflies' natively
 integrated platforms (Zoom/Meet/Teams are), so the reliable path is:
 add the Fireflies notetaker email to the Jitsi meeting's calendar
-invite, same as inviting a human participant.
+invite, same as inviting a human participant — routers/facilitator.py
+does exactly that, passing this function's returned notetaker_email
+into google_calendar.create_calendar_event()'s attendees list. This
+module makes no direct call to Fireflies' own API at all: there's
+nothing Fireflies-side to call for a platform it doesn't natively
+join, and Fireflies auto-joins any meeting its notetaker email is
+invited to on a connected calendar, no separate API request needed.
 
-STUBBED, honestly: this needs your actual Fireflies account's
-notetaker email address and API key, neither of which exist yet. The
-booking flow works today without this (a session can be booked and
-joined via Jitsi right now) — this only adds the automatic
-transcription/summary layer on top, and is designed to fail loudly
-rather than silently skip the invite if it's not configured.
+Config: FIREFLIES_API_KEY / FIREFLIES_NOTETAKER_EMAIL. The API key
+isn't actually used by the calendar-invite path above — it's kept as
+a required config value anyway (not just the email) so "Fireflies not
+connected" reads as a deliberate, verified state (both values present)
+rather than one stray env var away from silently mis-configuring
+whose notetaker gets invited.
 """
 
 from __future__ import annotations
@@ -28,7 +34,7 @@ from typing import Optional
 @dataclass
 class NotetakerInviteResult:
     invited: bool
-    fireflies_meeting_id: Optional[str] = None
+    notetaker_email: Optional[str] = None
     reason: str = ""
 
 
@@ -46,8 +52,4 @@ def invite_fireflies_notetaker(jitsi_room_url: str, meeting_title: str) -> Notet
             ),
         )
 
-    raise NotImplementedError(
-        "Wire this to Fireflies' actual API (or calendar-invite-based join, since Jitsi "
-        "isn't a natively integrated platform) once FIREFLIES_API_KEY is set. Kept as an "
-        "explicit stub rather than faking a meeting ID that would look real but isn't."
-    )
+    return NotetakerInviteResult(invited=True, notetaker_email=notetaker_email)

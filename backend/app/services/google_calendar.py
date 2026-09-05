@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import os
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import List, Optional
 from urllib.parse import urlencode
 
 import httpx
@@ -142,18 +142,30 @@ async def get_valid_access_token(credential) -> Optional[str]:
 
 async def create_calendar_event(
     access_token: str, *, summary: str, description: str, start_iso: str, end_iso: str, location: str = "",
+    attendees: Optional[List[str]] = None,
 ) -> Optional[str]:
     """Creates an event on the connected account's primary calendar.
     Returns the created event's id, or None if the call failed (never
     raises — a calendar-sync failure should never block a booking that
-    otherwise succeeded, same fail-soft convention as Fireflies)."""
+    otherwise succeeded, same fail-soft convention as Fireflies).
+
+    `attendees` — how the Fireflies notetaker actually gets into a
+    Jitsi meeting (services/fireflies.py's own docstring: Jitsi isn't
+    one of Fireflies' natively-integrated platforms, so inviting its
+    notetaker email onto this same calendar event is the real
+    mechanism, not a separate Fireflies API call). `sendUpdates=all`
+    (below) is what makes Google actually email the invite, including
+    to the notetaker address, rather than silently adding it."""
     body = {
         "summary": summary, "description": description, "location": location,
         "start": {"dateTime": start_iso}, "end": {"dateTime": end_iso},
     }
+    if attendees:
+        body["attendees"] = [{"email": email} for email in attendees]
     async with httpx.AsyncClient(timeout=15) as client:
         res = await client.post(
             f"{CALENDAR_API_BASE}/calendars/primary/events",
+            params={"sendUpdates": "all"} if attendees else None,
             headers={"Authorization": f"Bearer {access_token}"}, json=body,
         )
     if res.status_code not in (200, 201):

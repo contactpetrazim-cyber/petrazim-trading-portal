@@ -148,10 +148,13 @@ async def book_session(
     await db.commit()
     await db.refresh(booking)
 
+    # No separate Fireflies API call happens here (see fireflies.py's
+    # own docstring on why) — this just resolves whether a notetaker
+    # email is configured; the actual invite happens below, as an
+    # attendee on the calendar event itself. fireflies_meeting_id stays
+    # unset since there's no real Fireflies-side id to record without
+    # a direct API call.
     notetaker = invite_fireflies_notetaker(room_url, req.topic)
-    if notetaker.invited:
-        booking.fireflies_meeting_id = notetaker.fireflies_meeting_id
-        await db.commit()
 
     # Best-effort calendar sync — same fail-soft convention as
     # Fireflies above: a booking always succeeds even if this fails or
@@ -177,6 +180,10 @@ async def book_session(
                 access_token, summary=f"Petrazim facilitator session — {req.topic}",
                 description=f"Join: {room_url}", start_iso=start_dt.isoformat(), end_iso=end_dt.isoformat(),
                 location=room_url,
+                # The real Fireflies-notetaker mechanism (see
+                # fireflies.py's own docstring) — invited onto THIS
+                # calendar event, not a separate API call.
+                attendees=[notetaker.notetaker_email] if notetaker.invited and notetaker.notetaker_email else None,
             )
         await db.commit()   # persists get_valid_access_token's refreshed cache either way
 
