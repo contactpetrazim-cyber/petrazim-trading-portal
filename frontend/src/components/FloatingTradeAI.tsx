@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { MessageCircle, X, Send } from 'lucide-react';
+import { useTradeAIStore } from '../hooks/useTradeAI';
 
 /**
  * FloatingTradeAI — the floating chat icon requested, always visible
@@ -9,13 +10,19 @@ import { MessageCircle, X, Send } from 'lucide-react';
  * already established for TradeCoachPanel/ReasoningPanel and the
  * Weekly Review's build_weekly_review_prompt — reuse that, don't
  * invent a second coach personality here).
+ *
+ * `open` now lives in useTradeAIStore rather than local state, so
+ * SettingsPanel's "Ask Trading Coach" row can open this same panel
+ * instead of being a dead, do-nothing row — by direct bug report ("Ask
+ * Coach is not working"). The bubble button below still works exactly
+ * as before, just reading/writing the shared store now.
  */
 export function FloatingTradeAI({
   onSend,
 }: {
   onSend?: (message: string) => Promise<string>;
 }) {
-  const [open, setOpen] = useState(false);
+  const { open, setOpen } = useTradeAIStore();
   const [messages, setMessages] = useState<{ role: 'user' | 'ai'; text: string }[]>([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
@@ -88,7 +95,7 @@ export function FloatingTradeAI({
       )}
 
       <button
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => setOpen(!open)}
         aria-label="Open Trade AI"
         className="w-14 h-14 rounded-full bg-corporate-accent text-white shadow-xl flex items-center justify-center hover:opacity-90 transition"
       >

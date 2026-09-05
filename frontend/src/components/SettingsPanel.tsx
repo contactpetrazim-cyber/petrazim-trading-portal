@@ -7,6 +7,7 @@ import {
 import { HERO_GRADIENT } from '../config/theme';
 import type { ThemeName } from '../hooks/useTheme';
 import { useAuth } from '../hooks/useAuth';
+import { useTradeAIStore } from '../hooks/useTradeAI';
 import { PortalSelectionCard, PortalOption } from './PortalSelectionCard';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -19,13 +20,20 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
  * had no such shortcut). Five are functionally real: "Home" (links to
  * /home), the theme toggle (wired to useTheme), "Select Access and
  * Pay" (links to /payments, the real checkout page), "Facilitator
- * Sessions" (links to /meetings), and "Switch Portal" (fetches the
+ * Sessions" (links to /meetings), "Switch Portal" (fetches the
  * current user's real GET /auth/available-portals list and opens the
  * real PortalSelectionCard — the reference's hardcoded four-portal
- * demo, backed by data here). The remaining three (Ask Trading Coach,
- * Backup and Offline, Quick Links) are informational rows only, same
- * as the reference — this doesn't invent navigation the design didn't
- * specify.
+ * demo, backed by data here), and now "Ask Trading Coach" too — it
+ * opens the same FloatingTradeAI panel every page already mounts (via
+ * the shared useTradeAIStore) instead of doing nothing, per direct bug
+ * report ("Ask Coach is not working"). That opens the real chat UI,
+ * not a live AI backend — FloatingTradeAI's `onSend` is still unwired
+ * to any LLM endpoint (no provider/API key exists in this codebase at
+ * all; see that component's docstring), and standing that up is a real
+ * integration + ongoing-cost decision for you to make, not one to wire
+ * up silently. The remaining two (Backup and Offline, Quick Links) are
+ * still informational rows only, same as the reference — this doesn't
+ * invent navigation the design didn't specify.
  */
 export function SettingsPanel({
   open,
@@ -42,6 +50,7 @@ export function SettingsPanel({
 }) {
   const navigate = useNavigate();
   const { token } = useAuth();
+  const { setOpen: setTradeAIOpen } = useTradeAIStore();
   const [switchPortals, setSwitchPortals] = useState<PortalOption[] | null>(null);
 
   if (!open) return null;
@@ -56,10 +65,15 @@ export function SettingsPanel({
     setSwitchPortals(data.portals);
   }
 
+  function openTradeAI() {
+    setTradeAIOpen(true);
+    onClose();
+  }
+
   const items: { icon: typeof CreditCard; label: string; detail: string; to?: string; onClick?: () => void }[] = [
     { icon: Home, label: 'Home', detail: 'Back to the dashboard', to: '/home' },
     { icon: CreditCard, label: 'Select Access and Pay', detail: 'Choose a tier or duration pass', to: '/payments' },
-    { icon: GraduationCap, label: 'Ask Trading Coach', detail: 'Open Trade AI' },
+    { icon: GraduationCap, label: 'Ask Trading Coach', detail: 'Open Trade AI', onClick: openTradeAI },
     { icon: CalendarClock, label: 'Facilitator Sessions', detail: 'Book time with a Manager or Partner (Tier 2/3)', to: '/meetings' },
     { icon: LayoutGrid, label: 'Switch Portal', detail: 'Trader / Fund Manager / Partner / Admin — jump to a console you have access to', onClick: openSwitchPortal },
     { icon: HardDriveDownload, label: 'Backup and Offline', detail: 'Manage local data and sync' },
