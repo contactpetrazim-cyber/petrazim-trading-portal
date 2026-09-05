@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Lock } from 'lucide-react';
+import { Lock, Timer as TimerIcon } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
 import { LoadingIndicator } from '../components/LoadingIndicator';
+import { FocusTimer } from '../components/FocusTimer';
 import { useThemeStore } from '../hooks/useTheme';
 import { useAuth } from '../hooks/useAuth';
 import { fetchJsonWithRetry, type FetchPhase } from '../lib/resilientFetch';
@@ -67,6 +68,7 @@ export function LearnPage({ categoryFilter }: { categoryFilter?: 'basics' | 'bot
   const [error, setError] = useState<string | null>(null);
   const [phase, setPhase] = useState<FetchPhase>('idle');
   const [retryTick, setRetryTick] = useState(0);
+  const [timerOpen, setTimerOpen] = useState(false);
 
   useEffect(() => {
     if (!token) return;
@@ -118,6 +120,20 @@ export function LearnPage({ categoryFilter }: { categoryFilter?: 'basics' | 'bot
   return (
     <div>
       <PageHeader title={title} subtitle={subtitle} />
+
+      {!categoryFilter && (
+        <div className="mb-4">
+          <button
+            onClick={() => setTimerOpen((v) => !v)}
+            className={`inline-flex items-center gap-1.5 text-sm font-medium px-3 py-2 rounded-xl transition-colors ${
+              dark ? 'bg-white/5 text-white hover:bg-white/10' : 'bg-corporate-bg text-corporate-hero hover:bg-corporate-hero/10'
+            }`}
+          >
+            <TimerIcon size={15} /> Focus Timer
+          </button>
+          {timerOpen && <div className="mt-3 max-w-xs"><FocusTimer dark={dark} /></div>}
+        </div>
+      )}
 
       {(phase === 'loading' || phase === 'stalled') && !stats && (
         <div className="mb-4">

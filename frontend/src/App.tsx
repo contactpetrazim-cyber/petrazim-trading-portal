@@ -29,6 +29,8 @@ import { LessonPage } from './pages/LessonPage';
 import { MasteryOverviewPage } from './pages/MasteryOverviewPage';
 import { AwardsPage } from './pages/AwardsPage';
 import { MyReflectionsPage } from './pages/MyReflectionsPage';
+import { MyNotesPage } from './pages/MyNotesPage';
+import { RevisionPlannerPage } from './pages/RevisionPlannerPage';
 import { PracticeDrillsPage } from './pages/PracticeDrillsPage';
 import { RetentionReviewPage } from './pages/RetentionReviewPage';
 import { TradingGamePage } from './pages/TradingGamePage';
@@ -190,6 +192,8 @@ function App() {
         <Route path="/learn/mastery" element={<CorporateLayout><MasteryOverviewPage /></CorporateLayout>} />
         <Route path="/learn/awards" element={<CorporateLayout><AwardsPage /></CorporateLayout>} />
         <Route path="/learn/reflections" element={<CorporateLayout><MyReflectionsPage /></CorporateLayout>} />
+        <Route path="/learn/notes" element={<CorporateLayout><MyNotesPage /></CorporateLayout>} />
+        <Route path="/learn/revision" element={<CorporateLayout><RevisionPlannerPage /></CorporateLayout>} />
         <Route path="/tools" element={<CorporateLayout><ToolsPage /></CorporateLayout>} />
         <Route path="/tools/order-flow" element={<CorporateLayout><OrderFlowFullPage /></CorporateLayout>} />
         <Route path="/insights" element={<CorporateLayout><InsightsPage /></CorporateLayout>} />

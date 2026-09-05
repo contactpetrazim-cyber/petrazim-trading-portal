@@ -5,6 +5,9 @@ import { PageHeader } from '../components/PageHeader';
 import { ListenButton } from '../components/ListenButton';
 import { RecapPanel } from '../components/RecapPanel';
 import { RetrievalQuizWidget } from '../components/RetrievalQuizWidget';
+import { FlashcardWidget } from '../components/FlashcardWidget';
+import { BookmarkButton } from '../components/BookmarkButton';
+import { NotebookWidget } from '../components/NotebookWidget';
 import { useThemeStore } from '../hooks/useTheme';
 import { useAuth } from '../hooks/useAuth';
 import { apiFetch } from '../components/AccessExpiredGate';
@@ -15,6 +18,7 @@ interface LessonDetail {
   id: string;
   track_id: string;
   track_title: string;
+  stage_id: string;
   stage_number: number;
   stage_title: string;
   title: string;
@@ -268,6 +272,10 @@ export function LessonPage() {
             title={lesson.title}
             subtitle={`${lesson.track_title} · Stage ${lesson.stage_number}: ${lesson.stage_title} · ~${lesson.estimated_minutes} min`}
           />
+          <div className="flex flex-wrap gap-2 mb-4">
+            <BookmarkButton stageId={lesson.stage_id} dark={dark} />
+            <NotebookWidget stageId={lesson.stage_id} dark={dark} />
+          </div>
           <div className={`rounded-2xl p-6 border ${dark ? 'bg-corporate-surface-dark border-corporate-border-dark' : 'bg-white border-corporate-bg'}`}>
             {lesson.content_body ? (
               <>
@@ -283,6 +291,7 @@ export function LessonPage() {
             <div className="flex flex-col gap-3 mt-4">
               <RecapPanel lessonId={lesson.id} dark={dark} />
               <RetrievalQuizWidget lessonId={lesson.id} dark={dark} />
+              <FlashcardWidget lessonId={lesson.id} dark={dark} />
             </div>
           )}
 

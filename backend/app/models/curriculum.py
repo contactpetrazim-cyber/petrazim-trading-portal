@@ -245,6 +245,63 @@ class ReflectionEntry(Base):
     created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
 
 
+class NotebookEntry(Base):
+    """Free-text note on a specific stage — Section 12's inline
+    per-stage popover + consolidated 'My Notes' list. Independent of
+    ReflectionEntry (one prompt per track-end) and of RetrievalResponse
+    — this is unstructured note-taking, no prompt, no grading."""
+    __tablename__ = "notebook_entries"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    pillar_id = Column(UUID(as_uuid=True), ForeignKey("learning_tracks.id"), nullable=False)
+    stage_id = Column(UUID(as_uuid=True), ForeignKey("track_stages.id"), nullable=False)
+    text = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+
+
+class BookmarkedStage(Base):
+    """Section 12: dashboard 'Bookmarked' section. Bookmarking is
+    explicitly NOT completion tracking (EP02) — a bookmarked stage
+    stays bookmarked after being completed, this table never reads or
+    writes StageCompletion."""
+    __tablename__ = "bookmarked_stages"
+
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), primary_key=True)
+    stage_id = Column(UUID(as_uuid=True), ForeignKey("track_stages.id"), primary_key=True)
+    saved_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+
+
+class FlashcardCache(Base):
+    """AI-extracted terms from one lesson's own real content — Section
+    13: 'extraction, not new content'. Same content_hash caching
+    pattern as LessonRecap/RetrievalQuizCache. cards_json is a list of
+    {term, definition}."""
+    __tablename__ = "flashcard_cache"
+
+    lesson_id = Column(UUID(as_uuid=True), ForeignKey("lessons.id"), primary_key=True)
+    cards_json = Column(Text, nullable=False)
+    content_hash = Column(String(64), nullable=False)
+    generated_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+
+
+class FlashcardReview(Base):
+    """One row per self-rating. 'still_learning' feeds the SAME spaced-
+    review queue as a missed assessment/retrieval question (Section 13:
+    'shared scheduling logic, not a second system') — see
+    routers/curriculum.py's flashcard-review handler, which schedules a
+    RetentionCheck exactly like schedule_next_retention_check() already
+    does for a missed quiz question."""
+    __tablename__ = "flashcard_reviews"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    lesson_id = Column(UUID(as_uuid=True), ForeignKey("lessons.id"), nullable=False)
+    card_index = Column(Integer, nullable=False)   # position within FlashcardCache.cards_json for this lesson
+    self_rating = Column(String(20), nullable=False)   # 'got_it' | 'still_learning'
+    reviewed_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+
+
 class Certificate(Base):
     """Issued when a user completes every stage in a track — matches the
     Academy's certificate-on-completion pattern. Certificate content

@@ -45,15 +45,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.access_gate import require_active_access, learner_progress_snapshot
 from app.database import get_db
-from app.engines.learning_content_ai import generate_recap, generate_retrieval_questions
+from app.engines.learning_content_ai import generate_flashcards, generate_recap, generate_retrieval_questions
 from app.engines.progression_engine import (
     MasteryInput, StreakUpdateResult, can_attempt_stage, compute_mastery_level,
-    stage_completion_meets_requirements, update_streak, xp_for_stage,
+    schedule_next_retention_check, stage_completion_meets_requirements, update_streak, xp_for_stage,
 )
 from app.models.curriculum import (
-    Certificate, Lesson, LearningTrack, LessonRecap, MasteryLevel, PracticeAttempt,
-    QuizAttempt, RecapEngagement, ReflectionEntry, RetentionCheck, RetrievalQuizCache,
-    RetrievalResponse, StageCompletion, TrackCategory, TrackStage, UserLearningStats,
+    BookmarkedStage, Certificate, FlashcardCache, FlashcardReview, Lesson, LearningTrack,
+    LessonRecap, MasteryLevel, NotebookEntry, PracticeAttempt, QuizAttempt, RecapEngagement,
+    ReflectionEntry, RetentionCheck, RetrievalQuizCache, RetrievalResponse, StageCompletion,
+    TrackCategory, TrackStage, UserLearningStats,
 )
 from app.models.user import User
 
@@ -119,6 +120,7 @@ class LessonResponse(BaseModel):
     id: str
     track_id: str
     track_title: str
+    stage_id: str
     stage_number: int
     stage_title: str
     title: str
@@ -406,7 +408,7 @@ async def get_lesson(
 
     return LessonResponse(
         id=str(lesson.id), track_id=str(lesson.track_id), track_title=track.title,
-        stage_number=stage.stage_number, stage_title=stage.title,
+        stage_id=str(stage.id), stage_number=stage.stage_number, stage_title=stage.title,
         title=lesson.title, content_body=lesson.content_body or "",
         estimated_minutes=lesson.estimated_minutes,
     )
@@ -919,3 +921,252 @@ async def list_reflections(
         )
         for e in entries
     ]
+
+
+# --------------------------------------------------------------------------
+# Notebook (Section 12) — per-stage free-text notes + consolidated
+# "My Notes" list. Independent of ReflectionEntry/RetrievalResponse.
+# --------------------------------------------------------------------------
+
+class NotebookSubmitRequest(BaseModel):
+    stage_id: str
+    text: str
+
+
+class NotebookEntryResponse(BaseModel):
+    id: str
+    stage_id: str
+    stage_title: str
+    pillar_id: str
+    pillar_title: str
+    text: str
+    created_at: str
+
+
+async def _stage_and_track_or_404(db: AsyncSession, stage_id: str) -> tuple[TrackStage, LearningTrack]:
+    stage = (await db.execute(select(TrackStage).where(TrackStage.id == stage_id))).scalar_one_or_none()
+    if stage is None:
+        raise HTTPException(status_code=404, detail="Stage not found")
+    track = (await db.execute(select(LearningTrack).where(LearningTrack.id == stage.track_id))).scalar_one_or_none()
+    if track is None:
+        raise HTTPException(status_code=404, detail="Track not found")
+    return stage, track
+
+
+@router.post("/notebook", response_model=NotebookEntryResponse)
+async def add_notebook_entry(
+    req: NotebookSubmitRequest, db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access),
+):
+    stage, track = await _stage_and_track_or_404(db, req.stage_id)
+    entry = NotebookEntry(user_id=user.id, pillar_id=track.id, stage_id=stage.id, text=req.text)
+    db.add(entry)
+    await db.commit()
+    await db.refresh(entry)
+    return NotebookEntryResponse(
+        id=str(entry.id), stage_id=str(stage.id), stage_title=stage.title,
+        pillar_id=str(track.id), pillar_title=track.title,
+        text=entry.text, created_at=entry.created_at.isoformat(),
+    )
+
+
+@router.get("/notebook", response_model=List[NotebookEntryResponse])
+async def list_notebook_entries(
+    stage_id: Optional[str] = None, db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access),
+):
+    query = select(NotebookEntry).where(NotebookEntry.user_id == user.id)
+    if stage_id:
+        query = query.where(NotebookEntry.stage_id == stage_id)
+    entries = (await db.execute(query.order_by(NotebookEntry.created_at.desc()))).scalars().all()
+    if not entries:
+        return []
+
+    stage_ids = {e.stage_id for e in entries}
+    stages = (await db.execute(select(TrackStage).where(TrackStage.id.in_(stage_ids)))).scalars().all()
+    stage_by_id = {s.id: s for s in stages}
+    track_ids = {s.track_id for s in stages}
+    tracks = (await db.execute(select(LearningTrack).where(LearningTrack.id.in_(track_ids)))).scalars().all()
+    track_title_by_id = {t.id: t.title for t in tracks}
+
+    out = []
+    for e in entries:
+        stage = stage_by_id.get(e.stage_id)
+        out.append(NotebookEntryResponse(
+            id=str(e.id), stage_id=str(e.stage_id), stage_title=stage.title if stage else "Unknown stage",
+            pillar_id=str(e.pillar_id), pillar_title=track_title_by_id.get(e.pillar_id, "Unknown track"),
+            text=e.text, created_at=e.created_at.isoformat(),
+        ))
+    return out
+
+
+@router.delete("/notebook/{entry_id}", response_model=dict)
+async def delete_notebook_entry(
+    entry_id: str, db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access),
+):
+    entry = (await db.execute(
+        select(NotebookEntry).where(NotebookEntry.id == entry_id, NotebookEntry.user_id == user.id)
+    )).scalar_one_or_none()
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Note not found")
+    await db.delete(entry)
+    await db.commit()
+    return {"ok": True}
+
+
+# --------------------------------------------------------------------------
+# Bookmarks (Section 12) — dashboard "Bookmarked" section. Explicitly
+# NOT completion tracking (EP02): bookmarking a stage and completing it
+# are independent state.
+# --------------------------------------------------------------------------
+
+class BookmarkResponse(BaseModel):
+    stage_id: str
+    stage_title: str
+    pillar_id: str
+    pillar_title: str
+    saved_at: str
+
+
+@router.post("/bookmarks/{stage_id}", response_model=BookmarkResponse)
+async def add_bookmark(
+    stage_id: str, db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access),
+):
+    stage, track = await _stage_and_track_or_404(db, stage_id)
+    existing = (await db.execute(
+        select(BookmarkedStage).where(BookmarkedStage.user_id == user.id, BookmarkedStage.stage_id == stage.id)
+    )).scalar_one_or_none()
+    if existing is None:
+        existing = BookmarkedStage(user_id=user.id, stage_id=stage.id)
+        db.add(existing)
+        await db.commit()
+        await db.refresh(existing)
+    return BookmarkResponse(
+        stage_id=str(stage.id), stage_title=stage.title, pillar_id=str(track.id),
+        pillar_title=track.title, saved_at=existing.saved_at.isoformat(),
+    )
+
+
+@router.delete("/bookmarks/{stage_id}", response_model=dict)
+async def remove_bookmark(
+    stage_id: str, db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access),
+):
+    existing = (await db.execute(
+        select(BookmarkedStage).where(BookmarkedStage.user_id == user.id, BookmarkedStage.stage_id == stage_id)
+    )).scalar_one_or_none()
+    if existing is not None:
+        await db.delete(existing)
+        await db.commit()
+    return {"ok": True}
+
+
+@router.get("/bookmarks", response_model=List[BookmarkResponse])
+async def list_bookmarks(db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access)):
+    rows = (await db.execute(
+        select(BookmarkedStage).where(BookmarkedStage.user_id == user.id).order_by(BookmarkedStage.saved_at.desc())
+    )).scalars().all()
+    if not rows:
+        return []
+
+    stage_ids = {r.stage_id for r in rows}
+    stages = (await db.execute(select(TrackStage).where(TrackStage.id.in_(stage_ids)))).scalars().all()
+    stage_by_id = {s.id: s for s in stages}
+    track_ids = {s.track_id for s in stages}
+    tracks = (await db.execute(select(LearningTrack).where(LearningTrack.id.in_(track_ids)))).scalars().all()
+    track_title_by_id = {t.id: t.title for t in tracks}
+
+    out = []
+    for r in rows:
+        stage = stage_by_id.get(r.stage_id)
+        if stage is None:
+            continue
+        out.append(BookmarkResponse(
+            stage_id=str(r.stage_id), stage_title=stage.title,
+            pillar_id=str(stage.track_id), pillar_title=track_title_by_id.get(stage.track_id, "Unknown track"),
+            saved_at=r.saved_at.isoformat(),
+        ))
+    return out
+
+
+# --------------------------------------------------------------------------
+# Flashcards (Section 13) — AI-extracted from a lesson's own real
+# content, cached like Recap/Retrieval Quiz. "still_learning" schedules
+# a RetentionCheck through the SAME spaced-review engine a missed
+# assessment/retrieval question already uses (shared scheduling logic,
+# not a second system, per the spec's own instruction).
+# --------------------------------------------------------------------------
+
+class FlashcardResponse(BaseModel):
+    index: int
+    term: str
+    definition: str
+    source_lesson_id: str
+    source_stage_title: str
+
+
+class FlashcardReviewRequest(BaseModel):
+    self_rating: str   # 'got_it' | 'still_learning'
+
+
+@router.get("/lessons/{lesson_id}/flashcards", response_model=List[FlashcardResponse])
+async def get_lesson_flashcards(
+    lesson_id: str, db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access),
+):
+    lesson = await _get_lesson_or_404(db, lesson_id)
+    stage = (await db.execute(select(TrackStage).where(TrackStage.lesson_id == lesson.id))).scalar_one_or_none()
+    current_hash = _content_hash(lesson.content_body)
+
+    cached = (await db.execute(
+        select(FlashcardCache).where(FlashcardCache.lesson_id == lesson.id)
+    )).scalar_one_or_none()
+
+    if cached is None or cached.content_hash != current_hash:
+        drafts = await generate_flashcards(lesson.title, lesson.content_body)
+        if not drafts:
+            raise HTTPException(
+                status_code=503,
+                detail="Flashcards aren't available for this lesson right now — try again in a moment.",
+            )
+        payload = json.dumps([{"term": d.term, "definition": d.definition} for d in drafts])
+        if cached is None:
+            cached = FlashcardCache(lesson_id=lesson.id, cards_json=payload, content_hash=current_hash)
+            db.add(cached)
+        else:
+            cached.cards_json = payload
+            cached.content_hash = current_hash
+            cached.generated_at = datetime.utcnow()
+        await db.commit()
+        await db.refresh(cached)
+
+    cards = json.loads(cached.cards_json)
+    return [
+        FlashcardResponse(
+            index=i, term=c["term"], definition=c["definition"],
+            source_lesson_id=str(lesson.id), source_stage_title=stage.title if stage else lesson.title,
+        )
+        for i, c in enumerate(cards)
+    ]
+
+
+@router.post("/lessons/{lesson_id}/flashcards/{index}/review", response_model=dict)
+async def review_flashcard(
+    lesson_id: str, index: int, req: FlashcardReviewRequest,
+    db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access),
+):
+    if req.self_rating not in ("got_it", "still_learning"):
+        raise HTTPException(status_code=400, detail="self_rating must be 'got_it' or 'still_learning'")
+
+    db.add(FlashcardReview(
+        user_id=user.id, lesson_id=uuid.UUID(lesson_id), card_index=index, self_rating=req.self_rating,
+    ))
+
+    scheduled = False
+    if req.self_rating == "still_learning":
+        due_at, interval_index = schedule_next_retention_check(
+            completed_at=datetime.utcnow(), current_interval_index=0, passed_last_check=False,
+        )
+        db.add(RetentionCheck(
+            user_id=user.id, lesson_id=uuid.UUID(lesson_id), due_at=due_at, interval_index=interval_index,
+        ))
+        scheduled = True
+
+    await db.commit()
+    return {"ok": True, "scheduled_for_review": scheduled}

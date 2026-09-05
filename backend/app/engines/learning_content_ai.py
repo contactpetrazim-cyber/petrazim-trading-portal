@@ -82,3 +82,43 @@ async def generate_retrieval_questions(lesson_title: str, content_body: str) -> 
         return _parse_retrieval_questions(raw)
     except (json.JSONDecodeError, TypeError, AttributeError):
         return []
+
+
+FLASHCARD_SYSTEM_PROMPT = (
+    "You extract glossary flashcards from one real trading-education lesson given below — "
+    "EXTRACTION, not new content: only terms the text actually defines or names (an indicator, "
+    "a pattern, a rule, a framework), never a term absent from the source. Produce 3 to 6 cards, "
+    "fewer if the lesson genuinely only names a few real terms. Reply with ONLY a JSON array, no "
+    'other text, no markdown fences, in this exact shape: [{"term": "...", "definition": "..."}, '
+    '...]. definition must be a single concise sentence, taken from or directly paraphrasing the '
+    "source text, not embellished."
+)
+
+
+@dataclass
+class FlashcardDraft:
+    term: str
+    definition: str
+
+
+def _parse_flashcards(raw: str) -> List[FlashcardDraft]:
+    cleaned = re.sub(r"^```(?:json)?|```$", "", raw.strip(), flags=re.MULTILINE).strip()
+    data = json.loads(cleaned)
+    out: List[FlashcardDraft] = []
+    for item in data:
+        term = str(item.get("term", "")).strip()
+        definition = str(item.get("definition", "")).strip()
+        if term and definition:
+            out.append(FlashcardDraft(term=term, definition=definition))
+    return out
+
+
+async def generate_flashcards(lesson_title: str, content_body: str) -> List[FlashcardDraft]:
+    message = f"Lesson: {lesson_title}\n\n{content_body}"
+    raw = await generate_text(FLASHCARD_SYSTEM_PROMPT, message, max_tokens=600)
+    if raw is None:
+        return []
+    try:
+        return _parse_flashcards(raw)
+    except (json.JSONDecodeError, TypeError, AttributeError):
+        return []

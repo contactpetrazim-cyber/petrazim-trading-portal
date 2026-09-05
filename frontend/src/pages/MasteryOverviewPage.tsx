@@ -66,12 +66,17 @@ export function MasteryOverviewPage() {
     <div>
       <PageHeader title="Mastery Overview" subtitle="Your mastery level across every track, at a glance." />
 
-      <Link
-        to="/learn/reflections"
-        className={`inline-flex items-center gap-1.5 text-sm font-medium mb-4 ${dark ? 'text-white/60 hover:text-white' : 'text-corporate-hero'}`}
-      >
-        My Reflections →
-      </Link>
+      <div className="flex flex-wrap gap-x-4 gap-y-1.5 mb-4">
+        <Link to="/learn/reflections" className={`text-sm font-medium ${dark ? 'text-white/60 hover:text-white' : 'text-corporate-hero'}`}>
+          My Reflections →
+        </Link>
+        <Link to="/learn/notes" className={`text-sm font-medium ${dark ? 'text-white/60 hover:text-white' : 'text-corporate-hero'}`}>
+          My Notes →
+        </Link>
+        <Link to="/learn/revision" className={`text-sm font-medium ${dark ? 'text-white/60 hover:text-white' : 'text-corporate-hero'}`}>
+          Revision Planner →
+        </Link>
+      </div>
 
       {error && <p className={`text-sm mb-4 ${dark ? 'text-red-400' : 'text-red-500'}`}>{error}</p>}
 
