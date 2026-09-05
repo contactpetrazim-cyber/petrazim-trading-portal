@@ -1,6 +1,7 @@
 
 import asyncio
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, func
 from typing import Dict, List, Optional
@@ -279,6 +280,102 @@ async def analytics_summary(
             "profit_factor": round(sum(wins) / gross_loss, 2) if gross_loss > 0 else None,
         },
     }
+
+
+class TradeDetailRow(BaseModel):
+    trade_id: str
+    symbol: str
+    bot_id: str
+    bot_name: Optional[str] = None
+    strategy_type: str
+    direction: str
+    entry_timestamp: Optional[datetime] = None
+    exit_timestamp: Optional[datetime] = None
+    entry_price: Optional[float] = None
+    initial_stop_loss: Optional[float] = None
+    stop_loss: float
+    initial_take_profit_1: Optional[float] = None
+    take_profit_1: Optional[float] = None
+    take_profit_2: Optional[float] = None
+    take_profit_3: Optional[float] = None
+    realized_pnl: float
+    risk_amount: float
+    lot_size: float
+    exit_type: Optional[str] = None
+    # How many SL/TP edits (routers/manual_trading.py::modify_targets)
+    # this specific trade has real TradeLog rows for.
+    modification_count: int
+    # True only when initial_stop_loss is known AND differs from the
+    # current stop_loss — i.e. the trader actually moved it after
+    # opening, not just that a modify call happened to set it back to
+    # the same value.
+    sl_shifted: bool
+    # How many of TP1/2/3 are CURRENTLY set — an approximation of "how
+    # many targets this trade used," since only TP1 has an immutable
+    # initial_* snapshot (see Trade.initial_take_profit_1's own
+    # comment); a target added or removed after open would shift this,
+    # same honest limitation sl_shifted's own initial_stop_loss avoids
+    # only for the one field that got a snapshot column.
+    tp_count: int
+
+
+@router.get("/analytics/detail", response_model=List[TradeDetailRow])
+async def analytics_detail(
+    bot_id: Optional[str] = Query(None),
+    source: Optional[str] = Query(None, description="'all' (default), 'bots', or 'manual'"),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_active_access),
+):
+    """
+    One enriched row per CLOSED trade — the real dataset behind the
+    advanced analytics suite (net P&L by session/hour/day-calendar/
+    strategy, a risk:reward map, an SL map, drawdown-over-time, trade-
+    by-trade equity, multi-TP vs single-TP, SL-shifted vs not), by
+    direct request ("develop useful metrics that will help understand
+    the trading edge ... TP or SL changes per trade over time ...
+    effects of multiple TP trades vs single TP ... dynamic SL
+    management shift vs trades without shifting SL"). Deliberately one
+    endpoint, not one per chart: every one of those views is a
+    different slice of the SAME real closed-trade rows, computed
+    client-side from real timestamps/prices/PnL rather than fabricated
+    per chart.
+    """
+    query = _scope_to_owner(select(Trade), user).where(Trade.status == TradeStatus.CLOSED)
+    if bot_id:
+        query = query.where(Trade.bot_id == bot_id)
+    query = _apply_source_filter(query, source)
+    result = await db.execute(query)
+    trades = result.scalars().all()
+    if not trades:
+        return []
+
+    trade_ids = [t.trade_id for t in trades]
+    mod_result = await db.execute(
+        select(TradeLog.trade_id, func.count(TradeLog.id))
+        .where(TradeLog.trade_id.in_(trade_ids), TradeLog.event_type.in_(["sl_update", "tp_update"]))
+        .group_by(TradeLog.trade_id)
+    )
+    mod_counts: Dict[str, int] = dict(mod_result.all())
+
+    rows = []
+    for t in trades:
+        tp_count = sum(1 for tp in (t.take_profit_1, t.take_profit_2, t.take_profit_3) if tp is not None)
+        sl_shifted = t.initial_stop_loss is not None and t.stop_loss != t.initial_stop_loss
+        rows.append(TradeDetailRow(
+            trade_id=t.trade_id, symbol=t.symbol, bot_id=t.bot_id, bot_name=t.bot_name,
+            strategy_type=t.strategy_type, direction=t.direction.value,
+            entry_timestamp=t.entry_timestamp, exit_timestamp=t.exit_timestamp,
+            entry_price=t.entry_price, initial_stop_loss=t.initial_stop_loss, stop_loss=t.stop_loss,
+            initial_take_profit_1=t.initial_take_profit_1, take_profit_1=t.take_profit_1,
+            take_profit_2=t.take_profit_2, take_profit_3=t.take_profit_3,
+            realized_pnl=round(t.realized_pnl or 0.0, 2), risk_amount=t.risk_amount, lot_size=t.lot_size,
+            exit_type=t.exit_type.value if t.exit_type else None,
+            modification_count=mod_counts.get(t.trade_id, 0),
+            sl_shifted=sl_shifted, tp_count=max(tp_count, 1),
+        ))
+    rows.sort(key=lambda r: r.exit_timestamp or r.entry_timestamp or datetime.min)
+    return rows
+
 
 @router.get("/{trade_id}", response_model=TradeResponse)
 async def get_trade(trade_id: str, db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access)):

@@ -32,7 +32,7 @@ import structlog
 from app.core.access_gate import _raise_if_access_expired
 from app.core.auth import get_current_user
 from app.database import get_db
-from app.models.trade import EntryType, ExitType, ManualTradingSettings, Trade, TradeDirection, TradeStatus, TradingMode
+from app.models.trade import EntryType, ExitType, ManualTradingSettings, Trade, TradeDirection, TradeLog, TradeStatus, TradingMode
 from app.models.user import User
 from app.services.execution_engine import ExecutionEngine
 from app.services.live_price import get_crypto_price
@@ -226,6 +226,10 @@ async def place_manual_order(
         strategy_type="manual", symbol=req.symbol.upper(),
         direction=TradeDirection.LONG if req.direction == "long" else TradeDirection.SHORT,
         entry_price=req.entry_price, stop_loss=req.stop_loss,
+        # Immutable snapshots at open — see Trade.initial_stop_loss's
+        # own comment for why these are separate from the mutable
+        # columns modify_targets edits below.
+        initial_stop_loss=req.stop_loss, initial_take_profit_1=req.take_profit,
         take_profit_1=req.take_profit, take_profit_2=req.take_profit_2, take_profit_3=req.take_profit_3,
         lot_size=lot_size, risk_percent=risk_percent,
         risk_amount=lot_size * risk_dist, requires_approval=False, is_test=is_test,
@@ -513,14 +517,29 @@ async def modify_targets(
     if not row.is_test:
         await _raise_if_access_expired(db, user)
 
-    if req.stop_loss is not None:
-        row.stop_loss = req.stop_loss
-    if req.take_profit is not None:
-        row.take_profit_1 = req.take_profit
-    if req.take_profit_2 is not None:
-        row.take_profit_2 = req.take_profit_2
-    if req.take_profit_3 is not None:
-        row.take_profit_3 = req.take_profit_3
+    # Logged to trade_logs (TradeLog — already existed with exactly
+    # this shape, event_type "sl_update"/"tp_update", nothing wrote to
+    # it before this) — by direct request ("TP or SL changes per trade
+    # over time - a measure how you change your trading plan"). Only
+    # an ACTUAL change is logged (skips a no-op "modify" to the same
+    # value already set), and only for the fields this request touches.
+    for field, event_type, new_value in (
+        ("stop_loss", "sl_update", req.stop_loss),
+        ("take_profit_1", "tp_update", req.take_profit),
+        ("take_profit_2", "tp_update", req.take_profit_2),
+        ("take_profit_3", "tp_update", req.take_profit_3),
+    ):
+        if new_value is None:
+            continue
+        old_value = getattr(row, field)
+        if old_value == new_value:
+            continue
+        db.add(TradeLog(
+            trade_id=trade_id, event_type=event_type,
+            event_data={"field": field, "old_value": old_value, "new_value": new_value},
+            price_at_event=new_value,
+        ))
+        setattr(row, field, new_value)
     await db.commit()
 
     return ModifyTargetsResponse(

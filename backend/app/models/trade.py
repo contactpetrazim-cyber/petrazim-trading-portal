@@ -66,6 +66,17 @@ class Trade(Base):
     take_profit_2 = Column(Float)
     take_profit_3 = Column(Float)
 
+    # Immutable snapshots of stop_loss/take_profit_1 AT CREATION —
+    # distinct from the mutable columns above, which modify_targets
+    # (routers/manual_trading.py) overwrites in place. Without these,
+    # "was this trade's SL ever shifted from where it opened" has no
+    # honest answer once the live value has already been changed. Powers
+    # the "dynamic SL management" analytics — by direct request ("same
+    # for dynamic SL management shift vs trades without shifting SL
+    # over time"). See migrations/012_trade_modification_tracking.sql.
+    initial_stop_loss = Column(Float)
+    initial_take_profit_1 = Column(Float)
+
     @property
     def take_profit(self) -> Optional[float]:
         """Alias for take_profit_1 — schemas.TradeResponse has always
