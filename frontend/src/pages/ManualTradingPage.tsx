@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
-import { ArrowLeft, FlaskConical, Radio, Settings2, ArrowLeftRight, Calculator, ChevronDown, Receipt } from 'lucide-react';
+import { ArrowLeft, FlaskConical, Radio, Settings2, ArrowLeftRight, Calculator, ChevronDown } from 'lucide-react';
 import { ChartPanel } from '../components/ChartPanel';
 import { useAuth } from '../hooks/useAuth';
 import { useThemeStore } from '../hooks/useTheme';
@@ -446,35 +446,26 @@ export function ManualTradingPage() {
           ))}
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-4 items-start">
+        {/* Order card is fully unmounted (not just hidden) when closed —
+            by direct request ("remove the order card completely to
+            provide more space to the chart") — so the grid collapses
+            to a single full-width column and the chart actually gets
+            the space back, rather than reserving 340px for a
+            placeholder. The "Order" toggle itself now lives in
+            ChartPanel's own toolbar, right next to "Price" — by direct
+            request ("place the order button next to the price icon") —
+            instead of a separate row above the ticket. */}
+        <div className={`grid grid-cols-1 ${orderFormOpen ? 'lg:grid-cols-[1fr_340px]' : ''} gap-4 items-start`}>
           <ChartPanel
             symbol={symbol.tv} height={600} dark={dark}
             specsSymbol={symbol.trade}
             onQuickFill={(price) => setEntryPrice(String(price))}
+            orderFormOpen={orderFormOpen}
+            onToggleOrderForm={() => setOrderFormOpen((o) => !o)}
           />
 
+          {orderFormOpen && (
           <div>
-            {/* Matches ChartPanel's own toolbar row height (light/dark
-                toggle + Price/Chart-colors/Trade buttons, 41px: a
-                33px button row plus its own 8px bottom margin) so this
-                row lines up level with the chart's own toolbar — by
-                direct request ("triggered by an 'Order' button similar
-                to the colour chart next to the price icon or button").
-                The toggle button itself matches CandleColorPicker's
-                exact interaction: one click opens, a second click on
-                the same button hides the whole form again. */}
-            <div className="flex justify-end" style={{ height: 41 }}>
-              <button
-                onClick={() => setOrderFormOpen((o) => !o)}
-                aria-label={orderFormOpen ? 'Hide order form' : 'Show order form'}
-                className={`p-1.5 rounded-md flex items-center gap-1.5 text-xs font-medium h-fit ${
-                  orderFormOpen ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-gray-700 bg-black/5'
-                }`}
-              >
-                <Receipt size={13} /> Order
-              </button>
-            </div>
-
             {/* Place Buy/Sell Order — rebuilt to match the exact uploaded
                 order-ticket reference: styling is always light, by
                 direct request ("use upload exactly same colours and
@@ -485,19 +476,7 @@ export function ManualTradingPage() {
                 ("parallel", by direct request) — an exact pixel match
                 isn't feasible without measuring the DOM at runtime, since
                 this card's height varies with state (extra targets,
-                partial-close panel, result messages).
-
-                Collapsed behind the "Order" toggle above by default —
-                everything from here down only mounts once opened. */}
-            {!orderFormOpen ? (
-              <button
-                onClick={() => setOrderFormOpen(true)}
-                className="w-full rounded-2xl border border-dashed border-gray-300 bg-white p-8 text-center text-sm text-gray-400 hover:border-gray-400 hover:text-gray-500 transition-colors"
-              >
-                <Receipt size={20} className="mx-auto mb-2" />
-                Click "Order" above to place a trade
-              </button>
-            ) : (
+                partial-close panel, result messages). */}
             <div className="rounded-2xl border border-gray-200 bg-white p-4 h-fit text-gray-900">
             <div className="text-xs font-semibold mb-3 text-gray-400">{symbol.trade}</div>
 
@@ -839,8 +818,8 @@ export function ManualTradingPage() {
               </button>
             )}
             </div>
-            )}
           </div>
+          )}
         </div>
       </div>
     </div>

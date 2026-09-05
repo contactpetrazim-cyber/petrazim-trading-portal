@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Maximize2, Minimize2, Sun, Moon, TrendingUp, X, Zap } from 'lucide-react';
+import { Maximize2, Minimize2, Sun, Moon, TrendingUp, X, Zap, Receipt } from 'lucide-react';
 import { TradingViewChart } from './TradingViewChart';
 import { CandleColorPicker } from './CandleColorPicker';
 import { useEffectiveChartColors } from '../hooks/useCandleColors';
@@ -38,6 +38,8 @@ export function ChartPanel({
   specsSymbol,
   dark: containerDark = false,
   onQuickFill,
+  orderFormOpen,
+  onToggleOrderForm,
 }: {
   symbol: string;
   interval?: string;
@@ -50,6 +52,17 @@ export function ChartPanel({
   dark?: boolean;
   /** Wire this to your own order form's entry-price setter (e.g. Manual Trading) — the "Price" button then fills it in place instead of navigating away. Charts with no order form on-page can omit it; the button navigates to Manual Trading with the price pre-filled instead. */
   onQuickFill?: (price: number) => void;
+  /** Pass both to show an "Order" toggle button right next to Price —
+   * by direct request ("place the order button next to the price
+   * icon"). Only Manual Trading passes these; every other page omits
+   * them and the button doesn't render. Styled and behaving exactly
+   * like CandleColorPicker's own toggle (one click opens, another
+   * hides), just living in the shared toolbar instead of a separate
+   * row so the chart gets the full column width back when the order
+   * form is closed — by direct request ("remove the order card
+   * completely to provide more space to the chart"). */
+  orderFormOpen?: boolean;
+  onToggleOrderForm?: () => void;
 }) {
   const navigate = useNavigate();
   const effectiveSpecsSymbol = specsSymbol ?? tradeSymbol;
@@ -99,6 +112,17 @@ export function ChartPanel({
             className={`p-1.5 rounded-md flex items-center gap-1.5 text-xs font-medium disabled:opacity-50 ${containerDark ? 'text-white/50 hover:text-white/80 bg-white/5' : 'text-gray-500 hover:text-gray-700 bg-black/5'}`}
           >
             <Zap size={13} /> Price
+          </button>
+        )}
+        {onToggleOrderForm && (
+          <button
+            onClick={onToggleOrderForm}
+            aria-label={orderFormOpen ? 'Hide order form' : 'Show order form'}
+            className={`p-1.5 rounded-md flex items-center gap-1.5 text-xs font-medium ${
+              orderFormOpen ? 'bg-blue-600 text-white' : containerDark ? 'text-white/50 hover:text-white/80 bg-white/5' : 'text-gray-500 hover:text-gray-700 bg-black/5'
+            }`}
+          >
+            <Receipt size={13} /> Order
           </button>
         )}
         <CandleColorPicker
