@@ -71,6 +71,21 @@ class TradeMetrics:
 
 
 @dataclass
+class EquityCurveData:
+    """Per-trade-index view across the whole simulation, for a real
+    "equity over trades, band of likely outcomes, ruin line" chart —
+    not fabricated, the same trials run_simulation() already computes,
+    just retained at every step instead of only at the final one. Only
+    populated when run_simulation(track_equity_curve=True)."""
+    steps: List[int]                  # 0..trades_per_trial
+    band_p5: List[float]              # 5th-percentile equity at each step, across ALL trials
+    band_p50: List[float]
+    band_p95: List[float]
+    sample_paths: List[List[float]]   # a handful of individual trial paths, for the "spaghetti" look under the band
+    ruin_threshold_equity: float      # starting_equity * (1 - ruin_threshold_pct/100) — the line "ruin" means crossing
+
+
+@dataclass
 class SimulationResult:
     trials: int
     trades_per_trial: int
@@ -83,6 +98,7 @@ class SimulationResult:
     probability_of_target: Optional[float]     # % of trials reaching target_equity
     expectancy_r_used: float
     notes: List[str] = field(default_factory=list)
+    equity_curve: Optional[EquityCurveData] = None
 
 
 # ---------------------------------------------------------------------------
@@ -164,6 +180,8 @@ class MonteCarloEngine:
         target_equity: Optional[float] = None,
         bot_id: Optional[str] = None,
         seed: Optional[int] = None,
+        track_equity_curve: bool = False,
+        sample_paths: int = 12,
     ) -> SimulationResult:
         """
         Runs `trials` independent simulated futures, each consisting of
@@ -187,7 +205,15 @@ class MonteCarloEngine:
         ruin_count = 0
         target_count = 0
 
-        for _ in range(trials):
+        # Per-step equity across every trial, only kept when a chart
+        # actually needs it — trials x (trades_per_trial+1) floats is a
+        # few MB at the defaults, fine for one request, wasteful to
+        # build for every other caller of this shared engine that never
+        # renders a curve (weekly review, the main /monte-carlo route).
+        step_values: List[List[float]] = [[] for _ in range(trades_per_trial + 1)] if track_equity_curve else []
+        sample_curves: List[List[float]] = []
+
+        for trial_idx in range(trials):
             sequence = (
                 self._resample_block(r_multiples, trades_per_trial, block_size)
                 if resample_mode == "block"
@@ -198,8 +224,12 @@ class MonteCarloEngine:
             peak = starting_equity
             max_dd = 0.0
             ruined = False
+            curve = [equity] if track_equity_curve else None
 
-            for r in sequence:
+            if track_equity_curve:
+                step_values[0].append(equity)
+
+            for step, r in enumerate(sequence, start=1):
                 risk_cash = (equity * risk_value if risk_mode == "fixed_fractional"
                              else risk_value)
                 equity = max(equity + risk_cash * r, 0.0)
@@ -208,6 +238,12 @@ class MonteCarloEngine:
                 max_dd = max(max_dd, dd)
                 if dd >= ruin_threshold_pct:
                     ruined = True
+                if track_equity_curve:
+                    step_values[step].append(equity)
+                    curve.append(equity)
+
+            if track_equity_curve and trial_idx < sample_paths:
+                sample_curves.append([round(v, 2) for v in curve])
 
             final_equities.append(equity)
             max_drawdowns.append(max_dd)
@@ -215,6 +251,17 @@ class MonteCarloEngine:
                 ruin_count += 1
             if target_equity is not None and equity >= target_equity:
                 target_count += 1
+
+        equity_curve = None
+        if track_equity_curve:
+            equity_curve = EquityCurveData(
+                steps=list(range(trades_per_trial + 1)),
+                band_p5=[round(self._pct(v, 5), 2) for v in step_values],
+                band_p50=[round(self._pct(v, 50), 2) for v in step_values],
+                band_p95=[round(self._pct(v, 95), 2) for v in step_values],
+                sample_paths=sample_curves,
+                ruin_threshold_equity=round(starting_equity * (1 - ruin_threshold_pct / 100), 2),
+            )
 
         percentiles = [5, 25, 50, 75, 95]
         notes: List[str] = []
@@ -246,6 +293,7 @@ class MonteCarloEngine:
             ),
             expectancy_r_used=round(statistics.mean(r_multiples), 3),
             notes=notes,
+            equity_curve=equity_curve,
         )
 
     @staticmethod

@@ -2,6 +2,9 @@ import { useEffect, useState } from 'react';
 import {
   Gauge, TrendingUp, Grid3x3, NotebookPen, Wallet, Plus, Trash2, LineChart, Activity,
 } from 'lucide-react';
+import {
+  ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, ResponsiveContainer,
+} from 'recharts';
 import { PageHeader } from '../components/PageHeader';
 import { FoldedCard } from '../components/FoldedCard';
 import { ChartPanel } from '../components/ChartPanel';
@@ -57,6 +60,71 @@ function StackedBar({ segments, dark }: { segments: { pct: number; color: string
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+interface EquityCurveData {
+  steps: number[];
+  band_p5: number[];
+  band_p50: number[];
+  band_p95: number[];
+  sample_paths: number[][];
+  ruin_threshold_equity: number;
+}
+
+/**
+ * RiskOfRuinChart — "a chart that shows the cross over into negative
+ * and further ruin ... trades over time ... showing [a] band or area
+ * where you are likely to fail", by direct request. Real data, not
+ * illustrative: the same 5000-trial Monte Carlo simulation that
+ * already produces this card's probability-of-ruin number, just
+ * plotted at every trade index instead of only at the final one (see
+ * monte_carlo_engine.py's EquityCurveData). The shaded band is the
+ * 5th-95th percentile equity range across all trials; the dashed red
+ * line is the actual ruin threshold (default 50% drawdown from
+ * starting equity) — a path crossing below it is a simulated "ruin".
+ */
+function RiskOfRuinChart({ ec, dark }: { ec: EquityCurveData; dark: boolean }) {
+  const gridColor = dark ? '#1f2937' : '#e5e7eb';
+  const axisColor = '#6b7280';
+  const sampleCount = Math.min(4, ec.sample_paths.length);
+  const data = ec.steps.map((step, i) => {
+    const row: Record<string, number> = {
+      step,
+      bandBase: ec.band_p5[i],
+      bandRange: ec.band_p95[i] - ec.band_p5[i],
+      median: ec.band_p50[i],
+    };
+    for (let s = 0; s < sampleCount; s++) row[`sample${s}`] = ec.sample_paths[s][i];
+    return row;
+  });
+
+  return (
+    <div className="mt-3">
+      <div className={`text-xs mb-1 ${dark ? 'text-white/40' : 'text-gray-500'}`}>
+        Simulated equity over {ec.steps.length - 1} trades — shaded band is the 5th-95th percentile
+        range across 5,000 simulated runs; red dashed line is the ruin threshold.
+      </div>
+      <ResponsiveContainer width="100%" height={220}>
+        <ComposedChart data={data}>
+          <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
+          <XAxis dataKey="step" stroke={axisColor} fontSize={11} label={{ value: 'Trade #', position: 'insideBottom', offset: -3, fontSize: 11, fill: axisColor }} />
+          <YAxis stroke={axisColor} fontSize={11} width={64} tickFormatter={(v) => `$${Math.round(v / 1000)}k`} />
+          <Tooltip
+            formatter={(v: number) => `$${Math.round(v).toLocaleString()}`}
+            labelFormatter={(l) => `Trade ${l}`}
+            contentStyle={{ backgroundColor: dark ? '#111827' : '#fff', border: `1px solid ${gridColor}`, borderRadius: 8, fontSize: 12 }}
+          />
+          <ReferenceLine y={ec.ruin_threshold_equity} stroke="#ef4444" strokeDasharray="5 4" strokeWidth={1.5} label={{ value: 'Ruin', position: 'insideBottomRight', fill: '#ef4444', fontSize: 11 }} />
+          <Area dataKey="bandBase" stackId="band" stroke="none" fill="transparent" isAnimationActive={false} />
+          <Area dataKey="bandRange" stackId="band" stroke="none" fill={TOOLS_ACCENT} fillOpacity={0.14} isAnimationActive={false} />
+          {Array.from({ length: sampleCount }).map((_, s) => (
+            <Line key={s} dataKey={`sample${s}`} stroke={TOOLS_ACCENT} strokeOpacity={0.25} strokeWidth={1} dot={false} isAnimationActive={false} />
+          ))}
+          <Line dataKey="median" stroke={TOOLS_ACCENT} strokeWidth={2} dot={false} isAnimationActive={false} />
+        </ComposedChart>
+      </ResponsiveContainer>
     </div>
   );
 }
@@ -141,6 +209,15 @@ export function ToolsPage() {
     }
   }
 
+  // Runs once on mount with the pre-filled defaults above, so the gauge
+  // and chart show something real immediately instead of a blank card
+  // waiting for a click — by direct request ("always use default chart
+  // ... that will later be updated or refresh with real data"). This one
+  // needs no auth and no real trade history (it's a synthetic-stats
+  // lead magnet), so a "default" run here is genuinely as real as any
+  // other run, just using placeholder inputs the trader can edit.
+  useEffect(() => { runRiskOfRuin(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // --- Prop-Firm Simulator ---
   const [presets, setPresets] = useState<Record<string, any>>({});
   const [preset, setPreset] = useState('generic_10_5_10');
@@ -187,6 +264,15 @@ export function ToolsPage() {
       setCorrBusy(false);
     }
   }
+
+  // Auto-computes once a token is available, using the pre-filled
+  // placeholder series above — by direct bug report ("Correlation Heat
+  // Map - no visual heat map ... why?"): the grid only ever rendered
+  // AFTER a manual "Compute correlation" click, so a first-time visitor
+  // who hadn't clicked it yet saw no heat map at all. Now shows a real
+  // (if illustrative) heat map immediately; editing the series and
+  // recomputing replaces it with the trader's own real numbers.
+  useEffect(() => { if (token) runCorrelation(); }, [token]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // --- Journal Reviewer ---
   const emptyEntry = { trade_id: '', symbol: '', direction: 'long', entry_price: '', exit_price: '', stop_price: '', entry_time: '', exit_time: '', exit_reason: 'target', trader_notes: '' };
@@ -293,6 +379,7 @@ export function ToolsPage() {
                   label={`Probability of ruin — ${rorResult.probability_of_ruin}%`}
                 />
                 <ResultBox dark={dark}>Expectancy: {rorResult.expectancy_r}R{'\n'}{rorResult.verdict}</ResultBox>
+                {rorResult.equity_curve && <RiskOfRuinChart ec={rorResult.equity_curve} dark={dark} />}
               </div>
             )
           )}
@@ -311,21 +398,36 @@ export function ToolsPage() {
           <button onClick={runPropFirm} disabled={propBusy} className="text-xs font-semibold px-3 py-1.5 rounded-lg text-white disabled:opacity-50" style={{ background: TOOLS_ACCENT }}>
             {propBusy ? 'Simulating…' : 'Simulate'}
           </button>
-          {propResult && (
-            propResult.error ? <ResultBox dark={dark}>{propResult.error}</ResultBox> : (
-              <div className="mt-3">
-                <StackedBar
-                  dark={dark}
-                  segments={[
-                    { pct: propResult.probability_of_pass, color: '#22c55e', label: 'Pass' },
-                    { pct: propResult.probability_of_fail_daily_loss, color: '#f59e0b', label: 'Fail (daily loss)' },
-                    { pct: propResult.probability_of_fail_total_drawdown, color: '#ef4444', label: 'Fail (total DD)' },
-                    { pct: propResult.probability_of_fail_time_limit, color: dark ? '#4b5563' : '#9ca3af', label: 'Ran out of time' },
-                  ]}
-                />
+          {/* A real result (once ≥10 closed trades exist) always replaces this;
+              until then, shows an illustrative default instead of a blank card
+              or a bare error — by direct request ("provide a default chart ...
+              that can later be replaced with real data and refreshed"). */}
+          <div className="mt-3">
+            {propResult?.error && <ResultBox dark={dark}>{propResult.error}</ResultBox>}
+            <StackedBar
+              dark={dark}
+              segments={
+                propResult && !propResult.error
+                  ? [
+                      { pct: propResult.probability_of_pass, color: '#22c55e', label: 'Pass' },
+                      { pct: propResult.probability_of_fail_daily_loss, color: '#f59e0b', label: 'Fail (daily loss)' },
+                      { pct: propResult.probability_of_fail_total_drawdown, color: '#ef4444', label: 'Fail (total DD)' },
+                      { pct: propResult.probability_of_fail_time_limit, color: dark ? '#4b5563' : '#9ca3af', label: 'Ran out of time' },
+                    ]
+                  : [
+                      { pct: 45, color: '#22c55e', label: 'Pass' },
+                      { pct: 25, color: '#f59e0b', label: 'Fail (daily loss)' },
+                      { pct: 20, color: '#ef4444', label: 'Fail (total DD)' },
+                      { pct: 10, color: dark ? '#4b5563' : '#9ca3af', label: 'Ran out of time' },
+                    ]
+              }
+            />
+            {(!propResult || propResult.error) && (
+              <div className={`text-xs mt-1.5 italic ${dark ? 'text-white/30' : 'text-gray-400'}`}>
+                Example odds — run Simulate once you have 10+ closed trades to see your own.
               </div>
-            )
-          )}
+            )}
+          </div>
         </FoldedCard>
 
         <FoldedCard title="Correlation Heat Map" summary="See which of your positions are secretly the same bet." icon={<Grid3x3 size={19} />} dark={dark} accent={TOOLS_ACCENT}>
@@ -405,6 +507,14 @@ export function ToolsPage() {
         </FoldedCard>
 
         <FoldedCard title="Funded-Account Payout Optimizer" summary="Balance risk across multiple funded accounts." icon={<Wallet size={19} />} dark={dark} accent={TOOLS_ACCENT}>
+          <p className={`text-xs mb-3 leading-relaxed ${dark ? 'text-white/50' : 'text-gray-500'}`}>
+            If you're running more than one funded/prop-firm account at once, this splits your
+            risk-taking across them so you don't breach any single account's daily-loss or
+            drawdown limit — an account closer to its limit gets less risk allocated, one with
+            more room gets more, capped so no single trade could breach a limit outright. Enter
+            each account's balance and limits below (from your prop firm's dashboard), plus how
+            much of each limit you've already used today.
+          </p>
           {accounts.map((a, i) => (
             <div key={i} className={`rounded-lg p-2 mb-2 border ${dark ? 'border-corporate-border-dark' : 'border-gray-200'}`}>
               <div className="grid grid-cols-2 gap-2 mb-1">
@@ -429,21 +539,33 @@ export function ToolsPage() {
           <button onClick={runPayoutOptimizer} disabled={payoutBusy} className="text-xs font-semibold px-3 py-1.5 rounded-lg text-white disabled:opacity-50" style={{ background: TOOLS_ACCENT }}>
             {payoutBusy ? 'Optimizing…' : 'Optimize'}
           </button>
-          {payoutResult && (
-            payoutResult.error ? <ResultBox dark={dark}>{payoutResult.error}</ResultBox> : (
-              <div className="mt-3 space-y-2">
-                {payoutResult.allocations.map((a: any, i: number) => (
-                  a.excluded ? (
-                    <div key={i} className={`text-xs rounded-lg p-2 ${dark ? 'bg-red-500/10 text-red-300' : 'bg-red-50 text-red-600'}`}>
-                      {a.account_id}: {a.exclusion_reason}
-                    </div>
-                  ) : (
-                    <GaugeBar key={i} pct={(a.risk_pct_allocated / 2) * 100} color="#0891b2" dark={dark} label={`${a.account_id} — ${a.risk_pct_allocated}% risk allocated`} />
-                  )
+          {payoutResult?.error && <ResultBox dark={dark}>{payoutResult.error}</ResultBox>}
+          {/* Default illustrative allocation shown before the first real run, same
+              "always show a chart, refresh with real data later" pattern as the
+              Prop-Firm card above — this uses the account list actually filled in
+              above, it just hasn't been sent to the optimizer yet. */}
+          <div className="mt-3 space-y-2">
+            {payoutResult && !payoutResult.error ? (
+              payoutResult.allocations.map((a: any, i: number) => (
+                a.excluded ? (
+                  <div key={i} className={`text-xs rounded-lg p-2 ${dark ? 'bg-red-500/10 text-red-300' : 'bg-red-50 text-red-600'}`}>
+                    {a.account_id}: {a.exclusion_reason}
+                  </div>
+                ) : (
+                  <GaugeBar key={i} pct={(a.risk_pct_allocated / 2) * 100} color="#0891b2" dark={dark} label={`${a.account_id} — ${a.risk_pct_allocated}% risk allocated`} />
+                )
+              ))
+            ) : (
+              <>
+                {accounts.map((a, i) => (
+                  <GaugeBar key={i} pct={45 - i * 10} color="#0891b2" dark={dark} label={`${a.account_id || `Account ${i + 1}`} — example allocation`} />
                 ))}
-              </div>
-            )
-          )}
+                <div className={`text-xs italic ${dark ? 'text-white/30' : 'text-gray-400'}`}>
+                  Example allocation — click Optimize to compute your real split.
+                </div>
+              </>
+            )}
+          </div>
         </FoldedCard>
 
         <FoldedCard title="Order Flow Chart" summary="Free — live tape, delta, and order book, from real crypto market data." icon={<Activity size={19} />} dark={dark} accent={TOOLS_ACCENT}>

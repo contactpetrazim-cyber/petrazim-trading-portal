@@ -18,9 +18,9 @@ these estimated stats).
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List
+from typing import List, Optional
 
-from app.engines.monte_carlo_engine import MonteCarloEngine, TradeRecord
+from app.engines.monte_carlo_engine import EquityCurveData, MonteCarloEngine, TradeRecord
 
 
 @dataclass
@@ -42,6 +42,12 @@ class RiskOfRuinResult:
     p5_outcome_multiple: float
     p95_outcome_multiple: float
     verdict: str
+    # Real simulated equity-over-trades data (not fabricated) — the
+    # "chart that shows the cross over into negative and further ruin
+    # ... trades over time ... band where you are likely to fail",
+    # by direct request. Same 5000 trials this result's own numbers
+    # already come from, just retained at every step.
+    equity_curve: Optional[EquityCurveData] = None
 
 
 class RiskOfRuinCalculator:
@@ -66,6 +72,7 @@ class RiskOfRuinCalculator:
             starting_equity=10000.0, risk_mode="fixed_fractional",
             risk_value=inp.risk_per_trade_pct, resample_mode="iid",
             ruin_threshold_pct=inp.ruin_threshold_pct,
+            track_equity_curve=True,
         )
 
         median = result.final_equity_percentiles.get(50, 10000) / 10000
@@ -86,4 +93,5 @@ class RiskOfRuinCalculator:
             p5_outcome_multiple=round(p5, 3),
             p95_outcome_multiple=round(p95, 3),
             verdict=verdict,
+            equity_curve=result.equity_curve,
         )
