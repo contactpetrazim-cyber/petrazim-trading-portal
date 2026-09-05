@@ -140,12 +140,15 @@ function buildOverrides(colors: CandleColors | undefined, chartStyle: ChartStyle
 
 /** Volume's own up/down bars follow the same up/down colors chosen for
  * the candles — by direct request ("let the volume also follow the
- * chart colour selected"). This is TradingView's built-in Volume
- * study, added by default so there's always a volume pane to color
- * rather than only styling one if a user happens to add it themselves
- * via the indicators picker. `studies_overrides` (a distinct
- * namespace from the candle `overrides` above) is the widget's real
- * option for a study's own plot colors. */
+ * chart colour selected"). The widget already shows its own Volume
+ * pane by default on every symbol — explicitly adding
+ * "Volume@tv-basicstudies" via `studies` (an earlier version of this
+ * fix) stacked a SECOND, duplicate volume track underneath the
+ * built-in one instead of styling it, by direct bug report ("all
+ * charts now shown two volumes tracks by mistake"). `studies_overrides`
+ * alone (a distinct namespace from the candle `overrides` above) is
+ * the widget's real option for the ALREADY-present default volume
+ * study's own plot colors — no separate `studies` entry needed. */
 function buildStudiesOverrides(colors: CandleColors | undefined): Record<string, string | number> {
   const upColor = colors?.upColor || '#26a69a';
   const downColor = colors?.downColor || '#ef5350';
@@ -196,7 +199,6 @@ function TradingViewChartBase({
           withdateranges: true,
           container_id: containerId.current,
           overrides: buildOverrides(candleColors, chartStyle),
-          studies: ['Volume@tv-basicstudies'],
           studies_overrides: buildStudiesOverrides(candleColors),
         });
       }
