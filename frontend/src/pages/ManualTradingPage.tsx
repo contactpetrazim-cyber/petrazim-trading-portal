@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
-import { ArrowLeft, FlaskConical, Radio, Settings2, ArrowLeftRight, Calculator, ChevronDown } from 'lucide-react';
+import { ArrowLeft, Settings2, ArrowLeftRight, Calculator, ChevronDown } from 'lucide-react';
 import { ChartPanel } from '../components/ChartPanel';
 import { useAuth } from '../hooks/useAuth';
 import { useThemeStore } from '../hooks/useTheme';
@@ -196,19 +196,28 @@ export function ManualTradingPage() {
 
   const [settingsPhase, setSettingsPhase] = useState<FetchPhase>('idle');
 
-  function loadSettings() {
-    if (!token) return;
+  // Returns the loaded Settings (or null on genuine failure) instead of
+  // firing-and-forgetting — by direct bug report ("still ... trade
+  // Orders are still not executed - error 'your trading settings
+  // haven't loaded yet - retrying' ... please fix this"). The retry
+  // this triggered used to only reload settings into state; a trader
+  // who'd already clicked "Place Order" still had to notice the retry
+  // finished and click AGAIN to actually submit. submitOrder below now
+  // awaits this and continues automatically the moment settings come
+  // back, so one click is enough even through a cold Render start.
+  function loadSettings(): Promise<Settings | null> {
+    if (!token) return Promise.resolve(null);
     // Was a plain one-shot apiFetch — on a cold Render free-tier start
     // (see resilientFetch.ts) the single attempt could fail before the
     // backend ever woke up, leaving `settings` null forever and every
     // "Place Order" click showing "your trading settings haven't
     // loaded yet" with no way out short of a manual page refresh, by
     // direct bug report. Now retries through the wake window.
-    fetchJsonWithRetry<Settings>(`${API_URL}/manual-trading/settings`, { headers }, setSettingsPhase)
-      .then((s) => { if (s) setSettings(s); });
+    return fetchJsonWithRetry<Settings>(`${API_URL}/manual-trading/settings`, { headers }, setSettingsPhase)
+      .then((s) => { if (s) setSettings(s); return s; });
   }
 
-  useEffect(loadSettings, [token]);
+  useEffect(() => { loadSettings(); }, [token]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function updateSettings(patch: Partial<Settings>) {
     if (!token) return;
@@ -227,10 +236,23 @@ export function ManualTradingPage() {
       setResult({ ok: false, message: 'You need to be signed in to place an order.' });
       return;
     }
-    if (!settings) {
+    // Was a dead end: this bailed out with "haven't loaded yet —
+    // retrying…" and kicked off a background reload, but never
+    // actually retried the ORDER itself — a trader had to notice
+    // settings finished loading and click Place Order a SECOND time,
+    // which from outside just looks like "trade orders are still not
+    // executed," by direct bug report. Now it awaits the exact same
+    // retry-through-cold-start load and continues automatically the
+    // moment settings come back, so one click is enough.
+    let effectiveSettings = settings;
+    if (!effectiveSettings) {
       setResult({ ok: false, message: 'Your trading settings haven’t loaded yet — retrying…' });
-      loadSettings();
-      return;
+      effectiveSettings = await loadSettings();
+      if (!effectiveSettings) {
+        setResult({ ok: false, message: 'Still couldn’t load your trading settings — check your connection and try again.' });
+        return;
+      }
+      setResult(null);
     }
     // A Market order on a symbol with a live reference price (crypto,
     // via quick-price) no longer shows its own price field — the
@@ -412,17 +434,6 @@ export function ManualTradingPage() {
           </Link>
           {settings && (
             <div className="flex items-center gap-2 flex-wrap">
-              {/* Effective status — what actually happens to money right
-                  now, driven by BOTH toggles below, not trading_mode
-                  alone. */}
-              <span
-                className={`inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-full ${
-                  isSimulated ? 'bg-amber-500/15 text-amber-500' : 'bg-red-500/15 text-red-500'
-                }`}
-              >
-                {isSimulated ? <FlaskConical size={13} /> : <Radio size={13} />} {isSimulated ? 'PAPER TRADING' : 'LIVE — real orders'}
-              </span>
-
               {/* Test / Live — the account-level mode. */}
               <button
                 onClick={() => updateSettings({ trading_mode: isTest ? 'live' : 'test' })}
@@ -436,7 +447,10 @@ export function ManualTradingPage() {
                   of Test/Live and visible in both, by direct request
                   ("while in live mode still provide a paper trading
                   toggle ... so the paper trading is a permanent toggle
-                  both for test mode and live mode"). In Test mode this
+                  both for test mode and live mode"). Just the toggle,
+                  no separate summary badge/banner alongside it — by
+                  direct request ("remove the Paper Trading summary —
+                  just show a Paper Trading toggle"). In Test mode this
                   is a no-op (Test always simulates regardless), but it
                   stays visible and interactive rather than disappearing
                   — the whole point of "permanent." */}
@@ -450,7 +464,7 @@ export function ManualTradingPage() {
                 <span className={`relative w-8 h-4 rounded-full transition-colors shrink-0 ${paperTradingEnabled ? 'bg-amber-500' : dark ? 'bg-white/20' : 'bg-gray-300'}`}>
                   <span className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white transition-transform ${paperTradingEnabled ? 'translate-x-4' : ''}`} />
                 </span>
-                Paper Trading
+                Paper Trading: {paperTradingEnabled ? 'On' : 'Off'}
               </button>
 
               <button
@@ -462,12 +476,6 @@ export function ManualTradingPage() {
             </div>
           )}
         </div>
-
-        {isSimulated && (
-          <div className={`rounded-xl p-3 mb-4 text-xs font-medium ${dark ? 'bg-amber-500/10 text-amber-300' : 'bg-amber-50 text-amber-700'}`}>
-            PAPER TRADING{!isTest ? ' (Live mode)' : ''} — orders below run the exact same real broker-selection and price-deviation checks a live order faces, then fill instantly against a simulated pseudo-exchange and track live price data, exactly like a real position (entries, TP/SL, partial closes, cancellations). No real money moves{isTest ? ' in Test mode' : ' while Paper Trading stays on'}.
-          </div>
-        )}
 
         {settingsOpen && settings && (
           <div className={`rounded-xl border p-4 mb-4 ${dark ? 'bg-corporate-surface-dark border-corporate-border-dark' : 'bg-white border-gray-200'}`}>
