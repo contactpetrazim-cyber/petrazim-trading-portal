@@ -4,16 +4,26 @@ Manual Trading — risk checks + order creation
 
 Manual orders go through the exact same risk-cap and execution path
 bot trades use, by direct instruction — not a separate, looser set of
-rules. The only manual-specific pieces are the two toggles:
+rules. The only manual-specific pieces are the three toggles:
 
   1. Global vs. Manual risk settings (ManualTradingSettings.
      use_global_defaults) — which numbers the checks below are
      measured against, not a different kind of check.
-  2. Test vs. Live (ManualTradingSettings.trading_mode) — Test never
-     calls execution_engine.py's real broker path; it simulates an
-     immediate fill and tags the Trade row is_test=True, so a trader
-     can rehearse the full order flow with zero execution risk before
-     ever flipping to Live.
+  2. Test vs. Live (ManualTradingSettings.trading_mode) — which
+     platform-facing label the trader is in.
+  3. Paper Trading (ManualTradingSettings.paper_trading_enabled) — a
+     permanent, independent toggle available in BOTH Test and Live
+     (by direct request). Whether a given order actually reaches a
+     real broker is decided by `trading_mode == TEST or
+     paper_trading_enabled` (routers/manual_trading.py's own `paper`
+     local), not by trading_mode alone: Test always simulates; Live
+     simulates too as long as Paper Trading stays on, and only goes
+     real once it's switched off. Either way, a simulated order still
+     runs execution_engine.py's real broker-selection + price-
+     deviation-guard pipeline (_execute_broker_order(..., paper=True))
+     — it's diverted at the very last step, not skipped — so a trader
+     can rehearse the full order flow, including its real checks,
+     with zero execution risk before ever going properly live.
 """
 
 from __future__ import annotations

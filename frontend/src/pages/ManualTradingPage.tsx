@@ -27,6 +27,7 @@ const SYMBOLS = [
 interface Settings {
   use_global_defaults: boolean;
   trading_mode: 'test' | 'live';
+  paper_trading_enabled: boolean;
   risk_per_trade: number;
   max_daily_trades: number;
   max_concurrent_trades: number;
@@ -296,6 +297,16 @@ export function ManualTradingPage() {
   }
 
   const isTest = settings?.trading_mode === 'test';
+  // Paper Trading is its own, permanent toggle, independent of Test/
+  // Live — by direct request ("provide a test vs live toggle and
+  // also while in live mode still provide a paper trading toggle ...
+  // so the paper trading is a permanent toggle both for test mode and
+  // live mode"). `isSimulated` mirrors the backend's own `paper`
+  // local (routers/manual_trading.py) — true whenever no real broker
+  // call will happen, whether that's because Test mode always
+  // simulates or because Paper Trading is left on while in Live.
+  const paperTradingEnabled = settings?.paper_trading_enabled ?? true;
+  const isSimulated = isTest || paperTradingEnabled;
   const inputCls = `w-full rounded-lg px-3 py-2 text-sm outline-none border ${
     dark ? 'bg-corporate-nav-dark border-corporate-border-dark text-white' : 'bg-white border-gray-200 text-corporate-text-on-bg'
   }`;
@@ -400,20 +411,48 @@ export function ManualTradingPage() {
             <ArrowLeft size={15} /> Back to Trade
           </Link>
           {settings && (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* Effective status — what actually happens to money right
+                  now, driven by BOTH toggles below, not trading_mode
+                  alone. */}
               <span
                 className={`inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-full ${
-                  isTest ? 'bg-amber-500/15 text-amber-500' : 'bg-red-500/15 text-red-500'
+                  isSimulated ? 'bg-amber-500/15 text-amber-500' : 'bg-red-500/15 text-red-500'
                 }`}
               >
-                {isTest ? <FlaskConical size={13} /> : <Radio size={13} />} {isTest ? 'PAPER TRADING' : 'LIVE — real orders'}
+                {isSimulated ? <FlaskConical size={13} /> : <Radio size={13} />} {isSimulated ? 'PAPER TRADING' : 'LIVE — real orders'}
               </span>
+
+              {/* Test / Live — the account-level mode. */}
               <button
                 onClick={() => updateSettings({ trading_mode: isTest ? 'live' : 'test' })}
+                title="Test vs Live"
                 className={`text-xs font-semibold px-3 py-1.5 rounded-full ${dark ? 'bg-white/10 text-white/70' : 'bg-black/5 text-gray-600'}`}
               >
-                Switch to {isTest ? 'Live' : 'Paper Trading'}
+                Mode: {isTest ? 'Test' : 'Live'} — switch to {isTest ? 'Live' : 'Test'}
               </button>
+
+              {/* Paper Trading — its own, PERMANENT toggle, independent
+                  of Test/Live and visible in both, by direct request
+                  ("while in live mode still provide a paper trading
+                  toggle ... so the paper trading is a permanent toggle
+                  both for test mode and live mode"). In Test mode this
+                  is a no-op (Test always simulates regardless), but it
+                  stays visible and interactive rather than disappearing
+                  — the whole point of "permanent." */}
+              <button
+                onClick={() => updateSettings({ paper_trading_enabled: !paperTradingEnabled })}
+                title="Paper Trading stays available in both Test and Live — when on, orders never reach a real broker, even in Live mode, but still run the real broker-selection and price checks a live order would face."
+                className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full ${
+                  paperTradingEnabled ? 'bg-amber-500/15 text-amber-600' : dark ? 'bg-white/10 text-white/50' : 'bg-black/5 text-gray-500'
+                }`}
+              >
+                <span className={`relative w-8 h-4 rounded-full transition-colors shrink-0 ${paperTradingEnabled ? 'bg-amber-500' : dark ? 'bg-white/20' : 'bg-gray-300'}`}>
+                  <span className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white transition-transform ${paperTradingEnabled ? 'translate-x-4' : ''}`} />
+                </span>
+                Paper Trading
+              </button>
+
               <button
                 onClick={() => setSettingsOpen((o) => !o)}
                 className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full ${dark ? 'bg-white/10 text-white/70' : 'bg-black/5 text-gray-600'}`}
@@ -424,9 +463,9 @@ export function ManualTradingPage() {
           )}
         </div>
 
-        {isTest && (
+        {isSimulated && (
           <div className={`rounded-xl p-3 mb-4 text-xs font-medium ${dark ? 'bg-amber-500/10 text-amber-300' : 'bg-amber-50 text-amber-700'}`}>
-            PAPER TRADING — orders below fill instantly against a simulated pseudo-exchange and track live price data, exactly like a real position (entries, TP/SL, partial closes, cancellations). No real money moves until you switch to Live.
+            PAPER TRADING{!isTest ? ' (Live mode)' : ''} — orders below run the exact same real broker-selection and price-deviation checks a live order faces, then fill instantly against a simulated pseudo-exchange and track live price data, exactly like a real position (entries, TP/SL, partial closes, cancellations). No real money moves{isTest ? ' in Test mode' : ' while Paper Trading stays on'}.
           </div>
         )}
 
@@ -858,7 +897,7 @@ export function ManualTradingPage() {
               >
                 {submitting
                   ? 'Placing…'
-                  : `${direction === 'long' ? 'Buy' : 'Sell'} ${lotSizePreview > 0 ? lotSizePreview.toFixed(4) : ''} ${symbol.trade} @ ${entryPrice || quickPrice || '—'} ${orderType.toUpperCase()}${isTest ? ' (Paper)' : ''}`}
+                  : `${direction === 'long' ? 'Buy' : 'Sell'} ${lotSizePreview > 0 ? lotSizePreview.toFixed(4) : ''} ${symbol.trade} @ ${entryPrice || quickPrice || '—'} ${orderType.toUpperCase()}${isSimulated ? ' (Paper)' : ''}`}
               </button>
             )}
             </div>

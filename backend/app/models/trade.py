@@ -160,12 +160,25 @@ class ManualTradingSettings(Base):
          at TEST always, the same safe-default convention
          platform_setting.py's payments mode already established —
          going live is something a trader opts into, never a default.
+      3. paper_trading_enabled: a THIRD, independent toggle — by direct
+         request ("provide a test vs live toggle and also while in
+         live mode still provide a paper trading toggle ... so the
+         paper trading is a permanent toggle both for test mode and
+         live mode"). trading_mode==TEST or this flag being on both
+         route through the exact same paper-trading engine
+         (execution_engine.py's _execute_broker_order(..., paper=...)):
+         the real broker-selection + price-deviation-guard pipeline
+         runs, but the final send-to-broker step is diverted to a
+         simulated fill. Only trading_mode==LIVE with this OFF reaches
+         a real broker. Defaults True — a brand-new user starts fully
+         simulated on both axes, not just one.
     """
     __tablename__ = "manual_trading_settings"
 
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), primary_key=True)
     use_global_defaults = Column(Boolean, nullable=False, default=True)
     trading_mode = Column(Enum(TradingMode), nullable=False, default=TradingMode.TEST)
+    paper_trading_enabled = Column(Boolean, nullable=False, default=True)
 
     risk_per_trade = Column(Float, nullable=False, default=1.0)
     max_daily_trades = Column(Integer, nullable=False, default=10)

@@ -1,0 +1,21 @@
+-- Paper Trading as its own, permanent toggle — independent of the
+-- existing Test/Live `trading_mode` — by direct request: "provide a
+-- test vs live toggle and also while in live mode still provide a
+-- paper trading toggle ... so the paper trading is a permanent toggle
+-- both for test mode and live mode."
+--
+-- Test mode already never reaches a real broker; this column lets a
+-- trader ALSO stay off a real broker while set to Live, so the same
+-- paper-trading engine (services/execution_engine.py's
+-- _execute_broker_order(..., paper=...)) now powers both: Test mode
+-- (trading_mode == 'test') and Live mode with this flag on both run
+-- through the real broker-selection + price-deviation-guard pipeline
+-- but divert the final send-to-broker step to a simulated fill; only
+-- Live with this OFF reaches a real broker. Defaults true — a new
+-- user starts fully simulated on both axes, same safe-default
+-- convention trading_mode itself already follows (starts at TEST).
+--
+-- Checked the live project first: manual_trading_settings had 2 rows,
+-- no existing column of this name.
+
+ALTER TABLE manual_trading_settings ADD COLUMN IF NOT EXISTS paper_trading_enabled BOOLEAN NOT NULL DEFAULT true;
