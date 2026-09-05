@@ -36,6 +36,8 @@ import { RiskTriageGame } from './pages/RiskTriageGame';
 import { BiasCheckGame } from './pages/BiasCheckGame';
 import { RiskManagementDecisionLab } from './pages/RiskManagementDecisionLab';
 import { TradingPsychologyDecisionLab } from './pages/TradingPsychologyDecisionLab';
+import { MarketStructureDecisionLab } from './pages/MarketStructureDecisionLab';
+import { OrderFlowDecisionLab } from './pages/OrderFlowDecisionLab';
 import { VisualGlossaryPage } from './pages/VisualGlossaryPage';
 import { WhatHappensNextGame } from './pages/WhatHappensNextGame';
 import { ConceptSpotterGame } from './pages/ConceptSpotterGame';
@@ -248,6 +250,8 @@ function App() {
         <Route path="/practise/games/bias-check" element={<CorporateLayout><BiasCheckGame /></CorporateLayout>} />
         <Route path="/learn/decision-lab/risk-management" element={<CorporateLayout><RiskManagementDecisionLab /></CorporateLayout>} />
         <Route path="/learn/decision-lab/trading-psychology" element={<CorporateLayout><TradingPsychologyDecisionLab /></CorporateLayout>} />
+        <Route path="/learn/decision-lab/market-structure" element={<CorporateLayout><MarketStructureDecisionLab /></CorporateLayout>} />
+        <Route path="/learn/decision-lab/order-flow-trading" element={<CorporateLayout><OrderFlowDecisionLab /></CorporateLayout>} />
         <Route path="/learn/visual-glossary" element={<CorporateLayout><VisualGlossaryPage /></CorporateLayout>} />
         <Route path="/practise/games/what-happens-next" element={<CorporateLayout><WhatHappensNextGame /></CorporateLayout>} />
         <Route path="/practise/games/concept-spotter" element={<CorporateLayout><ConceptSpotterGame /></CorporateLayout>} />

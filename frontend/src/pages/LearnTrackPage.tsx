@@ -9,6 +9,16 @@ import { apiFetch } from '../components/AccessExpiredGate';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
+// Decision Lab routes, matched by track title substring — 4 of 18
+// tracks so far (Section 11's own template, not every track yet; see
+// RiskManagementDecisionLab's docstring).
+const DECISION_LABS: [string, string][] = [
+  ['Risk Management', '/learn/decision-lab/risk-management'],
+  ['Trading Psychology', '/learn/decision-lab/trading-psychology'],
+  ['Market Structure', '/learn/decision-lab/market-structure'],
+  ['Order Flow Trading', '/learn/decision-lab/order-flow-trading'],
+];
+
 interface Stage {
   id: string;
   stage_number: number;
@@ -112,17 +122,18 @@ export function LearnTrackPage() {
         Mastery level: <span className="text-corporate-hero">{track.mastery_level}</span>
       </div>
 
-      {/* Section 11's Decision Lab — currently seeded for 2 of 18
+      {/* Section 11's Decision Lab — currently seeded for 4 of 18
           tracks, matched by title (see RiskManagementDecisionLab's own
           docstring on why this is a template, not every track yet). */}
-      {(track.title.includes('Risk Management') || track.title.includes('Trading Psychology')) && (
+      {DECISION_LABS.filter(([title]) => track.title.includes(title)).map(([title, route]) => (
         <Link
-          to={track.title.includes('Risk Management') ? '/learn/decision-lab/risk-management' : '/learn/decision-lab/trading-psychology'}
+          key={route}
+          to={route}
           className={`inline-flex items-center gap-1.5 text-sm font-medium mb-4 px-3 py-2 rounded-xl ${dark ? 'bg-white/5 text-white hover:bg-white/10' : 'bg-corporate-bg text-corporate-hero hover:bg-corporate-hero/10'}`}
         >
           🧭 Decision Lab — untimed, no score
         </Link>
-      )}
+      ))}
 
       {message && (
         <div className={`text-sm rounded-xl p-3 mb-4 ${dark ? 'bg-white/5 text-white/80' : 'bg-blue-50 text-corporate-text-on-bg'}`}>
