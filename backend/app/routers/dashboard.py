@@ -109,9 +109,18 @@ async def performance_summary(
     delta = period_map.get(period, timedelta(days=7))
     start_date = datetime.utcnow() - delta
 
+    # Filter by when a trade CLOSED, not when it was opened — a trade
+    # opened 40 days ago but closed yesterday belongs in "1D"/"7D", not
+    # excluded from every window shorter than its own lifetime. This was
+    # the actual cause of "performance metrics not working" (1D/7D/30D/90D
+    # all showing empty/wrong): every other closed-trades read here
+    # (max-drawdown's chronological sort just below, equity_curve()) uses
+    # exit_timestamp for exactly this reason. Falls back to created_at
+    # only for the rare pre-migration row with no exit_timestamp set.
+    close_time = func.coalesce(Trade.exit_timestamp, Trade.created_at)
     query = _scope_trades(select(Trade), user).where(
         and_(
-            Trade.created_at >= start_date,
+            close_time >= start_date,
             Trade.status == TradeStatus.CLOSED
         )
     )
@@ -178,9 +187,13 @@ async def equity_curve(
     """Get equity curve data for charting."""
     start_date = datetime.utcnow() - timedelta(days=days)
 
+    # Same close-time fix as /performance above: a still-open trade has
+    # no exit_timestamp yet, so coalesce correctly falls back to
+    # created_at for it while using the real close time for closed ones.
+    close_time = func.coalesce(Trade.exit_timestamp, Trade.created_at)
     query = _scope_trades(select(Trade), user).where(
         and_(
-            Trade.created_at >= start_date,
+            close_time >= start_date,
             Trade.status.in_([TradeStatus.CLOSED, TradeStatus.ACTIVE])
         )
     ).order_by(Trade.created_at)

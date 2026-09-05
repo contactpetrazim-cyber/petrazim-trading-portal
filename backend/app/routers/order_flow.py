@@ -35,8 +35,10 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from app.config import get_settings
 from app.core.access_gate import require_active_access
 from app.models.user import User
+from app.services.broker_integrations import _FAILOVER_EXCEPTIONS, _send_with_failover
 
 router = APIRouter(prefix="/order-flow", tags=["order-flow"])
 
@@ -49,7 +51,22 @@ ALLOWED_SYMBOLS = [
     "BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "DOGEUSDT",
 ]
 
-_client = httpx.AsyncClient(timeout=10.0, base_url=BINANCE_BASE_URL)
+# Binance geofences plenty of cloud-host IP ranges (Render's included) with
+# a 451, which is why the chart could load from a developer's own machine
+# but never from production — every other exchange call in this codebase
+# (execution_engine.py, broker_credentials.py) already routes through the
+# Fixie proxy pair for exactly this reason; this client previously didn't,
+# which was the actual cause of "order flow chart not loading" in prod.
+_settings = get_settings()
+_client = httpx.AsyncClient(
+    timeout=10.0, base_url=BINANCE_BASE_URL, proxy=_settings.BINANCE_PROXY_URL or None,
+)
+_backup_client = (
+    httpx.AsyncClient(
+        timeout=10.0, base_url=BINANCE_BASE_URL, proxy=_settings.BINANCE_BACKUP_PROXY_URL,
+    )
+    if _settings.BINANCE_BACKUP_PROXY_URL else None
+)
 
 
 def _validate_symbol(symbol: str) -> str:
@@ -64,7 +81,9 @@ def _validate_symbol(symbol: str) -> str:
 
 async def _binance_get(path: str, params: dict) -> httpx.Response:
     try:
-        resp = await _client.get(path, params=params)
+        resp = await _send_with_failover(_client, _backup_client, "get", path, params=params)
+    except _FAILOVER_EXCEPTIONS as e:
+        raise HTTPException(status_code=502, detail=f"Could not reach Binance market data: {e}")
     except httpx.RequestError as e:
         raise HTTPException(status_code=502, detail=f"Could not reach Binance market data: {e}")
     if resp.status_code != 200:
