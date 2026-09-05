@@ -1,28 +1,56 @@
 import { useState } from 'react';
 import { MessageCircle, X, Send } from 'lucide-react';
 import { useTradeAIStore } from '../hooks/useTradeAI';
+import { useAuth } from '../hooks/useAuth';
+import { apiFetch } from './AccessExpiredGate';
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 /**
  * FloatingTradeAI — the floating chat icon requested, always visible
- * bottom-right, opens a lightweight chat panel. This scaffolds the UI
- * shell and the panel; wiring `onSend` to an actual coach LLM
- * endpoint is the integration point (same coach voice/prompt rules
- * already established for TradeCoachPanel/ReasoningPanel and the
- * Weekly Review's build_weekly_review_prompt — reuse that, don't
- * invent a second coach personality here).
+ * bottom-right, opens a lightweight chat panel.
  *
- * `open` now lives in useTradeAIStore rather than local state, so
+ * `onSend` now defaults to a real call to POST /coach/ask
+ * (services/ai_coach.py's free-tier multi-provider rotation) rather
+ * than always replying "isn't wired to a live endpoint yet" — this
+ * component is only ever mounted once, bare, at the app root
+ * (App.tsx), so nothing was ever going to supply an override; the
+ * prop stays available for a future caller that wants to (e.g. a
+ * page-scoped variant with extra context), but the real backend is
+ * now the default rather than nothing.
+ *
+ * `open` lives in useTradeAIStore rather than local state, so
  * SettingsPanel's "Ask Trading Coach" row can open this same panel
  * instead of being a dead, do-nothing row — by direct bug report ("Ask
  * Coach is not working"). The bubble button below still works exactly
  * as before, just reading/writing the shared store now.
  */
+async function defaultOnSend(message: string, token: string | null): Promise<string> {
+  if (!token) return 'Sign in to ask Coach a question.';
+  try {
+    const res = await apiFetch(`${API_URL}/coach/ask`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ message }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      return body?.detail || "Coach couldn't answer that just now — try again in a moment.";
+    }
+    const data = await res.json();
+    return data.reply;
+  } catch {
+    return "Coach couldn't answer that just now — try again in a moment.";
+  }
+}
+
 export function FloatingTradeAI({
   onSend,
 }: {
   onSend?: (message: string) => Promise<string>;
 }) {
   const { open, setOpen } = useTradeAIStore();
+  const { token } = useAuth();
   const [messages, setMessages] = useState<{ role: 'user' | 'ai'; text: string }[]>([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
@@ -34,7 +62,7 @@ export function FloatingTradeAI({
     setInput('');
     setSending(true);
     try {
-      const reply = onSend ? await onSend(userMsg) : "Trade AI isn't wired to a live endpoint yet.";
+      const reply = onSend ? await onSend(userMsg) : await defaultOnSend(userMsg, token);
       setMessages((m) => [...m, { role: 'ai', text: reply }]);
     } finally {
       setSending(false);

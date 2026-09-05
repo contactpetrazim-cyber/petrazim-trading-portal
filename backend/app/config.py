@@ -122,6 +122,18 @@ class Settings(BaseSettings):
     #   python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
     CREDENTIALS_ENCRYPTION_KEY: str = ""
 
+    # AI Coach (services/ai_coach.py) — Ask Coach's real LLM backend,
+    # by direct request ("use the free tier and optimise engine -
+    # rotate across multiple"). Every provider here has a genuine free
+    # tier; empty by default, and the coach degrades to an honest
+    # "not available right now" reply rather than crashing if none are
+    # set or every provider call fails.
+    GROQ_API_KEY: str = ""
+    CEREBRAS_API_KEY: str = ""
+    MISTRAL_API_KEY: str = ""
+    OPENROUTER_API_KEY: str = ""
+    GEMINI_API_KEY: str = ""
+
     # Where the Test-mode simulated checkout page (routers/payments.py)
     # sends a user back to after Simulate Success/Failure — the real
     # frontend origin, so this works the same way a real gateway's

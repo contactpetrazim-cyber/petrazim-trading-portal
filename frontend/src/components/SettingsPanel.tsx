@@ -27,12 +27,10 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
  * demo, backed by data here), and now "Ask Trading Coach" too — it
  * opens the same FloatingTradeAI panel every page already mounts (via
  * the shared useTradeAIStore) instead of doing nothing, per direct bug
- * report ("Ask Coach is not working"). That opens the real chat UI,
- * not a live AI backend — FloatingTradeAI's `onSend` is still unwired
- * to any LLM endpoint (no provider/API key exists in this codebase at
- * all; see that component's docstring), and standing that up is a real
- * integration + ongoing-cost decision for you to make, not one to wire
- * up silently. "Backup and Offline" now opens BackupOfflinePanel too —
+ * report ("Ask Coach is not working"). That panel now answers for real
+ * too — POST /coach/ask (services/ai_coach.py), a free-tier-only
+ * multi-provider rotation, per direct instruction. "Backup and
+ * Offline" now opens BackupOfflinePanel too —
  * see that component's own docstring for what it backs up and why,
  * adapted from the reference site's own panel (screenshot supplied
  * directly) to what this app can honestly back up. "Quick Links" is
