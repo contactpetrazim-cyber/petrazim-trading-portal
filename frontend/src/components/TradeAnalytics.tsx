@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { fetchJsonWithRetry, type FetchPhase } from '../lib/resilientFetch';
 import { LoadingIndicator } from './LoadingIndicator';
+import { AdvancedTradeAnalytics } from './AdvancedTradeAnalytics';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -28,7 +29,7 @@ interface Summary {
 const DONUT_COLORS = ['#005FB8', '#f59e0b', '#00829B', '#7c3aed', '#64748b'];
 const PAGE_SIZE = 5;
 
-function money(n: number): string {
+export function money(n: number): string {
   const sign = n < 0 ? '-' : n > 0 ? '+' : '';
   return `${sign}$${Math.abs(n).toFixed(2)}`;
 }
@@ -402,6 +403,12 @@ export function TradeAnalytics({ dark = false }: { dark?: boolean }) {
         <Pager page={dailyPage} pageCount={dailyPageCount} onChange={setDailyPage} dark={dark} />
       </div>
     </div>
+
+    {/* The advanced suite — by direct request ("develop useful metrics
+        that will help understand the trading edge, profitability ...
+        and other unique characteristics"). Shares this same `source`
+        filter so switching All/Bots/Manual above affects both. */}
+    <AdvancedTradeAnalytics dark={dark} source={source} />
     </div>
   );
 }
