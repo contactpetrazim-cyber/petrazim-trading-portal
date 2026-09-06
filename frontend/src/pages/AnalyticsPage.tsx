@@ -3,10 +3,12 @@ import { BarChart3, Percent, Target, TrendingDown, TrendingUp, DollarSign } from
 import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Legend, Cell } from 'recharts';
 import { StatCard } from '../components/StatCard';
 import { FoldedCard } from '../components/FoldedCard';
+import { LoadingIndicator } from '../components/LoadingIndicator';
 import { TradeAnalytics } from '../components/TradeAnalytics';
 import { dashboardApi } from '../services/api';
 import { PerformanceSummary } from '../types';
 import { useThemeStore } from '../hooks/useTheme';
+import type { FetchPhase } from '../lib/resilientFetch';
 
 const PERIODS: { id: '1d' | '7d' | '30d' | '90d'; label: string }[] = [
   { id: '1d', label: '1D' },
@@ -30,7 +32,23 @@ const PERIODS: { id: '1d' | '7d' | '30d' | '90d'; label: string }[] = [
  * dashboard.py's performance_summary) using the same peak-to-trough
  * running-equity definition as the equity curve, so this number now
  * means something real rather than always reading 0%.
+ *
+ * Was a plain one-shot Promise.all with every rejection swallowed into
+ * `[]` ("still no loading" bug report — this page's own StatCards/
+ * comparison charts, as distinct from the TradeAnalytics section below
+ * them, which already got this same fix). On a cold Render free-tier
+ * start that single attempt fails before the backend wakes, and the
+ * swallowed `[]` reads as a real, successful "no closed trades" answer
+ * — `loading` still flips false, so the page permanently shows the
+ * empty state instead of ever retrying, even though the exact same
+ * backend call succeeds a few seconds later for TradeAnalytics's own
+ * retrying fetch just below it on this same page. Same cold-start-aware
+ * retry ladder as Dashboard.tsx's loadWithRetry (this page also goes
+ * through the axios-based dashboardApi rather than fetch, so it gets
+ * its own small retry loop instead of fetchJsonWithRetry directly).
  */
+const RETRY_DELAYS_MS = [1500, 3000, 5000, 8000, 12000, 15000, 20000, 20000];
+
 export function AnalyticsPage() {
   const { theme } = useThemeStore();
   const dark = theme === 'dark';
@@ -38,22 +56,50 @@ export function AnalyticsPage() {
   const [summary, setSummary] = useState<PerformanceSummary | null>(null);
   const [allPeriods, setAllPeriods] = useState<Record<string, PerformanceSummary | null>>({});
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [phase, setPhase] = useState<FetchPhase>('idle');
+  const [retryTick, setRetryTick] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    Promise.all(PERIODS.map((p) => dashboardApi.getPerformance(p.id).catch(() => [])))
-      .then((results) => {
-        if (cancelled) return;
+
+    async function load(): Promise<boolean> {
+      try {
+        const results = await Promise.all(PERIODS.map((p) => dashboardApi.getPerformance(p.id)));
+        if (cancelled) return true;
         const map: Record<string, PerformanceSummary | null> = {};
         PERIODS.forEach((p, i) => { map[p.id] = results[i]?.[0] ?? null; });
         setAllPeriods(map);
         setSummary(map[period] ?? null);
-      })
-      .finally(() => !cancelled && setLoading(false));
+        setError(null);
+        return true;
+      } catch {
+        return false;
+      }
+    }
+
+    async function loadWithRetry() {
+      setLoading(true);
+      setPhase('loading');
+      for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+        const ok = await load();
+        if (cancelled) return;
+        if (ok) { setPhase('ready'); setLoading(false); return; }
+        setPhase(attempt >= 2 ? 'stalled' : 'loading');
+        if (attempt < RETRY_DELAYS_MS.length) {
+          await new Promise((r) => setTimeout(r, RETRY_DELAYS_MS[attempt]));
+        }
+      }
+      if (cancelled) return;
+      setError('Could not load analytics performance right now.');
+      setPhase('failed');
+      setLoading(false);
+    }
+
+    loadWithRetry();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [retryTick]);
 
   useEffect(() => {
     setSummary(allPeriods[period] ?? null);
@@ -96,9 +142,21 @@ export function AnalyticsPage() {
         </div>
       </div>
 
-      {loading && <p className="text-sm text-gray-400">Loading…</p>}
+      {loading && <div className="max-w-xs"><LoadingIndicator phase={phase} dark={dark} /></div>}
 
-      {!loading && !summary && (
+      {!loading && error && (
+        <div className={`flex items-center justify-between gap-3 text-sm rounded-xl p-3 ${dark ? 'bg-red-500/10 text-red-300' : 'bg-red-50 text-red-600'}`}>
+          <span>{error}</span>
+          <button
+            onClick={() => { setPhase('idle'); setRetryTick((n) => n + 1); }}
+            className={`shrink-0 underline font-medium ${dark ? 'text-white/70 hover:text-white' : 'text-gray-700 hover:text-gray-900'}`}
+          >
+            Try again
+          </button>
+        </div>
+      )}
+
+      {!loading && !error && !summary && (
         <div className={`text-center py-16 text-gray-400 border rounded-xl ${dark ? 'bg-smc-card border-smc-border' : 'bg-white border-corporate-bg'}`}>
           No closed trades in this period yet — metrics fill in as trades close.
         </div>
