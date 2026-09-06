@@ -1,6 +1,8 @@
 import { RoleBadge } from '../components/RoleBadge';
 import { RosterPanel } from '../components/RosterPanel';
 import { AccessCodesPanel } from '../components/AccessCodesPanel';
+import { LearningDashboardPanel } from '../components/LearningDashboardPanel';
+import { EverythingIncludedPanel } from '../components/EverythingIncludedPanel';
 import { useAuth } from '../hooks/useAuth';
 import { useThemeStore } from '../hooks/useTheme';
 
@@ -32,8 +34,10 @@ export function PartnerConsolePage() {
         <RoleBadge user={user} />
       </div>
 
+      <LearningDashboardPanel dark={dark} />
       <RosterPanel dark={dark} />
       <AccessCodesPanel dark={dark} />
+      <EverythingIncludedPanel tier="partner" dark={dark} />
     </div>
   );
 }

@@ -1,14 +1,23 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { Search, X, Home, BookMarked } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import { Search, X, Home, BookMarked, LayoutGrid } from 'lucide-react';
 import { FEATURE_AREAS, searchFeatures } from '../config/featureRegistry';
 import { SMC_DIAGRAM_DATA, SMC_DIAGRAM_KEYS } from './SMCDiagram';
 import { useThemeStore } from '../hooks/useTheme';
+import { useAuth } from '../hooks/useAuth';
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 // Not a FEATURE_REGISTRY entry — Home is the dashboard, not one of the
 // 8 areas — so it's pinned in here by hand rather than registered,
 // added by direct request for a quick way back to it from search.
 const HOME_RESULT = { id: 'home', label: 'Home', route: '/home', description: 'Back to the dashboard.' };
+
+interface PortalOption {
+  id: string;
+  label: string;
+  route: string;
+}
 
 /**
  * GlobalSearchModal — searches across ALL 7 feature areas at once
@@ -21,13 +30,30 @@ export function GlobalSearchModal({ open, onClose }: { open: boolean; onClose: (
   const inputRef = useRef<HTMLInputElement>(null);
   const { theme } = useThemeStore();
   const dark = theme === 'dark';
+  const navigate = useNavigate();
+  const { token } = useAuth();
+  // "Select portal" here, in the Settings menu, and (once a real
+  // Settings page exists) the Settings page too — by direct request.
+  // Only fetched while the modal is actually open and only when the
+  // account has more than one console available (an empty/1-portal
+  // list just never renders the section below), same real
+  // GET /auth/available-portals SettingsPanel's own "Switch Portal"
+  // item already uses, not a second hardcoded list to drift out of
+  // sync with it.
+  const [portals, setPortals] = useState<PortalOption[]>([]);
 
   useEffect(() => {
     if (open) {
       setQuery('');
       setTimeout(() => inputRef.current?.focus(), 50);
+      if (token) {
+        fetch(`${API_URL}/auth/available-portals`, { headers: { Authorization: `Bearer ${token}` } })
+          .then((r) => (r.ok ? r.json() : null))
+          .then((d) => setPortals(d?.portals?.length > 1 ? d.portals : []))
+          .catch(() => setPortals([]));
+      }
     }
-  }, [open]);
+  }, [open, token]);
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -45,6 +71,9 @@ export function GlobalSearchModal({ open, onClose }: { open: boolean; onClose: (
 
   const q = query.trim().toLowerCase();
   const homeMatches = !q || 'home'.includes(q) || 'dashboard'.includes(q);
+  const portalMatches = portals.filter((p) =>
+    !q || 'switch portal'.includes(q) || 'select portal'.includes(q) || p.label.toLowerCase().includes(q)
+  );
   const results = searchFeatures(query);
   const areaLabel = (id: string) => FEATURE_AREAS.find((a) => a.id === id)?.label ?? id;
 
@@ -77,9 +106,22 @@ export function GlobalSearchModal({ open, onClose }: { open: boolean; onClose: (
         </div>
 
         <div className="max-h-96 overflow-y-auto">
-          {query && results.length === 0 && glossaryMatches.length === 0 && !homeMatches && (
+          {query && results.length === 0 && glossaryMatches.length === 0 && portalMatches.length === 0 && !homeMatches && (
             <p className={`text-sm px-4 py-6 text-center ${dark ? 'text-white/40' : 'text-gray-500'}`}>No matches for "{query}"</p>
           )}
+          {portalMatches.map((p) => (
+            <button
+              key={p.id}
+              onClick={() => { onClose(); navigate(p.route); }}
+              className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${dark ? 'hover:bg-white/5' : 'hover:bg-corporate-bg'}`}
+            >
+              <LayoutGrid size={16} className="text-corporate-hero shrink-0" />
+              <div>
+                <div className={`text-sm font-medium ${dark ? 'text-white' : 'text-corporate-text-on-bg'}`}>Switch to {p.label}</div>
+                <div className={`text-xs mt-0.5 ${dark ? 'text-white/40' : 'text-gray-500'}`}>Select portal</div>
+              </div>
+            </button>
+          ))}
           {homeMatches && (
             <Link
               to={HOME_RESULT.route}

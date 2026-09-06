@@ -4,6 +4,10 @@ import { RoleBadge } from '../components/RoleBadge';
 import { RosterPanel } from '../components/RosterPanel';
 import { AccessCodesPanel } from '../components/AccessCodesPanel';
 import { TraderOversightPanel } from '../components/TraderOversightPanel';
+import { LearningDashboardPanel } from '../components/LearningDashboardPanel';
+import { EverythingIncludedPanel } from '../components/EverythingIncludedPanel';
+import { PlatformOverviewPanel } from '../components/PlatformOverviewPanel';
+import { RoleAdministrationPanel } from '../components/RoleAdministrationPanel';
 import { useAuth } from '../hooks/useAuth';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -124,6 +128,10 @@ export function AdminConsolePage() {
         <RoleBadge user={user} />
       </div>
 
+      <div className="mb-4">
+        <PlatformOverviewPanel />
+      </div>
+
       {isSuperAdmin && (
         <div className="bg-smc-card border border-smc-border rounded-xl p-6 mb-4">
           <div className="flex items-center gap-2 mb-1">
@@ -197,9 +205,15 @@ export function AdminConsolePage() {
       )}
 
       <div className="space-y-4 mb-4">
+        <LearningDashboardPanel dark />
         <RosterPanel dark />
         <TraderOversightPanel dark />
         <AccessCodesPanel dark />
+        <EverythingIncludedPanel tier="admin" dark />
+      </div>
+
+      <div className="mb-4">
+        <RoleAdministrationPanel dark />
       </div>
 
       <div className="bg-smc-card border border-smc-border rounded-xl p-6">

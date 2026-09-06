@@ -2,6 +2,8 @@ import { RoleBadge } from '../components/RoleBadge';
 import { RosterPanel } from '../components/RosterPanel';
 import { AccessCodesPanel } from '../components/AccessCodesPanel';
 import { TraderOversightPanel } from '../components/TraderOversightPanel';
+import { LearningDashboardPanel } from '../components/LearningDashboardPanel';
+import { EverythingIncludedPanel } from '../components/EverythingIncludedPanel';
 import { useAuth } from '../hooks/useAuth';
 import { useThemeStore } from '../hooks/useTheme';
 
@@ -36,9 +38,11 @@ export function ManagerConsolePage() {
         <RoleBadge user={user} />
       </div>
 
+      <LearningDashboardPanel dark={dark} />
       <RosterPanel dark={dark} />
       <TraderOversightPanel dark={dark} />
       <AccessCodesPanel dark={dark} />
+      <EverythingIncludedPanel tier="fund_manager" dark={dark} />
     </div>
   );
 }
