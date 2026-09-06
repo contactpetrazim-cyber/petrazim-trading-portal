@@ -9,7 +9,8 @@ from datetime import datetime, timedelta
 from app.database import get_db
 from app.models.trade import Trade, TradeLog, TradeStatus, TradeDirection
 from app.models.user import User, UserRole
-from app.core.access_gate import require_active_access
+from app.core.auth import get_current_user
+from app.core.access_gate import require_active_access, has_active_access, _raise_if_access_expired
 from app.schemas import TradeCreate, TradeResponse, TradeApproval
 from app.services.execution_engine import ExecutionEngine
 from app.services.live_price import get_crypto_price
@@ -75,6 +76,23 @@ async def _enrich_live_pnl(trades: List[Trade]) -> None:
         t.unrealized_pnl = round(t.lot_size * (price - t.entry_price) * sign, 2)
 
 
+async def _visible_trades(trades: List[Trade], db: AsyncSession, user: User) -> List[Trade]:
+    """Paper/Test trades (is_test=True) stay visible regardless of
+    access status — placing one already works this way
+    (manual_trading.py's own `paper` gate: "a simulated order never
+    reaches a real broker ... stays open regardless of access status"),
+    so watching one afterward has to as well, by direct bug report
+    ("place a paper order using the order form ... I would like to
+    execute trades on paper and watch dynamically the outcome" — every
+    read endpoint below was unconditionally gating on active access
+    first, so a trader with no active pass could place a free paper
+    trade and then immediately hit a 402 trying to see it). Only a
+    real trade's history is hidden once access has actually lapsed."""
+    if await has_active_access(db, user):
+        return trades
+    return [t for t in trades if t.is_test]
+
+
 async def _get_owned_trade(trade_id: str, user: User, db: AsyncSession) -> Trade:
     query = select(Trade).where(Trade.trade_id == trade_id)
     result = await db.execute(query)
@@ -96,9 +114,12 @@ async def list_trades(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_active_access),
+    user: User = Depends(get_current_user),
 ):
-    """List the caller's own trades with filtering (Admin/Super Admin see all)."""
+    """List the caller's own trades with filtering (Admin/Super Admin see all).
+    Not gated on active access at the dependency level any more — see
+    _visible_trades above for why (a Paper Trading trader must be able
+    to list their own free practice trades regardless)."""
     query = _scope_to_owner(select(Trade), user)
     query = _apply_source_filter(query, source)
 
@@ -131,7 +152,7 @@ async def list_trades(
     trades = result.scalars().all()
     await _enrich_live_pnl(trades)
 
-    return trades
+    return await _visible_trades(trades, db, user)
 
 @router.get("/pending-approvals", response_model=List[TradeResponse])
 async def pending_approvals(db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access)):
@@ -163,15 +184,17 @@ async def approve_trade(
     return result
 
 @router.get("/active", response_model=List[TradeResponse])
-async def active_trades(db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access)):
-    """Get currently active (open) trades."""
+async def active_trades(db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+    """Get currently active (open) trades. Same access-gate exception
+    as list_trades above — a Paper Trading position must stay visible
+    regardless of access status."""
     query = _scope_to_owner(select(Trade), user).where(
         Trade.status == TradeStatus.ACTIVE
     ).order_by(Trade.created_at.desc())
     result = await db.execute(query)
     trades = result.scalars().all()
     await _enrich_live_pnl(trades)
-    return trades
+    return await _visible_trades(trades, db, user)
 
 @router.get("/stats/today")
 async def today_stats(db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access)):
@@ -378,16 +401,24 @@ async def analytics_detail(
 
 
 @router.get("/{trade_id}", response_model=TradeResponse)
-async def get_trade(trade_id: str, db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access)):
-    """Get detailed trade information."""
+async def get_trade(trade_id: str, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+    """Get detailed trade information — this is what a Manual Trading
+    order form polls to show a placed order's live outcome, so it must
+    keep working for a Paper Trading trade regardless of access status
+    (see _visible_trades' own comment); only a real trade is gated."""
     trade = await _get_owned_trade(trade_id, user, db)
+    if not trade.is_test:
+        await _raise_if_access_expired(db, user)
     await _enrich_live_pnl([trade])
     return trade
 
 @router.get("/{trade_id}/logs")
-async def get_trade_logs(trade_id: str, db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access)):
-    """Get execution logs for a trade."""
-    await _get_owned_trade(trade_id, user, db)
+async def get_trade_logs(trade_id: str, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+    """Get execution logs for a trade. Same real-vs-paper access
+    exception as get_trade above."""
+    trade = await _get_owned_trade(trade_id, user, db)
+    if not trade.is_test:
+        await _raise_if_access_expired(db, user)
     query = select(TradeLog).where(TradeLog.trade_id == trade_id).order_by(TradeLog.timestamp.desc())
     result = await db.execute(query)
     return result.scalars().all()

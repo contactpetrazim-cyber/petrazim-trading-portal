@@ -20,6 +20,10 @@ export interface Trade {
   user_id?: string | null;
   created_at: string;
   requires_approval: boolean;
+  entry_timestamp?: string | null;
+  exit_price?: number | null;
+  exit_type?: string | null;
+  exit_timestamp?: string | null;
 }
 
 export interface BotConfig {

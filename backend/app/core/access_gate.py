@@ -108,6 +108,25 @@ class AccessExpiredError(HTTPException):
         super().__init__(status_code=402, detail=detail)
 
 
+async def has_active_access(db: AsyncSession, user: User) -> bool:
+    """The boolean half of the expiry check, factored out so a route
+    that needs to know WITHOUT raising — e.g. "show this trader's real
+    trades only if they still have access, but never hide their free
+    Paper Trading trades either way" (routers/trades.py) — doesn't have
+    to duplicate this query or wrap _raise_if_access_expired in a
+    try/except just to get a yes/no answer."""
+    if user.role in STAFF_ROLES:
+        return True
+    now = datetime.now(timezone.utc)
+    active = (await db.execute(
+        select(UserAccess).where(
+            UserAccess.user_id == user.id, UserAccess.is_active == True,  # noqa: E712
+            UserAccess.expires_at > now,
+        )
+    )).scalar_one_or_none()
+    return active is not None
+
+
 async def _raise_if_access_expired(db: AsyncSession, user: User) -> None:
     """The actual expiry check, factored out of require_active_access
     so a route that only needs to gate ONE specific branch (a real,
@@ -117,19 +136,7 @@ async def _raise_if_access_expired(db: AsyncSession, user: User) -> None:
     dependency-injection level before it even knows which branch a
     request is going to take. See routers/manual_trading.py for the
     concrete case this was split out for."""
-    if user.role in STAFF_ROLES:
-        return
-
-    now = datetime.now(timezone.utc)
-
-    active = (await db.execute(
-        select(UserAccess).where(
-            UserAccess.user_id == user.id, UserAccess.is_active == True,  # noqa: E712
-            UserAccess.expires_at > now,
-        )
-    )).scalar_one_or_none()
-
-    if active is not None:
+    if await has_active_access(db, user):
         return
 
     most_recent_expired = (await db.execute(

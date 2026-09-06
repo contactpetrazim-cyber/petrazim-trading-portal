@@ -8,6 +8,16 @@ import { useQuickPrice } from '../hooks/useQuickPrice';
 import { apiFetch } from '../components/AccessExpiredGate';
 import { fetchJsonWithRetry, type FetchPhase } from '../lib/resilientFetch';
 import { LoadingIndicator } from '../components/LoadingIndicator';
+import { tradesApi } from '../services/api';
+import type { Trade } from '../types';
+
+// Same labels AdvancedTradeAnalytics.tsx's own Exit Reason Breakdown
+// chart uses for these exact backend ExitType values — kept as its
+// own small local copy rather than a cross-file import for 7 strings.
+const EXIT_TYPE_LABELS: Record<string, string> = {
+  tp1: 'Take Profit 1', tp2: 'Take Profit 2', tp3: 'Take Profit 3', stop_loss: 'Stop Loss',
+  manual: 'Manual Close', trailing: 'Trailing Stop', structure: 'Structure Exit',
+};
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -375,6 +385,47 @@ export function ManualTradingPage() {
   const [closePercent, setClosePercent] = useState('100');
   const [closePrice, setClosePrice] = useState('');
   const [closing, setClosing] = useState(false);
+  // The live position itself — by direct bug report ("make orders
+  // placed using the order form actually execute ... I would like to
+  // execute trades on paper and watch dynamically the outcome"). The
+  // order DID already execute (a real Trade row, ACTIVE) — what was
+  // actually missing: nothing on this page ever polled it again after
+  // submission, so an auto-close from services/position_monitor.py
+  // (a real SL/TP hit, Paper/Test trades only) was invisible here —
+  // the only way `result` ever updated after the initial submit was a
+  // trader manually triggering a partial close themselves. This effect
+  // is what makes the position's own live unrealized PnL, and an
+  // eventual auto-close, actually show up without a page reload.
+  const [openTrade, setOpenTrade] = useState<Trade | null>(null);
+
+  useEffect(() => {
+    if (!result?.ok || !result.tradeId || !token) { setOpenTrade(null); return; }
+    let cancelled = false;
+    const poll = () => {
+      tradesApi.getTrade(result.tradeId!).then((t) => {
+        if (cancelled) return;
+        setOpenTrade(t);
+        // Position closed (auto, by the SL/TP monitor, or otherwise) —
+        // fold the real outcome into the same result banner the
+        // manual partial-close path already uses, and clear tradeId so
+        // the ticket resets to "place a new order" instead of showing
+        // a stale "partial close" form for a position that no longer
+        // exists.
+        if (t.status !== 'active' && t.status !== 'pending') {
+          const closedBy = t.exit_type ? EXIT_TYPE_LABELS[t.exit_type] || t.exit_type : null;
+          setResult({
+            ok: true,
+            message: t.status === 'closed'
+              ? `Closed${closedBy ? ` — ${closedBy}` : ''}. Realized P&L: ${t.realized_pnl >= 0 ? '+' : ''}$${t.realized_pnl.toFixed(2)}.`
+              : `Trade ${t.status}.`,
+          });
+        }
+      }).catch(() => { /* a transient poll failure isn't worth surfacing as an error banner mid-watch */ });
+    };
+    poll();
+    const id = setInterval(poll, 3000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [result?.ok, result?.tradeId, token]);
 
   const headers: Record<string, string> = token
     ? { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
@@ -1200,6 +1251,39 @@ export function ManualTradingPage() {
 
             {result && (
               <p className={`text-xs mb-3 ${result.ok ? 'text-emerald-500' : 'text-red-500'}`}>{result.message}</p>
+            )}
+
+            {/* Live position — the actual "watch it dynamically" view,
+                polling GET /trades/{trade_id} every 3s while this
+                position is open (see the openTrade effect above). Sits
+                above the partial-close controls, not in place of them
+                — a trader can still take profit early by hand, but now
+                also sees the position's own live unrealized P&L update
+                on its own, and sees a real auto-close from the SL/TP
+                monitor the moment it happens instead of never finding
+                out short of refreshing Trades separately. */}
+            {result?.ok && result.tradeId && openTrade && (openTrade.status === 'active' || openTrade.status === 'pending') && (
+              <div className={`rounded-lg p-3 mb-3 border ${dark ? 'border-white/10 bg-white/5' : 'border-gray-200 bg-gray-50'}`}>
+                <div className="flex items-center justify-between mb-2">
+                  <span className={`text-xs font-semibold uppercase tracking-wide ${dark ? 'text-white/50' : 'text-gray-500'}`}>
+                    {openTrade.status === 'pending' ? 'Order working' : 'Position open'}{isSimulated ? ' — Paper' : ''}
+                  </span>
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-sm mb-1">
+                  <span className={dark ? 'text-white/50' : 'text-gray-500'}>Unrealized P&amp;L</span>
+                  <span className={`font-bold ${openTrade.unrealized_pnl >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
+                    {openTrade.unrealized_pnl >= 0 ? '+' : ''}${openTrade.unrealized_pnl.toFixed(2)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-xs">
+                  <span className={dark ? 'text-white/40' : 'text-gray-400'}>Entry {openTrade.entry_price ?? '—'} · SL {openTrade.stop_loss}</span>
+                  <span className={dark ? 'text-white/40' : 'text-gray-400'}>{openTrade.lot_size} units</span>
+                </div>
+              </div>
             )}
 
             {result?.ok && result.tradeId ? (

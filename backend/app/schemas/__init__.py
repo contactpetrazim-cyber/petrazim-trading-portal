@@ -57,6 +57,16 @@ class TradeResponse(BaseModel):
     is_test: Optional[bool] = False
     user_id: Optional[UUID] = None
     created_at: datetime
+    # Added so a client polling GET /trades/{trade_id} (the Manual
+    # Trading order form's own "watch this position dynamically" view)
+    # can tell WHY a trade closed — TP1/2/3, stop_loss, manual, etc.
+    # (position_monitor.py already writes all of these; nothing in this
+    # schema surfaced them before, so a client had no way to show more
+    # than "it's closed now, here's the PnL").
+    entry_timestamp: Optional[datetime] = None
+    exit_price: Optional[float] = None
+    exit_type: Optional[str] = None
+    exit_timestamp: Optional[datetime] = None
 
     class Config:
         from_attributes = True
