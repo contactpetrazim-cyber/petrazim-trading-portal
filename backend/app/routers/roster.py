@@ -10,17 +10,21 @@ trusts a role claim from the request body, only from the verified JWT.
 
 from __future__ import annotations
 
-from datetime import datetime
-from typing import List
+from datetime import datetime, timedelta, timezone
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import hash_password, require_role, get_current_user
 from app.database import get_db
+from app.models.access import AccessCode, CodeType, UserAccess
+from app.models.curriculum import TrackStage, StageCompletion, UserLearningStats
+from app.models.facilitator import BookingStatus, MeetingBooking
 from app.models.roster import RosterAssignment
+from app.models.telegram_link import TelegramLink
 from app.models.user import User, UserRole, UserStatus
 from app.models.bot import BotConfig
 from app.models.trade import Trade, TradeStatus
@@ -227,4 +231,191 @@ async def trader_overview(
         total_trades_today=len(today_trades),
         total_active_trades=len(active_trades),
         open_risk_exposure_pct=round(sum(t.risk_percent or 0 for t in active_trades), 2),
+    )
+
+
+# --------------------------------------------------------------------------
+# Learning Console — adapted from the reference training portal's
+# Trainer/Manager/Admin dashboards (cohorts, "furthest along", next
+# seven days of facilitator sessions, roster progress), re-derived from
+# what this app actually tracks rather than copied number-for-number.
+# One endpoint covers every tier this codebase actually has above
+# Trader: Fund Manager and Partner already carry full manager-tier
+# powers here (see MANAGER_ROLES above — there's no reduced "view only"
+# role between Trader and Admin in this app), so both get the full
+# roster+commerce picture below; Admin/Super Admin get the same shape
+# scoped platform-wide instead of to their own roster, plus their own
+# separate /admin/platform-overview on top (organisations, staff
+# accounts, daily sends, live bookings).
+# --------------------------------------------------------------------------
+
+class FurthestAlongEntry(BaseModel):
+    full_name: str
+    progress_pct: float
+
+
+class NextSessionEntry(BaseModel):
+    booking_id: str
+    day: str
+    band: str
+    topic: str
+    booked_count: int
+    capacity: int
+    at_capacity: bool
+
+
+class LearningRosterRow(BaseModel):
+    trader_user_id: str
+    full_name: str
+    email: str
+    sponsor: str  # "Individual" | "Corporate" — derived from their most recent active UserAccess.granted_via
+    completed_stages: int
+    total_stages: int
+    community_linked: bool
+    last_activity: Optional[str]
+
+
+class LearningDashboardResponse(BaseModel):
+    roster_size: int
+    active_learners_30d: int
+    avg_completion_pct: float
+    finished_count: int
+    community_joins: int
+    total_stages: int
+    furthest_along: List[FurthestAlongEntry]
+    next_seven_days: List[NextSessionEntry]
+    roster: List[LearningRosterRow]
+    seats_issued: int
+    active_plans: int
+    codes_live: int
+    codes_redeemed: int
+
+
+@router.get("/learning-dashboard", response_model=LearningDashboardResponse)
+async def learning_dashboard(
+    db: AsyncSession = Depends(get_db), manager: User = Depends(require_role(*MANAGER_ROLES)),
+):
+    """Real numbers behind the console's "Cohorts and Your Sessions"
+    header, "Furthest Along" list, "Next Seven Days" sessions widget,
+    and Roster table — all computed from this roster's actual
+    curriculum progress (StageCompletion/UserLearningStats), Telegram
+    links, and access grants, not placeholders.
+    """
+    is_platform_wide = manager.role in (UserRole.ADMIN, UserRole.SUPER_ADMIN)
+
+    roster_query = select(RosterAssignment, User).join(User, User.id == RosterAssignment.trader_user_id)
+    if not is_platform_wide:
+        roster_query = roster_query.where(RosterAssignment.assigned_to_user_id == manager.id)
+    roster_rows = (await db.execute(roster_query)).all()
+    trader_ids = [trader.id for _, trader in roster_rows]
+
+    total_stages = (await db.execute(select(func.count()).select_from(TrackStage))).scalar_one() or 0
+
+    stats_by_user, completed_by_user, linked_user_ids, sponsor_by_user = {}, {}, set(), {}
+    if trader_ids:
+        stats_by_user = {
+            s.user_id: s for s in (await db.execute(
+                select(UserLearningStats).where(UserLearningStats.user_id.in_(trader_ids))
+            )).scalars().all()
+        }
+        completed_by_user = dict((await db.execute(
+            select(StageCompletion.user_id, func.count())
+            .where(StageCompletion.user_id.in_(trader_ids))
+            .group_by(StageCompletion.user_id)
+        )).all())
+        linked_user_ids = set((await db.execute(
+            select(TelegramLink.user_id).where(TelegramLink.user_id.in_(trader_ids)).distinct()
+        )).scalars().all())
+        # Most recent active grant per user decides their sponsor label
+        # — ordering by expires_at desc and taking the first hit per
+        # user_id (dict.setdefault only keeps the first assignment).
+        for uid, granted_via in (await db.execute(
+            select(UserAccess.user_id, UserAccess.granted_via)
+            .where(UserAccess.user_id.in_(trader_ids), UserAccess.is_active == True)  # noqa: E712
+            .order_by(UserAccess.expires_at.desc())
+        )).all():
+            sponsor_by_user.setdefault(uid, "Corporate" if granted_via == CodeType.CORPORATE_SEAT.value else "Individual")
+
+    now = datetime.now(timezone.utc)
+    thirty_days_ago = now - timedelta(days=30)
+
+    roster_out: List[LearningRosterRow] = []
+    furthest_along: List[FurthestAlongEntry] = []
+    active_30d = 0
+    completion_sum = 0.0
+    finished_count = 0
+    for _assignment, trader in roster_rows:
+        completed = completed_by_user.get(trader.id, 0)
+        pct = (completed / total_stages * 100) if total_stages else 0.0
+        completion_sum += pct
+        if total_stages and completed >= total_stages:
+            finished_count += 1
+        stats = stats_by_user.get(trader.id)
+        last_activity = stats.last_activity_date if stats else None
+        if last_activity is not None:
+            last_activity_utc = last_activity if last_activity.tzinfo else last_activity.replace(tzinfo=timezone.utc)
+            if last_activity_utc >= thirty_days_ago:
+                active_30d += 1
+        roster_out.append(LearningRosterRow(
+            trader_user_id=str(trader.id), full_name=trader.full_name, email=trader.email,
+            sponsor=sponsor_by_user.get(trader.id, "Individual"),
+            completed_stages=completed, total_stages=total_stages,
+            community_linked=trader.id in linked_user_ids,
+            last_activity=last_activity.isoformat() if last_activity else None,
+        ))
+        furthest_along.append(FurthestAlongEntry(full_name=trader.full_name, progress_pct=round(pct, 1)))
+    furthest_along.sort(key=lambda e: e.progress_pct, reverse=True)
+
+    # Next Seven Days — the reference's own per-session "N/25 seats
+    # taken" doesn't apply here: this app's real facilitator capacity
+    # (services/facilitator_booking.py) caps at MAX_BOOKINGS_PER_DAY
+    # total sessions PER DAY, not per-session seat count, so this shows
+    # that real cap instead of inventing a seat number.
+    from app.services.facilitator_booking import MAX_BOOKINGS_PER_DAY
+    today = now.date()
+    upcoming_bookings = (await db.execute(
+        select(MeetingBooking)
+        .where(MeetingBooking.status == BookingStatus.CONFIRMED,
+               MeetingBooking.day >= today, MeetingBooking.day < today + timedelta(days=7))
+        .order_by(MeetingBooking.day, MeetingBooking.band)
+    )).scalars().all()
+    bookings_per_day: dict = {}
+    for b in upcoming_bookings:
+        bookings_per_day[b.day] = bookings_per_day.get(b.day, 0) + 1
+    next_seven_days = [
+        NextSessionEntry(
+            booking_id=str(b.id), day=b.day.isoformat(), band=b.band.value, topic=b.topic or "",
+            booked_count=bookings_per_day[b.day], capacity=MAX_BOOKINGS_PER_DAY,
+            at_capacity=bookings_per_day[b.day] >= MAX_BOOKINGS_PER_DAY,
+        )
+        for b in upcoming_bookings
+    ]
+
+    # Commerce counters — a Fund Manager/Partner sees only what they
+    # personally issued/sponsor; Admin/Super Admin see the platform
+    # total, same scoping split as everything above.
+    codes_query = select(AccessCode)
+    if not is_platform_wide:
+        codes_query = codes_query.where(AccessCode.issued_by_user_id == manager.id)
+    codes = (await db.execute(codes_query)).scalars().all()
+    codes_redeemed = sum(1 for c in codes if c.redemption_count >= c.max_redemptions)
+    codes_live = sum(
+        1 for c in codes
+        if not c.is_held and c.redemption_count < c.max_redemptions and (not c.expires_at or c.expires_at > now)
+    )
+
+    active_plans_query = select(func.count()).select_from(UserAccess).where(
+        UserAccess.is_active == True, UserAccess.expires_at > now,  # noqa: E712
+    )
+    if not is_platform_wide:
+        active_plans_query = active_plans_query.where(UserAccess.user_id.in_(trader_ids))
+    active_plans = (await db.execute(active_plans_query)).scalar_one() or 0
+
+    return LearningDashboardResponse(
+        roster_size=len(roster_rows), active_learners_30d=active_30d,
+        avg_completion_pct=round(completion_sum / len(roster_rows), 1) if roster_rows else 0.0,
+        finished_count=finished_count, community_joins=len(linked_user_ids), total_stages=total_stages,
+        furthest_along=furthest_along, next_seven_days=next_seven_days, roster=roster_out,
+        seats_issued=len(codes), active_plans=active_plans,
+        codes_live=codes_live, codes_redeemed=codes_redeemed,
     )

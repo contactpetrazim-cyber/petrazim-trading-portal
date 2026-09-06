@@ -31,13 +31,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.core.access_gate import require_active_access
-from app.core.auth import get_current_user, require_super_admin
+from app.core.auth import get_current_user, require_role, require_super_admin
 from app.database import get_db
 from app.models.access import UserAccess
 from app.models.facilitator import (
     BookingStatus, ExternalConnector, GoogleCalendarCredential, MeetingBand, MeetingBooking,
 )
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.services import google_calendar
 from app.services.facilitator_booking import (
     check_booking_eligibility, compute_calendar_strip, generate_jitsi_room_url,
@@ -222,6 +222,32 @@ async def cancel_booking(booking_id: str, db: AsyncSession = Depends(get_db), us
     if row is None:
         raise HTTPException(status_code=404, detail="Booking not found")
     row.status = BookingStatus.CANCELLED
+    await db.commit()
+    return {"ok": True}
+
+
+class UpdateTopicRequest(BaseModel):
+    topic: str
+
+
+@router.patch("/{booking_id}/topic")
+async def update_session_topic(
+    booking_id: str, req: UpdateTopicRequest,
+    db: AsyncSession = Depends(get_db),
+    _staff: User = Depends(require_role(UserRole.FUND_MANAGER, UserRole.PARTNER, UserRole.ADMIN, UserRole.SUPER_ADMIN)),
+):
+    """The "Save topic" action on the staff console's Next Seven Days
+    widget (roster.py's /roster/learning-dashboard) — a facilitator
+    setting or correcting the working topic for a session someone else
+    already booked, distinct from the trainee's own booking (which sets
+    the initial topic). Any staff member can edit any session's topic
+    here, not just their own roster's — a facilitator running the
+    session needs to see/set the real agenda regardless of which
+    manager the attendee reports to."""
+    row = (await db.execute(select(MeetingBooking).where(MeetingBooking.id == booking_id))).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    row.topic = req.topic
     await db.commit()
     return {"ok": True}
 

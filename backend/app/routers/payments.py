@@ -247,6 +247,8 @@ async def redeem_code(
 
     if code_row is None:
         raise HTTPException(status_code=404, detail="Code not recognized")
+    if code_row.is_held:
+        raise HTTPException(status_code=409, detail="This code is currently on hold — ask whoever issued it to resume it.")
     if code_row.expires_at and code_row.expires_at < datetime.now(timezone.utc):
         raise HTTPException(status_code=410, detail="This code has expired")
     if code_row.redemption_count >= code_row.max_redemptions:

@@ -146,6 +146,14 @@ class AccessCode(Base):
     max_redemptions = Column(Integer, nullable=False, default=1)
     redemption_count = Column(Integer, nullable=False, default=0)
     expires_at = Column(DateTime(timezone=True), nullable=True)
+    # Lets whoever issued a seat (or an Admin) pause it without deleting
+    # it — the "Hold"/"Resume" action on the Manager console's Access
+    # Codes panel, adapted from the reference training portal's own
+    # seat-management screen. A held code is otherwise untouched
+    # (redemption_count, expiry) so resuming it just picks up where it
+    # left off; redeem_code (payments.py) checks this before granting
+    # access.
+    is_held = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
 
 

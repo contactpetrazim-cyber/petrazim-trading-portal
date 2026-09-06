@@ -18,3 +18,4 @@ from .chart_layout import *
 from .facilitator import *
 from .roster import *
 from .broker_credential import *
+from .broadcast_log import *

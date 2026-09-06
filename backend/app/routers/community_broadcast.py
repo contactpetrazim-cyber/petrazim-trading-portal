@@ -28,6 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import get_current_user
 from app.database import get_db
+from app.models.broadcast_log import BroadcastLog
 from app.models.user import User
 from app.services.community_broadcast import (
     CURATED_QUIZ_QUESTIONS, build_daily_tip, build_leaderboard, send_daily_broadcast, send_weekly_quiz,
@@ -67,9 +68,22 @@ def _check_cron_secret(x_cron_secret: str = Header(default="")) -> None:
 
 @router.post("/daily-tip")
 async def trigger_daily_broadcast(db: AsyncSession = Depends(get_db), _=Depends(_check_cron_secret)):
-    return await send_daily_broadcast(db)
+    result = await send_daily_broadcast(db)
+    # One real row per dispatch — backs the Admin console's "Daily
+    # sends" counter (admin.py's platform-overview) with an actual
+    # count rather than a guess. Logged unconditionally on a completed
+    # call, matching this endpoint's own existing "fire it, trust the
+    # scheduler retries on a real failure" behavior rather than
+    # threading success/failure through send_daily_broadcast's return
+    # shape, which this router has never inspected before now.
+    db.add(BroadcastLog(kind="daily_tip"))
+    await db.commit()
+    return result
 
 
 @router.post("/weekly-quiz")
-async def trigger_weekly_quiz(_=Depends(_check_cron_secret)):
-    return await send_weekly_quiz()
+async def trigger_weekly_quiz(db: AsyncSession = Depends(get_db), _=Depends(_check_cron_secret)):
+    result = await send_weekly_quiz()
+    db.add(BroadcastLog(kind="weekly_quiz"))
+    await db.commit()
+    return result
