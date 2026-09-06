@@ -9,7 +9,8 @@ from app.models.user import User, UserRole
 from app.core.access_gate import require_active_access
 from app.models.trade import Trade, TradeStatus
 from app.services.roster_access import user_can_manage_trader
-from app.schemas import BotConfigCreate, BotConfigResponse, BotToggle, BotExchangeUpdate, BotMetricsUpdate, BotRename
+from app.models.trade import TradingMode
+from app.schemas import BotConfigCreate, BotConfigResponse, BotToggle, BotExchangeUpdate, BotMetricsUpdate, BotRename, BotTradingModeUpdate
 import structlog
 
 router = APIRouter(prefix="/bots", tags=["bots"])
@@ -115,6 +116,32 @@ async def set_execution_mode(
     await db.commit()
 
     return {"success": True, "bot_id": bot_id, "mode": mode}
+
+@router.patch("/{bot_id}/trading-mode", response_model=BotConfigResponse)
+async def set_bot_trading_mode(
+    bot_id: str, update: BotTradingModeUpdate,
+    db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access),
+):
+    """The same Test/Live + Paper Trading pair ManualTradingPage's
+    header already gives a manual trader, now per-bot — by direct
+    request ("do the same and do paper trading for bot trading ... so
+    we can use paper trading in test mode ... with an additional
+    option to toggle paper trading in live mode"). Both fields are
+    independent, exactly like the manual-trading pair: trading_mode
+    TEST never reaches a real broker for this bot; paper_trading_enabled
+    is a second, separate switch that keeps diverting the final fill
+    even once trading_mode is LIVE. See execution_engine.py's own
+    process_signal for where this actually gets read and turned into
+    Trade.is_test on this bot's next signal — takes effect immediately,
+    no restart needed, same as every other per-bot setting here."""
+    bot = await _get_owned_bot(bot_id, user, db)
+    if update.trading_mode is not None:
+        bot.trading_mode = TradingMode(update.trading_mode)
+    if update.paper_trading_enabled is not None:
+        bot.paper_trading_enabled = update.paper_trading_enabled
+    await db.commit()
+    await db.refresh(bot)
+    return bot
 
 @router.patch("/{bot_id}/exchange")
 async def set_bot_exchange(

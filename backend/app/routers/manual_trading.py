@@ -37,26 +37,16 @@ from app.models.trade import EntryType, ExitType, ManualTradingSettings, Trade, 
 from app.models.user import User
 from app.services.execution_engine import ExecutionEngine
 from app.services.live_price import get_crypto_price
-from app.services.manual_trading import check_manual_trade_risk, compute_lot_size, effective_limits
+from app.services.manual_trading import check_manual_trade_risk, compute_lot_size, effective_limits, get_master_paper_enforced
 
 router = APIRouter(prefix="/manual-trading", tags=["manual-trading"])
 logger = structlog.get_logger()
 _engine = ExecutionEngine()
 
-
-async def get_master_paper_enforced(db: AsyncSession) -> bool:
-    """The Super Admin platform-wide kill-switch — see
-    TRADING_PAPER_ENFORCED_KEY's own comment. Defaults to False (no
-    override) when never explicitly set, same shape as
-    payments.py::get_payments_mode's own default — this is a NEW
-    control being added on top of individually-configured Test/Live and
-    Paper Trading settings, so it must not silently change anyone's
-    existing behavior the moment it ships; a Super Admin opts INTO the
-    override, it isn't on by default."""
-    row = (await db.execute(
-        select(PlatformSetting).where(PlatformSetting.key == TRADING_PAPER_ENFORCED_KEY)
-    )).scalar_one_or_none()
-    return bool(row and row.value == "true")
+# get_master_paper_enforced now lives in services/manual_trading.py —
+# this router still owns the GET/PATCH /master-mode endpoints and the
+# actual write below, just imports the shared read from the same place
+# execution_engine.py does now, instead of each defining its own copy.
 
 
 class MasterModeResponse(BaseModel):

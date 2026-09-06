@@ -94,6 +94,34 @@ class ExecutionEngine:
             "metatrader": MetaApiBroker("", "", paper=True),
         }
 
+    async def _bot_paper_mode(self, db: Optional[AsyncSession], bot_id: str) -> bool:
+        """The same three-way OR manual_trading.py's own `paper` local
+        computes for a trader (Test mode, OR this bot's own independent
+        Paper Trading toggle, OR the Super Admin platform-wide kill-
+        switch) — by direct request ("do the same and do paper trading
+        for bot trading ... with a test/paper trading toggle ... so we
+        can use paper trading in test mode ... with an additional
+        option to toggle paper trading in live mode"). Before this, a
+        bot's signals always executed with `paper` defaulting to False
+        — no bot ever had a way to rehearse in Test mode or Paper
+        Trading at all, and Trade.is_test was never set for a bot trade
+        either, which also meant services/position_monitor.py (scoped
+        to is_test=True) could never manage one.
+
+        Defaults to False (real) when no db session is available — the
+        same tolerant fallback _get_broker_client already makes for a
+        caller with no DB access to look anything up against."""
+        if db is None:
+            return False
+        from sqlalchemy import select as _select
+        from app.models.bot import BotConfig
+        from app.models.trade import TradingMode
+        from app.services.manual_trading import get_master_paper_enforced
+
+        bot = (await db.execute(_select(BotConfig).where(BotConfig.bot_id == bot_id))).scalar_one_or_none()
+        bot_paper = bool(bot and (bot.trading_mode == TradingMode.TEST or bot.paper_trading_enabled))
+        return bot_paper or await get_master_paper_enforced(db)
+
     async def process_signal(self, signal: BotSignal, mode: str = "human_in_loop", db: Optional[AsyncSession] = None) -> Dict:
         """
         Process a bot signal into a trade action. `db` is optional (a
@@ -103,8 +131,16 @@ class ExecutionEngine:
         every bot shares the single global-key broker per exchange,
         which still works fine for a single-account setup).
         """
+        # Computed once, up front, so it's baked into trade_data before
+        # _persist_trade writes the Trade row below — a Human-in-the-
+        # Loop signal doesn't execute until approve_trade, sometimes
+        # much later, so this bot's OWN Test/Paper setting has to be
+        # captured at draft time, not re-read (and potentially having
+        # since changed) at approval time.
+        paper = await self._bot_paper_mode(db, signal.bot_id)
 
         trade_data = {
+            "is_test": paper,
             "trade_id": f"TRD_{signal.bot_id}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}",
             "bot_id": signal.bot_id,
             "bot_name": signal.bot_name,
@@ -151,7 +187,7 @@ class ExecutionEngine:
                 "message": f"Trade drafted: {signal.symbol} {signal.direction} @ {signal.entry_price}"
             }
         else:
-            result = await self._execute_broker_order(trade_data, db)
+            result = await self._execute_broker_order(trade_data, db, paper=paper)
             if result["success"]:
                 trade_data["status"] = "active"
                 trade_data["broker_order_id"] = result.get("order_id")
@@ -193,6 +229,13 @@ class ExecutionEngine:
             reasoning_log=trade_data.get("reasoning", ""),
             requires_approval=trade_data["requires_approval"],
             broker_name=trade_data.get("preferred_broker"),
+            # Captured at draft time (see process_signal's own
+            # _bot_paper_mode call) — approve_trade reads this same
+            # value back later rather than re-computing it, since a
+            # Human-in-the-Loop signal can sit pending for a while and
+            # this bot's own Test/Paper setting shouldn't silently
+            # change what an ALREADY-DRAFTED signal does once approved.
+            is_test=trade_data.get("is_test", False),
         )
         db.add(trade)
         await db.commit()
@@ -233,7 +276,13 @@ class ExecutionEngine:
                     "take_profit": row.take_profit_1, "lot_size": row.lot_size,
                     "preferred_broker": row.broker_name,
                 }
-                result = await self._execute_broker_order(trade, db)
+                # row.is_test was captured at DRAFT time (process_signal's
+                # own _bot_paper_mode call, persisted by _persist_trade) —
+                # read back here rather than re-checking the bot's
+                # CURRENT settings, so approving a signal drafted while
+                # Paper Trading was on can't suddenly go real just
+                # because the toggle changed while it sat pending.
+                result = await self._execute_broker_order(trade, db, paper=row.is_test)
                 if result["success"]:
                     row.status = TradeStatus.ACTIVE
                     row.entry_timestamp = datetime.utcnow()

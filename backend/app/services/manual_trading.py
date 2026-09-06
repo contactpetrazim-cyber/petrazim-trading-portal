@@ -36,7 +36,25 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
+from app.models.platform_setting import PlatformSetting, TRADING_PAPER_ENFORCED_KEY
 from app.models.trade import ManualTradingSettings, Trade, TradeStatus
+
+
+async def get_master_paper_enforced(db: AsyncSession) -> bool:
+    """The Super Admin platform-wide kill-switch — see
+    TRADING_PAPER_ENFORCED_KEY's own comment. Defaults to False (no
+    override) when never explicitly set, same shape as
+    payments.py::get_payments_mode's own default. Moved here (out of
+    routers/manual_trading.py, which still owns the GET/PATCH
+    /master-mode endpoints and the actual write) so execution_engine.py
+    — a service, not a router — can read the same override for BOT
+    trades too, by direct request ("do the same ... paper trading for
+    bot trading ... with a test/paper trading toggle") without a
+    service importing from a router (backwards layering)."""
+    row = (await db.execute(
+        select(PlatformSetting).where(PlatformSetting.key == TRADING_PAPER_ENFORCED_KEY)
+    )).scalar_one_or_none()
+    return bool(row and row.value == "true")
 
 
 @dataclass

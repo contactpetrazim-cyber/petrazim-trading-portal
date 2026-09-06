@@ -1,0 +1,33 @@
+-- Test/Live + Paper Trading for BOT trading — the same two-toggle
+-- pair manual_trading_settings already has (010_manual_trading_paper_mode.sql),
+-- now per-bot — by direct request: "do the same and do paper trading
+-- for bot trading ... with a test / paper trading toggle ... so we
+-- can use paper trading in test mode ... with an additional option to
+-- toggle paper trading in live mode."
+--
+-- Before this, a bot had NO concept of test/live or paper trading at
+-- all — every signal it produced always attempted a REAL broker call
+-- (services/execution_engine.py's process_signal never passed
+-- `paper=` at all, defaulting to False), and Trade.is_test was never
+-- set for a bot trade, so services/position_monitor.py could never
+-- manage one either. See app/models/bot.py's own comment on
+-- BotConfig.trading_mode/paper_trading_enabled for the full reasoning.
+--
+-- Reuses the SAME Postgres enum type manual_trading_settings.trading_mode
+-- already created (SQLAlchemy's default type name for the shared
+-- Python TradingMode enum: "tradingmode") rather than creating a
+-- second one — one shared enum type, same convention as every other
+-- enum column in this schema.
+--
+-- Defaults: trading_mode starts at 'test' (a bot never silently starts
+-- able to reach a real broker), paper_trading_enabled starts false
+-- (matching a bot's pre-existing real-by-default behavior for anyone
+-- who explicitly switches trading_mode to 'live' without also opting
+-- into Paper Trading) — the opposite default from manual trading's own
+-- paper_trading_enabled (which starts true), a deliberate difference:
+-- an existing bot already configured and trusted with real credentials
+-- shouldn't have its live trading silently diverted to paper the
+-- moment this column is added.
+
+ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS trading_mode tradingmode NOT NULL DEFAULT 'test';
+ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS paper_trading_enabled BOOLEAN NOT NULL DEFAULT false;

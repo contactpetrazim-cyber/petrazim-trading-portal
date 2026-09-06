@@ -2,6 +2,7 @@
 from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, JSON, Enum, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID
 from app.database import Base
+from app.models.trade import TradingMode
 import uuid
 from datetime import datetime
 import enum
@@ -33,6 +34,32 @@ class BotConfig(Base):
     # Status
     status = Column(Enum(BotStatus), default=BotStatus.ACTIVE)
     execution_mode = Column(Enum(ExecutionMode), default=ExecutionMode.HUMAN_IN_LOOP)
+
+    # Test/Live + Paper Trading — the exact same two-toggle model
+    # ManualTradingSettings already gives a manual trader, now given to
+    # each bot too, by direct request ("do the same and do paper
+    # trading for bot trading ... with a test/paper trading toggle ...
+    # so we can use paper trading in test mode ... with an additional
+    # option to toggle paper trading in live mode"). Before this, a bot
+    # had NO concept of test/live or paper at all — every signal this
+    # bot ever produced went straight at _execute_broker_order with no
+    # `paper` argument (defaulting to False), so it always attempted a
+    # REAL broker call the moment it had a broker client to reach, and
+    # never got Trade.is_test set — meaning services/position_monitor.py
+    # (scoped to is_test=True) could never manage a bot's own trades
+    # either, unlike manual trading's already-paper-aware trades.
+    #   - trading_mode: TEST never reaches a real broker for THIS bot's
+    #     signals — starts at TEST, same safe-default convention
+    #     ManualTradingSettings already established (going live is
+    #     opt-in, never a default a bot silently starts in).
+    #   - paper_trading_enabled: independent of trading_mode, exactly
+    #     like the manual toggle — stays available while trading_mode
+    #     is LIVE too, so a bot can go "live" (real broker routing,
+    #     real risk caps) while still diverting the final fill, e.g.
+    #     to rehearse a brand-new strategy at real market conditions
+    #     with zero money actually at risk before trusting it further.
+    trading_mode = Column(Enum(TradingMode), default=TradingMode.TEST)
+    paper_trading_enabled = Column(Boolean, default=False)
 
     # Assets
     symbols = Column(JSON, default=list)  # ["BTCUSDT", "EURUSD"]

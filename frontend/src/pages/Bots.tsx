@@ -162,6 +162,24 @@ export function BotsPage() {
     loadBots();
   }
 
+  // Same Test/Live + Paper Trading pair Manual Trading already has,
+  // now per-bot — by direct request ("do the same and do paper
+  // trading for bot trading ... with a test/paper trading toggle ...
+  // so we can use paper trading in test mode ... with an additional
+  // option to toggle paper trading in live mode"). Both independent,
+  // exactly like the manual pair: switching trading_mode never touches
+  // paper_trading_enabled and vice versa.
+  async function switchTradingMode(bot: BotConfig) {
+    const next = bot.trading_mode === 'live' ? 'test' : 'live';
+    await botsApi.setTradingMode(bot.bot_id, { trading_mode: next });
+    loadBots();
+  }
+
+  async function togglePaperTrading(bot: BotConfig) {
+    await botsApi.setTradingMode(bot.bot_id, { paper_trading_enabled: !bot.paper_trading_enabled });
+    loadBots();
+  }
+
   async function saveMetrics(botId: string) {
     if (!editing) return;
     setSaving(true);
@@ -314,6 +332,21 @@ export function BotsPage() {
                   }`}>
                     {bot.execution_mode === 'fully_autonomous' ? 'Auto' : 'HITL'}
                   </span>
+                  {/* Test/Live + Paper Trading — same visible-badge
+                      principle TradingModeBadge already established
+                      elsewhere, now per-bot so it's obvious at a glance
+                      whether THIS bot's next signal can touch a real
+                      broker. */}
+                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                    bot.trading_mode === 'live' ? 'bg-blue-500/10 text-blue-400' : 'bg-gray-500/10 text-gray-400'
+                  }`}>
+                    {bot.trading_mode === 'live' ? 'Live' : 'Test'}
+                  </span>
+                  {bot.paper_trading_enabled && (
+                    <span className="px-2 py-1 rounded-full text-xs font-medium bg-amber-500/10 text-amber-500">
+                      Paper
+                    </span>
+                  )}
                 </div>
               </div>
 
@@ -365,6 +398,36 @@ export function BotsPage() {
                       className="flex-1 px-3 py-2 bg-purple-500/10 text-purple-400 rounded-lg text-sm font-medium hover:bg-purple-500/20 transition-colors"
                     >
                       {bot.execution_mode === 'fully_autonomous' ? 'Switch to HITL' : 'Switch to Auto'}
+                    </button>
+                  </div>
+
+                  {/* Test/Live + Paper Trading — independent toggles,
+                      same pair as Manual Trading's own header. Mode:
+                      Test never reaches a real broker for this bot's
+                      signals; Paper Trading stays available even once
+                      Live, diverting only the final fill. */}
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => switchTradingMode(bot)}
+                      className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                        bot.trading_mode === 'live'
+                          ? 'bg-blue-500/10 text-blue-400 hover:bg-blue-500/20'
+                          : dark ? 'bg-white/5 text-white/60 hover:bg-white/10' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      }`}
+                    >
+                      Mode: {bot.trading_mode === 'live' ? 'Live' : 'Test'} — switch to {bot.trading_mode === 'live' ? 'Test' : 'Live'}
+                    </button>
+                    <button
+                      onClick={() => togglePaperTrading(bot)}
+                      title="Paper Trading stays available in both Test and Live — when on, this bot's orders never reach a real broker, even in Live mode, but still run the real broker-selection and price checks a live order would face."
+                      className={`flex items-center gap-1.5 flex-1 justify-center px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                        bot.paper_trading_enabled ? 'bg-amber-500/15 text-amber-600' : dark ? 'bg-white/5 text-white/60 hover:bg-white/10' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      }`}
+                    >
+                      <span className={`relative w-8 h-4 rounded-full transition-colors shrink-0 ${bot.paper_trading_enabled ? 'bg-amber-500' : dark ? 'bg-white/20' : 'bg-gray-300'}`}>
+                        <span className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white transition-transform ${bot.paper_trading_enabled ? 'translate-x-4' : ''}`} />
+                      </span>
+                      Paper Trading: {bot.paper_trading_enabled ? 'On' : 'Off'}
                     </button>
                   </div>
 

@@ -42,6 +42,10 @@ export interface BotConfig {
   min_rr_ratio: number;
   use_trailing_stop: boolean;
   exchange?: string | null;
+  // Same Test/Live + Paper Trading pair the Manual Trading order form
+  // already has, now per-bot — see BotConfig's own backend comment.
+  trading_mode?: 'test' | 'live';
+  paper_trading_enabled?: boolean;
   user_id?: string | null;
   created_at: string;
 }

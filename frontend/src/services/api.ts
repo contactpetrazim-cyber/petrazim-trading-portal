@@ -66,6 +66,12 @@ export const botsApi = {
     api.patch(`/bots/${botId}/toggle`, { bot_id: botId, active }).then(r => r.data),
   setMode: (botId: string, mode: 'human_in_loop' | 'fully_autonomous') =>
     api.patch(`/bots/${botId}/mode?mode=${mode}`).then(r => r.data),
+  // Same Test/Live + Paper Trading pair the Manual Trading order form
+  // already exposes, per-bot — by direct request ("do the same and do
+  // paper trading for bot trading ... with a test / paper trading
+  // toggle"). Either field can be omitted to leave it unchanged.
+  setTradingMode: (botId: string, update: { trading_mode?: 'test' | 'live'; paper_trading_enabled?: boolean }) =>
+    api.patch<BotConfig>(`/bots/${botId}/trading-mode`, update).then(r => r.data),
   updateMetrics: (botId: string, update: BotMetricsUpdate) =>
     api.patch<BotConfig>(`/bots/${botId}/metrics`, update).then(r => r.data),
   getPerformance: (botId: string) => api.get<BotPerformance>(`/bots/${botId}/performance`).then(r => r.data),

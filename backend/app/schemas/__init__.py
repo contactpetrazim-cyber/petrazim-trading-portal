@@ -153,6 +153,10 @@ class BotConfigResponse(BaseModel):
     min_rr_ratio: float
     use_trailing_stop: bool
     exchange: Optional[str] = None
+    # Same Test/Live + Paper Trading pair ManualTradingSettings already
+    # exposes, now per-bot — see BotConfig's own comment for why.
+    trading_mode: str = "test"
+    paper_trading_enabled: bool = False
     user_id: Optional[UUID] = None
     created_at: datetime
 
@@ -162,6 +166,13 @@ class BotConfigResponse(BaseModel):
 class BotToggle(BaseModel):
     bot_id: str
     active: bool
+
+class BotTradingModeUpdate(BaseModel):
+    """PATCH /bots/{bot_id}/trading-mode body — mirrors
+    manual_trading.py's own SettingsUpdateRequest shape for the same
+    two toggles, just scoped to one bot instead of one trader."""
+    trading_mode: Optional[Literal["test", "live"]] = None
+    paper_trading_enabled: Optional[bool] = None
 
 class BotRename(BaseModel):
     bot_name: str = Field(..., min_length=1, max_length=100)
