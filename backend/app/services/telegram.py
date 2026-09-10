@@ -141,8 +141,16 @@ class TelegramService:
     async def set_webhook(self, webhook_url: str) -> None:
         """Run once per bot, pointing Telegram at your deployed webhook endpoint.
         e.g. TelegramService(TelegramChannel.INDIVIDUAL).set_webhook(
-                 'https://your-api.example.com/telegram/webhook/individual')"""
-        await self._call("setWebhook", {"url": webhook_url, "allowed_updates": ["chat_join_request"]})
+                 'https://your-api.example.com/telegram/webhook/individual')
+
+        Requests "message" updates alongside "chat_join_request" so the
+        Telegram community Q&A handler (routers/telegram_webhook.py's
+        _handle_message) actually receives anything to answer — without
+        this, Telegram only ever sends join-request events and every
+        DM/"/ask" message silently goes nowhere."""
+        await self._call("setWebhook", {
+            "url": webhook_url, "allowed_updates": ["chat_join_request", "message"],
+        })
 
 
 CHANNEL_USERNAME = {
