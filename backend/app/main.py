@@ -1,5 +1,3 @@
-
-"""
 SMC Multi-Bot Automated Trading System
 Principal Algorithmic Trading Engine
 """
@@ -109,11 +107,18 @@ async def _repair_missing_columns(conn, base, label: str):
                 # (False, 0, "x") that's fine, but a SQLAlchemy Enum
                 # column's default is a Python enum.Enum member (e.g.
                 # TradingMode.TEST), and asyncpg can't encode that: "expected
-                # str, got TradingMode". Unwrap it to the actual DB value
-                # the Enum column stores (.value, matching Enum(TradingMode)'s
-                # default use of the member's value rather than its name).
+                # str, got TradingMode". Unwrap it to the actual DB value the
+                # Enum column stores — SQLAlchemy's Enum type persists a
+                # PEP-435 enum member's `.name` (e.g. "TEST"), NOT its
+                # `.value` (e.g. "test"), unless the column explicitly sets
+                # values_callable — neither TradingMode column here does, so
+                # the native Postgres enum type only has 'TEST'/'LIVE' as
+                # valid labels. (An earlier version of this fix used .value,
+                # which produced a *different* crash: "invalid input value
+                # for enum tradingmode: \"test\"" — Postgres rejecting the
+                # lowercase value outright.)
                 if isinstance(default_value, enum.Enum):
-                    default_value = default_value.value
+                    default_value = default_value.name
                 await conn.execute(
                     text(f'UPDATE "{table.name}" SET "{column.name}" = :v WHERE "{column.name}" IS NULL'),
                     {"v": default_value},
