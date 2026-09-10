@@ -1,7 +1,7 @@
-
 import axios from 'axios';
 import { Trade, BotConfig, BotPerformance, BotMetricsUpdate, DashboardStats, SignalPreview, PerformanceSummary } from '../types';
 import { useAuthStore } from '../hooks/useAuth';
+import { triggerAccessExpired } from '../components/AccessExpiredGate';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -24,6 +24,26 @@ api.interceptors.request.use((config) => {
   }
   return config;
 });
+
+// Mirrors AccessExpiredGate's own apiFetch() wrapper (used by the
+// fetch-based pages via resilientFetch.ts) so a 402 from THIS client —
+// Dashboard.tsx, AnalyticsPage.tsx, bots/trades/roster — surfaces the
+// exact same "access expired" card instead of silently rejecting into
+// each caller's own (usually much weaker) local error handling. One
+// place, same as apiFetch: can't be missed by a page that forgot to
+// handle it individually.
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error?.response?.status === 402) {
+      const detail = error.response.data?.detail;
+      if (detail?.error === 'access_expired') {
+        triggerAccessExpired(detail);
+      }
+    }
+    return Promise.reject(error);
+  }
+);
 
 export const dashboardApi = {
   getStats: () => api.get<DashboardStats>('/dashboard/stats').then(r => r.data),
