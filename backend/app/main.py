@@ -1,3 +1,4 @@
+
 SMC Multi-Bot Automated Trading System
 Principal Algorithmic Trading Engine
 """
@@ -115,7 +116,7 @@ async def _repair_missing_columns(conn, base, label: str):
                 # the native Postgres enum type only has 'TEST'/'LIVE' as
                 # valid labels. (An earlier version of this fix used .value,
                 # which produced a *different* crash: "invalid input value
-                # for enum tradingmode: \"test\"" — Postgres rejecting the
+                # for enum tradingmode: "test"" — Postgres rejecting the
                 # lowercase value outright.)
                 if isinstance(default_value, enum.Enum):
                     default_value = default_value.name
