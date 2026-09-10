@@ -1,7 +1,5 @@
-
-SMC Multi-Bot Automated Trading System
-Principal Algorithmic Trading Engine
-"""
+# SMC Multi-Bot Automated Trading System
+# Principal Algorithmic Trading Engine
 
 import enum
 
@@ -66,25 +64,24 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 async def _repair_missing_columns(conn, base, label: str):
-    """`Base.metadata.create_all` (below) only creates tables that
-    don't exist yet — for a table that's already live in production,
-    a column added to its model afterwards is silently never added to
-    the real database. That's exactly what caused "column trades.is_test
-    does not exist" (and would have quietly broken take_profit_2/
-    take_profit_3 the same way) — the ORM inserted/selected the new
-    column, Postgres had never heard of it, and every request touching
-    a Trade row 500'd. This app has no Alembic migrations actually
-    wired into its deploy (alembic/ exists in the repo but nothing
-    ever runs `alembic upgrade head`), so rather than leave the next
-    column addition to fail the exact same way, this introspects the
-    real database on every startup and adds whatever's missing —
-    driven by the models themselves, nothing hand-listed. New columns
-    are added nullable regardless of the model's own nullable=False
-    (existing rows have nothing to put there); where the model
-    declares a plain Python-side scalar default (e.g. is_test=False),
-    existing NULL rows are backfilled to it so old trades don't 500
-    when serialized against a non-Optional response field.
-    """
+    # `Base.metadata.create_all` (below) only creates tables that
+    # don't exist yet — for a table that's already live in production,
+    # a column added to its model afterwards is silently never added to
+    # the real database. That's exactly what caused "column trades.is_test
+    # does not exist" (and would have quietly broken take_profit_2/
+    # take_profit_3 the same way) — the ORM inserted/selected the new
+    # column, Postgres had never heard of it, and every request touching
+    # a Trade row 500'd. This app has no Alembic migrations actually
+    # wired into its deploy (alembic/ exists in the repo but nothing
+    # ever runs `alembic upgrade head`), so rather than leave the next
+    # column addition to fail the exact same way, this introspects the
+    # real database on every startup and adds whatever's missing —
+    # driven by the models themselves, nothing hand-listed. New columns
+    # are added nullable regardless of the model's own nullable=False
+    # (existing rows have nothing to put there); where the model
+    # declares a plain Python-side scalar default (e.g. is_test=False),
+    # existing NULL rows are backfilled to it so old trades don't 500
+    # when serialized against a non-Optional response field.
     def _existing_columns(sync_conn):
         inspector = inspect(sync_conn)
         return {t: {c["name"] for c in inspector.get_columns(t)} for t in inspector.get_table_names()}
@@ -116,7 +113,7 @@ async def _repair_missing_columns(conn, base, label: str):
                 # the native Postgres enum type only has 'TEST'/'LIVE' as
                 # valid labels. (An earlier version of this fix used .value,
                 # which produced a *different* crash: "invalid input value
-                # for enum tradingmode: "test"" — Postgres rejecting the
+                # for enum tradingmode: \"test\"" — Postgres rejecting the
                 # lowercase value outright.)
                 if isinstance(default_value, enum.Enum):
                     default_value = default_value.name
@@ -128,7 +125,7 @@ async def _repair_missing_columns(conn, base, label: str):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifespan handler."""
+    # Application lifespan handler.
     logger.info("app_startup", version=settings.VERSION)
 
     # Create database tables
@@ -178,17 +175,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=settings.APP_NAME,
     version=settings.VERSION,
-    description="""
-    Premium Smart Money Concepts (SMC) Multi-Bot Automated Trading System.
-
-    Features:
-    - 5 Distinct SMC Trading Bots
-    - Multi-Timeframe Alignment Engine (1D→4H→1H→15M→5M)
-    - Human-in-the-Loop & Fully Autonomous Execution
-    - TradingView Webhook Integration
-    - Real-time Dashboard & Analytics
-    - Risk Management & Portfolio Safeguards
-    """,
+    description="Premium Smart Money Concepts (SMC) Multi-Bot Automated Trading System. Features: 5 Distinct SMC Trading Bots, Multi-Timeframe Alignment Engine (1D to 4H to 1H to 15M to 5M), Human-in-the-Loop and Fully Autonomous Execution, TradingView Webhook Integration, Real-time Dashboard and Analytics, Risk Management and Portfolio Safeguards",
     lifespan=lifespan,
     docs_url="/api/docs",
     redoc_url="/api/redoc"
@@ -257,7 +244,7 @@ async def health_check():
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
-    """WebSocket for real-time trade updates and dashboard data."""
+    # WebSocket for real-time trade updates and dashboard data.
     await manager.connect(websocket)
     try:
         while True:
@@ -276,7 +263,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
 @app.get("/api/system-info")
 async def system_info():
-    """Get system configuration and bot status overview."""
+    # Get system configuration and bot status overview.
     return {
         "app_name": settings.APP_NAME,
         "version": settings.VERSION,
