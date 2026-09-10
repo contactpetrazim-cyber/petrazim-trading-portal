@@ -1,0 +1,64 @@
+name: Mirror frontend to Lovable Hub
+
+# Keeps contactpetrazim-cyber/petrazim-trading-hub (the Lovable-connected
+# repo) in sync with this repo's frontend/, so edits made here (Claude
+# Code, direct commits, PRs merged to main) show up in the Lovable
+# editor automatically. The companion workflow in petrazim-trading-hub
+# mirrors the other direction. Each side tags its own commits so the
+# two workflows don't bounce a change back and forth forever.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "frontend/src/**"
+      - "frontend/public/**"
+      - "frontend/index.html"
+      - "frontend/package.json"
+      - "frontend/tsconfig.json"
+      - "frontend/tsconfig.node.json"
+      - "frontend/vite.config.ts"
+      - "frontend/tailwind.config.js"
+      - "frontend/postcss.config.js"
+
+jobs:
+  mirror:
+    if: "!startsWith(github.event.head_commit.message, '[mirror-from-hub]')"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out this repo (source)
+        uses: actions/checkout@v4
+        with:
+          path: portal
+
+      - name: Check out petrazim-trading-hub (destination)
+        uses: actions/checkout@v4
+        with:
+          repository: contactpetrazim-cyber/petrazim-trading-hub
+          token: ${{ secrets.MIRROR_TOKEN }}
+          path: hub
+
+      - name: Sync frontend/ into hub root
+        run: |
+          rsync -a --delete portal/frontend/src/ hub/src/
+          rsync -a --delete portal/frontend/public/ hub/public/
+          cp portal/frontend/index.html hub/index.html
+          cp portal/frontend/package.json hub/package.json
+          cp portal/frontend/tsconfig.json hub/tsconfig.json
+          cp portal/frontend/tsconfig.node.json hub/tsconfig.node.json
+          cp portal/frontend/vite.config.ts hub/vite.config.ts
+          cp portal/frontend/tailwind.config.js hub/tailwind.config.js
+          cp portal/frontend/postcss.config.js hub/postcss.config.js
+
+      - name: Commit and push to hub
+        working-directory: hub
+        run: |
+          git config user.email "actions@github.com"
+          git config user.name "portal-to-hub-mirror"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "no changes to mirror"
+          else
+            git commit -m "[mirror-from-portal] sync from petrazim-trading-portal@${{ github.sha }}"
+            git push origin HEAD:main
+          fi
