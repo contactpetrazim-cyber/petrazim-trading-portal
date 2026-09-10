@@ -159,3 +159,48 @@ async def require_active_access(
     pages — those should keep using plain get_current_user)."""
     await _raise_if_access_expired(db, user)
     return user
+
+
+# How long past expires_at a lapsed UserAccess row still counts for
+# require_completion_access below. Picked to comfortably cover "was
+# mid-stage when the clock ran out," not to extend the paywall.
+COMPLETION_GRACE = timedelta(hours=24)
+
+
+async def _has_access_or_recent_grace(db: AsyncSession, user: User) -> bool:
+    if await has_active_access(db, user):
+        return True
+    most_recent = (await db.execute(
+        select(UserAccess)
+        .where(UserAccess.user_id == user.id)
+        .order_by(UserAccess.expires_at.desc())
+        .limit(1)
+    )).scalar_one_or_none()
+    if most_recent is None:
+        return False
+    return datetime.now(timezone.utc) - most_recent.expires_at <= COMPLETION_GRACE
+
+
+async def require_completion_access(
+    db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)
+) -> User:
+    """Narrower cousin of require_active_access for the curriculum
+    endpoints that only RECORD progress on content already reached
+    while access was active (submit_quiz, submit_practice,
+    stages/complete) — never fetch new content and never spend an AI
+    call. Gating those with the plain require_active_access dependency
+    means a learner who opened a stage's quiz with valid access, then
+    had it expire mid-session, gets a hard 402 on the one click that
+    would have finished it and possibly issued a certificate — which
+    directly contradicts AccessExpiredError's own message ("Renewing
+    picks up exactly where you left off — no restart"). A short grace
+    window after expires_at (COMPLETION_GRACE) covers that timing race
+    without reopening the paywall generally: every content-fetching or
+    AI-cost route (get_lesson, recap generation, coach, retrieval-quiz
+    generation, etc.) still uses require_active_access unchanged, so
+    nothing new becomes available for free — only finishing what was
+    already unlocked."""
+    if await _has_access_or_recent_grace(db, user):
+        return user
+    await _raise_if_access_expired(db, user)
+    return user

@@ -43,7 +43,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.access_gate import require_active_access, learner_progress_snapshot
+from app.core.access_gate import require_active_access, require_completion_access, learner_progress_snapshot
 from app.database import get_db
 from app.engines.learning_content_ai import generate_flashcards, generate_recap, generate_retrieval_questions
 from app.services.ai_coach import any_provider_configured
@@ -850,7 +850,7 @@ async def get_awards(
 @router.post("/quiz", response_model=dict)
 async def submit_quiz(
     req: QuizSubmitRequest, db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_active_access),
+    user: User = Depends(require_completion_access),
 ):
     attempt = QuizAttempt(user_id=user.id, lesson_id=req.lesson_id, score_pct=req.score_pct)
     db.add(attempt)
@@ -861,7 +861,7 @@ async def submit_quiz(
 @router.post("/practice", response_model=dict)
 async def submit_practice(
     req: PracticeSubmitRequest, db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_active_access),
+    user: User = Depends(require_completion_access),
 ):
     attempt = PracticeAttempt(
         user_id=user.id, track_id=req.track_id, scenario_id=req.scenario_id,
@@ -875,12 +875,18 @@ async def submit_practice(
 @router.post("/stages/complete", response_model=StageCompleteResponse)
 async def complete_stage(
     req: StageCompleteRequest, db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_active_access),
+    user: User = Depends(require_completion_access),
 ):
     """Applies the real dual gate (§3b of the Learning System Handover):
     a stage only completes when BOTH the quiz-score minimum AND the
     practice-rep minimum are met — a 90% quiz score alone never
-    completes a stage on its own."""
+    completes a stage on its own.
+
+    Uses require_completion_access rather than require_active_access
+    (see that dependency's own docstring, app/core/access_gate.py) so
+    a certificate legitimately earned by finishing the last stage
+    isn't blocked by access expiring in the same session it was
+    completed in."""
     stage = (await db.execute(
         select(TrackStage).where(TrackStage.id == req.stage_id)
     )).scalar_one_or_none()
