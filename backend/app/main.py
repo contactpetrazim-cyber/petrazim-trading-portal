@@ -4,6 +4,8 @@ SMC Multi-Bot Automated Trading System
 Principal Algorithmic Trading Engine
 """
 
+import enum
+
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -100,9 +102,21 @@ async def _repair_missing_columns(conn, base, label: str):
             await conn.execute(text(f'ALTER TABLE "{table.name}" ADD COLUMN IF NOT EXISTS "{column.name}" {ddl_type}'))
             logger.warning("schema_repair_added_column", label=label, table=table.name, column=column.name)
             if column.default is not None and getattr(column.default, "is_scalar", False):
+                default_value = column.default.arg
+                # This raw UPDATE goes through a plain `:v` bind param with
+                # no column type attached, so asyncpg gets whatever Python
+                # object the model's default is — for a plain scalar
+                # (False, 0, "x") that's fine, but a SQLAlchemy Enum
+                # column's default is a Python enum.Enum member (e.g.
+                # TradingMode.TEST), and asyncpg can't encode that: "expected
+                # str, got TradingMode". Unwrap it to the actual DB value
+                # the Enum column stores (.value, matching Enum(TradingMode)'s
+                # default use of the member's value rather than its name).
+                if isinstance(default_value, enum.Enum):
+                    default_value = default_value.value
                 await conn.execute(
                     text(f'UPDATE "{table.name}" SET "{column.name}" = :v WHERE "{column.name}" IS NULL'),
-                    {"v": column.default.arg},
+                    {"v": default_value},
                 )
 
 
