@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Building2, Users, Send, CalendarCheck } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
+import { FoldedCard } from './FoldedCard';
 
 /**
  * PlatformOverviewPanel — Admin/Super Admin's own extra tier of
@@ -45,8 +46,10 @@ export function PlatformOverviewPanel({ dark = true }: { dark?: boolean }) {
   ];
 
   return (
-    <div className={`border rounded-xl p-6 ${cardClass}`}>
-      <h2 className={`text-sm font-medium mb-4 ${dark ? 'text-gray-300' : 'text-gray-500'}`}>Platform Overview</h2>
+    // Folds/unfolds on click, closed by default — by direct request
+    // ("make all the cards in the portal fold with one click and
+    // unfold with another ... i dont want permanently open cards").
+    <FoldedCard title="Platform Overview" dark={dark}>
       {loading ? (
         <p className={`text-sm ${mutedText}`}>Loading…</p>
       ) : (
@@ -62,6 +65,6 @@ export function PlatformOverviewPanel({ dark = true }: { dark?: boolean }) {
           ))}
         </div>
       )}
-    </div>
+    </FoldedCard>
   );
 }

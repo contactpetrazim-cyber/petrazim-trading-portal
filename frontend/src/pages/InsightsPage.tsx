@@ -144,7 +144,7 @@ export function InsightsPage() {
       <PageHeader title="Insights" subtitle="Trader analytics from your real closed trades, Monte Carlo forecasts, weekly coach reviews, and the go-live validation gate." />
 
       <div className="mb-4">
-        <FoldedCard title="Chart" summary="A live TradingView chart, right here" icon={<LineChart size={19} />} dark={dark} defaultOpen>
+        <FoldedCard title="Chart" summary="A live TradingView chart, right here" icon={<LineChart size={19} />} dark={dark}>
           <ChartPanel symbol="OANDA:EURUSD" height={380} tradeSymbol="EURUSD" dark={dark} />
         </FoldedCard>
       </div>
@@ -177,7 +177,7 @@ export function InsightsPage() {
           balance and prop-firm-style challenge rules — this app has
           neither concept to honestly back those numbers with). */}
       <div className="mt-4">
-        <FoldedCard title="Trader Analytics" summary="Win rate, PnL by symbol and by day, and more — from your real trade history" icon={<BarChart3 size={19} />} dark={dark} defaultOpen>
+        <FoldedCard title="Trader Analytics" summary="Win rate, PnL by symbol and by day, and more — from your real trade history" icon={<BarChart3 size={19} />} dark={dark}>
           <TradeAnalytics dark={dark} />
         </FoldedCard>
       </div>

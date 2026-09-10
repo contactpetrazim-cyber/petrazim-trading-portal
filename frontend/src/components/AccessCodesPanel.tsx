@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Ticket, CheckCircle2, Circle, Pause, Play } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
+import { FoldedCard } from './FoldedCard';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
@@ -90,19 +91,17 @@ export function AccessCodesPanel({ dark = false }: { dark?: boolean }) {
   const heldCount = codes.filter((c) => c.is_held).length;
 
   return (
-    <div className={`rounded-2xl border p-5 ${dark ? 'bg-corporate-surface-dark border-corporate-border-dark' : 'bg-white border-corporate-bg'}`}>
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h3 className={`font-semibold ${dark ? 'text-white' : 'text-corporate-text-on-bg'}`}>Access Codes</h3>
-          <p className={`text-xs mt-0.5 ${dark ? 'text-white/40' : 'text-gray-500'}`}>
-            {codes.length > 0
-              ? `${redeemedCount} of ${codes.length} seats redeemed${heldCount > 0 ? ` · ${heldCount} on hold` : ''}`
-              : 'No seats issued yet'}
-          </p>
-        </div>
-        <Ticket size={18} className="text-corporate-hero" />
-      </div>
-
+    // Folds/unfolds on click, closed by default — by direct request
+    // ("make all the cards in the portal fold with one click and
+    // unfold with another ... i dont want permanently open cards").
+    <FoldedCard
+      title="Access Codes"
+      summary={codes.length > 0
+        ? `${redeemedCount} of ${codes.length} seats redeemed${heldCount > 0 ? ` · ${heldCount} on hold` : ''}`
+        : 'No seats issued yet'}
+      icon={<Ticket size={18} />}
+      dark={dark}
+    >
       <div className={`flex items-end gap-2 mb-4 p-3 rounded-lg ${dark ? 'bg-corporate-nav-dark' : 'bg-corporate-bg'}`}>
         <div className="flex-1">
           <label className={`text-xs block mb-1 ${dark ? 'text-white/40' : 'text-gray-500'}`}>Seats</label>
@@ -175,6 +174,6 @@ export function AccessCodesPanel({ dark = false }: { dark?: boolean }) {
           ))}
         </div>
       )}
-    </div>
+    </FoldedCard>
   );
 }

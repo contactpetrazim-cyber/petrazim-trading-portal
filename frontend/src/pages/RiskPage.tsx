@@ -214,7 +214,7 @@ export function RiskPage() {
       {/* Dynamic Position Size Calculator — by direct request ("include
           dynamic position sizing"). Purely client-side; recomputes live
           as any input changes. */}
-      <FoldedCard title="Position Size Calculator" summary="Risk amount and position size, recomputed live" icon={<Calculator size={19} />} dark={dark} defaultOpen>
+      <FoldedCard title="Position Size Calculator" summary="Risk amount and position size, recomputed live" icon={<Calculator size={19} />} dark={dark}>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <label className="text-xs text-gray-400">
             Account balance ($)
@@ -266,7 +266,7 @@ export function RiskPage() {
           real closed trades, chronological. */}
       {seriesData.length > 0 && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <FoldedCard title="Risk Profile Over Time" summary="Risk % per closed trade" dark={dark} defaultOpen>
+          <FoldedCard title="Risk Profile Over Time" summary="Risk % per closed trade" dark={dark}>
             <ResponsiveContainer width="100%" height={200}>
               <BarChart data={seriesData}>
                 <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
@@ -278,7 +278,7 @@ export function RiskPage() {
             </ResponsiveContainer>
           </FoldedCard>
 
-          <FoldedCard title="P&L Profile Over Time" summary="Realized P&L per closed trade" dark={dark} defaultOpen>
+          <FoldedCard title="P&L Profile Over Time" summary="Realized P&L per closed trade" dark={dark}>
             <ResponsiveContainer width="100%" height={200}>
               <BarChart data={seriesData}>
                 <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
@@ -292,7 +292,7 @@ export function RiskPage() {
             </ResponsiveContainer>
           </FoldedCard>
 
-          <FoldedCard title="Cumulative P&L" summary="Running total, closed trades" dark={dark} defaultOpen>
+          <FoldedCard title="Cumulative P&L" summary="Running total, closed trades" dark={dark}>
             <ResponsiveContainer width="100%" height={200}>
               <AreaChart data={seriesData}>
                 <defs>

@@ -181,7 +181,7 @@ export function AnalyticsPage() {
           Avg R-Multiple as StatCard-only numbers with no per-period
           comparison view. */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <FoldedCard title="Win Rate & Profit Factor by Period" summary="How your edge holds up over 1D/7D/30D/90D" dark={dark} defaultOpen>
+        <FoldedCard title="Win Rate & Profit Factor by Period" summary="How your edge holds up over 1D/7D/30D/90D" dark={dark}>
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={comparisonData}>
               <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
@@ -195,7 +195,7 @@ export function AnalyticsPage() {
           </ResponsiveContainer>
         </FoldedCard>
 
-        <FoldedCard title="Max Drawdown by Period" summary="Peak-to-trough decline, each window compared" dark={dark} defaultOpen>
+        <FoldedCard title="Max Drawdown by Period" summary="Peak-to-trough decline, each window compared" dark={dark}>
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={comparisonData}>
               <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
@@ -207,7 +207,7 @@ export function AnalyticsPage() {
           </ResponsiveContainer>
         </FoldedCard>
 
-        <FoldedCard title="Net P&L by Period" summary="Realized profit/loss, each window compared" dark={dark} defaultOpen>
+        <FoldedCard title="Net P&L by Period" summary="Realized profit/loss, each window compared" dark={dark}>
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={comparisonData}>
               <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
@@ -221,7 +221,7 @@ export function AnalyticsPage() {
           </ResponsiveContainer>
         </FoldedCard>
 
-        <FoldedCard title="Avg R-Multiple by Period" summary="Realized R per trade, each window compared" dark={dark} defaultOpen>
+        <FoldedCard title="Avg R-Multiple by Period" summary="Realized R per trade, each window compared" dark={dark}>
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={comparisonData}>
               <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />

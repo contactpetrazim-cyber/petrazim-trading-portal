@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { fetchJsonWithRetry, type FetchPhase } from '../lib/resilientFetch';
 import { LoadingIndicator } from './LoadingIndicator';
+import { FoldedCard } from './FoldedCard';
 import { money } from './TradeAnalytics';
 import type { TradeSource } from './TradeAnalytics';
 
@@ -74,9 +75,6 @@ export function AdvancedTradeAnalytics({ dark, source }: { dark: boolean; source
       });
   }, [token, source, retryTick]);
 
-  const cardCls = `rounded-2xl p-5 border ${dark ? 'bg-corporate-surface-dark border-corporate-border-dark' : 'bg-white border-corporate-bg'}`;
-  const titleCls = `text-xs font-semibold uppercase tracking-wide mb-1 ${dark ? 'text-white/40' : 'text-gray-400'}`;
-  const capCls = `text-[11px] mb-4 ${dark ? 'text-white/30' : 'text-gray-400'}`;
   const mutedCls = dark ? 'text-white/40' : 'text-gray-400';
 
   if (error) {
@@ -115,80 +113,68 @@ export function AdvancedTradeAnalytics({ dark, source }: { dark: boolean; source
     <div className="mt-4 space-y-4">
       <div className={`text-sm font-bold ${dark ? 'text-white' : 'text-gray-900'}`}>Advanced Analytics — Trading Edge</div>
 
+      {/* Every card below now folds/unfolds on click (closed by
+          default) — by direct request ("make all the cards in the
+          portal fold with one click and unfold with another ... i
+          dont want permanently open cards"). */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className={cardCls}>
-          <div className={titleCls}>Net P&amp;L by Session</div>
-          <div className={capCls}>Bucketed by each trade's entry hour, UTC.</div>
+        <FoldedCard title="Net P&L by Session" summary="Bucketed by each trade's entry hour, UTC." dark={dark}>
           <SessionChart rows={chrono} dark={dark} />
-        </div>
+        </FoldedCard>
 
-        <div className={cardCls}>
-          <div className={titleCls}>Net P&amp;L by Time of Day</div>
-          <div className={capCls}>Entry hour, UTC — where your edge (or your leaks) actually happen.</div>
+        <FoldedCard title="Net P&L by Time of Day" summary="Entry hour, UTC — where your edge (or your leaks) actually happen." dark={dark}>
           <HourHistogram rows={chrono} dark={dark} />
+        </FoldedCard>
+
+        <div className="lg:col-span-2">
+          <FoldedCard title="Net P&L by Day — Calendar" summary="Green = net profit that day, red = net loss, grey = no closed trades." dark={dark}>
+            <CalendarHeatmap rows={chrono} dark={dark} />
+          </FoldedCard>
         </div>
 
-        <div className={`${cardCls} lg:col-span-2`}>
-          <div className={titleCls}>Net P&amp;L by Day — Calendar</div>
-          <div className={capCls}>Green = net profit that day, red = net loss, grey = no closed trades.</div>
-          <CalendarHeatmap rows={chrono} dark={dark} />
-        </div>
-
-        <div className={cardCls}>
-          <div className={titleCls}>Net P&amp;L by Strategy / Setup</div>
-          <div className={capCls}>Grouped by bot (or "Manual" for your own manual trades).</div>
+        <FoldedCard title="Net P&L by Strategy / Setup" summary='Grouped by bot (or "Manual" for your own manual trades).' dark={dark}>
           <StrategyChart rows={chrono} dark={dark} />
-        </div>
+        </FoldedCard>
 
-        <div className={cardCls}>
-          <div className={titleCls}>Risk : Reward Map</div>
-          <div className={capCls}>Each trade's actual R-multiple (PnL ÷ risk), in order closed.</div>
+        <FoldedCard title="Risk : Reward Map" summary="Each trade's actual R-multiple (PnL ÷ risk), in order closed." dark={dark}>
           <RiskRewardScatter rows={chrono} dark={dark} />
+        </FoldedCard>
+
+        <div className="lg:col-span-2">
+          <FoldedCard title="Max Drawdown Over Time" summary="Cumulative realized P&L (equity) and drawdown from its running peak." dark={dark}>
+            <DrawdownChart rows={chrono} dark={dark} />
+          </FoldedCard>
         </div>
 
-        <div className={`${cardCls} lg:col-span-2`}>
-          <div className={titleCls}>Max Drawdown Over Time</div>
-          <div className={capCls}>Cumulative realized P&amp;L (equity) and drawdown from its running peak.</div>
-          <DrawdownChart rows={chrono} dark={dark} />
+        <div className="lg:col-span-2">
+          <FoldedCard title="Trade-by-Trade P&L" summary="Every closed trade, in order — your actual trade sequence, not smoothed." dark={dark}>
+            <TradeSequenceBars rows={chrono} dark={dark} />
+          </FoldedCard>
         </div>
 
-        <div className={`${cardCls} lg:col-span-2`}>
-          <div className={titleCls}>Trade-by-Trade P&amp;L</div>
-          <div className={capCls}>Every closed trade, in order — your actual trade sequence, not smoothed.</div>
-          <TradeSequenceBars rows={chrono} dark={dark} />
-        </div>
-
-        <div className={cardCls}>
-          <div className={titleCls}>SL Map — Distance vs Outcome</div>
-          <div className={capCls}>Initial stop distance (% of entry price) vs realized P&amp;L.</div>
+        <FoldedCard title="SL Map — Distance vs Outcome" summary="Initial stop distance (% of entry price) vs realized P&L." dark={dark}>
           <SlDistanceScatter rows={chrono} dark={dark} />
-        </div>
+        </FoldedCard>
 
-        <div className={cardCls}>
-          <div className={titleCls}>Exit Reason Breakdown</div>
-          <div className={capCls}>How your closed trades actually ended.</div>
+        <FoldedCard title="Exit Reason Breakdown" summary="How your closed trades actually ended." dark={dark}>
           <ExitTypeBreakdown rows={chrono} dark={dark} />
-        </div>
+        </FoldedCard>
 
-        <div className={cardCls}>
-          <div className={titleCls}>Multiple TP vs Single TP</div>
-          <div className={capCls}>Trades with TP2/TP3 set vs a single target — by direct request.</div>
+        <FoldedCard title="Multiple TP vs Single TP" summary="Trades with TP2/TP3 set vs a single target — by direct request." dark={dark}>
           <ComparisonPair
             dark={dark}
             leftLabel="Single TP" left={chrono.filter((r) => r.tp_count <= 1)}
             rightLabel="Multiple TP" right={chrono.filter((r) => r.tp_count > 1)}
           />
-        </div>
+        </FoldedCard>
 
-        <div className={cardCls}>
-          <div className={titleCls}>Dynamic SL Shift vs Fixed SL</div>
-          <div className={capCls}>Trades where you ever moved the stop after opening vs never touched it.</div>
+        <FoldedCard title="Dynamic SL Shift vs Fixed SL" summary="Trades where you ever moved the stop after opening vs never touched it." dark={dark}>
           <ComparisonPair
             dark={dark}
             leftLabel="SL never shifted" left={chrono.filter((r) => !r.sl_shifted)}
             rightLabel="SL shifted" right={chrono.filter((r) => r.sl_shifted)}
           />
-        </div>
+        </FoldedCard>
       </div>
     </div>
   );
