@@ -16,7 +16,7 @@ card is backed by actual numbers, not decorative placeholder text.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import Depends, HTTPException
