@@ -8,8 +8,10 @@ import { useQuickPrice } from '../hooks/useQuickPrice';
 import { apiFetch } from '../components/AccessExpiredGate';
 import { fetchJsonWithRetry, type FetchPhase } from '../lib/resilientFetch';
 import { LoadingIndicator } from '../components/LoadingIndicator';
-import { tradesApi } from '../services/api';
+import { tradesApi, botsApi } from '../services/api';
+import { searchCatalogue } from '../config/instrumentCatalogue';
 import type { Trade } from '../types';
+
 
 // Same labels AdvancedTradeAnalytics.tsx's own Exit Reason Breakdown
 // chart uses for these exact backend ExitType values — kept as its
@@ -86,12 +88,17 @@ interface QuickSymbol {
    * and the backend's own symbol-based routing decides instead. */
   brokerId?: string;
 }
+// Every default now carries a REAL, checked `tv` symbol rather than a
+// guessed "PREFIX:TICKER.P" — the old guesswork is exactly why clicking
+// a quick link left the chart on Binance BTCUSDT (TradingView silently
+// falls back to its own default when handed a ticker it doesn't have).
 const DEFAULT_QUICK_SYMBOLS: QuickSymbol[] = [
-  { label: 'BTC Perp', trade: 'BTCUSDT', perp: 'BTCUSDT.P' },
-  { label: 'Gold Perp', trade: 'XAUTUSDT', perp: 'XAUTUSDT.P' },
-  { label: 'USD/JPY', trade: 'USDJPY', fixedTv: 'OANDA:USDJPY' },
-  { label: 'Nasdaq 100', trade: 'NAS100', fixedTv: 'OANDA:NAS100USD' },
+  { label: 'BTC/USDT', trade: 'BTCUSDT', tv: 'BINANCE:BTCUSDT', brokerId: 'binance' },
+  { label: 'Gold', trade: 'XAUUSD', tv: 'OANDA:XAUUSD' },
+  { label: 'EUR/USD', trade: 'EURUSD', tv: 'OANDA:EURUSD' },
+  { label: 'Nasdaq 100', trade: 'NAS100USD', tv: 'OANDA:NAS100USD' },
 ];
+
 // The quick-link list is now dynamic — by direct request ("create an
 // option to manually select specific instruments from selected
 // exchanges ... max is 5 ... so that the list can be dynamic"), capped
@@ -288,48 +295,42 @@ export function ManualTradingPage() {
     if (quickSymbol.trade === trade) setQuickSymbol((next.length ? next : DEFAULT_QUICK_SYMBOLS)[0]);
   }
 
-  // Real TradingView symbol search — every exchange and asset class
-  // TradingView itself covers (crypto, forex, stocks, indices,
-  // commodities...), not just Binance futures (the old
-  // GET /order-flow/instruments this replaces only ever covered
-  // Binance spot/futures tickers). This is TradingView's own public
-  // search endpoint — the exact one its embedded widget's built-in
-  // symbol search calls — fetched directly from the browser rather
-  // than proxied through this app's backend: it's read-only and
-  // publicly reachable, and a server-side proxy risks the SAME
-  // datacenter-IP bot-filtering a hosted backend can run into, with no
-  // upside here. HONEST LIMITATION: this is TradingView's own
-  // undocumented endpoint (no official public API for this), so it can
-  // change shape or start blocking a given request without notice —
-  // if it ever returns nothing, typing a literal "EXCHANGE:TICKER"
-  // and pressing Enter still works as a manual fallback (see
-  // addQuickSymbolOnEnter above).
+  // Searchable inventory. TradingView's own symbol-search endpoint now
+  // answers 403 to anything that isn't its own widget (verified against
+  // the live endpoint), which is why this panel showed "Searching…" and
+  // then an empty list — by direct bug report. So the inventory is now
+  // the hand-checked INSTRUMENT_CATALOGUE (crypto, forex, metals,
+  // indices, stocks — every entry a real TradingView symbol), shown
+  // immediately with no typing required, and topped up with live
+  // Binance tickers from this app's own backend proxy when the query
+  // matches something the catalogue doesn't list. Typing an exact
+  // "EXCHANGE:TICKER" and pressing Enter still works for anything else.
   useEffect(() => {
-    if (!addingSymbol || addQuery.trim().length < 2) { setAddResults([]); return; }
+    if (!addingSymbol) { setAddResults([]); return; }
+    const q = addQuery.trim();
+    const local = searchCatalogue(q).map((i) => ({
+      symbol: i.symbol, exchange: i.exchange, description: i.description, type: i.type as string,
+    }));
+    setAddResults(local);
+    if (q.length < 2 || !token) { setAddSearching(false); return; }
     setAddSearching(true);
     const t = setTimeout(() => {
-      const stripTags = (s: unknown) => typeof s === 'string' ? s.replace(/<[^>]*>/g, '') : '';
-      fetch(
-        `https://symbol-search.tradingview.com/symbol_search/v3/?text=${encodeURIComponent(addQuery.trim())}&hl=1&lang=en&search_type=undefined&domain=production&sort_by_country=US`,
-      )
-        .then((r) => (r.ok ? r.json() : null))
-        .then((d) => {
-          const raw: any[] = Array.isArray(d?.symbols) ? d.symbols : Array.isArray(d) ? d : [];
-          setAddResults(
-            raw
-              .map((s) => ({
-                symbol: stripTags(s.symbol), exchange: stripTags(s.exchange),
-                description: stripTags(s.description), type: stripTags(s.type),
-              }))
-              .filter((s) => s.symbol && s.exchange)
-              .slice(0, 20),
-          );
+      botsApi.searchInstruments(q)
+        .then((list) => {
+          const extra = list
+            .map((i) => ({
+              symbol: i.symbol.toUpperCase(), exchange: 'BINANCE',
+              description: `${i.base_asset} / ${i.quote_asset}`, type: 'crypto',
+            }))
+            .filter((i) => !local.some((l) => l.symbol === i.symbol && l.exchange === i.exchange));
+          setAddResults([...local, ...extra].slice(0, 30));
         })
-        .catch(() => setAddResults([]))
+        .catch(() => { /* catalogue results already shown — nothing to undo */ })
         .finally(() => setAddSearching(false));
     }, 300);
     return () => clearTimeout(t);
-  }, [addQuery, addingSymbol]);
+  }, [addQuery, addingSymbol, token]);
+
   // `symbol` keeps the same {label, tv, trade} shape every downstream
   // read below already expects — only how it's built changed. A
   // fixed-feed instrument (USD/JPY, Nasdaq 100) ignores the exchange
@@ -509,7 +510,14 @@ export function ManualTradingPage() {
     setSubmitting(true);
     try {
       const res = await apiFetch(`${API_URL}/manual-trading/order`, {
+        // 60s, not the default 20s: a free-tier backend waking from
+        // sleep routinely needs longer than 20s for its first request,
+        // and that abort is precisely what surfaced on this button as
+        // "failed to fetch" — in paper/test mode too, since even a
+        // paper order is placed through the same server route.
+        timeoutMs: 60_000,
         method: 'POST', headers,
+
         body: JSON.stringify({
           symbol: symbol.trade, direction, order_type: orderType,
           entry_price: effectiveEntryPrice, stop_loss: Number(stopLoss),
@@ -529,15 +537,27 @@ export function ManualTradingPage() {
           preferred_broker: quickSymbol.tv ? (quickSymbol.brokerId ?? null) : (quickSymbol.perp ? exchange.id : null),
         }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'Order failed.');
-      setResult({ ok: true, message: data.message, tradeId: data.trade_id });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        const detail = typeof data?.detail === 'string' ? data.detail : null;
+        throw new Error(detail || `Order rejected by the server (${res.status}).`);
+      }
+      setResult({ ok: true, message: data?.message ?? 'Order placed.', tradeId: data?.trade_id });
       setClosePrice(String(effectiveEntryPrice));
     } catch (err: any) {
-      setResult({ ok: false, message: err.message || 'Order failed.' });
+      // A bare "Failed to fetch"/"aborted" tells a trader nothing about
+      // what to do next — name the cause and the retry instead.
+      const network = err?.name === 'AbortError' || /failed to fetch|network|load failed/i.test(err?.message || '');
+      setResult({
+        ok: false,
+        message: network
+          ? 'Could not reach the trading server — it may still be waking up. Wait a few seconds and place the order again.'
+          : err?.message || 'Order failed.',
+      });
     } finally {
       setSubmitting(false);
     }
+
   }
 
   async function submitPartialClose() {
@@ -855,33 +875,31 @@ export function ManualTradingPage() {
 
         {addingSymbol && (
           <div className={`rounded-lg border p-3 mb-3 ${dark ? 'bg-corporate-surface-dark border-corporate-border-dark' : 'bg-white border-gray-200'}`}>
-            {/* Real TradingView symbol search — ANY instrument on ANY
-                exchange TradingView covers (crypto, forex, stocks,
-                indices, commodities...), not restricted to Binance
-                futures any more, by direct request ("instead of fixing
-                to futures only allow me to search using the tradingview
-                search engine and enter any instrument of interest ...
-                this should tie automatically to the exchange"). Picking
-                a result below carries its own real exchange with it —
-                nothing to pick separately. */}
+            {/* Panel is closed by default and folds itself back the
+                moment an instrument is picked (addQuickSymbolFromResult),
+                by direct request. The list below shows the full
+                inventory straight away — no typing needed. */}
             <input
               autoFocus
               placeholder="Search any instrument — e.g. AAPL, XAUUSD, EURUSD, BTCUSDT, NAS100…"
               value={addQuery}
               onChange={(e) => setAddQuery(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') addQuickSymbolOnEnter(addQuery); }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') addQuickSymbolOnEnter(addQuery);
+                if (e.key === 'Escape') { setAddingSymbol(false); setAddQuery(''); }
+              }}
               className={`w-full rounded-lg px-3 py-2 text-sm outline-none border ${dark ? 'bg-corporate-nav-dark border-corporate-border-dark text-white' : 'bg-white border-gray-200'}`}
             />
-            {addSearching && (
-              <div className={`text-xs mt-1.5 ${dark ? 'text-white/30' : 'text-gray-400'}`}>Searching…</div>
-            )}
-            {!addSearching && addQuery.trim().length >= 2 && addResults.length === 0 && (
-              <div className={`text-xs mt-1.5 ${dark ? 'text-white/30' : 'text-gray-400'}`}>
-                No matches — you can still type an exact "EXCHANGE:TICKER" (e.g. "NASDAQ:AAPL") and press Enter.
-              </div>
-            )}
+            <div className={`flex items-center justify-between text-xs mt-1.5 ${dark ? 'text-white/30' : 'text-gray-400'}`}>
+              <span>
+                {addResults.length > 0
+                  ? `${addResults.length} instrument${addResults.length === 1 ? '' : 's'}${addQuery.trim() ? ' matching' : ' available'}`
+                  : 'No matches — type an exact "EXCHANGE:TICKER" (e.g. "NASDAQ:AAPL") and press Enter.'}
+              </span>
+              {addSearching && <span>Searching…</span>}
+            </div>
             {addResults.length > 0 && (
-              <div className={`mt-1.5 max-h-40 overflow-y-auto rounded-lg border ${dark ? 'border-corporate-border-dark' : 'border-gray-200'}`}>
+              <div className={`mt-1.5 max-h-56 overflow-y-auto rounded-lg border ${dark ? 'border-corporate-border-dark' : 'border-gray-200'}`}>
                 {addResults.map((i) => (
                   <button
                     key={`${i.exchange}:${i.symbol}`}
@@ -895,8 +913,9 @@ export function ManualTradingPage() {
               </div>
             )}
             <div className={`text-[11px] mt-2 ${dark ? 'text-white/30' : 'text-gray-400'}`}>
-              Adds the real TradingView symbol you pick, tied to its own exchange automatically.
+              Adds the real TradingView symbol you pick, tied to its own exchange automatically. This panel closes itself once you choose.
             </div>
+
           </div>
         )}
 

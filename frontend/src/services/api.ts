@@ -3,6 +3,8 @@ import axios from 'axios';
 import { Trade, BotConfig, BotPerformance, BotMetricsUpdate, DashboardStats, SignalPreview, PerformanceSummary } from '../types';
 import { useAuthStore } from '../hooks/useAuth';
 import { triggerAccessExpired } from '../components/AccessExpiredGate';
+import { handleUnauthorized } from '../lib/authGuard';
+
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -37,13 +39,13 @@ api.interceptors.response.use(
       triggerAccessExpired(detail);
     }
 
-    if (status === 401 && useAuthStore.getState().token) {
-      useAuthStore.getState().logout();
-      if (window.location.pathname !== '/login') {
-        const destination = `${window.location.pathname}${window.location.search}${window.location.hash}`;
-        window.location.assign(`/login?returnTo=${encodeURIComponent(destination)}`);
-      }
+    if (status === 401) {
+      // Only a token /auth/me itself rejects ends the session — see
+      // lib/authGuard.ts (this used to log out on ANY 401, which is
+      // what produced the perpetual sign-in loop).
+      void handleUnauthorized();
     }
+
 
     return Promise.reject(error);
   },

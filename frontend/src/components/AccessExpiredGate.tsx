@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Clock, ShieldCheck, RefreshCw } from 'lucide-react';
 import { CardLogoBand } from './CardLogoBand';
 import { useThemeStore } from '../hooks/useTheme';
-import { useAuthStore } from '../hooks/useAuth';
+import { handleUnauthorized } from '../lib/authGuard';
 
 /**
  * AccessExpiredGate — matches the exact card design confirmed working
@@ -97,9 +97,16 @@ export function AccessExpiredGate({ children }: { children: React.ReactNode }) {
   );
 }
 
-export async function apiFetch(input: RequestInfo, init?: RequestInit): Promise<Response> {
+export async function apiFetch(
+  input: RequestInfo,
+  init?: RequestInit & { timeoutMs?: number },
+): Promise<Response> {
   const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), 20_000);
+  // Default 20s, but a caller can ask for longer — order placement does
+  // (60s): a free-tier backend waking from sleep regularly needs more
+  // than 20s for the FIRST request, and an aborted request surfaces to
+  // the trader as a bare "failed to fetch" on the Place Order button.
+  const timeout = window.setTimeout(() => controller.abort(), init?.timeoutMs ?? 20_000);
   const abortFromCaller = () => controller.abort();
   init?.signal?.addEventListener('abort', abortFromCaller, { once: true });
 
@@ -119,12 +126,10 @@ export async function apiFetch(input: RequestInfo, init?: RequestInit): Promise<
     init?.signal?.removeEventListener('abort', abortFromCaller);
   }
 
-  if (res.status === 401 && useAuthStore.getState().token) {
-    useAuthStore.getState().logout();
-    if (window.location.pathname !== '/login') {
-      const destination = `${window.location.pathname}${window.location.search}${window.location.hash}`;
-      window.location.assign(`/login?returnTo=${encodeURIComponent(destination)}`);
-    }
+  if (res.status === 401) {
+    // Verified against /auth/me first — see lib/authGuard.ts for why a
+    // bare 401 must not end the session.
+    void handleUnauthorized();
   }
   if (res.status === 402) {
     const body = await res.clone().json().catch(() => null);
@@ -134,3 +139,4 @@ export async function apiFetch(input: RequestInfo, init?: RequestInit): Promise<
   }
   return res;
 }
+

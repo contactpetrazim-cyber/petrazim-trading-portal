@@ -10,6 +10,7 @@ import { PlatformOverviewPanel } from '../components/PlatformOverviewPanel';
 import { RoleAdministrationPanel } from '../components/RoleAdministrationPanel';
 import { useAuth } from '../hooks/useAuth';
 import { apiFetch } from '../components/AccessExpiredGate';
+import { PremiumOverviewCard } from '../components/PremiumOverviewCard';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -127,6 +128,10 @@ export function AdminConsolePage() {
           </p>
         </div>
         <RoleBadge user={user} />
+      </div>
+
+      <div className="mb-4">
+        <PremiumOverviewCard subtitle="The same live premium dashboard the Trader console opens — today's trades, profit, drawdown, active trades, configured risk, 30-day equity curve, live chart, pending approvals, bots and learning progress." />
       </div>
 
       <div className="mb-4">
