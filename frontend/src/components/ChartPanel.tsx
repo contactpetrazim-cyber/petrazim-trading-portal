@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Maximize2, Minimize2, Sun, Moon, TrendingUp, X, Zap, Receipt } from 'lucide-react';
+import { Maximize2, Minimize2, Sun, Moon, TrendingUp, X, Zap, Receipt, CandlestickChart } from 'lucide-react';
 import { TradingViewChart } from './TradingViewChart';
 import { CandleColorPicker } from './CandleColorPicker';
 import { useEffectiveChartColors } from '../hooks/useCandleColors';
@@ -40,6 +40,8 @@ export function ChartPanel({
   onQuickFill,
   orderFormOpen,
   onToggleOrderForm,
+  pairsOpen,
+  onTogglePairs,
 }: {
   symbol: string;
   interval?: string;
@@ -63,6 +65,14 @@ export function ChartPanel({
    * completely to provide more space to the chart"). */
   orderFormOpen?: boolean;
   onToggleOrderForm?: () => void;
+  /** Pass both to show a "Pairs" toggle right next to Order — by
+   * direct request ("collapse all the quick links pairs and exchanges
+   * as a 'Pairs' button next to 'Order' button — same style, format and
+   * action, default folded"). Same toggle contract as Order: one click
+   * unfolds the instrument quick-links + Exchange rows, another folds
+   * them away so the chart keeps the space. */
+  pairsOpen?: boolean;
+  onTogglePairs?: () => void;
 }) {
   const navigate = useNavigate();
   const effectiveSpecsSymbol = specsSymbol ?? tradeSymbol;
@@ -112,6 +122,18 @@ export function ChartPanel({
             className={`p-1.5 rounded-md flex items-center gap-1.5 text-xs font-medium disabled:opacity-50 ${containerDark ? 'text-white/50 hover:text-white/80 bg-white/5' : 'text-gray-500 hover:text-gray-700 bg-black/5'}`}
           >
             <Zap size={13} /> Price
+          </button>
+        )}
+        {onTogglePairs && (
+          <button
+            onClick={onTogglePairs}
+            aria-label={pairsOpen ? 'Hide pairs and exchanges' : 'Show pairs and exchanges'}
+            title={pairsOpen ? 'Hide pairs and exchanges' : 'Pairs and exchanges'}
+            className={`p-1.5 rounded-md flex items-center gap-1.5 text-xs font-medium ${
+              pairsOpen ? 'bg-blue-600 text-white' : containerDark ? 'text-white/50 hover:text-white/80 bg-white/5' : 'text-gray-500 hover:text-gray-700 bg-black/5'
+            }`}
+          >
+            <CandlestickChart size={13} /> Pairs
           </button>
         )}
         {onToggleOrderForm && (

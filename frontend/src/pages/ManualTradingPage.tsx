@@ -381,6 +381,11 @@ export function ManualTradingPage() {
   // — one click opens, another click hides the whole form — by direct
   // request.
   const [orderFormOpen, setOrderFormOpen] = useState(false);
+  // Pairs + Exchange rows are folded by default and toggled by a
+  // "Pairs" button sitting next to "Order" in the chart toolbar — by
+  // direct request. Folding also closes the instrument search, since
+  // that panel is only reachable from the "+" inside the folded group.
+  const [pairsOpen, setPairsOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; message: string; tradeId?: string } | null>(null);
   const [closePercent, setClosePercent] = useState('100');
@@ -784,10 +789,13 @@ export function ManualTradingPage() {
           </div>
         )}
 
-        {/* Symbol picker lives OUTSIDE the two-column layout below, so
+        {/* Pairs + Exchange, folded by default behind the "Pairs"
+            toolbar button next to "Order" — by direct request. Kept
+            OUTSIDE the two-column layout below, so
             both the chart and the order ticket start at the exact same
             top edge — it used to sit only above the chart, pushing the
             chart's own top down below the order form's. */}
+        {pairsOpen && (
         <div className="flex items-center gap-2 mb-3 flex-wrap">
           {/* Instrument quick-links — same pill "format and dimension"
               as the Exchange group right next to it, by direct
@@ -872,8 +880,9 @@ export function ManualTradingPage() {
             ))}
           </div>
         </div>
+        )}
 
-        {addingSymbol && (
+        {pairsOpen && addingSymbol && (
           <div className={`rounded-lg border p-3 mb-3 ${dark ? 'bg-corporate-surface-dark border-corporate-border-dark' : 'bg-white border-gray-200'}`}>
             {/* Panel is closed by default and folds itself back the
                 moment an instrument is picked (addQuickSymbolFromResult),
@@ -951,6 +960,8 @@ export function ManualTradingPage() {
             onQuickFill={(price) => setEntryPrice(String(price))}
             orderFormOpen={orderFormOpen}
             onToggleOrderForm={() => setOrderFormOpen((o) => !o)}
+            pairsOpen={pairsOpen}
+            onTogglePairs={() => setPairsOpen((o) => { if (o) setAddingSymbol(false); return !o; })}
           />
 
           {orderFormOpen && (
