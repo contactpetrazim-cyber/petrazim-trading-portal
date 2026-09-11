@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { HardDrive, MonitorSmartphone, AlertTriangle, Download, Upload, RotateCcw, X, Wifi, WifiOff } from 'lucide-react';
 import { useInstallPromptStore } from '../hooks/useInstallPrompt';
 import { DEFAULT_CANDLE_COLORS, DEFAULT_CHART_STYLE, CHART_STYLES } from '../hooks/useCandleColors';
+import { CloudBackupCard } from './CloudBackupCard';
+
 
 const THEME_KEY = 'petrazim-theme';
 const CHART_KEY = 'petrazim-candle-colors';
@@ -176,6 +178,10 @@ export function BackupOfflinePanel({ onClose }: { onClose: () => void }) {
               Importing replaces these preferences on this device — export first if you want to keep what's here.
             </p>
           </div>
+
+          <CloudBackupCard />
+
+
 
           <div className={cardCls}>
             <div className={sectionTitleCls}><MonitorSmartphone size={15} /> Install & Offline</div>
