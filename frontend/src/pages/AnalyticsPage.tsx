@@ -1,17 +1,216 @@
-import React from 'react';
-import { Box, Typography } from '@mui/material';
+import { useEffect, useState } from 'react';
+import { BarChart3, Percent, Target, TrendingDown, TrendingUp, DollarSign } from 'lucide-react';
+import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Legend, Cell } from 'recharts';
+import { StatCard } from '../components/StatCard';
+import { FoldedCard } from '../components/FoldedCard';
+import { LoadingIndicator } from '../components/LoadingIndicator';
+import { TradeAnalytics } from '../components/TradeAnalytics';
+import { dashboardApi } from '../services/api';
+import { PerformanceSummary } from '../types';
+import { useThemeStore } from '../hooks/useTheme';
+import type { FetchPhase } from '../lib/resilientFetch';
 
-const AnalyticsPage: React.FC = () => {
+const PERIODS: { id: '1d' | '7d' | '30d' | '90d'; label: string }[] = [
+  { id: '1d', label: '1D' },
+  { id: '7d', label: '7D' },
+  { id: '30d', label: '30D' },
+  { id: '90d', label: '90D' },
+];
+
+const RETRY_DELAYS_MS = [1500, 3000, 5000, 8000, 12000, 15000, 20000, 20000];
+
+export function AnalyticsPage() {
+  const { theme } = useThemeStore();
+  const dark = theme === 'dark';
+  const [period, setPeriod] = useState<'1d' | '7d' | '30d' | '90d'>('7d');
+  const [summary, setSummary] = useState<PerformanceSummary | null>(null);
+  const [allPeriods, setAllPeriods] = useState<Record<string, PerformanceSummary | null>>({});
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [phase, setPhase] = useState<FetchPhase>('idle');
+  const [retryTick, setRetryTick] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load(): Promise<'ok' | 'retry' | 'stop'> {
+      try {
+        const results = await Promise.all(PERIODS.map((p) => dashboardApi.getPerformance(p.id)));
+        if (cancelled) return 'ok';
+        const map: Record<string, PerformanceSummary | null> = {};
+        PERIODS.forEach((p, i) => { map[p.id] = results[i]?.[0] ?? null; });
+        setAllPeriods(map);
+        setSummary(map[period] ?? null);
+        setError(null);
+        return 'ok';
+      } catch (e: any) {
+        const status = e?.response?.status;
+        if (typeof status === 'number' && status >= 400 && status < 500) return 'stop';
+        return 'retry';
+      }
+    }
+
+    async function loadWithRetry() {
+      setLoading(true);
+      setPhase('loading');
+      for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+        const result = await load();
+        if (cancelled) return;
+        if (result === 'ok') { setPhase('ready'); setLoading(false); return; }
+        if (result === 'stop') {
+          setError('Could not load analytics performance right now.');
+          setPhase('failed');
+          setLoading(false);
+          return;
+        }
+        setPhase(attempt >= 2 ? 'stalled' : 'loading');
+        if (attempt < RETRY_DELAYS_MS.length) {
+          await new Promise((r) => setTimeout(r, RETRY_DELAYS_MS[attempt]));
+        }
+      }
+      if (cancelled) return;
+      setError('Could not load analytics performance right now.');
+      setPhase('failed');
+      setLoading(false);
+    }
+
+    loadWithRetry();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [retryTick]);
+
+  useEffect(() => {
+    setSummary(allPeriods[period] ?? null);
+  }, [period, allPeriods]);
+
+  const gridColor = dark ? '#1f2937' : '#e5e7eb';
+  const axisColor = '#6b7280';
+  const comparisonData = PERIODS.map((p) => ({
+    period: p.label,
+    win_rate: allPeriods[p.id]?.win_rate ?? 0,
+    profit_factor: allPeriods[p.id]?.profit_factor ?? 0,
+    max_drawdown_pct: allPeriods[p.id]?.max_drawdown_pct ?? 0,
+    net_pnl: allPeriods[p.id]?.net_pnl ?? 0,
+    average_r_multiple: allPeriods[p.id]?.average_r_multiple ?? 0,
+  }));
+
   return (
-    <Box>
-      <Typography variant="h4" gutterBottom>
-        Analytics
-      </Typography>
-      <Typography variant="body1">
-        This is the Analytics Page.
-      </Typography>
-    </Box>
-  );
-};
+    <div className="space-y-6">
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h2 className="text-2xl font-bold flex items-center gap-2">
+            <BarChart3 size={22} className={dark ? 'text-smc-accent' : 'text-corporate-hero'} /> Analytics
+          </h2>
+          <p className="text-gray-400 text-sm mt-1">Real performance metrics from your own closed trades</p>
+        </div>
+        <div className={`flex gap-1 p-1 rounded-lg ${dark ? 'bg-white/5' : 'bg-corporate-bg'}`}>
+          {PERIODS.map((p) => (
+            <button
+              key={p.id}
+              onClick={() => setPeriod(p.id)}
+              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                period === p.id
+                  ? dark ? 'bg-smc-accent text-white' : 'bg-corporate-hero text-white'
+                  : dark ? 'text-white/50 hover:text-white' : 'text-gray-500 hover:text-corporate-text-on-bg'
+              }`}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+      </div>
 
-export default AnalyticsPage;
+      {loading && <div className="max-w-xs"><LoadingIndicator phase={phase} dark={dark} /></div>}
+
+      {!loading && error && (
+        <div className={`flex items-center justify-between gap-3 text-sm rounded-xl p-3 ${dark ? 'bg-red-500/10 text-red-300' : 'bg-red-50 text-red-600'}`}>
+          <span>{error}</span>
+          <button
+            onClick={() => { setPhase('idle'); setRetryTick((n) => n + 1); }}
+            className={`shrink-0 underline font-medium ${dark ? 'text-white/70 hover:text-white' : 'text-gray-700 hover:text-gray-900'}`}
+          >
+            Try again
+          </button>
+        </div>
+      )}
+
+      {!loading && !error && !summary && (
+        <div className={`text-center py-16 text-gray-400 border rounded-xl ${dark ? 'bg-smc-card border-smc-border' : 'bg-white border-corporate-bg'}`}>
+          No closed trades in this period yet — metrics fill in as trades close.
+        </div>
+      )}
+
+      {summary && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+          <StatCard title="Closed Trades" value={summary.total_trades} subtitle={`Last ${period}`} icon={<Target size={20} />} color="blue" />
+          <StatCard title="Win Rate" value={`${summary.win_rate}%`} subtitle="Wins / closed trades" icon={<Percent size={20} />} color={summary.win_rate >= 50 ? 'green' : 'amber'} />
+          <StatCard title="Profit Factor" value={summary.profit_factor} subtitle="Gross profit / gross loss" icon={<TrendingUp size={20} />} color={summary.profit_factor >= 1 ? 'green' : 'red'} />
+          <StatCard title="Avg R-Multiple" value={summary.average_r_multiple} subtitle="Realized R per trade" icon={<BarChart3 size={20} />} color={summary.average_r_multiple >= 0 ? 'green' : 'red'} />
+          <StatCard title="Max Drawdown" value={`${summary.max_drawdown_pct}%`} subtitle="Peak-to-trough, this period" icon={<TrendingDown size={20} />} color={summary.max_drawdown_pct > 10 ? 'red' : 'amber'} />
+          <StatCard title="Net P&L" value={`${summary.net_pnl >= 0 ? '+' : ''}$${summary.net_pnl.toFixed(2)}`} subtitle="Realized, this period" icon={<DollarSign size={20} />} color={summary.net_pnl >= 0 ? 'green' : 'red'} />
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <FoldedCard title="Win Rate & Profit Factor by Period" summary="How your edge holds up over 1D/7D/30D/90D" dark={dark}>
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart data={comparisonData}>
+              <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
+              <XAxis dataKey="period" stroke={axisColor} fontSize={12} />
+              <YAxis stroke={axisColor} fontSize={12} />
+              <Tooltip contentStyle={{ backgroundColor: dark ? '#111827' : '#fff', border: `1px solid ${gridColor}`, borderRadius: 8, fontSize: 12 }} />
+              <Legend wrapperStyle={{ fontSize: 12 }} />
+              <Bar dataKey="win_rate" name="Win Rate %" fill="#3b82f6" radius={[3, 3, 0, 0]} />
+              <Bar dataKey="profit_factor" name="Profit Factor" fill="#22c55e" radius={[3, 3, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </FoldedCard>
+
+        <FoldedCard title="Max Drawdown by Period" summary="Peak-to-trough decline, each window compared" dark={dark}>
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart data={comparisonData}>
+              <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
+              <XAxis dataKey="period" stroke={axisColor} fontSize={12} />
+              <YAxis stroke={axisColor} fontSize={12} unit="%" />
+              <Tooltip contentStyle={{ backgroundColor: dark ? '#111827' : '#fff', border: `1px solid ${gridColor}`, borderRadius: 8, fontSize: 12 }} />
+              <Bar dataKey="max_drawdown_pct" name="Max Drawdown %" fill="#ef4444" radius={[3, 3, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </FoldedCard>
+
+        <FoldedCard title="Net P&L by Period" summary="Realized profit/loss, each window compared" dark={dark}>
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart data={comparisonData}>
+              <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
+              <XAxis dataKey="period" stroke={axisColor} fontSize={12} />
+              <YAxis stroke={axisColor} fontSize={12} tickFormatter={(v) => `$${v}`} />
+              <Tooltip formatter={(v: number) => `$${v.toFixed(2)}`} contentStyle={{ backgroundColor: dark ? '#111827' : '#fff', border: `1px solid ${gridColor}`, borderRadius: 8, fontSize: 12 }} />
+              <Bar dataKey="net_pnl" name="Net P&L" radius={[3, 3, 0, 0]}>
+                {comparisonData.map((d, i) => <Cell key={i} fill={d.net_pnl >= 0 ? '#22c55e' : '#ef4444'} />)}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </FoldedCard>
+
+        <FoldedCard title="Avg R-Multiple by Period" summary="Realized R per trade, each window compared" dark={dark}>
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart data={comparisonData}>
+              <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
+              <XAxis dataKey="period" stroke={axisColor} fontSize={12} />
+              <YAxis stroke={axisColor} fontSize={12} unit="R" />
+              <Tooltip formatter={(v: number) => `${v.toFixed(2)}R`} contentStyle={{ backgroundColor: dark ? '#111827' : '#fff', border: `1px solid ${gridColor}`, borderRadius: 8, fontSize: 12 }} />
+              <Bar dataKey="average_r_multiple" name="Avg R-Multiple" radius={[3, 3, 0, 0]}>
+                {comparisonData.map((d, i) => <Cell key={i} fill={d.average_r_multiple >= 0 ? '#22c55e' : '#ef4444'} />)}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </FoldedCard>
+      </div>
+
+      <div>
+        <h3 className={`text-sm font-bold uppercase tracking-wide mb-3 ${dark ? 'text-white/40' : 'text-gray-500'}`}>Trade Analysis</h3>
+        <TradeAnalytics dark={dark} />
+      </div>
+    </div>
+  );
+}
