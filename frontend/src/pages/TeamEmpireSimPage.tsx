@@ -4,6 +4,7 @@ import { EmpireSimEngine, type EmpireSimConfig } from '../components/EmpireSimEn
 import { PROP_FIRM_EMPIRE_CONFIG } from '../config/propFirmEmpireConfig';
 import { TRADING_PSYCHOLOGY_EMPIRE_CONFIG } from '../config/tradingPsychologyEmpireConfig';
 import { ORDER_FLOW_EMPIRE_CONFIG } from '../config/orderFlowEmpireConfig';
+import { TRADE_MANAGEMENT_EMPIRE_CONFIG } from '../config/tradeManagementEmpireConfig';
 import { useThemeStore } from '../hooks/useTheme';
 
 /**
@@ -11,8 +12,8 @@ import { useThemeStore } from '../hooks/useTheme';
  * shared engine + configs" (the spec's own framing): EmpireSimEngine
  * never changes, only which EmpireSimConfig is handed to it. Starts
  * on a scenario picker rather than jumping straight into the Prop
- * Firm config, since that was the only one that existed — with three
- * real configs now, hardcoding one would silently hide the other two.
+ * Firm config, since that was the only one that existed — with four
+ * real configs now, hardcoding one would silently hide the other three.
  * Not scored/persisted like the solo games — this is a same-screen
  * group activity, not an individual XP-earning drill, matching the
  * spec's own framing of it as a distinct feature from Section 10a.
@@ -21,6 +22,7 @@ const SCENARIOS: { config: EmpireSimConfig; description: string }[] = [
   { config: PROP_FIRM_EMPIRE_CONFIG, description: 'Funded-account risk management — 8 weeks of a prop firm challenge.' },
   { config: TRADING_PSYCHOLOGY_EMPIRE_CONFIG, description: 'Emotional regulation under drawdown, tilt, and winning streaks.' },
   { config: ORDER_FLOW_EMPIRE_CONFIG, description: 'Tape reading calls — absorption, stop hunts, icebergs, volume profile.' },
+  { config: TRADE_MANAGEMENT_EMPIRE_CONFIG, description: 'Managing trades already open — partials, breakeven timing, trailing, pyramiding.' },
 ];
 
 export function TeamEmpireSimPage() {
@@ -53,7 +55,7 @@ export function TeamEmpireSimPage() {
   return (
     <div>
       <PageHeader title="Team Empire Simulation" subtitle="Pick a scenario — 4-5 teams, same-screen pass-and-play." />
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {SCENARIOS.map(({ config, description }) => (
           <button key={config.theme} onClick={() => setSelected(config)} className={cardCls}>
             <div className={`text-base font-semibold mb-1.5 ${dark ? 'text-white' : 'text-corporate-text-on-bg'}`}>
