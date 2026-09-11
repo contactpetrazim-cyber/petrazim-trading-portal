@@ -7,6 +7,7 @@ import { CardLogoBand } from '../components/CardLogoBand';
 import { PortalSelectionCard, PortalOption } from '../components/PortalSelectionCard';
 import { GoogleSignInButton } from '../components/GoogleSignInButton';
 import { HERO_GRADIENT } from '../config/theme';
+import { apiFetch } from '../components/AccessExpiredGate';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -73,7 +74,7 @@ export function LoginPage() {
   async function handlePostLogin(data: { access_token: string; user: any }) {
     setAuth(data.access_token, data.user);
 
-    const portalsRes = await fetch(`${API_URL}/auth/available-portals`, {
+    const portalsRes = await apiFetch(`${API_URL}/auth/available-portals`, {
       headers: { Authorization: `Bearer ${data.access_token}` },
     });
     if (portalsRes.ok) {
@@ -83,7 +84,9 @@ export function LoginPage() {
         return;
       }
     }
-    navigate(data.user.landing_route);
+    const requested = searchParams.get('returnTo');
+    const safeRequested = requested?.startsWith('/') && !requested.startsWith('//') ? requested : null;
+    navigate(safeRequested ?? data.user.landing_route);
   }
 
   async function handleSignIn(e: React.FormEvent) {
@@ -91,7 +94,7 @@ export function LoginPage() {
     setError(null);
     setLoading(true);
     try {
-      const res = await fetch(`${API_URL}/auth/login`, {
+      const res = await apiFetch(`${API_URL}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
@@ -121,7 +124,7 @@ export function LoginPage() {
     }
     setLoading(true);
     try {
-      const res = await fetch(`${API_URL}/auth/register`, {
+      const res = await apiFetch(`${API_URL}/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password, full_name: fullName, phone: phone || null }),
@@ -132,7 +135,7 @@ export function LoginPage() {
         throw new Error(body.detail || 'Registration failed');
       }
 
-      const loginRes = await fetch(`${API_URL}/auth/login`, {
+      const loginRes = await apiFetch(`${API_URL}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
@@ -157,7 +160,7 @@ export function LoginPage() {
   return (
     <div className={`min-h-screen flex items-center justify-center p-4 ${dark ? 'bg-[#0a0e1a]' : 'bg-corporate-bg'}`}>
       <div
-        className={`rounded-3xl p-8 max-w-md w-full text-center shadow-2xl ${
+        className={`min-w-0 overflow-hidden rounded-3xl p-8 max-w-md w-full text-center shadow-2xl ${
           dark ? 'bg-corporate-surface-dark' : 'bg-white'
         }`}
       >

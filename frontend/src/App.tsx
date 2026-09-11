@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { TopNav } from './components/TopNav';
@@ -7,72 +7,74 @@ import { FloatingTradeAI } from './components/FloatingTradeAI';
 import { ProgrammeStepsModal } from './components/ProgrammeStepsModal';
 import { useThemeStore } from './hooks/useTheme';
 import { useInstallPromptStore } from './hooks/useInstallPrompt';
-import { DashboardPage } from './pages/Dashboard';
-import { AnalyticsPage } from './pages/AnalyticsPage';
-import { TradesPage } from './pages/Trades';
-import { BotsPage } from './pages/Bots';
-import { RiskPage } from './pages/RiskPage';
-import { LoginPage } from './pages/LoginPage';
-import { ManagerConsolePage } from './pages/ManagerConsolePage';
-import { PartnerConsolePage } from './pages/PartnerConsolePage';
-import { AdminConsolePage } from './pages/AdminConsolePage';
-import { OnboardingPage } from './pages/OnboardingPage';
-import { TradingViewFramePage } from './pages/TradingViewFramePage';
-import { ChartPage } from './pages/ChartPage';
-import { SiteMapPage } from './pages/SiteMapPage';
-import { MeetingsPage } from './pages/MeetingsPage';
-import { CorporateHomePage } from './pages/CorporateHomePage';
-import { AreaPage } from './pages/AreaPage';
-import { LearnPage } from './pages/LearnPage';
-import { LearnTrackPage } from './pages/LearnTrackPage';
-import { LessonPage } from './pages/LessonPage';
-import { MasteryOverviewPage } from './pages/MasteryOverviewPage';
-import { AwardsPage } from './pages/AwardsPage';
-import { MyReflectionsPage } from './pages/MyReflectionsPage';
-import { MyNotesPage } from './pages/MyNotesPage';
-import { RevisionPlannerPage } from './pages/RevisionPlannerPage';
-import { SetupSpotterGame } from './pages/SetupSpotterGame';
-import { RiskTriageGame } from './pages/RiskTriageGame';
-import { BiasCheckGame } from './pages/BiasCheckGame';
-import { RiskManagementDecisionLab } from './pages/RiskManagementDecisionLab';
-import { TradingPsychologyDecisionLab } from './pages/TradingPsychologyDecisionLab';
-import { MarketStructureDecisionLab } from './pages/MarketStructureDecisionLab';
-import { OrderFlowDecisionLab } from './pages/OrderFlowDecisionLab';
-import { MarketBasicsDecisionLab } from './pages/decisionLabs/MarketBasicsDecisionLab';
-import { LiquidityDecisionLab } from './pages/decisionLabs/LiquidityDecisionLab';
-import { SupplyDemandDecisionLab } from './pages/decisionLabs/SupplyDemandDecisionLab';
-import { FVGDecisionLab } from './pages/decisionLabs/FVGDecisionLab';
-import { PremiumDiscountDecisionLab } from './pages/decisionLabs/PremiumDiscountDecisionLab';
-import { MTFDecisionLab } from './pages/decisionLabs/MTFDecisionLab';
-import { TradeManagementDecisionLab } from './pages/decisionLabs/TradeManagementDecisionLab';
-import { BookKnowledgeDecisionLab } from './pages/decisionLabs/BookKnowledgeDecisionLab';
-import { Bot1DecisionLab } from './pages/decisionLabs/Bot1DecisionLab';
-import { Bot2DecisionLab } from './pages/decisionLabs/Bot2DecisionLab';
-import { Bot3DecisionLab } from './pages/decisionLabs/Bot3DecisionLab';
-import { Bot4DecisionLab } from './pages/decisionLabs/Bot4DecisionLab';
-import { Bot5DecisionLab } from './pages/decisionLabs/Bot5DecisionLab';
-import { VisualGlossaryPage } from './pages/VisualGlossaryPage';
-import { WhatHappensNextGame } from './pages/WhatHappensNextGame';
-import { ConceptSpotterGame } from './pages/ConceptSpotterGame';
-import { CaseStudyWalkthroughPage } from './pages/CaseStudyWalkthroughPage';
-import { ZoneTapperGame } from './pages/ZoneTapperGame';
-import { TeamEmpireSimPage } from './pages/TeamEmpireSimPage';
-import { MTFAlignmentGame } from './pages/MTFAlignmentGame';
-import { TradeManagementGame } from './pages/TradeManagementGame';
-import { WyckoffPhaseSorterGame } from './pages/WyckoffPhaseSorterGame';
-import { LiquidityMatchGame } from './pages/LiquidityMatchGame';
-import { PracticeDrillsPage } from './pages/PracticeDrillsPage';
-import { RetentionReviewPage } from './pages/RetentionReviewPage';
-import { TradingGamePage } from './pages/TradingGamePage';
-import { ToolsPage } from './pages/ToolsPage';
-import { OrderFlowFullPage } from './pages/OrderFlowFullPage';
-import { InsightsPage } from './pages/InsightsPage';
-import { CommunityPage } from './pages/CommunityPage';
-import { ManualTradingPage } from './pages/ManualTradingPage';
-import { TradePage } from './pages/TradePage';
-import { PaymentsPage } from './pages/PaymentsPage';
+const DashboardPage = lazy(() => import('./pages/Dashboard').then((module) => ({ default: module.DashboardPage })));
+const AnalyticsPage = lazy(() => import('./pages/AnalyticsPage').then((module) => ({ default: module.AnalyticsPage })));
+const TradesPage = lazy(() => import('./pages/Trades').then((module) => ({ default: module.TradesPage })));
+const BotsPage = lazy(() => import('./pages/Bots').then((module) => ({ default: module.BotsPage })));
+const RiskPage = lazy(() => import('./pages/RiskPage').then((module) => ({ default: module.RiskPage })));
+const LoginPage = lazy(() => import('./pages/LoginPage').then((module) => ({ default: module.LoginPage })));
+const ManagerConsolePage = lazy(() => import('./pages/ManagerConsolePage').then((module) => ({ default: module.ManagerConsolePage })));
+const PartnerConsolePage = lazy(() => import('./pages/PartnerConsolePage').then((module) => ({ default: module.PartnerConsolePage })));
+const AdminConsolePage = lazy(() => import('./pages/AdminConsolePage').then((module) => ({ default: module.AdminConsolePage })));
+const OnboardingPage = lazy(() => import('./pages/OnboardingPage').then((module) => ({ default: module.OnboardingPage })));
+const TradingViewFramePage = lazy(() => import('./pages/TradingViewFramePage').then((module) => ({ default: module.TradingViewFramePage })));
+const ChartPage = lazy(() => import('./pages/ChartPage').then((module) => ({ default: module.ChartPage })));
+const SiteMapPage = lazy(() => import('./pages/SiteMapPage').then((module) => ({ default: module.SiteMapPage })));
+const MeetingsPage = lazy(() => import('./pages/MeetingsPage').then((module) => ({ default: module.MeetingsPage })));
+const CorporateHomePage = lazy(() => import('./pages/CorporateHomePage').then((module) => ({ default: module.CorporateHomePage })));
+const AreaPage = lazy(() => import('./pages/AreaPage').then((module) => ({ default: module.AreaPage })));
+const LearnPage = lazy(() => import('./pages/LearnPage').then((module) => ({ default: module.LearnPage })));
+const LearnTrackPage = lazy(() => import('./pages/LearnTrackPage').then((module) => ({ default: module.LearnTrackPage })));
+const LessonPage = lazy(() => import('./pages/LessonPage').then((module) => ({ default: module.LessonPage })));
+const MasteryOverviewPage = lazy(() => import('./pages/MasteryOverviewPage').then((module) => ({ default: module.MasteryOverviewPage })));
+const AwardsPage = lazy(() => import('./pages/AwardsPage').then((module) => ({ default: module.AwardsPage })));
+const MyReflectionsPage = lazy(() => import('./pages/MyReflectionsPage').then((module) => ({ default: module.MyReflectionsPage })));
+const MyNotesPage = lazy(() => import('./pages/MyNotesPage').then((module) => ({ default: module.MyNotesPage })));
+const RevisionPlannerPage = lazy(() => import('./pages/RevisionPlannerPage').then((module) => ({ default: module.RevisionPlannerPage })));
+const SetupSpotterGame = lazy(() => import('./pages/SetupSpotterGame').then((module) => ({ default: module.SetupSpotterGame })));
+const RiskTriageGame = lazy(() => import('./pages/RiskTriageGame').then((module) => ({ default: module.RiskTriageGame })));
+const BiasCheckGame = lazy(() => import('./pages/BiasCheckGame').then((module) => ({ default: module.BiasCheckGame })));
+const RiskManagementDecisionLab = lazy(() => import('./pages/RiskManagementDecisionLab').then((module) => ({ default: module.RiskManagementDecisionLab })));
+const TradingPsychologyDecisionLab = lazy(() => import('./pages/TradingPsychologyDecisionLab').then((module) => ({ default: module.TradingPsychologyDecisionLab })));
+const MarketStructureDecisionLab = lazy(() => import('./pages/MarketStructureDecisionLab').then((module) => ({ default: module.MarketStructureDecisionLab })));
+const OrderFlowDecisionLab = lazy(() => import('./pages/OrderFlowDecisionLab').then((module) => ({ default: module.OrderFlowDecisionLab })));
+const MarketBasicsDecisionLab = lazy(() => import('./pages/decisionLabs/MarketBasicsDecisionLab').then((module) => ({ default: module.MarketBasicsDecisionLab })));
+const LiquidityDecisionLab = lazy(() => import('./pages/decisionLabs/LiquidityDecisionLab').then((module) => ({ default: module.LiquidityDecisionLab })));
+const SupplyDemandDecisionLab = lazy(() => import('./pages/decisionLabs/SupplyDemandDecisionLab').then((module) => ({ default: module.SupplyDemandDecisionLab })));
+const FVGDecisionLab = lazy(() => import('./pages/decisionLabs/FVGDecisionLab').then((module) => ({ default: module.FVGDecisionLab })));
+const PremiumDiscountDecisionLab = lazy(() => import('./pages/decisionLabs/PremiumDiscountDecisionLab').then((module) => ({ default: module.PremiumDiscountDecisionLab })));
+const MTFDecisionLab = lazy(() => import('./pages/decisionLabs/MTFDecisionLab').then((module) => ({ default: module.MTFDecisionLab })));
+const TradeManagementDecisionLab = lazy(() => import('./pages/decisionLabs/TradeManagementDecisionLab').then((module) => ({ default: module.TradeManagementDecisionLab })));
+const BookKnowledgeDecisionLab = lazy(() => import('./pages/decisionLabs/BookKnowledgeDecisionLab').then((module) => ({ default: module.BookKnowledgeDecisionLab })));
+const Bot1DecisionLab = lazy(() => import('./pages/decisionLabs/Bot1DecisionLab').then((module) => ({ default: module.Bot1DecisionLab })));
+const Bot2DecisionLab = lazy(() => import('./pages/decisionLabs/Bot2DecisionLab').then((module) => ({ default: module.Bot2DecisionLab })));
+const Bot3DecisionLab = lazy(() => import('./pages/decisionLabs/Bot3DecisionLab').then((module) => ({ default: module.Bot3DecisionLab })));
+const Bot4DecisionLab = lazy(() => import('./pages/decisionLabs/Bot4DecisionLab').then((module) => ({ default: module.Bot4DecisionLab })));
+const Bot5DecisionLab = lazy(() => import('./pages/decisionLabs/Bot5DecisionLab').then((module) => ({ default: module.Bot5DecisionLab })));
+const VisualGlossaryPage = lazy(() => import('./pages/VisualGlossaryPage').then((module) => ({ default: module.VisualGlossaryPage })));
+const WhatHappensNextGame = lazy(() => import('./pages/WhatHappensNextGame').then((module) => ({ default: module.WhatHappensNextGame })));
+const ConceptSpotterGame = lazy(() => import('./pages/ConceptSpotterGame').then((module) => ({ default: module.ConceptSpotterGame })));
+const CaseStudyWalkthroughPage = lazy(() => import('./pages/CaseStudyWalkthroughPage').then((module) => ({ default: module.CaseStudyWalkthroughPage })));
+const ZoneTapperGame = lazy(() => import('./pages/ZoneTapperGame').then((module) => ({ default: module.ZoneTapperGame })));
+const TeamEmpireSimPage = lazy(() => import('./pages/TeamEmpireSimPage').then((module) => ({ default: module.TeamEmpireSimPage })));
+const MTFAlignmentGame = lazy(() => import('./pages/MTFAlignmentGame').then((module) => ({ default: module.MTFAlignmentGame })));
+const TradeManagementGame = lazy(() => import('./pages/TradeManagementGame').then((module) => ({ default: module.TradeManagementGame })));
+const WyckoffPhaseSorterGame = lazy(() => import('./pages/WyckoffPhaseSorterGame').then((module) => ({ default: module.WyckoffPhaseSorterGame })));
+const LiquidityMatchGame = lazy(() => import('./pages/LiquidityMatchGame').then((module) => ({ default: module.LiquidityMatchGame })));
+const PracticeDrillsPage = lazy(() => import('./pages/PracticeDrillsPage').then((module) => ({ default: module.PracticeDrillsPage })));
+const RetentionReviewPage = lazy(() => import('./pages/RetentionReviewPage').then((module) => ({ default: module.RetentionReviewPage })));
+const TradingGamePage = lazy(() => import('./pages/TradingGamePage').then((module) => ({ default: module.TradingGamePage })));
+const ToolsPage = lazy(() => import('./pages/ToolsPage').then((module) => ({ default: module.ToolsPage })));
+const OrderFlowFullPage = lazy(() => import('./pages/OrderFlowFullPage').then((module) => ({ default: module.OrderFlowFullPage })));
+const InsightsPage = lazy(() => import('./pages/InsightsPage').then((module) => ({ default: module.InsightsPage })));
+const CommunityPage = lazy(() => import('./pages/CommunityPage').then((module) => ({ default: module.CommunityPage })));
+const ManualTradingPage = lazy(() => import('./pages/ManualTradingPage').then((module) => ({ default: module.ManualTradingPage })));
+const TradePage = lazy(() => import('./pages/TradePage').then((module) => ({ default: module.TradePage })));
+const PaymentsPage = lazy(() => import('./pages/PaymentsPage').then((module) => ({ default: module.PaymentsPage })));
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { AccessExpiredGate } from './components/AccessExpiredGate';
+import { AppErrorBoundary } from './components/AppErrorBoundary';
+import { RouteLoadingFallback } from './components/RouteLoadingFallback';
 import type { UserRole } from './hooks/useAuth';
 
 // Mirrors the backend's PORTAL_ACCESS hierarchy (services/portal_access.py):
@@ -138,7 +140,9 @@ function App() {
   return (
     <BrowserRouter>
       <AccessExpiredGate>
-      <Routes>
+      <AppErrorBoundary>
+        <Suspense fallback={<RouteLoadingFallback />}>
+          <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/onboarding" element={<OnboardingPage />} />
 
@@ -294,7 +298,9 @@ function App() {
             MERGE_MANIFEST.md "still queued" notes. Route to the Site Map
             instead of a blank screen until those land. */}
         <Route path="*" element={<Navigate to="/sitemap" replace />} />
-      </Routes>
+          </Routes>
+        </Suspense>
+      </AppErrorBoundary>
       </AccessExpiredGate>
     </BrowserRouter>
   );

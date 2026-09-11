@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { UserCog } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
+import { apiFetch } from './AccessExpiredGate';
 
 /**
  * RoleAdministrationPanel — promote/demote by email, adapted from the
@@ -40,7 +41,7 @@ export function RoleAdministrationPanel({ dark = true }: { dark?: boolean }) {
     setStatus(null);
     setSubmitting(true);
     try {
-      const res = await fetch(`${API_BASE}/admin/users/by-email/role`, {
+      const res = await apiFetch(`${API_BASE}/admin/users/by-email/role`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ email, new_role: newRole }),

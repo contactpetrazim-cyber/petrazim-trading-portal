@@ -10,6 +10,7 @@ import { useAuth } from '../hooks/useAuth';
 import { useTradeAIStore } from '../hooks/useTradeAI';
 import { PortalSelectionCard, PortalOption } from './PortalSelectionCard';
 import { BackupOfflinePanel } from './BackupOfflinePanel';
+import { apiFetch } from './AccessExpiredGate';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -60,7 +61,7 @@ export function SettingsPanel({
 
   async function openSwitchPortal() {
     if (!token) return;
-    const res = await fetch(`${API_URL}/auth/available-portals`, {
+    const res = await apiFetch(`${API_URL}/auth/available-portals`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (!res.ok) return;

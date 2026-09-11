@@ -4,6 +4,7 @@ import { ListenButton } from './ListenButton';
 import { useAuth } from '../hooks/useAuth';
 import { fetchJsonWithRetry, type FetchPhase } from '../lib/resilientFetch';
 import { LoadingIndicator } from './LoadingIndicator';
+import { apiFetch } from './AccessExpiredGate';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -38,7 +39,7 @@ export function RecapPanel({ lessonId, dark }: { lessonId: string; dark: boolean
           setRecap(r);
           // Fire-and-forget engagement ping — a failure here shouldn't
           // block the trainee from reading the recap they already got.
-          fetch(`${API_URL}/curriculum/lessons/${lessonId}/recap/open`, { method: 'POST', headers }).catch(() => {});
+          apiFetch(`${API_URL}/curriculum/lessons/${lessonId}/recap/open`, { method: 'POST', headers }).catch(() => {});
         } else {
           setError((prev) => prev ?? 'Could not generate a recap for this lesson right now — try again in a moment.');
         }

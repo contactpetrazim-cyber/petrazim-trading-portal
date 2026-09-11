@@ -2,11 +2,13 @@
 import axios from 'axios';
 import { Trade, BotConfig, BotPerformance, BotMetricsUpdate, DashboardStats, SignalPreview, PerformanceSummary } from '../types';
 import { useAuthStore } from '../hooks/useAuth';
+import { triggerAccessExpired } from '../components/AccessExpiredGate';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 const api = axios.create({
   baseURL: API_URL,
+  timeout: 20_000,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -24,6 +26,28 @@ api.interceptors.request.use((config) => {
   }
   return config;
 });
+
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    const status = error?.response?.status;
+    const detail = error?.response?.data?.detail;
+
+    if (status === 402 && detail?.error === 'access_expired') {
+      triggerAccessExpired(detail);
+    }
+
+    if (status === 401 && useAuthStore.getState().token) {
+      useAuthStore.getState().logout();
+      if (window.location.pathname !== '/login') {
+        const destination = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+        window.location.assign(`/login?returnTo=${encodeURIComponent(destination)}`);
+      }
+    }
+
+    return Promise.reject(error);
+  },
+);
 
 export const dashboardApi = {
   getStats: () => api.get<DashboardStats>('/dashboard/stats').then(r => r.data),

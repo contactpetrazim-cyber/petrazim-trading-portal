@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Send, MessageCircle, CheckCircle2 } from 'lucide-react';
+import { apiFetch } from './AccessExpiredGate';
 
 const CHANNEL_LINKS = {
   individual: 'https://t.me/petrazim_tradefx',
@@ -44,7 +45,7 @@ export function CommunityGateStep({
 
   async function checkStatus() {
     try {
-      const res = await fetch(`${apiBaseUrl}/community/status`, { credentials: 'include' });
+      const res = await apiFetch(`${apiBaseUrl}/community/status`, { credentials: 'include' });
       if (res.ok) {
         const data = await res.json();
         setConnected(data.telegram_connected);

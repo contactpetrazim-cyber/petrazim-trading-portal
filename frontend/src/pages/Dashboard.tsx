@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 import { LoadingIndicator } from '../components/LoadingIndicator';
-import type { FetchPhase } from '../lib/resilientFetch';
+import { RETRY_DELAYS_MS, type FetchPhase } from '../lib/resilientFetch';
 
 interface EquityPoint {
   timestamp: string;
@@ -93,7 +93,6 @@ export function DashboardPage() {
   // gets its own small retry loop instead of fetchJsonWithRetry
   // directly, but the same delay ladder and grey→orange→red→green
   // phase language.
-  const RETRY_DELAYS_MS = [1500, 3000, 5000, 8000, 12000, 15000, 20000, 20000];
   async function loadWithRetry() {
     setPhase('loading');
     for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {

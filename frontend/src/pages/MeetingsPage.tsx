@@ -4,6 +4,7 @@ import { FacilitatorCalendar } from '../components/FacilitatorCalendar';
 import { useAuth } from '../hooks/useAuth';
 import { useThemeStore } from '../hooks/useTheme';
 import { fetchJsonWithRetry } from '../lib/resilientFetch';
+import { apiFetch } from '../components/AccessExpiredGate';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -26,7 +27,7 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
  *
  * `tierLoading` — separate from FacilitatorCalendar's own internal
  * `loading` (which only covers the calendar strip fetch): this used a
- * one-shot plain fetch() with a silent catch, so a cold Render
+ * one-shot plain apiFetch() with a silent catch, so a cold Render
  * free-tier start (or any transient failure) left userTier null
  * forever, and the calendar rendered the "Professional/Executive
  * feature — Upgrade" gate as if that were the real, final answer — by

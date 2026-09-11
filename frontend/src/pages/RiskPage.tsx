@@ -47,6 +47,7 @@ export function RiskPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editing, setEditing] = useState<BotMetricsUpdate | null>(null);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // Position Size Calculator — client-side, "dynamic" (recomputes as
   // you type). Seeded from the first configured bot's own risk_per_trade
@@ -60,6 +61,7 @@ export function RiskPage() {
 
   async function load() {
     setLoading(true);
+    setError(null);
     try {
       const [botList, active, all] = await Promise.all([
         botsApi.getBots(),
@@ -72,6 +74,8 @@ export function RiskPage() {
       const todayStart = new Date();
       todayStart.setHours(0, 0, 0, 0);
       setTodayTrades(all.filter((t) => new Date(t.created_at) >= todayStart));
+    } catch {
+      setError('Could not load your risk data.');
     } finally {
       setLoading(false);
     }
@@ -314,7 +318,14 @@ export function RiskPage() {
 
       {loading && <p className="text-sm text-gray-400">Loading…</p>}
 
-      {!loading && bots.length === 0 && (
+      {!loading && error && (
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-smc-danger/30 bg-smc-danger/10 p-3 text-sm text-smc-danger">
+          <span>{error}</span>
+          <button type="button" onClick={load} className="font-semibold underline">Try again</button>
+        </div>
+      )}
+
+      {!loading && !error && bots.length === 0 && (
         <div className={`text-center py-16 text-gray-400 border rounded-xl ${dark ? "bg-smc-card border-smc-border" : "bg-white border-corporate-bg"}`}>
           No bots configured yet — risk caps apply per bot once you create one.
         </div>

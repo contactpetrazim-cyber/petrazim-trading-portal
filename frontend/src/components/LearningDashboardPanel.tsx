@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Users, TrendingUp, MessageCircle, Trophy, CalendarClock, Video, Save } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
+import { apiFetch } from './AccessExpiredGate';
 
 /**
  * LearningDashboardPanel — adapted from the reference training
@@ -86,7 +87,7 @@ export function LearningDashboardPanel({ dark = false }: { dark?: boolean }) {
   async function load() {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/roster/learning-dashboard`, {
+      const res = await apiFetch(`${API_BASE}/roster/learning-dashboard`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
@@ -104,7 +105,7 @@ export function LearningDashboardPanel({ dark = false }: { dark?: boolean }) {
   async function saveTopic(bookingId: string) {
     setSaving(bookingId);
     try {
-      await fetch(`${API_BASE}/meetings/${bookingId}/topic`, {
+      await apiFetch(`${API_BASE}/meetings/${bookingId}/topic`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ topic: topicDrafts[bookingId] ?? '' }),

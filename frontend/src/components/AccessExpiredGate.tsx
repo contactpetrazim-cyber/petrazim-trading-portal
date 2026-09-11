@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Clock, ShieldCheck, RefreshCw } from 'lucide-react';
 import { CardLogoBand } from './CardLogoBand';
 import { useThemeStore } from '../hooks/useTheme';
+import { useAuthStore } from '../hooks/useAuth';
 
 /**
  * AccessExpiredGate — matches the exact card design confirmed working
@@ -97,7 +98,26 @@ export function AccessExpiredGate({ children }: { children: React.ReactNode }) {
 }
 
 export async function apiFetch(input: RequestInfo, init?: RequestInit): Promise<Response> {
-  const res = await fetch(input, { ...init, credentials: 'include' });
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 20_000);
+  const abortFromCaller = () => controller.abort();
+  init?.signal?.addEventListener('abort', abortFromCaller, { once: true });
+
+  let res: Response;
+  try {
+    res = await fetch(input, { ...init, credentials: 'include', signal: controller.signal });
+  } finally {
+    window.clearTimeout(timeout);
+    init?.signal?.removeEventListener('abort', abortFromCaller);
+  }
+
+  if (res.status === 401 && useAuthStore.getState().token) {
+    useAuthStore.getState().logout();
+    if (window.location.pathname !== '/login') {
+      const destination = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+      window.location.assign(`/login?returnTo=${encodeURIComponent(destination)}`);
+    }
+  }
   if (res.status === 402) {
     const body = await res.clone().json().catch(() => null);
     if (body?.detail?.error === 'access_expired') {

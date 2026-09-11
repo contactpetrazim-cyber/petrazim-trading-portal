@@ -7,6 +7,7 @@ import { StartHereCard } from '../components/StartHereCard';
 import { openProgrammeSteps } from '../components/ProgrammeStepsModal';
 import { useAuth } from '../hooks/useAuth';
 import { useThemeStore } from '../hooks/useTheme';
+import { apiFetch } from '../components/AccessExpiredGate';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -56,7 +57,7 @@ export function CorporateHomePage() {
   const [continuePoint, setContinuePoint] = useState<{ track_id: string; lesson_id: string | null } | null>(null);
 
   useEffect(() => {
-    fetch(`${API_URL}/bots/`)
+    apiFetch(`${API_URL}/bots/`)
       .then((r) => (r.ok ? r.json() : []))
       .then((bots: { status: string }[]) => {
         setBotStats({ active: bots.filter((b) => b.status === 'active').length, total: bots.length });
@@ -66,7 +67,7 @@ export function CorporateHomePage() {
 
   useEffect(() => {
     if (!token) return;
-    fetch(`${API_URL}/auth/learning-stats`, { headers: { Authorization: `Bearer ${token}` } })
+    apiFetch(`${API_URL}/auth/learning-stats`, { headers: { Authorization: `Bearer ${token}` } })
       .then((r) => (r.ok ? r.json() : null))
       .then((s) => {
         if (!s) return;
@@ -89,7 +90,7 @@ export function CorporateHomePage() {
   // plain /learn link rather than claiming a resume point that isn't real.
   useEffect(() => {
     if (!token) return;
-    fetch(`${API_URL}/curriculum/continue`, { headers: { Authorization: `Bearer ${token}` } })
+    apiFetch(`${API_URL}/curriculum/continue`, { headers: { Authorization: `Bearer ${token}` } })
       .then((r) => (r.ok ? r.json() : null))
       .then(setContinuePoint)
       .catch(() => {});

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { apiFetch } from './AccessExpiredGate';
 
 /**
  * GoLiveChecklistPanel
@@ -73,7 +74,7 @@ function AttestationForm({ botId, checkName, apiBaseUrl, onSubmitted }) {
     setSubmitting(true);
     setErr(null);
     try {
-      const res = await fetch(`${apiBaseUrl}/api/validation-gate/attest`, {
+      const res = await apiFetch(`${apiBaseUrl}/api/validation-gate/attest`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ bot_id: botId, check_name: checkName, passed, signed_by: signedBy, notes }),
@@ -126,7 +127,7 @@ export default function GoLiveChecklistPanel({ apiBaseUrl = '' }) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${apiBaseUrl}/api/validation-gate/evaluate`, {
+      const res = await apiFetch(`${apiBaseUrl}/api/validation-gate/evaluate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ bot_id: botId }),

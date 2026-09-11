@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { CheckCircle2, Circle } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
+import { apiFetch } from './AccessExpiredGate';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
@@ -48,7 +49,7 @@ export function ConnectorCards({ dark = false }: { dark?: boolean }) {
   const canManage = user?.role === 'super_admin';
 
   function loadConnectors() {
-    fetch(`${API_BASE}/meetings/connectors`)
+    apiFetch(`${API_BASE}/meetings/connectors`)
       .then((r) => r.json())
       .then(setConnectors)
       .catch(() => setConnectors([]));
@@ -66,7 +67,7 @@ export function ConnectorCards({ dark = false }: { dark?: boolean }) {
     setBusy(connectorType);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE}/meetings/connectors/google/${connectorType}/authorize`, {
+      const res = await apiFetch(`${API_BASE}/meetings/connectors/google/${connectorType}/authorize`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
@@ -82,7 +83,7 @@ export function ConnectorCards({ dark = false }: { dark?: boolean }) {
     if (!token) return;
     setBusy(connectorType);
     try {
-      await fetch(`${API_BASE}/meetings/connectors/google/${connectorType}/disconnect`, {
+      await apiFetch(`${API_BASE}/meetings/connectors/google/${connectorType}/disconnect`, {
         method: 'POST', headers: { Authorization: `Bearer ${token}` },
       });
       loadConnectors();

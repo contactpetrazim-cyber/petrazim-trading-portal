@@ -3,6 +3,7 @@ import {
   ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, ReferenceLine,
 } from 'recharts';
+import { apiFetch } from './AccessExpiredGate';
 
 /**
  * PerformanceForecastPanel
@@ -94,7 +95,7 @@ export default function PerformanceForecastPanel({ apiBaseUrl = '' }) {
         seed: params.seed === '' ? null : params.seed,
         target_equity: params.target_equity === '' ? null : params.target_equity,
       };
-      const res = await fetch(`${apiBaseUrl}/api/monte-carlo/simulate`, {
+      const res = await apiFetch(`${apiBaseUrl}/api/monte-carlo/simulate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),

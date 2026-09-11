@@ -8,7 +8,7 @@ import { TradeAnalytics } from '../components/TradeAnalytics';
 import { dashboardApi } from '../services/api';
 import { PerformanceSummary } from '../types';
 import { useThemeStore } from '../hooks/useTheme';
-import type { FetchPhase } from '../lib/resilientFetch';
+import { RETRY_DELAYS_MS, type FetchPhase } from '../lib/resilientFetch';
 
 const PERIODS: { id: '1d' | '7d' | '30d' | '90d'; label: string }[] = [
   { id: '1d', label: '1D' },
@@ -47,8 +47,6 @@ const PERIODS: { id: '1d' | '7d' | '30d' | '90d'; label: string }[] = [
  * through the axios-based dashboardApi rather than fetch, so it gets
  * its own small retry loop instead of fetchJsonWithRetry directly).
  */
-const RETRY_DELAYS_MS = [1500, 3000, 5000, 8000, 12000, 15000, 20000, 20000];
-
 export function AnalyticsPage() {
   const { theme } = useThemeStore();
   const dark = theme === 'dark';

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { UserPlus, Trash2, X, Users } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { FoldedCard } from './FoldedCard';
+import { apiFetch } from './AccessExpiredGate';
 
 /**
  * RosterPanel — invite/assign/detach Traders. Mounted on
@@ -46,7 +47,7 @@ export function RosterPanel({ dark = false }: { dark?: boolean }) {
   async function loadRoster() {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/roster`, {
+      const res = await apiFetch(`${API_BASE}/roster`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) setRoster(await res.json());
@@ -60,7 +61,7 @@ export function RosterPanel({ dark = false }: { dark?: boolean }) {
   async function submitInvite() {
     setError(null);
     try {
-      const res = await fetch(`${API_BASE}/roster/invite`, {
+      const res = await apiFetch(`${API_BASE}/roster/invite`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ email: inviteEmail, full_name: inviteName }),
@@ -78,7 +79,7 @@ export function RosterPanel({ dark = false }: { dark?: boolean }) {
   }
 
   async function detach(traderId: string) {
-    await fetch(`${API_BASE}/roster/assign/${traderId}`, {
+    await apiFetch(`${API_BASE}/roster/assign/${traderId}`, {
       method: 'DELETE',
       headers: { Authorization: `Bearer ${token}` },
     });

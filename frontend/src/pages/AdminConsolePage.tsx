@@ -9,6 +9,7 @@ import { EverythingIncludedPanel } from '../components/EverythingIncludedPanel';
 import { PlatformOverviewPanel } from '../components/PlatformOverviewPanel';
 import { RoleAdministrationPanel } from '../components/RoleAdministrationPanel';
 import { useAuth } from '../hooks/useAuth';
+import { apiFetch } from '../components/AccessExpiredGate';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -56,7 +57,7 @@ export function AdminConsolePage() {
   useEffect(() => {
     async function load() {
       try {
-        const res = await fetch(`${API_URL}/admin/users`, {
+        const res = await apiFetch(`${API_URL}/admin/users`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (!res.ok) throw new Error('Failed to load users');
@@ -68,9 +69,9 @@ export function AdminConsolePage() {
       }
     }
     load();
-    fetch(`${API_URL}/payments/mode`, { headers: { Authorization: `Bearer ${token}` } })
+    apiFetch(`${API_URL}/payments/mode`, { headers: { Authorization: `Bearer ${token}` } })
       .then((r) => (r.ok ? r.json() : null)).then((d) => d && setPaymentsMode(d.mode)).catch(() => {});
-    fetch(`${API_URL}/manual-trading/master-mode`, { headers: { Authorization: `Bearer ${token}` } })
+    apiFetch(`${API_URL}/manual-trading/master-mode`, { headers: { Authorization: `Bearer ${token}` } })
       .then((r) => (r.ok ? r.json() : null)).then((d) => d && setPaperEnforced(d.paper_enforced)).catch(() => {});
   }, [token]);
 
@@ -81,7 +82,7 @@ export function AdminConsolePage() {
     )) return;
     setSwitchingMode(true);
     try {
-      const res = await fetch(`${API_URL}/payments/mode`, {
+      const res = await apiFetch(`${API_URL}/payments/mode`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ mode }),
@@ -99,7 +100,7 @@ export function AdminConsolePage() {
     )) return;
     setSwitchingPaper(true);
     try {
-      const res = await fetch(`${API_URL}/manual-trading/master-mode`, {
+      const res = await apiFetch(`${API_URL}/manual-trading/master-mode`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ paper_enforced: next }),

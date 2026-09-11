@@ -12,8 +12,8 @@ export function PetrazimLogo({ height = LOGO_HEIGHT_PX, className = '' }: { heig
     <img
       src={logoImg}
       alt="Petrazim Solutions Ltd"
-      style={{ height: `${height}px`, width: 'auto' }}
-      className={className}
+      style={{ height: `${height}px`, width: 'auto', maxWidth: '100%', objectFit: 'contain' }}
+      className={`block ${className}`}
     />
   );
 }

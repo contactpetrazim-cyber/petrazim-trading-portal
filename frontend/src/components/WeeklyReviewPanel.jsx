@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { apiFetch } from './AccessExpiredGate';
 
 /**
  * WeeklyReviewPanel
@@ -48,7 +49,7 @@ export default function WeeklyReviewPanel({ apiBaseUrl = '' }) {
     setError(null);
     try {
       const params = new URLSearchParams({ week_start: weekStart, week_end: weekEnd });
-      const res = await fetch(`${apiBaseUrl}/api/weekly-review/report?${params}`);
+      const res = await apiFetch(`${apiBaseUrl}/api/weekly-review/report?${params}`);
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.detail || `Failed to load review (${res.status})`);

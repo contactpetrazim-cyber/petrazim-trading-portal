@@ -37,9 +37,13 @@ export function TraderOversightPanel({ dark = false }: { dark?: boolean }) {
   const [editingBotId, setEditingBotId] = useState<string | null>(null);
   const [editing, setEditing] = useState<BotMetricsUpdate | null>(null);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    api.get<RosterEntry[]>('/roster').then((r) => setRoster(r.data)).finally(() => setLoading(false));
+    api.get<RosterEntry[]>('/roster')
+      .then((r) => setRoster(r.data))
+      .catch(() => setError('Could not load the trader roster.'))
+      .finally(() => setLoading(false));
   }, []);
 
   async function toggleTrader(traderId: string) {
@@ -100,6 +104,7 @@ export function TraderOversightPanel({ dark = false }: { dark?: boolean }) {
       icon={<Users size={16} />}
       dark={dark}
     >
+      {error && <p className="mb-3 text-sm text-smc-danger">{error}</p>}
       {loading ? (
         <p className={`text-sm ${muted}`}>Loading…</p>
       ) : roster.length === 0 ? (

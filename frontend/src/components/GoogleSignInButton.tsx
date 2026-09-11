@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { apiFetch } from './AccessExpiredGate';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -63,7 +64,7 @@ export function GoogleSignInButton({
   const [clientId, setClientId] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch(`${API_URL}/auth/google/client-id`)
+    apiFetch(`${API_URL}/auth/google/client-id`)
       .then((r) => (r.ok ? r.json() : { client_id: null }))
       .then((data) => setClientId(data.client_id))
       .catch(() => setClientId(null));
@@ -80,7 +81,7 @@ export function GoogleSignInButton({
           client_id: clientId,
           callback: async (resp) => {
             try {
-              const res = await fetch(`${API_URL}/auth/google`, {
+              const res = await apiFetch(`${API_URL}/auth/google`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ credential: resp.credential }),

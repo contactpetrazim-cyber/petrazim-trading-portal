@@ -4,6 +4,7 @@ import { CommunityGateStep } from '../components/CommunityGateStep';
 import { PetrazimLogo } from '../components/PetrazimLogo';
 import { useAuth } from '../hooks/useAuth';
 import { useThemeStore } from '../hooks/useTheme';
+import { apiFetch } from '../components/AccessExpiredGate';
 
 /**
  * OnboardingPage — the forced sequence after login/register:
@@ -53,7 +54,7 @@ export function OnboardingPage() {
   const [loading, setLoading] = useState(true);
 
   async function refreshStatus(authToken: string) {
-    const res = await fetch(`${API_BASE}/onboarding/status`, {
+    const res = await apiFetch(`${API_BASE}/onboarding/status`, {
       headers: { Authorization: `Bearer ${authToken}` },
     });
     if (!res.ok) return;
@@ -74,7 +75,7 @@ export function OnboardingPage() {
 
   async function handleStartCheckout() {
     if (!token) return;
-    const res = await fetch(`${API_BASE}/payments/checkout`, {
+    const res = await apiFetch(`${API_BASE}/payments/checkout`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({ currency: 'USD', duration_pass_type: 'one_day' }),

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Check, Rocket, X } from 'lucide-react';
 import { HERO_GRADIENT } from '../config/theme';
 import { useAuth } from '../hooks/useAuth';
+import { apiFetch } from './AccessExpiredGate';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -93,7 +94,7 @@ export function ProgrammeStepsModal() {
       setLoading(false);
       return;
     }
-    fetch(`${API_URL}/onboarding/status`, { headers: { Authorization: `Bearer ${token}` } })
+    apiFetch(`${API_URL}/onboarding/status`, { headers: { Authorization: `Bearer ${token}` } })
       .then((r) => (r.ok ? r.json() : null))
       .then((s) => {
         if (!s) { setCurrentStep(0); return; }

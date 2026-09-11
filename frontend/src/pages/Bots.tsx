@@ -93,9 +93,11 @@ export function BotsPage() {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   async function loadBots() {
     setLoading(true);
+    setLoadError(null);
     try {
       const data = await botsApi.getBots();
       setBots(data);
@@ -105,6 +107,8 @@ export function BotsPage() {
       const perfMap: Record<string, BotPerformance> = {};
       for (const [id, perf] of perfEntries) if (perf) perfMap[id] = perf;
       setPerformance(perfMap);
+    } catch {
+      setLoadError('Could not load your bots.');
     } finally {
       setLoading(false);
     }
@@ -266,7 +270,14 @@ export function BotsPage() {
 
       {loading && <p className="text-gray-400 text-sm">Loading…</p>}
 
-      {!loading && bots.length === 0 && (
+      {!loading && loadError && (
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-smc-danger/30 bg-smc-danger/10 p-3 text-sm text-smc-danger">
+          <span>{loadError}</span>
+          <button type="button" onClick={loadBots} className="font-semibold underline">Try again</button>
+        </div>
+      )}
+
+      {!loading && !loadError && bots.length === 0 && (
         <div className={`text-center py-16 text-gray-400 border rounded-xl ${dark ? 'bg-smc-card border-smc-border' : 'bg-white border-corporate-bg'}`}>
           No bots yet — create one to start trading.
         </div>

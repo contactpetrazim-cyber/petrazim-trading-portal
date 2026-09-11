@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Ticket, CheckCircle2, Circle, Pause, Play } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { FoldedCard } from './FoldedCard';
+import { apiFetch } from './AccessExpiredGate';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
@@ -43,7 +44,7 @@ export function AccessCodesPanel({ dark = false }: { dark?: boolean }) {
   async function loadCodes() {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/payments/corporate/my-codes`, {
+      const res = await apiFetch(`${API_BASE}/payments/corporate/my-codes`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) setCodes(await res.json());
@@ -61,7 +62,7 @@ export function AccessCodesPanel({ dark = false }: { dark?: boolean }) {
   async function toggleHold(code: string, nextHeld: boolean) {
     setHolding(code);
     try {
-      const res = await fetch(`${API_BASE}/payments/corporate/codes/${encodeURIComponent(code)}/hold?held=${nextHeld}`, {
+      const res = await apiFetch(`${API_BASE}/payments/corporate/codes/${encodeURIComponent(code)}/hold?held=${nextHeld}`, {
         method: 'PATCH',
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -76,7 +77,7 @@ export function AccessCodesPanel({ dark = false }: { dark?: boolean }) {
   async function generateSeats() {
     setGenerating(true);
     try {
-      const res = await fetch(`${API_BASE}/payments/corporate/generate-seats`, {
+      const res = await apiFetch(`${API_BASE}/payments/corporate/generate-seats`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ tier, seat_count: seatCount }),

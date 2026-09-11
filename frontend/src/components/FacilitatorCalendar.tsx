@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Lock, Video, X } from 'lucide-react';
+import { apiFetch } from './AccessExpiredGate';
 
 const BAND_LABELS: Record<string, string> = { am: 'AM', afternoon: 'Afternoon', evening: 'Evening' };
 const API_BASE = import.meta.env.VITE_API_URL || '';
@@ -68,9 +69,13 @@ export function FacilitatorCalendar({
   const eligible = userTier === 'professional' || userTier === 'executive';
 
   useEffect(() => {
-    fetch(`${API_BASE}/meetings/availability`)
-      .then((r) => r.json())
+    apiFetch(`${API_BASE}/meetings/availability`)
+      .then((r) => {
+        if (!r.ok) throw new Error('Availability request failed');
+        return r.json();
+      })
       .then((data) => setStrip(data))
+      .catch(() => setError('Meeting availability is unavailable right now.'))
       .finally(() => setLoading(false));
   }, []);
 
@@ -89,7 +94,7 @@ export function FacilitatorCalendar({
     setBooking(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE}/meetings/book`, {
+      const res = await apiFetch(`${API_BASE}/meetings/book`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ day: selected.day, band: selected.band, topic }),

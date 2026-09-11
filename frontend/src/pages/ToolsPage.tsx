@@ -294,7 +294,7 @@ export function ToolsPage() {
   async function runRiskOfRuin() {
     setRorBusy(true);
     try {
-      const res = await fetch(`${API_URL}/tools/risk-of-ruin`, {
+      const res = await apiFetch(`${API_URL}/tools/risk-of-ruin`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -327,7 +327,7 @@ export function ToolsPage() {
   const [propBusy, setPropBusy] = useState(false);
 
   useEffect(() => {
-    fetch(`${API_URL}/tools/prop-firm/presets`).then((r) => r.json()).then(setPresets).catch(() => {});
+    apiFetch(`${API_URL}/tools/prop-firm/presets`).then((r) => r.json()).then(setPresets).catch(() => {});
   }, []);
 
   async function runPropFirm() {

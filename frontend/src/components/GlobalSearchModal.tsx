@@ -5,6 +5,7 @@ import { FEATURE_AREAS, searchFeatures } from '../config/featureRegistry';
 import { SMC_DIAGRAM_DATA, SMC_DIAGRAM_KEYS } from './SMCDiagram';
 import { useThemeStore } from '../hooks/useTheme';
 import { useAuth } from '../hooks/useAuth';
+import { apiFetch } from './AccessExpiredGate';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -47,7 +48,7 @@ export function GlobalSearchModal({ open, onClose }: { open: boolean; onClose: (
       setQuery('');
       setTimeout(() => inputRef.current?.focus(), 50);
       if (token) {
-        fetch(`${API_URL}/auth/available-portals`, { headers: { Authorization: `Bearer ${token}` } })
+        apiFetch(`${API_URL}/auth/available-portals`, { headers: { Authorization: `Bearer ${token}` } })
           .then((r) => (r.ok ? r.json() : null))
           .then((d) => setPortals(d?.portals?.length > 1 ? d.portals : []))
           .catch(() => setPortals([]));

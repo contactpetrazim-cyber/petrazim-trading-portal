@@ -26,7 +26,7 @@ export type FetchPhase = 'idle' | 'loading' | 'stalled' | 'ready' | 'failed';
 // Total window sums to a little over Render's own WAKE_TIMEOUT_MS
 // (~90s) — long enough to ride out a real cold start, short enough
 // that a genuinely-down backend still fails in reasonable time.
-const RETRY_DELAYS_MS = [1500, 3000, 5000, 8000, 12000, 15000, 20000, 20000];
+export const RETRY_DELAYS_MS = [1500, 3000, 5000, 8000, 12000, 15000, 20000, 20000];
 // Once this many attempts have failed, flip the indicator to "stalled"
 // (red) rather than staying "loading" (orange) — a hint to the user
 // this is taking longer than a normal fetch, not that it's broken yet.

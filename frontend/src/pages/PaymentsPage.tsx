@@ -4,6 +4,7 @@ import { PageHeader } from '../components/PageHeader';
 import { HERO_GRADIENT } from '../config/theme';
 import { useAuth } from '../hooks/useAuth';
 import { useThemeStore } from '../hooks/useTheme';
+import { apiFetch } from '../components/AccessExpiredGate';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -77,16 +78,16 @@ export function PaymentsPage() {
   const [paymentsMode, setPaymentsMode] = useState<'test' | 'live' | null>(null);
 
   useEffect(() => {
-    fetch(`${API_URL}/payments/pricing/duration-passes`).then((r) => r.json()).then(setPasses).catch(() => {});
-    fetch(`${API_URL}/payments/pricing/tiers`).then((r) => r.json()).then(setTiers).catch(() => {});
+    apiFetch(`${API_URL}/payments/pricing/duration-passes`).then((r) => r.json()).then(setPasses).catch(() => {});
+    apiFetch(`${API_URL}/payments/pricing/tiers`).then((r) => r.json()).then(setTiers).catch(() => {});
     if (token) {
-      fetch(`${API_URL}/payments/access-status`, { headers: { Authorization: `Bearer ${token}` } })
+      apiFetch(`${API_URL}/payments/access-status`, { headers: { Authorization: `Bearer ${token}` } })
         .then((r) => (r.ok ? r.json() : null)).then(setStatus).catch(() => {});
       // Test mode routes checkout through a simulated page instead of a
       // real gateway — see routers/payments.py's GET/PATCH /payments/mode
       // and TestPaymentClient. This banner is the only thing telling a
       // Trader "no real card will be charged here."
-      fetch(`${API_URL}/payments/mode`, { headers: { Authorization: `Bearer ${token}` } })
+      apiFetch(`${API_URL}/payments/mode`, { headers: { Authorization: `Bearer ${token}` } })
         .then((r) => (r.ok ? r.json() : null)).then((d) => d && setPaymentsMode(d.mode)).catch(() => {});
     }
   }, [token]);
@@ -99,7 +100,7 @@ export function PaymentsPage() {
     setBusy(key);
     setError(null);
     try {
-      const res = await fetch(`${API_URL}/payments/checkout`, {
+      const res = await apiFetch(`${API_URL}/payments/checkout`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ currency: 'NGN', ...body }),
@@ -122,7 +123,7 @@ export function PaymentsPage() {
     }
     setCodeResult(null);
     try {
-      const res = await fetch(`${API_URL}/payments/redeem-code`, {
+      const res = await apiFetch(`${API_URL}/payments/redeem-code`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ code }),
@@ -131,7 +132,7 @@ export function PaymentsPage() {
       if (!res.ok) throw new Error(data.detail || 'Code not recognized');
       setCodeResult({ ok: true, message: data.message });
       setCode('');
-      fetch(`${API_URL}/payments/access-status`, { headers: { Authorization: `Bearer ${token}` } })
+      apiFetch(`${API_URL}/payments/access-status`, { headers: { Authorization: `Bearer ${token}` } })
         .then((r) => r.json()).then(setStatus).catch(() => {});
     } catch (err: any) {
       setCodeResult({ ok: false, message: err.message || 'Code not recognized' });
