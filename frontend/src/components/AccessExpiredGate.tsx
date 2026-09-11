@@ -105,7 +105,15 @@ export async function apiFetch(input: RequestInfo, init?: RequestInit): Promise<
 
   let res: Response;
   try {
-    res = await fetch(input, { ...init, credentials: 'include', signal: controller.signal });
+    // No `credentials: 'include'` here, deliberately, and this is the
+    // real root cause of the reported "failed to fetch": the backend
+    // answers cross-origin requests with `Access-Control-Allow-Origin: *`,
+    // and every browser refuses a credentialed request against a
+    // wildcard origin — so EVERY call from the preview and from
+    // trade.petrazim.online was rejected before it left the browser,
+    // no matter how healthy the server was. This app authenticates with
+    // a Bearer token, never a cookie, so cookies were never needed.
+    res = await fetch(input, { ...init, signal: controller.signal });
   } finally {
     window.clearTimeout(timeout);
     init?.signal?.removeEventListener('abort', abortFromCaller);

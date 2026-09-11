@@ -32,6 +32,39 @@ export const RETRY_DELAYS_MS = [1500, 3000, 5000, 8000, 12000, 15000, 20000, 200
 // this is taking longer than a normal fetch, not that it's broken yet.
 const STALLED_AFTER_ATTEMPT = 2;
 
+/**
+ * Response-returning sibling of fetchJsonWithRetry, for calls whose
+ * body the caller must read itself (sign-in and registration: a 401 is
+ * a real answer with its own `detail` message, not a retryable fault).
+ * Retries only what a cold start actually looks like — a thrown network
+ * error or a 5xx — and hands back the first definitive response.
+ */
+export async function fetchWithRetry(
+  input: RequestInfo,
+  init: RequestInit,
+  onPhase?: (phase: FetchPhase, attempt: number) => void,
+): Promise<Response> {
+  onPhase?.('loading', 0);
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+    try {
+      const res = await apiFetch(input, init);
+      if (res.status < 500) {
+        onPhase?.(res.ok ? 'ready' : 'failed', attempt);
+        return res;
+      }
+    } catch (err) {
+      lastError = err;
+    }
+    onPhase?.(attempt >= STALLED_AFTER_ATTEMPT ? 'stalled' : 'loading', attempt);
+    if (attempt < RETRY_DELAYS_MS.length) {
+      await new Promise((r) => setTimeout(r, RETRY_DELAYS_MS[attempt]));
+    }
+  }
+  onPhase?.('failed', RETRY_DELAYS_MS.length);
+  throw lastError ?? new Error('The server did not respond. Please try again.');
+}
+
 export async function fetchJsonWithRetry<T>(
   url: string,
   init: RequestInit,

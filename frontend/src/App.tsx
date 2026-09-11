@@ -71,10 +71,13 @@ const CommunityPage = lazy(() => import('./pages/CommunityPage').then((module) =
 const ManualTradingPage = lazy(() => import('./pages/ManualTradingPage').then((module) => ({ default: module.ManualTradingPage })));
 const TradePage = lazy(() => import('./pages/TradePage').then((module) => ({ default: module.TradePage })));
 const PaymentsPage = lazy(() => import('./pages/PaymentsPage').then((module) => ({ default: module.PaymentsPage })));
+const PremiumDashboardPage = lazy(() => import('./pages/PremiumDashboardPage').then((module) => ({ default: module.PremiumDashboardPage })));
+const CheckoutReturnPage = lazy(() => import('./pages/CheckoutReturnPage').then((module) => ({ default: module.CheckoutReturnPage })));
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { AccessExpiredGate } from './components/AccessExpiredGate';
 import { AppErrorBoundary } from './components/AppErrorBoundary';
 import { RouteLoadingFallback } from './components/RouteLoadingFallback';
+import { EntitlementGate } from './components/EntitlementGate';
 import type { UserRole } from './hooks/useAuth';
 
 // Mirrors the backend's PORTAL_ACCESS hierarchy (services/portal_access.py):
@@ -206,6 +209,19 @@ function App() {
         <Route path="/sitemap" element={<CorporateLayout><SiteMapPage /></CorporateLayout>} />
         <Route path="/meetings" element={<CorporateLayout><MeetingsPage /></CorporateLayout>} />
         <Route path="/payments" element={<CorporateLayout><PaymentsPage /></CorporateLayout>} />
+        {/* Phase 3 — where a gateway (or the simulated test checkout)
+            returns the buyer; access itself is granted server-side by the
+            verified webhook, this page only reports the real outcome. */}
+        <Route path="/checkout/return" element={<CheckoutReturnPage />} />
+
+        {/* Phase 4 — premium post-login overview, gated on paid access. */}
+        <Route path="/overview" element={
+          <ProtectedRoute allowedRoles={TRADER_CONSOLE_ROLES}>
+            <CorporateLayout>
+              <EntitlementGate feature="Your premium dashboard"><PremiumDashboardPage /></EntitlementGate>
+            </CorporateLayout>
+          </ProtectedRoute>
+        } />
 
         {/* Learn, Tools, and Insights now have real pages wired to their
             real APIs (curriculum.py / tools.py / monte-carlo+weekly-review+
@@ -229,8 +245,12 @@ function App() {
         <Route path="/learn/notes" element={<CorporateLayout><MyNotesPage /></CorporateLayout>} />
         <Route path="/learn/revision" element={<CorporateLayout><RevisionPlannerPage /></CorporateLayout>} />
         <Route path="/tools" element={<CorporateLayout><ToolsPage /></CorporateLayout>} />
-        <Route path="/tools/order-flow" element={<CorporateLayout><OrderFlowFullPage /></CorporateLayout>} />
-        <Route path="/insights" element={<CorporateLayout><InsightsPage /></CorporateLayout>} />
+        <Route path="/tools/order-flow" element={
+          <CorporateLayout><EntitlementGate feature="The Order Flow tool"><OrderFlowFullPage /></EntitlementGate></CorporateLayout>
+        } />
+        <Route path="/insights" element={
+          <CorporateLayout><EntitlementGate feature="Market intelligence"><InsightsPage /></EntitlementGate></CorporateLayout>
+        } />
         <Route path="/community" element={<CorporateLayout><CommunityPage /></CorporateLayout>} />
         <Route path="/trade" element={<CorporateLayout><TradePage /></CorporateLayout>} />
 
@@ -240,7 +260,7 @@ function App() {
             order ticket takes, not room reserved for TopNav/BottomNav. */}
         <Route path="/trade/manual" element={
           <ProtectedRoute allowedRoles={TRADER_CONSOLE_ROLES}>
-            <ManualTradingPage />
+            <EntitlementGate feature="Live manual trading"><ManualTradingPage /></EntitlementGate>
           </ProtectedRoute>
         } />
 

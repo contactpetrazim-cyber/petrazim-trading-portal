@@ -8,6 +8,8 @@ import { PortalSelectionCard, PortalOption } from '../components/PortalSelection
 import { GoogleSignInButton } from '../components/GoogleSignInButton';
 import { HERO_GRADIENT } from '../config/theme';
 import { apiFetch } from '../components/AccessExpiredGate';
+import { fetchWithRetry, type FetchPhase } from '../lib/resilientFetch';
+import { LoadingIndicator } from '../components/LoadingIndicator';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -60,6 +62,13 @@ export function LoginPage() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  // The free-tier backend sleeps after idle and can take up to ~90s to
+  // wake. A single sign-in attempt landing mid-wake was the real cause
+  // of the reported "failed to fetch" — the request never reached a
+  // running server. Sign-in now rides the same retry ladder the rest of
+  // the portal uses, with the grey/orange/red/green indicator so the
+  // wait is visible instead of looking broken.
+  const [phase, setPhase] = useState<FetchPhase>('idle');
   const [portals, setPortals] = useState<PortalOption[] | null>(null);
   const { setAuth } = useAuth();
   const { theme } = useThemeStore();
@@ -94,18 +103,18 @@ export function LoginPage() {
     setError(null);
     setLoading(true);
     try {
-      const res = await apiFetch(`${API_URL}/auth/login`, {
+      const res = await fetchWithRetry(`${API_URL}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
-      });
+      }, setPhase);
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.detail || 'Login failed');
       }
       await handlePostLogin(await res.json());
     } catch (err: any) {
-      setError(err.message || 'Something went wrong');
+      setError(err.message || 'The server did not respond. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -124,28 +133,28 @@ export function LoginPage() {
     }
     setLoading(true);
     try {
-      const res = await apiFetch(`${API_URL}/auth/register`, {
+      const res = await fetchWithRetry(`${API_URL}/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password, full_name: fullName, phone: phone || null }),
-      });
+      }, setPhase);
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         if (res.status === 409) throw new Error('An account with this email already exists — sign in instead.');
         throw new Error(body.detail || 'Registration failed');
       }
 
-      const loginRes = await apiFetch(`${API_URL}/auth/login`, {
+      const loginRes = await fetchWithRetry(`${API_URL}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
-      });
+      }, setPhase);
       if (!loginRes.ok) throw new Error('Account created — please sign in.');
       const loginData = await loginRes.json();
       setAuth(loginData.access_token, loginData.user);
       navigate('/onboarding');
     } catch (err: any) {
-      setError(err.message || 'Something went wrong');
+      setError(err.message || 'The server did not respond. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -236,6 +245,9 @@ export function LoginPage() {
               />
             </div>
 
+            {loading && (phase === 'loading' || phase === 'stalled') && (
+              <div className="mb-4 flex justify-center"><LoadingIndicator phase={phase} dark={dark} /></div>
+            )}
             {error && <p className="text-sm text-red-500 mb-4">{error}</p>}
 
             <button

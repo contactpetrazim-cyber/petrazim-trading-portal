@@ -158,7 +158,12 @@ export function DashboardPage() {
             <h2 className="text-2xl md:text-3xl font-extrabold text-white font-display">Dashboard</h2>
             <p className="text-white/80 text-sm mt-1">Real-time SMC Trading Engine overview</p>
           </div>
-          {error && <span className="px-3 py-1 bg-red-500/20 text-white rounded-full text-sm font-medium">{error}</span>}
+          <div className="flex items-center gap-3">
+            {error && <span className="px-3 py-1 bg-red-500/20 text-white rounded-full text-sm font-medium">{error}</span>}
+            <Link to="/overview" className="rounded-lg bg-white/15 px-3 py-2 text-xs font-semibold text-white">
+              Premium overview →
+            </Link>
+          </div>
         </div>
       </div>
 
