@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Lock, Video, X } from 'lucide-react';
 import { apiFetch } from './AccessExpiredGate';
+import { fetchJsonWithRetry } from '../lib/resilientFetch';
 
 const BAND_LABELS: Record<string, string> = { am: 'AM', afternoon: 'Afternoon', evening: 'Evening' };
 const API_BASE = import.meta.env.VITE_API_URL || '';
@@ -50,11 +51,17 @@ export function FacilitatorCalendar({
   userTier,
   tierLoading,
   token,
+  privileged = false,
   dark = false,
 }: {
   userTier: 'essential' | 'professional' | 'executive' | null;
   tierLoading: boolean;
   token: string | null;
+  /** Facilitators themselves — Fund Manager, Partner, Admin, Super Admin
+   * — host these sessions, so a tier gate never applies to them. They
+   * were being shown the "upgrade to Professional" wall on their own
+   * facilitator page. */
+  privileged?: boolean;
   dark?: boolean;
 }) {
   const navigate = useNavigate();
@@ -66,18 +73,24 @@ export function FacilitatorCalendar({
   const [result, setResult] = useState<{ jitsi_room_url: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const eligible = userTier === 'professional' || userTier === 'executive';
+  const eligible = privileged || userTier === 'professional' || userTier === 'executive';
+
+
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
-    apiFetch(`${API_BASE}/meetings/availability`)
-      .then((r) => {
-        if (!r.ok) throw new Error('Availability request failed');
-        return r.json();
-      })
-      .then((data) => setStrip(data))
-      .catch(() => setError('Meeting availability is unavailable right now.'))
-      .finally(() => setLoading(false));
-  }, []);
+    let alive = true;
+    setLoading(true);
+    setError(null);
+    // Retries through a cold backend start instead of failing once and
+    // leaving an empty calendar with no way back — the reported
+    // "facilitator sessions not working" looked exactly like this.
+    fetchJsonWithRetry<DayAvailability[]>(`${API_BASE}/meetings/availability`, {})
+      .then((data) => { if (alive) setStrip(Array.isArray(data) ? data : []); })
+      .catch(() => { if (alive) setError('Meeting availability is unavailable right now.'); })
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [reloadKey]);
 
   function openSlot(day: string, band: string) {
     setError(null);
@@ -105,6 +118,7 @@ export function FacilitatorCalendar({
       }
       const data = await res.json();
       setResult(data);
+      setReloadKey((k) => k + 1);
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -113,6 +127,21 @@ export function FacilitatorCalendar({
   }
 
   if (loading) return <p className={`text-sm ${dark ? 'text-white/40' : 'text-gray-400'}`}>Loading calendar…</p>;
+
+  if (!selected && error && strip.length === 0) {
+    return (
+      <div className={`rounded-xl border p-4 text-sm ${dark ? 'bg-corporate-surface-dark border-corporate-border-dark text-white/60' : 'bg-white border-corporate-bg text-gray-500'}`}>
+        <p>{error}</p>
+        <button
+          onClick={() => setReloadKey((k) => k + 1)}
+          className="mt-2 text-xs font-semibold text-white px-3 py-1.5 rounded-lg bg-corporate-accent"
+        >
+          Try again
+        </button>
+      </div>
+    );
+  }
+
 
   return (
     <div>

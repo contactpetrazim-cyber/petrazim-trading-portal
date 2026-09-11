@@ -172,41 +172,52 @@ function TradingViewChartBase({
 
   useEffect(() => {
     if (!containerRef.current) return;
+    // `cancelled` matters: the widget script can still be loading when
+    // the symbol changes, and TWO pending createWidget callbacks racing
+    // into the same container is exactly how a chart ends up showing the
+    // FIRST (usually default BTC) symbol after you picked another one —
+    // the reported "the chart still shows BTC whatever I click". Each run
+    // also mounts into a freshly-named div, so a widget from a previous
+    // run can never re-attach to the current one.
+    let cancelled = false;
 
     function createWidget() {
       // @ts-expect-error — TradingView attaches this global at runtime, no official types package
-      if (window.TradingView && containerRef.current) {
-        containerRef.current.innerHTML = '';
-        const chartDiv = document.createElement('div');
-        chartDiv.id = containerId.current;
-        chartDiv.style.height = '100%';
-        chartDiv.style.width = '100%';
-        containerRef.current.appendChild(chartDiv);
+      if (cancelled || !window.TradingView || !containerRef.current) return;
+      containerRef.current.innerHTML = '';
+      containerId.current = `tv_chart_${Math.random().toString(36).slice(2)}`;
+      const chartDiv = document.createElement('div');
+      chartDiv.id = containerId.current;
+      chartDiv.style.height = '100%';
+      chartDiv.style.width = '100%';
+      containerRef.current.appendChild(chartDiv);
 
-        // @ts-expect-error — see above
-        new window.TradingView.widget({
-          autosize: true,
-          symbol,
-          interval,
-          timezone: 'Etc/UTC',
-          theme,
-          style: chartStyle,
-          locale: 'en',
-          enable_publishing: false,
-          allow_symbol_change: true,
-          hide_side_toolbar: false,
-          hide_top_toolbar: false,
-          withdateranges: true,
-          container_id: containerId.current,
-          overrides: buildOverrides(candleColors, chartStyle),
-          studies_overrides: buildStudiesOverrides(candleColors),
-        });
-      }
+      // @ts-expect-error — see above
+      new window.TradingView.widget({
+        autosize: true,
+        symbol,
+        interval,
+        timezone: 'Etc/UTC',
+        theme,
+        style: chartStyle,
+        locale: 'en',
+        enable_publishing: false,
+        allow_symbol_change: true,
+        hide_side_toolbar: false,
+        hide_top_toolbar: false,
+        withdateranges: true,
+        container_id: containerId.current,
+        overrides: buildOverrides(candleColors, chartStyle),
+        studies_overrides: buildStudiesOverrides(candleColors),
+      });
     }
 
     const existingScript = document.getElementById('tradingview-widget-script');
-    if (existingScript) {
+    // @ts-expect-error — runtime global
+    if (existingScript && window.TradingView) {
       createWidget();
+    } else if (existingScript) {
+      existingScript.addEventListener('load', createWidget);
     } else {
       const script = document.createElement('script');
       script.id = 'tradingview-widget-script';
@@ -215,7 +226,10 @@ function TradingViewChartBase({
       script.onload = createWidget;
       document.body.appendChild(script);
     }
+
+    return () => { cancelled = true; };
   }, [symbol, interval, theme, chartStyle, JSON.stringify(candleColors)]);
+
 
   return <div ref={containerRef} style={{ height, width: '100%' }} />;
 }

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Maximize2, Minimize2, Sun, Moon, TrendingUp, X, Zap, Receipt, CandlestickChart } from 'lucide-react';
 import { TradingViewChart } from './TradingViewChart';
@@ -42,6 +42,8 @@ export function ChartPanel({
   onToggleOrderForm,
   pairsOpen,
   onTogglePairs,
+  pairsPanel,
+
 }: {
   symbol: string;
   interval?: string;
@@ -73,6 +75,10 @@ export function ChartPanel({
    * them away so the chart keeps the space. */
   pairsOpen?: boolean;
   onTogglePairs?: () => void;
+  /** Rendered directly under the toolbar while Pairs is unfolded —
+   * normally <PairsPanel /> (see ChartWithPairs). */
+  pairsPanel?: ReactNode;
+
 }) {
   const navigate = useNavigate();
   const effectiveSpecsSymbol = specsSymbol ?? tradeSymbol;
@@ -182,7 +188,9 @@ export function ChartPanel({
           </button>
         </div>
         {toolbar}
+        {pairsOpen && pairsPanel}
         <div className="flex-1 min-h-0 rounded-lg overflow-hidden">
+
           <TradingViewChart symbol={symbol} interval={interval} theme={chartTheme} candleColors={colors} chartStyle={chartStyle} />
         </div>
       </div>
@@ -192,9 +200,11 @@ export function ChartPanel({
   return (
     <div>
       {toolbar}
+      {pairsOpen && pairsPanel}
       <div className={`rounded-lg overflow-hidden ${chartDark ? '' : 'border border-gray-200'}`} style={{ height }}>
         <TradingViewChart symbol={symbol} interval={interval} theme={chartTheme} candleColors={colors} chartStyle={chartStyle} />
       </div>
     </div>
   );
+
 }

@@ -1,16 +1,19 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Sun, Moon, Save, Trash2, FolderOpen, X, TrendingUp } from 'lucide-react';
+import { Sun, Moon, Save, Trash2, FolderOpen, X, TrendingUp, CandlestickChart } from 'lucide-react';
 import { TradingViewChart } from '../components/TradingViewChart';
 import { CandleColorPicker } from '../components/CandleColorPicker';
 import { useEffectiveChartColors } from '../hooks/useCandleColors';
 import { OpenInTradingView } from '../components/OpenInTradingView';
 import { PetrazimLogo } from '../components/PetrazimLogo';
 import { FoldedCard } from '../components/FoldedCard';
+import { PairsPanel } from '../components/PairsPanel';
+import { useQuickPairsStore } from '../hooks/useQuickPairs';
 import { useAuth } from '../hooks/useAuth';
 import { apiFetch } from '../components/AccessExpiredGate';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+
 
 /**
  * TradingViewFramePage — v4.
@@ -34,12 +37,12 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
  * shows a chart.
  */
 
-const SYMBOLS = [
-  { label: 'BTC/USDT', value: 'BINANCE:BTCUSDT', deepLink: 'BTCUSDT', tradeSymbol: 'BTCUSDT' },
-  { label: 'EUR/USD', value: 'OANDA:EURUSD', deepLink: 'EURUSD', tradeSymbol: 'EURUSD' },
-  { label: 'GBP/USD', value: 'OANDA:GBPUSD', deepLink: 'GBPUSD', tradeSymbol: 'GBPUSD' },
-  { label: 'XAU/USD', value: 'OANDA:XAUUSD', deepLink: 'XAUUSD', tradeSymbol: 'XAUUSD' },
-];
+// Symbols come from the shared quick-links store (useQuickPairs) now —
+// the old hardcoded four-pill row is gone, by direct request: pairs are
+// picked from the search and saved as quick-links, and the same folded
+// "Pairs" button appears on every chart in the app.
+
+
 
 const INTERVALS = [
   { label: '15m', value: '15' },
@@ -62,7 +65,17 @@ export function TradingViewFramePage() {
   const { token } = useAuth();
   const navigate = useNavigate();
   const { colors, chartStyle, applyLocal, applyGlobal, resetLocal, resetGlobal } = useEffectiveChartColors();
-  const [symbol, setSymbol] = useState(SYMBOLS[0]);
+  const { pairs } = useQuickPairsStore();
+  const [selectedTv, setSelectedTv] = useState<string>(pairs[0]?.tv);
+  const selectedPair = pairs.find((p) => p.tv === selectedTv) ?? pairs[0];
+  const symbol = {
+    label: selectedPair.label,
+    value: selectedPair.tv,
+    deepLink: selectedPair.trade,
+    tradeSymbol: selectedPair.trade,
+  };
+  const [pairsOpen, setPairsOpen] = useState(false);
+
   const [interval, setIntervalValue] = useState(INTERVALS[1]);
   const [mode, setMode] = useState<Mode>('widget');
   const [frameTheme, setFrameTheme] = useState<FrameTheme>('light');
@@ -114,10 +127,11 @@ export function TradingViewFramePage() {
     const detail = await res.json();
     try {
       const parsed = JSON.parse(detail.content);
-      const foundSymbol = SYMBOLS.find((s) => s.value === parsed.symbol);
+      const foundPair = pairs.find((p) => p.tv === parsed.symbol);
       const foundInterval = INTERVALS.find((i) => i.value === parsed.interval);
-      if (foundSymbol) setSymbol(foundSymbol);
+      if (foundPair) setSelectedTv(foundPair.tv);
       if (foundInterval) setIntervalValue(foundInterval);
+
     } catch {
       /* malformed content — ignore, keep current symbol/interval */
     }
@@ -161,21 +175,19 @@ export function TradingViewFramePage() {
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
-            <div className="flex items-center gap-2">
-              {SYMBOLS.map((s) => (
-                <button
-                  key={s.value}
-                  onClick={() => setSymbol(s)}
-                  className={`px-2.5 py-1 rounded-md text-xs font-medium ${
-                    symbol.value === s.value
-                      ? frameDark ? 'bg-white/20 text-white' : 'bg-black/10 text-[#141a33]'
-                      : frameDark ? 'text-white/40 hover:text-white/70' : 'text-[#141a33]/40 hover:text-[#141a33]/70'
-                  }`}
-                >
-                  {s.label}
-                </button>
-              ))}
-            </div>
+            {/* "Pairs" — same folded button pattern as every other chart
+                in the app (default folded), instead of a fixed row of
+                symbol pills. */}
+            <button
+              onClick={() => setPairsOpen((o) => !o)}
+              aria-label={pairsOpen ? 'Hide pairs' : 'Show pairs'}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium ${
+                pairsOpen ? 'bg-corporate-accent text-white' : frameDark ? 'bg-white/5 text-white/60 hover:text-white' : 'bg-black/5 text-[#141a33]/60 hover:text-[#141a33]'
+              }`}
+            >
+              <CandlestickChart size={13} /> Pairs
+            </button>
+
 
             {mode !== 'external' && (
               <div className={`flex items-center gap-1 rounded-lg p-1 ${frameDark ? 'bg-white/5' : 'bg-black/5'}`}>
@@ -241,6 +253,13 @@ export function TradingViewFramePage() {
             </div>
           </div>
         </div>
+
+        {pairsOpen && (
+          <div className="px-2">
+            <PairsPanel selected={selectedPair} onSelect={(p) => setSelectedTv(p.tv)} dark={frameDark} />
+          </div>
+        )}
+
 
         <div
           className={`relative rounded-xl overflow-hidden ${frameDark ? 'bg-black' : 'bg-white border border-[#e0e2ec]'}`}

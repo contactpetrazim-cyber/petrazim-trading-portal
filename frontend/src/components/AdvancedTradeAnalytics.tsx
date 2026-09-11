@@ -175,7 +175,35 @@ export function AdvancedTradeAnalytics({ dark, source }: { dark: boolean; source
             rightLabel="SL shifted" right={chrono.filter((r) => r.sl_shifted)}
           />
         </FoldedCard>
+
+        {/* Added by direct request ("add more features to trader
+            analytics") — all four read the same closed-trade rows the
+            cards above do, no new endpoint. */}
+        <div className="lg:col-span-2">
+          <FoldedCard title="Edge Scorecard" summary="Expectancy, profit factor, payoff ratio and average R — the headline numbers of your edge." dark={dark}>
+            <EdgeScorecard rows={chrono} dark={dark} />
+          </FoldedCard>
+        </div>
+
+        <FoldedCard title="Streaks & Consistency" summary="Longest win/loss runs, current streak and how many days closed green." dark={dark}>
+          <StreaksCard rows={chrono} dark={dark} />
+        </FoldedCard>
+
+        <FoldedCard title="Net P&L by Instrument" summary="Which symbols actually pay you, and which quietly cost you." dark={dark}>
+          <SymbolChart rows={chrono} dark={dark} />
+        </FoldedCard>
+
+        <div className="lg:col-span-2">
+          <FoldedCard title="Long vs Short" summary="Whether your edge is directional — same stats, split by trade direction." dark={dark}>
+            <ComparisonPair
+              dark={dark}
+              leftLabel="Long" left={chrono.filter((r) => r.direction === 'long')}
+              rightLabel="Short" right={chrono.filter((r) => r.direction === 'short')}
+            />
+          </FoldedCard>
+        </div>
       </div>
+
     </div>
   );
 }
@@ -566,4 +594,97 @@ function ComparisonPair({
       </div>
     </div>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Added analytics — all derived from the same closed-trade rows.
+// ---------------------------------------------------------------------------
+
+/** Headline edge stats: expectancy per trade (in R and in currency),
+ *  profit factor, payoff ratio, win rate, best/worst trade. */
+function EdgeScorecard({ rows, dark }: { rows: DetailRow[]; dark: boolean }) {
+  if (rows.length === 0) return <NoData dark={dark} />;
+  const wins = rows.filter((r) => r.realized_pnl > 0);
+  const losses = rows.filter((r) => r.realized_pnl < 0);
+  const grossWin = wins.reduce((s, r) => s + r.realized_pnl, 0);
+  const grossLoss = Math.abs(losses.reduce((s, r) => s + r.realized_pnl, 0));
+  const winRate = (wins.length / rows.length) * 100;
+  const avgWin = wins.length ? grossWin / wins.length : 0;
+  const avgLoss = losses.length ? grossLoss / losses.length : 0;
+  const rs = rows.map(rMultiple).filter((v) => v !== 0);
+  const avgR = rs.length ? rs.reduce((s, v) => s + v, 0) / rs.length : 0;
+  const expectancy = rows.reduce((s, r) => s + r.realized_pnl, 0) / rows.length;
+  const best = Math.max(...rows.map((r) => r.realized_pnl));
+  const worst = Math.min(...rows.map((r) => r.realized_pnl));
+
+  const stats: { label: string; value: string; good?: boolean }[] = [
+    { label: 'Expectancy / trade', value: `${expectancy >= 0 ? '+' : ''}${expectancy.toFixed(2)}`, good: expectancy >= 0 },
+    { label: 'Average R', value: `${avgR >= 0 ? '+' : ''}${avgR.toFixed(2)}R`, good: avgR >= 0 },
+    { label: 'Profit factor', value: grossLoss > 0 ? (grossWin / grossLoss).toFixed(2) : '∞', good: grossWin >= grossLoss },
+    { label: 'Payoff ratio', value: avgLoss > 0 ? (avgWin / avgLoss).toFixed(2) : '∞', good: avgWin >= avgLoss },
+    { label: 'Win rate', value: `${winRate.toFixed(1)}%`, good: winRate >= 50 },
+    { label: 'Closed trades', value: String(rows.length) },
+    { label: 'Best trade', value: `+${best.toFixed(2)}`, good: true },
+    { label: 'Worst trade', value: worst.toFixed(2), good: false },
+  ];
+
+  return (
+    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+      {stats.map((s) => (
+        <div key={s.label} className={`rounded-lg p-2.5 ${dark ? 'bg-white/5' : 'bg-gray-50'}`}>
+          <div className={`text-[10px] uppercase tracking-wide ${dark ? 'text-white/40' : 'text-gray-400'}`}>{s.label}</div>
+          <div
+            className="text-sm font-bold mt-0.5"
+            style={{ color: s.good === undefined ? (dark ? '#e5e7eb' : '#111827') : s.good ? GREEN : RED }}
+          >
+            {s.value}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Longest win/loss runs, current run, and daily green/red consistency. */
+function StreaksCard({ rows, dark }: { rows: DetailRow[]; dark: boolean }) {
+  if (rows.length === 0) return <NoData dark={dark} />;
+  let bestWin = 0, bestLoss = 0, run = 0, runSign = 0;
+  for (const r of rows) {
+    const sign = r.realized_pnl >= 0 ? 1 : -1;
+    run = sign === runSign ? run + 1 : 1;
+    runSign = sign;
+    if (sign > 0) bestWin = Math.max(bestWin, run);
+    else bestLoss = Math.max(bestLoss, run);
+  }
+  const byDay = new Map<string, number>();
+  for (const r of rows) {
+    const d = entryDateUtc(r);
+    if (d) byDay.set(d, (byDay.get(d) ?? 0) + r.realized_pnl);
+  }
+  const days = [...byDay.values()];
+  const greenDays = days.filter((v) => v > 0).length;
+
+  const stats = [
+    { label: 'Longest win streak', value: `${bestWin} trades`, good: true },
+    { label: 'Longest losing streak', value: `${bestLoss} trades`, good: false },
+    { label: 'Current streak', value: `${run} ${runSign > 0 ? 'win' : 'loss'}${run === 1 ? '' : 'es'}`, good: runSign > 0 },
+    { label: 'Green days', value: days.length ? `${greenDays}/${days.length} (${((greenDays / days.length) * 100).toFixed(0)}%)` : '—', good: greenDays * 2 >= days.length },
+  ];
+
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      {stats.map((s) => (
+        <div key={s.label} className={`rounded-lg p-2.5 ${dark ? 'bg-white/5' : 'bg-gray-50'}`}>
+          <div className={`text-[10px] uppercase tracking-wide ${dark ? 'text-white/40' : 'text-gray-400'}`}>{s.label}</div>
+          <div className="text-sm font-bold mt-0.5" style={{ color: s.good ? GREEN : RED }}>{s.value}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Net P&L grouped by instrument. */
+function SymbolChart({ rows, dark }: { rows: DetailRow[]; dark: boolean }) {
+  const buckets = bucketRows(rows, (r) => r.symbol || null);
+  return buckets.length ? <PnlBarList buckets={buckets} dark={dark} /> : <NoData dark={dark} />;
 }

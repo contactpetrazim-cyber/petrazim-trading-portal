@@ -4,7 +4,6 @@ import { FacilitatorCalendar } from '../components/FacilitatorCalendar';
 import { useAuth } from '../hooks/useAuth';
 import { useThemeStore } from '../hooks/useTheme';
 import { fetchJsonWithRetry } from '../lib/resilientFetch';
-import { apiFetch } from '../components/AccessExpiredGate';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -39,7 +38,8 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 export function MeetingsPage() {
   const { theme } = useThemeStore();
   const dark = theme === 'dark';
-  const { token } = useAuth();
+  const { token, user } = useAuth();
+  const privileged = ['fund_manager', 'partner', 'admin', 'super_admin'].includes(user?.role ?? '');
   const [userTier, setUserTier] = useState<'essential' | 'professional' | 'executive' | null>(null);
   const [tierLoading, setTierLoading] = useState(true);
 
@@ -71,7 +71,7 @@ export function MeetingsPage() {
 
       <div>
         <h2 className={`text-sm font-semibold mb-3 ${dark ? 'text-white/40' : 'text-gray-500'}`}>Availability</h2>
-        <FacilitatorCalendar userTier={userTier} tierLoading={tierLoading} token={token} dark={dark} />
+        <FacilitatorCalendar userTier={userTier} tierLoading={tierLoading} token={token} privileged={privileged} dark={dark} />
       </div>
     </div>
   );
