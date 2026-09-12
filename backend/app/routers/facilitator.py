@@ -43,7 +43,6 @@ from app.services.facilitator_booking import (
     check_booking_eligibility, compute_calendar_strip, generate_jitsi_room_url,
 )
 from app.services.fireflies import invite_fireflies_notetaker
-from app.services.telegram import channel_for_access
 
 # Band -> (start_hour, end_hour), UTC. Never defined anywhere else in
 # the codebase — bands were only ever labels, not clock times — so
@@ -158,33 +157,43 @@ async def book_session(
 
     # Best-effort calendar sync — same fail-soft convention as
     # Fireflies above: a booking always succeeds even if this fails or
-    # nothing is connected. Routes to the corporate vs individual
-    # calendar by the exact same granted_via signal Telegram already
-    # uses, rather than inventing a second routing rule.
-    access = (await db.execute(
-        select(UserAccess).where(UserAccess.user_id == user.id, UserAccess.is_active == True)  # noqa: E712
-        .order_by(UserAccess.expires_at.desc()).limit(1)
-    )).scalar_one_or_none()
-    channel = channel_for_access(access.granted_via if access else "")
-    connector_type = f"google_calendar_{channel.value}"
-    credential = (await db.execute(
-        select(GoogleCalendarCredential).where(GoogleCalendarCredential.connector_type == connector_type)
-    )).scalar_one_or_none()
-    if credential is not None:
-        access_token = await google_calendar.get_valid_access_token(credential)
-        if access_token:
-            start_h, end_h = BAND_HOURS_UTC[MeetingBand(req.band)]
-            start_dt = datetime.combine(day_obj, datetime.min.time(), tzinfo=timezone.utc).replace(hour=start_h)
-            end_dt = start_dt.replace(hour=end_h)
-            await google_calendar.create_calendar_event(
-                access_token, summary=f"Petrazim facilitator session — {req.topic}",
-                description=f"Join: {room_url}", start_iso=start_dt.isoformat(), end_iso=end_dt.isoformat(),
-                location=room_url,
-                # The real Fireflies-notetaker mechanism (see
-                # fireflies.py's own docstring) — invited onto THIS
-                # calendar event, not a separate API call.
-                attendees=[notetaker.notetaker_email] if notetaker.invited and notetaker.notetaker_email else None,
-            )
+    # nothing is connected.
+    #
+    # Mirrors to BOTH Google accounts (contact.petrazim@gmail.com /
+    # corporate and petrazim.solutions@gmail.com / individual) instead
+    # of routing to just one of them — there's only one facilitator
+    # running every session regardless of which access channel a
+    # trainee came in through, so both calendars need the event (the
+    # UI reflects this too: Connections shows one merged "Calendar"
+    # control rather than two separate connector cards, see
+    # ConnectorCards.tsx). Each connector is independent and fails
+    # soft on its own — one account being disconnected, unconfigured,
+    # or hitting a refresh failure never blocks the other, or the
+    # booking itself.
+    credentials = (await db.execute(
+        select(GoogleCalendarCredential).where(GoogleCalendarCredential.connector_type.in_(GOOGLE_CONNECTOR_TYPES))
+    )).scalars().all()
+    if credentials:
+        start_h, end_h = BAND_HOURS_UTC[MeetingBand(req.band)]
+        start_dt = datetime.combine(day_obj, datetime.min.time(), tzinfo=timezone.utc).replace(hour=start_h)
+        end_dt = start_dt.replace(hour=end_h)
+        for credential in credentials:
+            access_token = await google_calendar.get_valid_access_token(credential)
+            if access_token:
+                await google_calendar.create_calendar_event(
+                    access_token, summary=f"Petrazim facilitator session — {req.topic}",
+                    description=f"Join: {room_url}", start_iso=start_dt.isoformat(), end_iso=end_dt.isoformat(),
+                    location=room_url,
+                    # The real Fireflies-notetaker mechanism (see
+                    # fireflies.py's own docstring) — invited onto THIS
+                    # calendar event, not a separate API call. Google
+                    # dedupes the notetaker's own inbox invite across
+                    # both events by iCalUID only if we set one
+                    # ourselves, which we don't — it'll see two invites
+                    # for the same room, harmless since it's a bot
+                    # mailbox, not a person.
+                    attendees=[notetaker.notetaker_email] if notetaker.invited and notetaker.notetaker_email else None,
+                )
         await db.commit()   # persists get_valid_access_token's refreshed cache either way
 
     return BookResponse(
