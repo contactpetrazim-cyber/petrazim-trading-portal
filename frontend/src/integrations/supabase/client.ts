@@ -3,9 +3,26 @@ import { createClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 import { brokeredPreviewStorage } from './previewAuthStorage';
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+// Falls back to a placeholder rather than passing an empty/undefined
+// URL straight to createClient(). This file is imported eagerly (via
+// FloatingTradeAI, itself a top-level import in App.tsx), so it runs
+// before main.tsx's ReactDOM.createRoot(...).render() — before
+// AppErrorBoundary exists. createClient() validates its URL with
+// `new URL(...)` and throws synchronously on a bad one; an uncaught
+// throw here aborts the whole module graph and the app never mounts
+// at all, a genuinely blank page with no fallback UI (the exact bug
+// this guards against — see frontend/.env.production for the real
+// root cause, a missing VITE_SUPABASE_URL). With the placeholder,
+// createClient() succeeds and the app mounts normally; only
+// Supabase-dependent calls fail (as ordinary rejected promises, which
+// their own call sites already catch), instead of the whole page.
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://placeholder.invalid.supabase.co';
+const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || 'placeholder-key';
 
+if (!import.meta.env.VITE_SUPABASE_URL) {
+  // eslint-disable-next-line no-console
+  console.error('VITE_SUPABASE_URL is not set — Supabase-backed features will not work.');
+}
 
 function isNewSupabaseApiKey(value: string): boolean {
   return value.startsWith('sb_publishable_') || value.startsWith('sb_secret_');
