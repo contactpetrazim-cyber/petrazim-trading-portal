@@ -4,6 +4,7 @@ import { Bot, Play, Pause, Settings, TrendingUp, Save, Plus, X, Pencil, Trash2, 
 import { botsApi } from '../services/api';
 import { BotConfig, BotPerformance, BotMetricsUpdate } from '../types';
 import { useThemeStore } from '../hooks/useTheme';
+import { formatApiError } from '../lib/apiError';
 
 /**
  * BotsPage — "Bot Configuration". Was 5 hardcoded bots with dead
@@ -217,7 +218,7 @@ export function BotsPage() {
       setInstrumentResults([]);
       loadBots();
     } catch (e: any) {
-      setCreateError(e?.response?.data?.detail || 'Could not create bot.');
+      setCreateError(formatApiError(e?.response?.data?.detail, 'Could not create bot.'));
     }
   }
 
@@ -244,7 +245,7 @@ export function BotsPage() {
       if (selectedBot === botId) { setSelectedBot(null); setEditing(null); }
       loadBots();
     } catch (e: any) {
-      setDeleteError(e?.response?.data?.detail || 'Could not delete this bot.');
+      setDeleteError(formatApiError(e?.response?.data?.detail, 'Could not delete this bot.'));
     } finally {
       setDeleting(false);
     }

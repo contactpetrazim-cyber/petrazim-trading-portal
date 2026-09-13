@@ -4,6 +4,7 @@ import { useAuth } from '../hooks/useAuth';
 import { apiFetch } from './AccessExpiredGate';
 import { FoldedCard } from './FoldedCard';
 import { makeIdempotencyKey } from '../lib/resilientFetch';
+import { formatApiError } from '../lib/apiError';
 
 /**
  * RoleAdministrationPanel — promote/demote by email, adapted from the
@@ -72,7 +73,7 @@ export function RoleAdministrationPanel({ dark = true }: { dark?: boolean }) {
         timeoutMs: 60_000,
       });
       const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(body.detail || 'Could not change that account\'s role');
+      if (!res.ok) throw new Error(formatApiError(body.detail, 'Could not change that account\'s role'));
       setStatus(`${body.email} is now ${body.role}.`);
       setEmail('');
     } catch (e: any) {

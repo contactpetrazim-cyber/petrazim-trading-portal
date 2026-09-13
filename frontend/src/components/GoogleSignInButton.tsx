@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { apiFetch } from './AccessExpiredGate';
+import { formatApiError } from '../lib/apiError';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -87,7 +88,7 @@ export function GoogleSignInButton({
                 body: JSON.stringify({ credential: resp.credential }),
               });
               const body = await res.json().catch(() => ({}));
-              if (!res.ok) throw new Error(body.detail || 'Google sign-in failed');
+              if (!res.ok) throw new Error(formatApiError(body.detail, 'Google sign-in failed'));
               onSuccess(body);
             } catch (err: any) {
               onError(err.message || 'Google sign-in failed');

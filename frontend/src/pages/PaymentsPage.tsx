@@ -3,6 +3,7 @@ import { Check, Ticket, Clock, CreditCard, Banknote, Bitcoin, Minus, Plus, Light
 import { useAuth } from '../hooks/useAuth';
 import { useThemeStore } from '../hooks/useTheme';
 import { apiFetch } from '../components/AccessExpiredGate';
+import { formatApiError } from '../lib/apiError';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -166,7 +167,7 @@ export function PaymentsPage() {
         body: JSON.stringify(body),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'Checkout failed');
+      if (!res.ok) throw new Error(formatApiError(data.detail, 'Checkout failed'));
       window.location.href = data.checkout_url;
     } catch (err: any) {
       setError(err.message || 'Checkout failed');
@@ -189,7 +190,7 @@ export function PaymentsPage() {
         body: JSON.stringify({ code }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'Code not recognized');
+      if (!res.ok) throw new Error(formatApiError(data.detail, 'Code not recognized'));
       setCodeResult({ ok: true, message: data.message });
       setCode('');
       apiFetch(`${API_URL}/payments/access-status`, { headers: { Authorization: `Bearer ${token}` } })

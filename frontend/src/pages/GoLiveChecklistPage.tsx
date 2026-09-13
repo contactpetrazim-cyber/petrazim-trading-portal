@@ -23,7 +23,7 @@ export function GoLiveChecklistPage() {
         <ArrowLeft size={15} /> Back to Insights
       </Link>
       <PageHeader title="Go-Live Checklist" subtitle="Validation gate status before any bot goes autonomous — every check, and sign-off for the ones that need a human." />
-      <GoLiveChecklistPanel apiBaseUrl={API_URL} />
+      <GoLiveChecklistPanel apiBaseUrl={API_URL} dark={dark} />
     </div>
   );
 }

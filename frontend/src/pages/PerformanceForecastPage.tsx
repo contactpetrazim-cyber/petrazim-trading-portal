@@ -24,7 +24,7 @@ export function PerformanceForecastPage() {
         <ArrowLeft size={15} /> Back to Insights
       </Link>
       <PageHeader title="Performance Forecast" subtitle="Monte Carlo projection of a future set of trades, run against your own real trade history." />
-      <PerformanceForecastPanel apiBaseUrl={API_URL} />
+      <PerformanceForecastPanel apiBaseUrl={API_URL} dark={dark} />
     </div>
   );
 }

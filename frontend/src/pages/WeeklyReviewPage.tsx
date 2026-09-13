@@ -22,7 +22,7 @@ export function WeeklyReviewPage() {
         <ArrowLeft size={15} /> Back to Insights
       </Link>
       <PageHeader title="Weekly Review" subtitle="Coach debrief — trades taken, missed opportunities, and a psychology review, for the week you pick." />
-      <WeeklyReviewPanel apiBaseUrl={API_URL} />
+      <WeeklyReviewPanel apiBaseUrl={API_URL} dark={dark} />
     </div>
   );
 }

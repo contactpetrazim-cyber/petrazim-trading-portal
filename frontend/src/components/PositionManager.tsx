@@ -4,6 +4,7 @@ import { Pencil, X, Check, Scissors, AlertCircle } from 'lucide-react';
 import { Trade } from '../types';
 import { tradesApi } from '../services/api';
 import { useQuickPrice } from '../hooks/useQuickPrice';
+import { formatApiError } from '../lib/apiError';
 
 /**
  * PositionManager — "view and edit the statistics of this trade ...
@@ -92,7 +93,7 @@ export function PositionManager({ trade, dark = false, onChanged }: { trade: Tra
       setEditingTargets(false);
       onChanged?.();
     } catch (err: any) {
-      setMessage({ ok: false, text: err?.response?.data?.detail || 'Could not update targets — try again.' });
+      setMessage({ ok: false, text: formatApiError(err?.response?.data?.detail, 'Could not update targets — try again.') });
     } finally {
       setSavingTargets(false);
     }
@@ -126,7 +127,7 @@ export function PositionManager({ trade, dark = false, onChanged }: { trade: Tra
       setClosingOpen(false);
       onChanged?.();
     } catch (err: any) {
-      setMessage({ ok: false, text: err?.response?.data?.detail || 'Close failed — try again.' });
+      setMessage({ ok: false, text: formatApiError(err?.response?.data?.detail, 'Close failed — try again.') });
     } finally {
       setClosing(false);
     }

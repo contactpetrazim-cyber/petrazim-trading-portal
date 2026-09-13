@@ -9,6 +9,7 @@ import { GoogleSignInButton } from '../components/GoogleSignInButton';
 import { HERO_GRADIENT } from '../config/theme';
 import { apiFetch } from '../components/AccessExpiredGate';
 import { fetchWithRetry, type FetchPhase } from '../lib/resilientFetch';
+import { formatApiError } from '../lib/apiError';
 import { LoadingIndicator } from '../components/LoadingIndicator';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -133,7 +134,11 @@ export function LoginPage() {
       }, setPhase);
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error(body.detail || 'Login failed');
+        // A 422 (e.g. a malformed email) sends `detail` as an array of
+        // validation-error objects, not a string — `new Error(array)`
+        // used to silently stringify to "[object Object],[object
+        // Object]" instead of a real message, by direct bug report.
+        throw new Error(formatApiError(body.detail, 'Login failed'));
       }
       await handlePostLogin(await res.json());
     } catch (err: any) {
@@ -164,7 +169,7 @@ export function LoginPage() {
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         if (res.status === 409) throw new Error('An account with this email already exists — sign in instead.');
-        throw new Error(body.detail || 'Registration failed');
+        throw new Error(formatApiError(body.detail, 'Registration failed'));
       }
 
       const loginRes = await fetchWithRetry(`${API_URL}/auth/login`, {

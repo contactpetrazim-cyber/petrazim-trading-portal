@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { CheckCircle2, Circle, Calendar as CalendarIcon } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { apiFetch } from './AccessExpiredGate';
+import { formatApiError } from '../lib/apiError';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
@@ -93,7 +94,7 @@ export function ConnectorCards({ dark = false }: { dark?: boolean }) {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'Could not start the Google connection.');
+      if (!res.ok) throw new Error(formatApiError(data.detail, 'Could not start the Google connection.'));
       window.location.href = data.authorize_url;
     } catch (err: any) {
       setError(err.message || 'Could not start the Google connection.');
