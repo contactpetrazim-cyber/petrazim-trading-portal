@@ -461,25 +461,41 @@ async def cancel_order(
         raise HTTPException(status_code=404, detail="Trade not found")
 
     if row.status == TradeStatus.PENDING:
-        # Paper trades now carry a real broker_name/broker_order_id
-        # too (the same engine ran the same routing for them), so this
-        # goes through cancel_broker_order either way — `paper=` tells
-        # it whether to simulate the cancel or actually call the
-        # broker (execution_engine.py::cancel_broker_order).
-        cancel_result = await _engine.cancel_broker_order(
-            row.broker_name, row.broker_order_id, row.symbol, row.bot_id, db,
-            is_stop=row.entry_type == EntryType.STOP, paper=row.is_test,
-        )
-        if not cancel_result.get("success"):
-            raise HTTPException(
-                status_code=502,
-                detail=cancel_result.get("message") or cancel_result.get("error") or "Could not cancel this order.",
+        # Was: always called cancel_broker_order and treated ANY
+        # failure — including "there was never a broker reference to
+        # cancel" — as a hard 502 that blocked cancelling the order at
+        # all, by direct bug report ("allow cancellation of paper and
+        # real live trades ... No broker order reference stored for
+        # this trade — nothing to cancel at a broker"). That message is
+        # not a real failure: plenty of pending rows (older ones from
+        # before broker_name/broker_order_id were recorded for every
+        # order, or ones this app never routed to a broker at all) have
+        # no broker reference at all, and "nothing to cancel at a
+        # broker" should mean exactly that — proceed to cancel it in
+        # OUR OWN system — not refuse the whole operation. Only
+        # attempt a REAL broker cancel when there's actually a
+        # broker_order_id/broker_name on file to cancel, mirroring the
+        # ACTIVE branch below's own already-correct guard; a genuine
+        # broker-side failure there still falls through to a local
+        # cancel rather than blocking the trader, same as that branch's
+        # own "falling back to close" behavior on failure.
+        cancelled_at_broker = False
+        if row.broker_order_id and row.broker_name:
+            cancel_result = await _engine.cancel_broker_order(
+                row.broker_name, row.broker_order_id, row.symbol, row.bot_id, db,
+                is_stop=row.entry_type == EntryType.STOP, paper=row.is_test,
             )
+            cancelled_at_broker = bool(cancel_result.get("success"))
+            if not cancelled_at_broker:
+                logger.info(
+                    "cancel_pending_order_broker_cancel_failed_cancelling_locally",
+                    trade_id=trade_id, error=cancel_result.get("error") or cancel_result.get("message"),
+                )
         row.status = TradeStatus.CANCELLED
         await db.commit()
         return CancelOrderResponse(
             trade_id=trade_id, status=row.status.value,
-            message="Order cancelled — it was never filled." if row.is_test else "Order cancelled at your broker — it was never filled.",
+            message="Order cancelled at your broker — it was never filled." if cancelled_at_broker else "Order cancelled — it was never filled.",
         )
 
     if row.status != TradeStatus.ACTIVE:
