@@ -46,6 +46,7 @@ intent.
 
 from __future__ import annotations
 
+import re
 import time
 from collections import defaultdict
 from typing import Dict, List, Literal, Optional
@@ -86,6 +87,29 @@ _backup_client = (
     )
     if _settings.BINANCE_BACKUP_PROXY_URL else None
 )
+
+# TradingView's own public symbol-search endpoint — the exact one the
+# embedded chart widget's own internal search box calls, so a result
+# here is guaranteed to be a real symbol the chart can actually
+# display, across every asset class TradingView carries (stocks,
+# forex, crypto, indices, commodities), not just this router's small
+# Binance-only allow-list above. Calling it straight from the BROWSER
+# gets a 403 (verified directly): TradingView checks the request's
+# Referer/Origin and rejects anything that isn't tradingview.com
+# itself, which a browser can't fake. A server-side call has no such
+# restriction — this is the same technique the widget's own frontend
+# JS uses, just relocated to our backend, and every request still
+# only runs on behalf of a real logged-in user's own search (same
+# require-auth + debounce discipline as /instruments above), not an
+# open scrape.
+_TV_SYMBOL_SEARCH_URL = "https://symbol-search.tradingview.com/symbol_search/v3/"
+_TV_HEADERS = {
+    "Referer": "https://www.tradingview.com/",
+    "Origin": "https://www.tradingview.com",
+    "User-Agent": "Mozilla/5.0 (compatible; PetrazimChartSearch/1.0)",
+}
+_tv_client = httpx.AsyncClient(timeout=8.0, headers=_TV_HEADERS)
+_TV_HIGHLIGHT_TAGS_RE = re.compile(r"</?em>")
 
 
 def _validate_symbol(symbol: str) -> str:
@@ -422,3 +446,72 @@ async def search_instruments(
         if query else sorted(all_instruments, key=lambda i: i.symbol)
     )
     return InstrumentsResponse(instruments=matches[:limit])
+
+
+# ---------------------------------------------------------------------------
+# Chart symbol search — the Pairs panel's "search any instrument", by
+# direct bug report ("the search any instrument should connect to the
+# chart search so that instrument selected can choose from the very
+# large database of instrument pairs ... it sometimes gives an error
+# that 'nothing matched' — yet the search in the chart actually brings
+# out the correct instrument"). PairsPanel.tsx previously only had a
+# small ~35-instrument hand-picked catalogue (config/instrumentCatalogue.ts)
+# plus this router's own crypto-only /instruments above, because a
+# direct browser call to TradingView's search was blocked (see
+# _tv_client's own comment) — this is the real fix: the identical
+# search the chart's own widget uses, proxied server-side so it
+# actually reaches TradingView instead of being 403'd.
+# ---------------------------------------------------------------------------
+
+class ChartSymbolResult(BaseModel):
+    symbol: str
+    exchange: str
+    description: str
+    type: str
+
+
+class ChartSymbolSearchResponse(BaseModel):
+    results: List[ChartSymbolResult]
+
+
+@router.get("/symbol-search", response_model=ChartSymbolSearchResponse)
+async def chart_symbol_search(
+    q: str, limit: int = 25, user: User = Depends(get_current_user),
+):
+    """Real TradingView symbols matching `q`, across every asset class
+    — every result's `symbol`+`exchange` is a validated `EXCHANGE:TICKER`
+    pair the chart widget can actually load, the same guarantee
+    config/instrumentCatalogue.ts's hand-picked list makes, just from
+    TradingView's own live database instead of a ~35-row fallback."""
+    query = q.strip()
+    if not query:
+        return ChartSymbolSearchResponse(results=[])
+    try:
+        resp = await _tv_client.get(
+            _TV_SYMBOL_SEARCH_URL,
+            params={
+                "text": query, "hl": 1, "exchange": "", "lang": "en",
+                "search_type": "undefined", "domain": "production",
+            },
+        )
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=502, detail=f"Could not reach the chart's symbol database: {e}")
+    if resp.status_code != 200:
+        raise HTTPException(status_code=502, detail=f"Chart symbol search returned {resp.status_code}")
+
+    raw = resp.json()
+    limit = max(1, min(limit, 50))
+    results = [
+        ChartSymbolResult(
+            symbol=_TV_HIGHLIGHT_TAGS_RE.sub("", s.get("symbol", "")),
+            exchange=s.get("exchange", ""),
+            description=_TV_HIGHLIGHT_TAGS_RE.sub("", s.get("description", "")),
+            type=s.get("type", ""),
+        )
+        for s in raw.get("symbols", [])[:limit]
+        # Skip TradingView's own synthetic/discontinued entries (e.g. the
+        # "APPLEUSD" crypto-swap noise that outranks real AAPL for a
+        # query like "apple") — real, currently listed instruments only.
+        if "discontinued" not in s.get("typespecs", [])
+    ]
+    return ChartSymbolSearchResponse(results=results)
