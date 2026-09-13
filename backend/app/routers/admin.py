@@ -15,12 +15,15 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from typing import Optional
+
+from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import require_role, require_super_admin
+from app.core.idempotency import idempotency_guard
 from app.database import get_db
 from app.models.access import AccessCode, CodeType, UserAccess
 from app.models.broadcast_log import BroadcastLog
@@ -72,26 +75,33 @@ async def create_user(
     req: CreateUserRequest,
     db: AsyncSession = Depends(get_db),
     _admin: User = Depends(require_super_admin),
+    idempotency_key: Optional[str] = Header(default=None, alias="Idempotency-Key"),
 ):
     """Super Admin only — creates Admin/Manager/Trader/Partner accounts directly,
     bypassing the pending/payment flow (for staff and pre-approved accounts)."""
     from app.core.auth import hash_password
 
-    existing = (await db.execute(select(User).where(User.email == req.email))).scalar_one_or_none()
-    if existing:
-        raise HTTPException(status_code=409, detail="An account with this email already exists")
+    async with idempotency_guard(db, _admin.id, "admin.create_user", idempotency_key) as guard:
+        if guard.cached is not None:
+            return guard.cached
 
-    user = User(
-        email=req.email, full_name=req.full_name, role=req.role,
-        hashed_password=hash_password(req.temporary_password),
-        status=UserStatus.ACTIVE, is_super_admin_seed=False,
-    )
-    db.add(user)
-    await db.commit()
-    await db.refresh(user)
-    return UserListItem(id=str(user.id), email=user.email, full_name=user.full_name,
-                         role=user.role.value, status=user.status.value,
-                         badge_color=ROLE_BADGE_COLOR[user.role])
+        existing = (await db.execute(select(User).where(User.email == req.email))).scalar_one_or_none()
+        if existing:
+            raise HTTPException(status_code=409, detail="An account with this email already exists")
+
+        user = User(
+            email=req.email, full_name=req.full_name, role=req.role,
+            hashed_password=hash_password(req.temporary_password),
+            status=UserStatus.ACTIVE, is_super_admin_seed=False,
+        )
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+        response = UserListItem(id=str(user.id), email=user.email, full_name=user.full_name,
+                                 role=user.role.value, status=user.status.value,
+                                 badge_color=ROLE_BADGE_COLOR[user.role])
+        await guard.finalize(response)
+        return response
 
 
 class RoleChangeByEmailRequest(BaseModel):
@@ -114,6 +124,7 @@ async def change_role_by_email(
     req: RoleChangeByEmailRequest,
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_super_admin),
+    idempotency_key: Optional[str] = Header(default=None, alias="Idempotency-Key"),
 ):
     """The Admin console's "Role Administration" panel (Member email +
     New level + Apply), adapted from the reference training portal's
@@ -129,22 +140,28 @@ async def change_role_by_email(
     so promoting someone to any role hands them that role's own
     workspace plus everything beneath it, never anything above.
     """
-    # Exact match, no case-folding — mirrors every other email lookup in
-    # this codebase (auth.py's login/register), none of which normalize
-    # case either, so introducing it only here would risk a mismatch
-    # against however the account's email was originally stored.
-    target = (await db.execute(select(User).where(User.email == req.email.strip()))).scalar_one_or_none()
-    if target is None:
-        raise HTTPException(status_code=404, detail="No account found with that email")
-    if target.is_super_admin_seed:
-        raise HTTPException(status_code=400, detail="Cannot change the seeded Super Admin's role")
+    async with idempotency_guard(db, admin.id, "admin.change_role_by_email", idempotency_key) as guard:
+        if guard.cached is not None:
+            return guard.cached
 
-    target.role = req.new_role
-    await db.commit()
-    await db.refresh(target)
-    return UserListItem(id=str(target.id), email=target.email, full_name=target.full_name,
-                         role=target.role.value, status=target.status.value,
-                         badge_color=ROLE_BADGE_COLOR[target.role])
+        # Exact match, no case-folding — mirrors every other email lookup in
+        # this codebase (auth.py's login/register), none of which normalize
+        # case either, so introducing it only here would risk a mismatch
+        # against however the account's email was originally stored.
+        target = (await db.execute(select(User).where(User.email == req.email.strip()))).scalar_one_or_none()
+        if target is None:
+            raise HTTPException(status_code=404, detail="No account found with that email")
+        if target.is_super_admin_seed:
+            raise HTTPException(status_code=400, detail="Cannot change the seeded Super Admin's role")
+
+        target.role = req.new_role
+        await db.commit()
+        await db.refresh(target)
+        response = UserListItem(id=str(target.id), email=target.email, full_name=target.full_name,
+                                 role=target.role.value, status=target.status.value,
+                                 badge_color=ROLE_BADGE_COLOR[target.role])
+        await guard.finalize(response)
+        return response
 
 
 @router.patch("/users/{user_id}/role", response_model=UserListItem)
@@ -153,19 +170,26 @@ async def change_role(
     req: RoleChangeRequest,
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_super_admin),
+    idempotency_key: Optional[str] = Header(default=None, alias="Idempotency-Key"),
 ):
-    target = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
-    if target is None:
-        raise HTTPException(status_code=404, detail="User not found")
-    if target.is_super_admin_seed:
-        raise HTTPException(status_code=400, detail="Cannot change the seeded Super Admin's role")
+    async with idempotency_guard(db, admin.id, "admin.change_role", idempotency_key) as guard:
+        if guard.cached is not None:
+            return guard.cached
 
-    target.role = req.new_role
-    await db.commit()
-    await db.refresh(target)
-    return UserListItem(id=str(target.id), email=target.email, full_name=target.full_name,
-                         role=target.role.value, status=target.status.value,
-                         badge_color=ROLE_BADGE_COLOR[target.role])
+        target = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+        if target is None:
+            raise HTTPException(status_code=404, detail="User not found")
+        if target.is_super_admin_seed:
+            raise HTTPException(status_code=400, detail="Cannot change the seeded Super Admin's role")
+
+        target.role = req.new_role
+        await db.commit()
+        await db.refresh(target)
+        response = UserListItem(id=str(target.id), email=target.email, full_name=target.full_name,
+                                 role=target.role.value, status=target.status.value,
+                                 badge_color=ROLE_BADGE_COLOR[target.role])
+        await guard.finalize(response)
+        return response
 
 
 class PlatformOverviewResponse(BaseModel):
@@ -230,15 +254,22 @@ async def remove_user(
     user_id: str,
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_super_admin),
+    idempotency_key: Optional[str] = Header(default=None, alias="Idempotency-Key"),
 ):
-    target = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
-    if target is None:
-        raise HTTPException(status_code=404, detail="User not found")
-    if target.is_super_admin_seed:
-        raise HTTPException(status_code=400, detail="Cannot remove the seeded Super Admin account")
-    if str(target.id) == str(admin.id):
-        raise HTTPException(status_code=400, detail="Cannot remove your own account")
+    async with idempotency_guard(db, admin.id, "admin.remove_user", idempotency_key) as guard:
+        if guard.cached is not None:
+            return guard.cached
 
-    await db.delete(target)
-    await db.commit()
-    return {"status": "removed", "user_id": user_id}
+        target = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+        if target is None:
+            raise HTTPException(status_code=404, detail="User not found")
+        if target.is_super_admin_seed:
+            raise HTTPException(status_code=400, detail="Cannot remove the seeded Super Admin account")
+        if str(target.id) == str(admin.id):
+            raise HTTPException(status_code=400, detail="Cannot remove your own account")
+
+        await db.delete(target)
+        await db.commit()
+        response = {"status": "removed", "user_id": user_id}
+        await guard.finalize(response)
+        return response

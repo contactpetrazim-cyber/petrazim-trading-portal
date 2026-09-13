@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Eye } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
 import { CandleChart } from '../components/CandleChart';
@@ -6,6 +6,7 @@ import { SMCDiagram, SMC_DIAGRAM_DATA, SMC_DIAGRAM_KEYS, type SMCDiagramKey } fr
 import { GameResultsScreen } from '../components/GameResultsScreen';
 import { useAuth } from '../hooks/useAuth';
 import { apiFetch } from '../components/AccessExpiredGate';
+import { makeIdempotencyKey } from '../lib/resilientFetch';
 import { useThemeStore } from '../hooks/useTheme';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -46,6 +47,8 @@ export function ConceptSpotterGame() {
   const [missed, setMissed] = useState<string[]>([]);
   const [finished, setFinished] = useState(false);
   const [xpAwarded, setXpAwarded] = useState(0);
+  // One key per mount of this game session — see app/core/idempotency.py.
+  const idempotencyKeyRef = useRef(makeIdempotencyKey());
 
   const key = order[index];
   const diagram = SMC_DIAGRAM_DATA[key];
@@ -70,7 +73,10 @@ export function ConceptSpotterGame() {
     if (!token) return;
     const res = await apiFetch(`${API_URL}/curriculum/games/concept-spotter/complete`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      headers: {
+        'Content-Type': 'application/json', Authorization: `Bearer ${token}`,
+        'Idempotency-Key': idempotencyKeyRef.current,
+      },
       body: JSON.stringify({
         score, base_xp: 15,
         performance_summary: score === order.length ? 'Every concept, correctly spotted.' : 'Worth another look at the ones you missed.',

@@ -1,6 +1,24 @@
 import { apiFetch } from '../components/AccessExpiredGate';
 
 /**
+ * One fresh key per logical user action (order submit, role change,
+ * stage/game completion, ...) — generate ONCE before the first attempt
+ * and reuse the SAME value across every cold-start retry of that one
+ * action (fetchWithRetry/fetchJsonWithRetry already do this internally
+ * since they retry the same `init` object, headers included). Pairs
+ * with the backend's Idempotency-Key guard (app/core/idempotency.py):
+ * a retry that actually reached the server the first time (just slow
+ * to answer) replays the original result instead of re-running the
+ * action — concretely, placing a duplicate order, or a trader
+ * double-tapping a slow "Place Order"/"Complete" button. crypto.
+ * randomUUID() is available in every browser this app already targets
+ * (same baseline as the rest of the app's own uuid usage elsewhere).
+ */
+export function makeIdempotencyKey(): string {
+  return crypto.randomUUID();
+}
+
+/**
  * Shared cold-start-aware fetch helper.
  *
  * Root cause of "Learn/Practice/Analytics/Insights/Order Flow are not

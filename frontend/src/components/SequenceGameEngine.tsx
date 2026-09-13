@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { ListOrdered } from 'lucide-react';
 import { GameResultsScreen } from './GameResultsScreen';
 import { useAuth } from '../hooks/useAuth';
 import { apiFetch } from './AccessExpiredGate';
+import { makeIdempotencyKey } from '../lib/resilientFetch';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -42,6 +43,8 @@ export function SequenceGameEngine({
   const [checked, setChecked] = useState(false);
   const [finished, setFinished] = useState(false);
   const [xpAwarded, setXpAwarded] = useState(0);
+  // One key per mount of this game session — see app/core/idempotency.py.
+  const idempotencyKeyRef = useRef(makeIdempotencyKey());
 
   function pick(item: SequenceItem) {
     if (checked) return;
@@ -66,7 +69,10 @@ export function SequenceGameEngine({
       .map((item) => `${item.label} — ${item.detail}`);
     const res = await apiFetch(`${API_URL}/curriculum/games/${gameId}/complete`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      headers: {
+        'Content-Type': 'application/json', Authorization: `Bearer ${token}`,
+        'Idempotency-Key': idempotencyKeyRef.current,
+      },
       body: JSON.stringify({
         score: correctCount, base_xp: baseXp,
         performance_summary: correctCount === correctOrder.length ? 'Perfect sequence.' : 'Some steps out of order.',

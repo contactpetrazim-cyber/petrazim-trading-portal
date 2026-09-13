@@ -15,7 +15,7 @@ import { useThemeStore } from '../hooks/useTheme';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../components/ToastStack';
 import { AWARDS_REFRESH_EVENT } from '../components/BadgeUnlockWatcher';
-import { fetchJsonWithRetry, type FetchPhase } from '../lib/resilientFetch';
+import { fetchJsonWithRetry, makeIdempotencyKey, type FetchPhase } from '../lib/resilientFetch';
 import { apiFetch } from '../components/AccessExpiredGate';
 import { LoadingIndicator } from '../components/LoadingIndicator';
 import { parseMiniQuiz, type QuizQuestion } from '../lib/quizParser';
@@ -326,6 +326,13 @@ function LessonReader({ lesson, trackId, dark }: { lesson: LessonDetail; trackId
   const [understood, setUnderstood] = useState(false);
   const [completing, setCompleting] = useState(false);
   const [completeResult, setCompleteResult] = useState<{ ok: boolean; message: string } | null>(null);
+  // One key per lesson (regenerates whenever a different lesson is
+  // opened) — pairs with the backend's Idempotency-Key guard
+  // (app/core/idempotency.py) so a retry of Mark Stage Complete for
+  // THIS lesson replays the original result instead of a second
+  // completion attempt, without permanently caching a stale answer
+  // once the trainee moves to a different lesson.
+  const completeIdempotencyKey = useMemo(() => makeIdempotencyKey(), [lesson.id]);
 
   const page = pages[pageIndex];
   const isLastPage = pageIndex === pages.length - 1;
@@ -340,7 +347,10 @@ function LessonReader({ lesson, trackId, dark }: { lesson: LessonDetail; trackId
     try {
       const res = await apiFetch(`${API_URL}/curriculum/stages/complete`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        headers: {
+          'Content-Type': 'application/json', Authorization: `Bearer ${token}`,
+          'Idempotency-Key': completeIdempotencyKey,
+        },
         body: JSON.stringify({ stage_id: lesson.stage_id }),
       });
       const data = await res.json();

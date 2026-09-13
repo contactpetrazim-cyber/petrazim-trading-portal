@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Shuffle } from 'lucide-react';
 import { GameResultsScreen } from './GameResultsScreen';
 import { useAuth } from '../hooks/useAuth';
 import { apiFetch } from './AccessExpiredGate';
+import { makeIdempotencyKey } from '../lib/resilientFetch';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -43,6 +44,8 @@ export function MatchingGameEngine({
   const [matched, setMatched] = useState<Set<string>>(new Set());
   const [wrongFlash, setWrongFlash] = useState<{ term: string; def: string } | null>(null);
   const [wrongAttempts, setWrongAttempts] = useState<Record<string, number>>({});
+  // One key per mount of this game session — see app/core/idempotency.py.
+  const idempotencyKeyRef = useRef(makeIdempotencyKey());
   const [finished, setFinished] = useState(false);
   const [xpAwarded, setXpAwarded] = useState(0);
 
@@ -82,7 +85,10 @@ export function MatchingGameEngine({
     const missed = pairs.filter((p) => wrongAttempts[p.id]).map((p) => `${p.term} — ${p.definition}`);
     const res = await apiFetch(`${API_URL}/curriculum/games/${gameId}/complete`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      headers: {
+        'Content-Type': 'application/json', Authorization: `Bearer ${token}`,
+        'Idempotency-Key': idempotencyKeyRef.current,
+      },
       body: JSON.stringify({
         score: perfectPairs, base_xp: baseXp,
         performance_summary: perfectPairs === pairs.length ? 'Every pair matched first try.' : 'A few pairs took more than one try.',

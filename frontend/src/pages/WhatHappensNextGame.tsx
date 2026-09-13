@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { TrendingUp } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
 import { CandleChart, type Candle } from '../components/CandleChart';
@@ -6,7 +6,7 @@ import { GameResultsScreen } from '../components/GameResultsScreen';
 import { LoadingIndicator } from '../components/LoadingIndicator';
 import { useAuth } from '../hooks/useAuth';
 import { apiFetch } from '../components/AccessExpiredGate';
-import { fetchJsonWithRetry, type FetchPhase } from '../lib/resilientFetch';
+import { fetchJsonWithRetry, makeIdempotencyKey, type FetchPhase } from '../lib/resilientFetch';
 import { useThemeStore } from '../hooks/useTheme';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -72,6 +72,8 @@ export function WhatHappensNextGame() {
   const [revealed, setRevealed] = useState(false);
   const [score, setScore] = useState(0);
   const [missed, setMissed] = useState<string[]>([]);
+  // One key per mount of this game session — see app/core/idempotency.py.
+  const idempotencyKeyRef = useRef(makeIdempotencyKey());
   const [finished, setFinished] = useState(false);
   const [xpAwarded, setXpAwarded] = useState(0);
 
@@ -121,7 +123,10 @@ export function WhatHappensNextGame() {
     if (!token) return;
     const res = await apiFetch(`${API_URL}/curriculum/games/what-happens-next/complete`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      headers: {
+        'Content-Type': 'application/json', Authorization: `Bearer ${token}`,
+        'Idempotency-Key': idempotencyKeyRef.current,
+      },
       body: JSON.stringify({
         score, base_xp: 20,
         performance_summary: score === TOTAL_ROUNDS ? 'Perfect read on every window.' : score >= TOTAL_ROUNDS * 0.6 ? 'Solid instinct for where price was headed.' : 'Real markets are noisy — keep at it.',

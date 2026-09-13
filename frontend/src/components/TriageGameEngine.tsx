@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Clock } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { GameResultsScreen } from './GameResultsScreen';
 import { useAuth } from '../hooks/useAuth';
 import { apiFetch } from './AccessExpiredGate';
+import { makeIdempotencyKey } from '../lib/resilientFetch';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -46,6 +47,8 @@ export function TriageGameEngine({
   const [timeLeft, setTimeLeft] = useState(secondsPerQuestion);
   const [answered, setAnswered] = useState<TriageOption | null>(null);
   const [finished, setFinished] = useState(false);
+  // One key per mount of this game session — see app/core/idempotency.py.
+  const idempotencyKeyRef = useRef(makeIdempotencyKey());
   const [xpAwarded, setXpAwarded] = useState(0);
   const [runKey, setRunKey] = useState(0);
 
@@ -85,7 +88,10 @@ export function TriageGameEngine({
     // exists at all (it only appears once `answered` is set).
     const res = await apiFetch(`${API_URL}/curriculum/games/${gameId}/complete`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      headers: {
+        'Content-Type': 'application/json', Authorization: `Bearer ${token}`,
+        'Idempotency-Key': idempotencyKeyRef.current,
+      },
       body: JSON.stringify({
         track_id: trackId, score, base_xp: baseXp,
         performance_summary: score === scenarios.length ? 'Perfect run.' : score >= scenarios.length * 0.7 ? 'Solid — a couple to review.' : 'Worth another pass.',

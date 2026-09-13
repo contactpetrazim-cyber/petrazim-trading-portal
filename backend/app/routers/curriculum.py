@@ -38,12 +38,13 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.access_gate import require_active_access, learner_progress_snapshot
+from app.core.idempotency import idempotency_guard
 from app.database import get_db
 from app.engines.learning_content_ai import (
     extract_authored_flashcards, generate_flashcards, generate_recap, generate_retrieval_questions,
@@ -903,108 +904,129 @@ async def submit_practice(
 async def complete_stage(
     req: StageCompleteRequest, db: AsyncSession = Depends(get_db),
     user: User = Depends(require_active_access),
+    # See app/core/idempotency.py. complete_stage already had its own
+    # "already completed" check below, but that's a plain SELECT with
+    # no unique constraint behind it — two genuinely concurrent retries
+    # (a cold-start retry racing the original request that actually
+    # went through) could both pass that check before either commits
+    # and both award XP. The Idempotency-Key guard closes that race via
+    # a real DB-level unique constraint; the existing check stays as
+    # the correct "you already finished this stage days ago" answer.
+    idempotency_key: Optional[str] = Header(default=None, alias="Idempotency-Key"),
 ):
     """Applies the real dual gate (§3b of the Learning System Handover):
     a stage only completes when BOTH the quiz-score minimum AND the
     practice-rep minimum are met — a 90% quiz score alone never
     completes a stage on its own."""
-    stage = (await db.execute(
-        select(TrackStage).where(TrackStage.id == req.stage_id)
-    )).scalar_one_or_none()
-    if stage is None:
-        raise HTTPException(status_code=404, detail="Stage not found")
+    async with idempotency_guard(db, user.id, "curriculum.complete_stage", idempotency_key) as guard:
+        if guard.cached is not None:
+            return guard.cached
 
-    already_done = (await db.execute(
-        select(StageCompletion).where(
-            StageCompletion.user_id == user.id, StageCompletion.stage_id == stage.id,
-        )
-    )).scalar_one_or_none()
-    if already_done is not None:
-        return StageCompleteResponse(completed=True, reason="Already completed.")
+        stage = (await db.execute(
+            select(TrackStage).where(TrackStage.id == req.stage_id)
+        )).scalar_one_or_none()
+        if stage is None:
+            raise HTTPException(status_code=404, detail="Stage not found")
 
-    completed_numbers = await _completed_stage_numbers(db, user.id, stage.track_id)
-    unlock = can_attempt_stage(stage.stage_number, completed_numbers)
-    if not unlock.can_attempt:
-        return StageCompleteResponse(completed=False, reason=unlock.reason)
-
-    best_quiz = 0.0
-    if stage.lesson_id:
-        best_quiz = (await db.execute(
-            select(func.max(QuizAttempt.score_pct)).where(
-                QuizAttempt.user_id == user.id, QuizAttempt.lesson_id == stage.lesson_id,
-            )
-        )).scalar() or 0.0
-    practice_reps = (await db.execute(
-        select(func.count(PracticeAttempt.id)).where(
-            PracticeAttempt.user_id == user.id, PracticeAttempt.track_id == stage.track_id,
-            PracticeAttempt.correct == 1,
-        )
-    )).scalar() or 0
-
-    if not stage_completion_meets_requirements(
-        best_quiz, practice_reps, stage.min_quiz_score_pct, stage.min_practice_reps
-    ):
-        return StageCompleteResponse(
-            completed=False,
-            reason=(
-                f"Needs {stage.min_quiz_score_pct:.0f}%+ quiz score "
-                f"(best so far: {best_quiz:.0f}%) and {stage.min_practice_reps} correct "
-                f"practice reps (so far: {practice_reps})."
-            ),
-        )
-
-    stats = await _get_or_create_stats(db, user.id)
-    now = datetime.now(timezone.utc)
-    streak: StreakUpdateResult = update_streak(
-        stats.last_activity_date, stats.current_streak_days, stats.longest_streak_days, now,
-    )
-    xp_awarded = xp_for_stage(stage.xp_reward, streak.new_streak_days) if streak.xp_awarded_today else 0
-
-    db.add(StageCompletion(user_id=user.id, stage_id=stage.id, completed_at=now))
-    stats.current_streak_days = streak.new_streak_days
-    stats.longest_streak_days = streak.new_longest_streak_days
-    stats.last_activity_date = now
-    stats.total_xp += xp_awarded
-
-    # Schedule the first spaced-recall Retention Review check (routers/
-    # practise.py) — the RetentionCheck model and schedule_next_
-    # retention_check() already existed, but nothing had ever created
-    # the FIRST check for a lesson; without this, /practise/retention/due
-    # would stay permanently empty no matter how much was learned.
-    if stage.lesson_id is not None:
-        db.add(RetentionCheck(
-            user_id=user.id, lesson_id=stage.lesson_id,
-            due_at=now + timedelta(days=1), interval_index=0,
-        ))
-
-    # Certificate on track completion (Section "Gamification layer" of
-    # the curriculum model) — the Certificate table already existed but
-    # nothing ever wrote to it; issue one here the moment the stage just
-    # completed was the LAST stage in its track, once per (user, track).
-    certificate_issued = False
-    total_stages_in_track = (await db.execute(
-        select(func.count(TrackStage.id)).where(TrackStage.track_id == stage.track_id)
-    )).scalar() or 0
-    stages_now_complete = len(completed_numbers) + 1   # +1 for the StageCompletion just added above
-    if total_stages_in_track > 0 and stages_now_complete >= total_stages_in_track:
-        existing_cert = (await db.execute(
-            select(Certificate).where(
-                Certificate.user_id == user.id, Certificate.track_id == stage.track_id,
+        already_done = (await db.execute(
+            select(StageCompletion).where(
+                StageCompletion.user_id == user.id, StageCompletion.stage_id == stage.id,
             )
         )).scalar_one_or_none()
-        if existing_cert is None:
-            db.add(Certificate(
-                user_id=user.id, track_id=stage.track_id,
-                certificate_number=f"PZ-{uuid.uuid4().hex[:10].upper()}",
+        if already_done is not None:
+            response = StageCompleteResponse(completed=True, reason="Already completed.")
+            await guard.finalize(response)
+            return response
+
+        completed_numbers = await _completed_stage_numbers(db, user.id, stage.track_id)
+        unlock = can_attempt_stage(stage.stage_number, completed_numbers)
+        if not unlock.can_attempt:
+            response = StageCompleteResponse(completed=False, reason=unlock.reason)
+            await guard.finalize(response)
+            return response
+
+        best_quiz = 0.0
+        if stage.lesson_id:
+            best_quiz = (await db.execute(
+                select(func.max(QuizAttempt.score_pct)).where(
+                    QuizAttempt.user_id == user.id, QuizAttempt.lesson_id == stage.lesson_id,
+                )
+            )).scalar() or 0.0
+        practice_reps = (await db.execute(
+            select(func.count(PracticeAttempt.id)).where(
+                PracticeAttempt.user_id == user.id, PracticeAttempt.track_id == stage.track_id,
+                PracticeAttempt.correct == 1,
+            )
+        )).scalar() or 0
+
+        if not stage_completion_meets_requirements(
+            best_quiz, practice_reps, stage.min_quiz_score_pct, stage.min_practice_reps
+        ):
+            response = StageCompleteResponse(
+                completed=False,
+                reason=(
+                    f"Needs {stage.min_quiz_score_pct:.0f}%+ quiz score "
+                    f"(best so far: {best_quiz:.0f}%) and {stage.min_practice_reps} correct "
+                    f"practice reps (so far: {practice_reps})."
+                ),
+            )
+            await guard.finalize(response)
+            return response
+
+        stats = await _get_or_create_stats(db, user.id)
+        now = datetime.now(timezone.utc)
+        streak: StreakUpdateResult = update_streak(
+            stats.last_activity_date, stats.current_streak_days, stats.longest_streak_days, now,
+        )
+        xp_awarded = xp_for_stage(stage.xp_reward, streak.new_streak_days) if streak.xp_awarded_today else 0
+
+        db.add(StageCompletion(user_id=user.id, stage_id=stage.id, completed_at=now))
+        stats.current_streak_days = streak.new_streak_days
+        stats.longest_streak_days = streak.new_longest_streak_days
+        stats.last_activity_date = now
+        stats.total_xp += xp_awarded
+
+        # Schedule the first spaced-recall Retention Review check (routers/
+        # practise.py) — the RetentionCheck model and schedule_next_
+        # retention_check() already existed, but nothing had ever created
+        # the FIRST check for a lesson; without this, /practise/retention/due
+        # would stay permanently empty no matter how much was learned.
+        if stage.lesson_id is not None:
+            db.add(RetentionCheck(
+                user_id=user.id, lesson_id=stage.lesson_id,
+                due_at=now + timedelta(days=1), interval_index=0,
             ))
-            certificate_issued = True
 
-    await db.commit()
+        # Certificate on track completion (Section "Gamification layer" of
+        # the curriculum model) — the Certificate table already existed but
+        # nothing ever wrote to it; issue one here the moment the stage just
+        # completed was the LAST stage in its track, once per (user, track).
+        certificate_issued = False
+        total_stages_in_track = (await db.execute(
+            select(func.count(TrackStage.id)).where(TrackStage.track_id == stage.track_id)
+        )).scalar() or 0
+        stages_now_complete = len(completed_numbers) + 1   # +1 for the StageCompletion just added above
+        if total_stages_in_track > 0 and stages_now_complete >= total_stages_in_track:
+            existing_cert = (await db.execute(
+                select(Certificate).where(
+                    Certificate.user_id == user.id, Certificate.track_id == stage.track_id,
+                )
+            )).scalar_one_or_none()
+            if existing_cert is None:
+                db.add(Certificate(
+                    user_id=user.id, track_id=stage.track_id,
+                    certificate_number=f"PZ-{uuid.uuid4().hex[:10].upper()}",
+                ))
+                certificate_issued = True
 
-    return StageCompleteResponse(
-        completed=True, xp_awarded=xp_awarded, new_streak_days=streak.new_streak_days,
-        certificate_issued=certificate_issued,
-    )
+        await db.commit()
+
+        response = StageCompleteResponse(
+            completed=True, xp_awarded=xp_awarded, new_streak_days=streak.new_streak_days,
+            certificate_issued=certificate_issued,
+        )
+        await guard.finalize(response)
+        return response
 
 
 # --------------------------------------------------------------------------
@@ -1354,36 +1376,49 @@ class GameResultResponse(BaseModel):
 async def complete_game(
     game_id: str, req: GameCompleteRequest,
     db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access),
+    # See app/core/idempotency.py. Unlike complete_stage, this endpoint
+    # had NO dedup check at all before this — every call unconditionally
+    # awarded XP, so a retried request (a cold-start retry racing the
+    # original, or a trader re-submitting a finished game) doubled it
+    # outright. The Idempotency-Key guard is the only thing preventing
+    # that now.
+    idempotency_key: Optional[str] = Header(default=None, alias="Idempotency-Key"),
 ):
-    stats = await _get_or_create_stats(db, user.id)
-    now = datetime.utcnow()
+    async with idempotency_guard(db, user.id, "curriculum.complete_game", idempotency_key) as guard:
+        if guard.cached is not None:
+            return guard.cached
 
-    streak = update_streak(
-        last_activity_date=stats.last_activity_date, current_streak_days=stats.current_streak_days,
-        longest_streak_days=stats.longest_streak_days, activity_date=now,
-    )
-    xp_awarded = xp_for_stage(req.base_xp, streak.new_streak_days) if streak.xp_awarded_today else 0
+        stats = await _get_or_create_stats(db, user.id)
+        now = datetime.utcnow()
 
-    stats.total_xp += xp_awarded
-    stats.current_streak_days = streak.new_streak_days
-    stats.longest_streak_days = streak.new_longest_streak_days
-    stats.last_activity_date = now
+        streak = update_streak(
+            last_activity_date=stats.last_activity_date, current_streak_days=stats.current_streak_days,
+            longest_streak_days=stats.longest_streak_days, activity_date=now,
+        )
+        xp_awarded = xp_for_stage(req.base_xp, streak.new_streak_days) if streak.xp_awarded_today else 0
 
-    result = GameResult(
-        user_id=user.id, game_id=game_id, track_id=uuid.UUID(req.track_id) if req.track_id else None,
-        score=req.score, performance_summary=req.performance_summary,
-        missed_items_json=json.dumps(req.missed_items), xp_awarded=xp_awarded, completed_at=now,
-    )
-    db.add(result)
-    await db.commit()
-    await db.refresh(result)
+        stats.total_xp += xp_awarded
+        stats.current_streak_days = streak.new_streak_days
+        stats.longest_streak_days = streak.new_longest_streak_days
+        stats.last_activity_date = now
 
-    return GameResultResponse(
-        id=str(result.id), game_id=game_id, score=result.score,
-        performance_summary=result.performance_summary, missed_items=req.missed_items,
-        xp_awarded=xp_awarded, new_streak_days=streak.new_streak_days,
-        completed_at=result.completed_at.isoformat(),
-    )
+        result = GameResult(
+            user_id=user.id, game_id=game_id, track_id=uuid.UUID(req.track_id) if req.track_id else None,
+            score=req.score, performance_summary=req.performance_summary,
+            missed_items_json=json.dumps(req.missed_items), xp_awarded=xp_awarded, completed_at=now,
+        )
+        db.add(result)
+        await db.commit()
+        await db.refresh(result)
+
+        response = GameResultResponse(
+            id=str(result.id), game_id=game_id, score=result.score,
+            performance_summary=result.performance_summary, missed_items=req.missed_items,
+            xp_awarded=xp_awarded, new_streak_days=streak.new_streak_days,
+            completed_at=result.completed_at.isoformat(),
+        )
+        await guard.finalize(response)
+        return response
 
 
 class GameSummaryResponse(BaseModel):
