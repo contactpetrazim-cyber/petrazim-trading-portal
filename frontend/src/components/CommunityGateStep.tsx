@@ -81,7 +81,7 @@ export function CommunityGateStep({
         target="_blank"
         rel="noopener noreferrer"
         className={`flex items-center justify-center gap-2 w-full py-3 rounded-lg text-sm font-medium transition-colors ${
-          connected ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-[#229ED9] text-white hover:opacity-90'
+          connected ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-corporate-hero text-white hover:opacity-90'
         }`}
       >
         {connected ? <CheckCircle2 size={18} /> : <Send size={18} />}
