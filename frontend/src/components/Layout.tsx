@@ -19,6 +19,7 @@ import { TradingModeBadge } from './TradingModeBadge';
 import { PetrazimLogo } from './PetrazimLogo';
 import { SettingsPanel } from './SettingsPanel';
 import { GoHomeButton } from './GoHomeButton';
+import { BackButton } from './BackButton';
 import { useThemeStore } from '../hooks/useTheme';
 
 export interface NavItem {
@@ -124,6 +125,7 @@ export function Layout({ children, navItems = TRADER_NAV_ITEMS }: { children: Re
             </div>
           )}
 
+          <BackButton dark={dark} />
           <GoHomeButton dark={dark} />
 
           <button

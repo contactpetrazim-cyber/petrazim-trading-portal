@@ -8,6 +8,7 @@ import { BackendStatusBadge } from './BackendStatusBadge';
 import { TradingModeBadge } from './TradingModeBadge';
 import { WakeBackendButton } from './WakeBackendButton';
 import { GoHomeButton } from './GoHomeButton';
+import { BackButton } from './BackButton';
 import { useThemeStore } from '../hooks/useTheme';
 
 /**
@@ -54,6 +55,7 @@ export function TopNav({ portal }: { portal?: 'admin' } = {}) {
           </div>
 
           <div className="flex items-center gap-2">
+            <BackButton dark={dark} />
             <GoHomeButton dark={dark} />
             <WakeBackendButton dark={dark} />
             <button

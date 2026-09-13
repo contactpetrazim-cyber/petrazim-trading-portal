@@ -5,6 +5,7 @@ import { ChartPanel } from '../components/ChartPanel';
 import { useAuth } from '../hooks/useAuth';
 import { useThemeStore } from '../hooks/useTheme';
 import { useQuickPrice } from '../hooks/useQuickPrice';
+import { useBackendStatus } from '../hooks/useBackendStatus';
 import { apiFetch } from '../components/AccessExpiredGate';
 import { fetchJsonWithRetry, type FetchPhase } from '../lib/resilientFetch';
 import { LoadingIndicator } from '../components/LoadingIndicator';
@@ -153,6 +154,16 @@ export function ManualTradingPage() {
   const { token } = useAuth();
   const { theme } = useThemeStore();
   const dark = theme === 'dark';
+  // Same wake mechanism WakeBackendButton/BackendStatusBadge already
+  // use in the NAV. Order placement previously only widened its OWN
+  // timeout to 60s and hoped a single attempt landed after a cold
+  // start — by repeat bug report ("trade order execution still
+  // showing error") that single gamble still routinely lost. Actively
+  // waking the backend and confirming it's answering BEFORE the order
+  // POST fires is also the only safe fix here: unlike a GET, retrying
+  // the order POST itself risks placing it twice if an earlier attempt
+  // actually landed but its response was lost.
+  const { status: backendStatus, wake: wakeBackend, refresh: refreshBackendStatus } = useBackendStatus();
 
   const preselect = params.get('symbol');
   const preselectPrice = params.get('price');
@@ -340,6 +351,23 @@ export function ManualTradingPage() {
 
     setResult(null);
     setSubmitting(true);
+
+    // Confirm the backend is actually awake BEFORE the order POST
+    // fires at all, rather than firing it and hoping — see this
+    // hook's own comment above for why the order request itself never
+    // retries.
+    if (backendStatus !== 'ready') {
+      setResult({ ok: false, message: 'Waking up the trading server — this can take up to a minute on a cold start…' });
+      await wakeBackend();
+      const awake = await refreshBackendStatus();
+      if (!awake) {
+        setResult({ ok: false, message: 'The trading server is still asleep. Wait a few seconds and place the order again.' });
+        setSubmitting(false);
+        return;
+      }
+      setResult(null);
+    }
+
     try {
       const res = await apiFetch(`${API_URL}/manual-trading/order`, {
         // 60s, not the default 20s: a free-tier backend waking from
