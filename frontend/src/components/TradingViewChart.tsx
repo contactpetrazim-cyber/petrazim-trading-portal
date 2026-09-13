@@ -1,4 +1,5 @@
 import { useEffect, useRef, memo } from 'react';
+import type { Trade } from '../types';
 
 /**
  * TradingViewChart — embeds the free TradingView widget (Method 1 from
@@ -38,7 +39,37 @@ import { useEffect, useRef, memo } from 'react';
  * preference level — what chart_layouts.py's API actually persists —
  * not at the drawn-trendline level, which no mode of this component
  * can read back regardless of page.
+ *
+ * `position` — draws the caller's own open trade (Entry/SL/TP1-3) as
+ * horizontal lines with live labels, by direct request ("view active
+ * trades on the chart in a dynamic way, showing entry, SL and TP with
+ * current PL or drawdown"). This is ONE-WAY, same honest boundary as
+ * the paragraph above: we WRITE shapes onto the chart via the free
+ * widget's public Widget API (`onChartReady` + `chart().createShape`),
+ * we never READ anything back. That API ships with the free tv.js
+ * embed — no paid Charting/Trading Library needed — but it is NOT the
+ * paid Library's `createOrderLine`/`createPositionLine`, so these
+ * lines are plain, non-draggable markers, redrawn from fresh backend
+ * data on every `position` update rather than live-dragged by the
+ * user. Re-drawn (not just re-labelled) on each update because the
+ * widget API has no "update shape text in place" call — only
+ * create/remove.
  */
+
+/** The subset of a live position TradingViewChart needs to overlay —
+ * a caller passes only the ACTIVE trade whose `symbol` already
+ * matches what's on screen (matching is the caller's job, same as
+ * `tradeSymbol`/`specsSymbol` above; this component trusts what it's
+ * given and draws it unconditionally). */
+export interface ChartPosition {
+  direction: Trade['direction'];
+  entryPrice: number;
+  stopLoss?: number | null;
+  takeProfit1?: number | null;
+  takeProfit2?: number | null;
+  takeProfit3?: number | null;
+  unrealizedPnl?: number | null;
+}
 
 export interface CandleColors {
   upColor?: string;
@@ -61,6 +92,66 @@ interface TradingViewChartProps {
   /** Which series style to render — Candles, Hollow Candles, Heikin
    * Ashi, Bars, Line, Area, Baseline. Defaults to plain Candles. */
   chartStyle?: ChartStyleId;
+  /** The caller's own open position on this exact symbol, or omit/null
+   * for none — see the `position` doc above. */
+  position?: ChartPosition | null;
+}
+
+/** Horizontal-line color per line kind — matches the green/red the
+ * rest of the app already uses for profit/loss (TradeAnalytics.tsx,
+ * PortfolioSummary) rather than inventing a new palette here. */
+const ENTRY_COLOR = '#2962FF';
+const SL_COLOR = '#EF5350';
+const TP_COLOR = '#26A69A';
+
+function formatSignedMoney(value: number): string {
+  const sign = value > 0 ? '+' : value < 0 ? '-' : '';
+  return `${sign}$${Math.abs(value).toFixed(2)}`;
+}
+
+/** Removes this render's previously-drawn shapes, then draws fresh
+ * ones for `position` — see the class-level doc for why "remove +
+ * recreate" rather than "update in place" (the widget API offers no
+ * update call). Wrapped in try/catch per-shape: `chart` can throw if
+ * the symbol just changed underneath it mid-draw (widget API objects
+ * are not React-safe against a mount/unmount race), and one bad line
+ * shouldn't take down the rest — same defensive spirit as this file's
+ * existing `cancelled` guard against the BTC-still-showing race. */
+function drawPositionOverlay(chart: any, position: ChartPosition | null | undefined, shapeIds: number[]): number[] {
+  for (const id of shapeIds) {
+    try { chart.removeEntity(id); } catch { /* already gone */ }
+  }
+  if (!position) return [];
+
+  const drawn: number[] = [];
+  const addLine = (price: number | null | undefined, color: string, text: string) => {
+    if (price == null) return;
+    try {
+      const id = chart.createShape(
+        { price },
+        {
+          shape: 'horizontal_line',
+          lock: true,
+          disableSelection: true,
+          disableSave: true,
+          disableUndo: true,
+          zOrder: 'top',
+          text,
+          overrides: { linecolor: color, linewidth: 1, linestyle: 2, showLabel: true, textcolor: color, fontsize: 11, bold: true },
+        }
+      );
+      if (typeof id === 'number') drawn.push(id);
+    } catch { /* symbol/interval changed mid-draw — next effect run redraws */ }
+  };
+
+  const dirLabel = position.direction === 'long' ? 'LONG' : 'SHORT';
+  const pnlLabel = position.unrealizedPnl != null ? `  P/L ${formatSignedMoney(position.unrealizedPnl)}` : '';
+  addLine(position.entryPrice, ENTRY_COLOR, `Entry ${dirLabel} ${position.entryPrice}${pnlLabel}`);
+  addLine(position.stopLoss, SL_COLOR, `SL ${position.stopLoss}`);
+  addLine(position.takeProfit1, TP_COLOR, `TP1 ${position.takeProfit1}`);
+  addLine(position.takeProfit2, TP_COLOR, `TP2 ${position.takeProfit2}`);
+  addLine(position.takeProfit3, TP_COLOR, `TP3 ${position.takeProfit3}`);
+  return drawn;
 }
 
 /**
@@ -166,9 +257,15 @@ function TradingViewChartBase({
   height = '100%',
   candleColors,
   chartStyle = '1',
+  position,
 }: TradingViewChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const containerId = useRef(`tv_chart_${Math.random().toString(36).slice(2)}`);
+  const widgetRef = useRef<any>(null);
+  const chartReadyRef = useRef(false);
+  const shapeIdsRef = useRef<number[]>([]);
+  const positionRef = useRef(position);
+  positionRef.current = position;
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -192,8 +289,11 @@ function TradingViewChartBase({
       chartDiv.style.width = '100%';
       containerRef.current.appendChild(chartDiv);
 
+      chartReadyRef.current = false;
+      shapeIdsRef.current = [];
+
       // @ts-expect-error — see above
-      new window.TradingView.widget({
+      const widget = new window.TradingView.widget({
         autosize: true,
         symbol,
         interval,
@@ -209,6 +309,12 @@ function TradingViewChartBase({
         container_id: containerId.current,
         overrides: buildOverrides(candleColors, chartStyle),
         studies_overrides: buildStudiesOverrides(candleColors),
+      });
+      widgetRef.current = widget;
+      widget.onChartReady(() => {
+        if (cancelled) return;
+        chartReadyRef.current = true;
+        shapeIdsRef.current = drawPositionOverlay(widget.activeChart(), positionRef.current, []);
       });
     }
 
@@ -230,6 +336,15 @@ function TradingViewChartBase({
     return () => { cancelled = true; };
   }, [symbol, interval, theme, chartStyle, JSON.stringify(candleColors)]);
 
+  // Redraws the position overlay on its own — deliberately NOT in the
+  // widget-creation effect above, so a live P/L update (polled every
+  // few seconds by the caller) just re-labels the lines instead of
+  // tearing down and rebuilding the entire TradingView iframe.
+  useEffect(() => {
+    if (!chartReadyRef.current || !widgetRef.current) return;
+    shapeIdsRef.current = drawPositionOverlay(widgetRef.current.activeChart(), position, shapeIdsRef.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [JSON.stringify(position)]);
 
   return <div ref={containerRef} style={{ height, width: '100%' }} />;
 }
