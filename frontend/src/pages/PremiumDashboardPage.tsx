@@ -188,7 +188,7 @@ export function PremiumDashboardPage() {
         ))}
       </div>
 
-      <FoldedCard title="Live Chart" summary="A live TradingView chart with your saved workspace one click away" icon={<LineChartIcon size={19} />} dark={dark}>
+      <FoldedCard title="Live Chart" summary="A live TradingView chart with your saved workspace one click away" icon={<LineChartIcon size={19} />} dark={dark} defaultOpen>
         <ChartPanel symbol="BINANCE:BTCUSDT" height={420} tradeSymbol="BTCUSDT" dark={dark} />
         <Link to="/tradingview" className={`mt-2 inline-block text-xs font-medium ${dark ? 'text-white/50' : 'text-corporate-hero'}`}>
           Open My Workspace (saved views, drawing tools) →

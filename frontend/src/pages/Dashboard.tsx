@@ -215,7 +215,7 @@ export function DashboardPage() {
           trader's own dashboard, not just under the TradingView area. */}
       <FoldedCard
         title="Chart" summary="A live TradingView chart, right on your dashboard"
-        icon={<LineChartIcon size={19} />} dark={dark}
+        icon={<LineChartIcon size={19} />} dark={dark} defaultOpen
       >
         <ChartPanel symbol="BINANCE:BTCUSDT" height={420} tradeSymbol="BTCUSDT" dark={dark} />
         <Link to="/tradingview" className={`text-xs font-medium mt-2 inline-block ${dark ? 'text-white/50' : 'text-corporate-hero'}`}>
