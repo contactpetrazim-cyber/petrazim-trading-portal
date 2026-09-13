@@ -9,7 +9,7 @@ from app.models.trade import Trade, TradeStatus
 from app.models.bot import BotConfig, BotStatus
 from app.models.user import User, UserRole
 from app.core.access_gate import require_active_access
-from app.schemas import DashboardStats, PerformanceSummary
+from app.schemas import DashboardStats, PerformanceSummary, TodayTradeBreakdown
 import structlog
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
@@ -37,14 +37,37 @@ async def dashboard_stats(db: AsyncSession = Depends(get_db), user: User = Depen
     """Get real-time dashboard statistics for the caller (Admin/Super Admin see the whole platform)."""
     today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
 
-    # Today's trades
+    # ALL of today's trades, every status — the breakdown below needs
+    # cancelled/errored ones too (shown as their own bucket), while
+    # total_trades_today/win_rate_today still only ever reflect REAL
+    # trades (see the exclusion right after this query) — by direct
+    # bug report ("if a trade order is cancelled - why is it still
+    # showing up on the traders dashboard as a pending or executed
+    # order") and its direct follow-up request ("can you provide more
+    # clarity / Pending trades Vs Executed Trades Vs Canceled Vs Loss
+    # Vs Won Vs BreakEven").
     trades_query = _scope_trades(select(Trade), user).where(Trade.created_at >= today_start)
     result = await db.execute(trades_query)
-    today_trades = result.scalars().all()
+    all_today_trades = result.scalars().all()
 
+    # The headline total/win-rate: cancelled/errored orders were never
+    # actually a trade taken, so they're excluded here exactly as
+    # before — only the breakdown below surfaces them, as their own
+    # separate bucket rather than polluting this pair.
+    today_trades = [t for t in all_today_trades if t.status not in (TradeStatus.CANCELLED, TradeStatus.ERROR)]
     total = len(today_trades)
     wins = len([t for t in today_trades if t.realized_pnl and t.realized_pnl > 0])
     pnl = sum(t.realized_pnl or 0 for t in today_trades)
+
+    closed_trades_today = [t for t in all_today_trades if t.status == TradeStatus.CLOSED]
+    today_breakdown = TodayTradeBreakdown(
+        pending=len([t for t in all_today_trades if t.status == TradeStatus.PENDING]),
+        executed=len([t for t in all_today_trades if t.status == TradeStatus.ACTIVE]),
+        cancelled=len([t for t in all_today_trades if t.status == TradeStatus.CANCELLED]),
+        won=len([t for t in closed_trades_today if (t.realized_pnl or 0) > 0]),
+        loss=len([t for t in closed_trades_today if (t.realized_pnl or 0) < 0]),
+        breakeven=len([t for t in closed_trades_today if (t.realized_pnl or 0) == 0]),
+    )
 
     # Intraday drawdown — real, computed from today's own closed trades'
     # running P&L, not the "0.0, calculate from equity tracking" stub
@@ -54,10 +77,7 @@ async def dashboard_stats(db: AsyncSession = Depends(get_db), user: User = Depen
     # peak-to-current-trough definition max_drawdown_pct already uses
     # elsewhere in this app, just in dollars instead of percent since
     # that's the honest unit available here.
-    closed_today = sorted(
-        (t for t in today_trades if t.status == TradeStatus.CLOSED),
-        key=lambda t: t.exit_timestamp or t.created_at,
-    )
+    closed_today = sorted(closed_trades_today, key=lambda t: t.exit_timestamp or t.created_at)
     running, peak, drawdown = 0.0, 0.0, 0.0
     for t in closed_today:
         running += t.realized_pnl or 0.0
@@ -88,7 +108,8 @@ async def dashboard_stats(db: AsyncSession = Depends(get_db), user: User = Depen
         daily_pnl=round(pnl, 2),
         win_rate_today=round(wins / total * 100, 2) if total > 0 else 0.0,
         current_drawdown=round(drawdown, 2),
-        active_bots=active_bots
+        active_bots=active_bots,
+        today_breakdown=today_breakdown,
     )
 
 @router.get("/performance")

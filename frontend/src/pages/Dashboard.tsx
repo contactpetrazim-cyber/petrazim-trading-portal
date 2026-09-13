@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { StatCard } from '../components/StatCard';
+import { TodayTradeBreakdownPills } from '../components/TodayTradeBreakdownPills';
 import { TradeRow } from '../components/TradeRow';
 import { FoldedCard } from '../components/FoldedCard';
 import { ChartPanel } from '../components/ChartPanel';
@@ -180,7 +181,9 @@ export function DashboardPage() {
           subtitle={`${stats?.win_rate_today || 0}% win rate`}
           icon={<Activity size={20} />}
           color="blue" dark={dark}
-        />
+        >
+          {stats?.today_breakdown && <TodayTradeBreakdownPills breakdown={stats.today_breakdown} />}
+        </StatCard>
         <StatCard
           title="Daily P&L"
           value={`$${stats?.daily_pnl?.toFixed(2) || '0.00'}`}

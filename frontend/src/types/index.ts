@@ -69,6 +69,15 @@ export interface BotMetricsUpdate {
   timeframes?: string[];
 }
 
+export interface TodayTradeBreakdown {
+  pending: number;
+  executed: number;
+  cancelled: number;
+  won: number;
+  loss: number;
+  breakeven: number;
+}
+
 export interface DashboardStats {
   total_trades_today: number;
   active_trades: number;
@@ -77,6 +86,7 @@ export interface DashboardStats {
   win_rate_today: number;
   current_drawdown: number;
   active_bots: number;
+  today_breakdown: TodayTradeBreakdown;
 }
 
 export interface SignalPreview {
