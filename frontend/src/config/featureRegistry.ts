@@ -107,21 +107,32 @@ export const FEATURE_REGISTRY: FeatureEntry[] = [
     description: 'Validation gate status before any bot goes autonomous.' },
 
   // --- Tools ---
-  { id: 'tools-risk-of-ruin', label: 'Risk-of-Ruin Calculator', area: 'tools', route: '/tools/risk-of-ruin',
+  // The 5 entries below all pointed at /tools/<sub-path> routes that
+  // never existed — same "missing connection" pattern as Insights had
+  // (see that area's own comment above): the real, working content
+  // was consolidated onto ToolsPage.tsx's own FoldedCard sections all
+  // along, by direct request ("check the entire site for missing
+  // connections like the insights").
+  { id: 'tools-risk-of-ruin', label: 'Risk-of-Ruin Calculator', area: 'tools', route: '/tools',
     description: 'Free — estimate risk of ruin from your own stats.' },
-  { id: 'tools-prop-firm', label: 'Prop-Firm Challenge Simulator', area: 'tools', route: '/tools/prop-firm',
+  { id: 'tools-prop-firm', label: 'Prop-Firm Challenge Simulator', area: 'tools', route: '/tools',
     description: 'Estimate your odds of passing a funded-account challenge.' },
-  { id: 'tools-correlation', label: 'Correlation Heat Map', area: 'tools', route: '/tools/correlation',
+  { id: 'tools-correlation', label: 'Correlation Heat Map', area: 'tools', route: '/tools',
     description: 'See which of your positions are secretly the same bet.' },
-  { id: 'tools-journal-reviewer', label: 'AI Trade Journal Reviewer', area: 'tools', route: '/tools/journal-reviewer',
+  { id: 'tools-journal-reviewer', label: 'AI Trade Journal Reviewer', area: 'tools', route: '/tools',
     description: 'Upload manual trades for the same process-based coach review.' },
-  { id: 'tools-payout-optimizer', label: 'Funded-Account Payout Optimizer', area: 'tools', route: '/tools/payout-optimizer',
+  { id: 'tools-payout-optimizer', label: 'Funded-Account Payout Optimizer', area: 'tools', route: '/tools',
     description: 'Balance risk across multiple funded accounts.' },
 
   // --- Community ---
-  { id: 'community-telegram', label: 'Telegram Community', area: 'community', route: '/community/telegram',
+  // Both pointed at /community/<sub-path> routes that never existed —
+  // same fix as Tools/Insights above. Telegram's real content is
+  // already right there on /community itself; Meetings turned out to
+  // be its own full, already-working page, just at /meetings (no
+  // /community prefix) rather than the nested path this entry guessed.
+  { id: 'community-telegram', label: 'Telegram Community', area: 'community', route: '/community',
     description: 'Join the individual or corporate Telegram channel.' },
-  { id: 'community-meetings', label: 'Trader Meetings', area: 'community', route: '/community/meetings',
+  { id: 'community-meetings', label: 'Trader Meetings', area: 'community', route: '/meetings',
     description: 'Book time with a facilitator, Fund Manager, or Partner.' },
 
   // --- Explore ---
