@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import os
 from datetime import date
+from hmac import compare_digest
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException
@@ -62,7 +63,11 @@ def _check_cron_secret(x_cron_secret: str = Header(default="")) -> None:
             status_code=503,
             detail="CRON_SECRET is not set on the backend — set it before wiring up a scheduled caller.",
         )
-    if x_cron_secret != expected:
+    # compare_digest (constant-time) instead of != — same hardening the
+    # reference training portal's own cron auth uses (timingSafeEqual over
+    # its Bearer token); a plain string != on a secret comparison leaks
+    # timing information about how many leading characters matched.
+    if not compare_digest(x_cron_secret, expected):
         raise HTTPException(status_code=401, detail="Invalid or missing X-Cron-Secret header")
 
 
@@ -71,19 +76,22 @@ async def trigger_daily_broadcast(db: AsyncSession = Depends(get_db), _=Depends(
     result = await send_daily_broadcast(db)
     # One real row per dispatch — backs the Admin console's "Daily
     # sends" counter (admin.py's platform-overview) with an actual
-    # count rather than a guess. Logged unconditionally on a completed
-    # call, matching this endpoint's own existing "fire it, trust the
-    # scheduler retries on a real failure" behavior rather than
-    # threading success/failure through send_daily_broadcast's return
-    # shape, which this router has never inspected before now.
-    db.add(BroadcastLog(kind="daily_tip"))
-    await db.commit()
+    # count rather than a guess. Only logged when send_daily_broadcast
+    # actually reports a real Telegram delivery (result["sent"]) — it
+    # used to log unconditionally on any completed call, which counted
+    # a totally-failed send (e.g. every channel's bot token missing) the
+    # same as a real one, so the Admin console could show "sent today"
+    # while nothing had actually reached Telegram.
+    if result.get("sent"):
+        db.add(BroadcastLog(kind="daily_tip"))
+        await db.commit()
     return result
 
 
 @router.post("/weekly-quiz")
 async def trigger_weekly_quiz(db: AsyncSession = Depends(get_db), _=Depends(_check_cron_secret)):
     result = await send_weekly_quiz()
-    db.add(BroadcastLog(kind="weekly_quiz"))
-    await db.commit()
+    if result.get("sent"):
+        db.add(BroadcastLog(kind="weekly_quiz"))
+        await db.commit()
     return result
