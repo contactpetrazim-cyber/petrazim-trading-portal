@@ -7,6 +7,7 @@ import { RecapPanel } from '../components/RecapPanel';
 import { RetrievalQuizWidget } from '../components/RetrievalQuizWidget';
 import { FlashcardWidget } from '../components/FlashcardWidget';
 import { SMCDiagram, type SMCDiagramKey } from '../components/SMCDiagram';
+import { OrientDiagram } from '../components/OrientDiagram';
 import { BookmarkButton } from '../components/BookmarkButton';
 import { NotebookWidget } from '../components/NotebookWidget';
 import { useThemeStore } from '../hooks/useTheme';
@@ -41,6 +42,16 @@ const DIAGRAM_KEYWORDS: [RegExp, SMCDiagramKey][] = [
   [/demand zone|supply zone|supply.{0,3}demand/i, 'supply-demand-zone'],
   [/equal highs|equal lows|liquidity pool/i, 'equal-highs-lows'],
 ];
+
+// Matches this authored curriculum's `[VISUAL: key — description]`
+// bracket placeholder (currently only the Honest Gap Orientation
+// track's six lessons — verified against every curriculum/*.md file
+// the same way the rest of this parser's fixed subset was). Before
+// this, that bracket rendered as literal text right in the lesson
+// body — by direct bug report ("Make the visuals models show ...can't
+// see") — this pulls it out of its paragraph and hands it to
+// OrientDiagram instead of leaving raw markup on the page.
+const VISUAL_PLACEHOLDER_RE = /\[VISUAL:\s*([a-z0-9-]+)\s*[—-]\s*([^\]]+)\]/i;
 
 function matchingDiagrams(content: string): SMCDiagramKey[] {
   const found = new Set<SMCDiagramKey>();
@@ -180,8 +191,22 @@ function LessonBody({ content, dark }: { content: string; dark: boolean }) {
                 {renderInline(b.text)}
               </h3>
             );
-          case 'p':
+          case 'p': {
+            const visualMatch = b.text.match(VISUAL_PLACEHOLDER_RE);
+            if (visualMatch) {
+              const [full, diagramKey, description] = visualMatch;
+              const before = b.text.slice(0, visualMatch.index).trim();
+              const after = b.text.slice((visualMatch.index ?? 0) + full.length).trim();
+              return (
+                <div key={i} className="space-y-3">
+                  {before && <p className={`text-sm leading-relaxed ${mutedCls}`}>{renderInline(before)}</p>}
+                  <OrientDiagram diagramKey={diagramKey} description={description.replace(/\s+/g, ' ').trim()} dark={dark} />
+                  {after && <p className={`text-sm leading-relaxed ${mutedCls}`}>{renderInline(after)}</p>}
+                </div>
+              );
+            }
             return <p key={i} className={`text-sm leading-relaxed ${mutedCls}`}>{renderInline(b.text)}</p>;
+          }
           case 'ul':
             return (
               <ul key={i} className={`list-disc list-outside pl-5 space-y-1 text-sm leading-relaxed ${mutedCls}`}>
