@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   X, Home, CreditCard, GraduationCap, CalendarClock, LayoutGrid,
-  HardDriveDownload, Link2, ChevronRight, Sun, Moon,
+  HardDriveDownload, Link2, ChevronRight, Sun, Moon, Map,
 } from 'lucide-react';
 import { HERO_GRADIENT } from '../config/theme';
 import type { ThemeName } from '../hooks/useTheme';
@@ -80,6 +80,7 @@ export function SettingsPanel({
     { icon: GraduationCap, label: 'Ask Trading Coach', detail: 'Open Trade AI', onClick: openTradeAI },
     { icon: CalendarClock, label: 'Facilitator Sessions', detail: 'Book time with a Manager or Partner (Tier 2/3)', to: '/meetings' },
     { icon: LayoutGrid, label: 'Switch Portal', detail: 'Trader / Fund Manager / Partner / Admin — jump to a console you have access to', onClick: openSwitchPortal },
+    { icon: Map, label: 'Site Map', detail: 'Every page in the app, one list', to: '/sitemap' },
     { icon: HardDriveDownload, label: 'Backup and Offline', detail: 'Manage local data and sync', onClick: () => setBackupOfflineOpen(true) },
     { icon: Link2, label: 'Quick Links', detail: 'Shortcuts to frequent pages' },
   ];

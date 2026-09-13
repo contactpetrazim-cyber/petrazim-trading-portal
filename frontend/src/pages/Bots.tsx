@@ -66,7 +66,8 @@ const BOT_CATALOG = [
 ];
 
 export function BotsPage() {
-  const { theme } = useThemeStore();
+  const { portalThemes } = useThemeStore();
+  const theme = portalThemes.trader;
   const dark = theme === 'dark';
   const inputCls = `w-full mt-1 border rounded-lg px-2 py-1.5 text-sm ${
     dark ? 'bg-smc-dark border-smc-border text-white' : 'bg-white border-corporate-bg text-corporate-text-on-bg'

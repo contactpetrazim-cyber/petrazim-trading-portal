@@ -42,7 +42,8 @@ interface EquityPoint {
  */
 export function DashboardPage() {
   const { stats, setStats } = useAppStore();
-  const { theme } = useThemeStore();
+  const { portalThemes } = useThemeStore();
+  const theme = portalThemes.trader;
   const dark = theme === 'dark';
   const [equityData, setEquityData] = useState<EquityPoint[]>([]);
   const [pending, setPending] = useState<Trade[]>([]);

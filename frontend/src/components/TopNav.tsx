@@ -29,11 +29,16 @@ import { useThemeStore } from '../hooks/useTheme';
  * shell TopNav lives in), so pointing here at the corporate home is
  * the faithful equivalent rather than a literal path match.
  */
-export function TopNav() {
+export function TopNav({ portal }: { portal?: 'admin' } = {}) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const { theme, setTheme } = useThemeStore();
-  const dark = theme === 'dark';
+  const { theme, setTheme, portalThemes, setPortalTheme } = useThemeStore();
+  // portal="admin" (from CorporateLayout) reads/writes the separate
+  // portalThemes.admin slot instead of the shared theme, so Admin
+  // remembers its own light/dark choice independently — see useTheme.ts.
+  const effectiveTheme = portal === 'admin' ? portalThemes.admin : theme;
+  const effectiveSetTheme = portal === 'admin' ? (t: 'light' | 'dark') => setPortalTheme('admin', t) : setTheme;
+  const dark = effectiveTheme === 'dark';
 
   return (
     <>

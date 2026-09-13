@@ -48,7 +48,8 @@ const PERIODS: { id: '1d' | '7d' | '30d' | '90d'; label: string }[] = [
  * its own small retry loop instead of fetchJsonWithRetry directly).
  */
 export function AnalyticsPage() {
-  const { theme } = useThemeStore();
+  const { portalThemes } = useThemeStore();
+  const theme = portalThemes.trader;
   const dark = theme === 'dark';
   const [period, setPeriod] = useState<'1d' | '7d' | '30d' | '90d'>('7d');
   const [summary, setSummary] = useState<PerformanceSummary | null>(null);
