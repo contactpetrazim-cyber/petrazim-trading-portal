@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, ArrowRight, Dumbbell, SkipForward, LogOut, CheckSquare, Square } from 'lucide-react';
+import { ArrowLeft, ArrowRight, ChevronLeft, ChevronRight, Dumbbell, SkipForward, LogOut, CheckSquare, Square, Lock } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
 import { ListenButton } from '../components/ListenButton';
 import { RecapPanel } from '../components/RecapPanel';
@@ -32,6 +32,20 @@ interface LessonDetail {
   title: string;
   content_body: string;
   estimated_minutes: number;
+}
+
+/** Just enough of GET /curriculum/tracks/{id}'s own StageResponse to
+ * drive the Stage nav below — same fields LearnTrackPage.tsx's own
+ * local `Stage` interface already uses, kept as its own small copy
+ * here rather than a cross-file import (this file already does that
+ * for VISUAL_PLACEHOLDER_RE-style small, page-local pieces). */
+interface StageNavEntry {
+  id: string;
+  stage_number: number;
+  title: string;
+  lesson_id: string | null;
+  completed: boolean;
+  can_attempt: boolean;
 }
 
 // This authored curriculum's `[VISUAL: key — description]` bracket
@@ -306,11 +320,27 @@ function PageBlocks({ blocks, dark }: { blocks: Block[]; dark: boolean }) {
  * either surface behaves identically (same dual-gate reason message,
  * same XP/streak/certificate toasts).
  */
-function LessonReader({ lesson, trackId, dark }: { lesson: LessonDetail; trackId: string | undefined; dark: boolean }) {
+function LessonReader({
+  lesson, trackId, stages, dark,
+}: { lesson: LessonDetail; trackId: string | undefined; stages: StageNavEntry[]; dark: boolean }) {
   const { token } = useAuth();
   const showToast = useToast();
   const navigate = useNavigate();
   const backHref = trackId ? `/learn/tracks/${trackId}` : '/learn';
+
+  // Stage-level nav ("Stage 2 of 23", jump to the adjacent stage) — by
+  // direct request ("use this for the learning LMS for the stage and
+  // substage content Nav"). `stages` is the SAME locked-sequence list
+  // LearnTrackPage already fetches and gates on — reused here rather
+  // than duplicating that access logic, so Next Stage can only ever
+  // land somewhere the trainee is actually allowed to be. A previous
+  // stage is always safe to revisit (you can't be on THIS stage
+  // without it already being unlocked), so Prev Stage has no lock
+  // check of its own.
+  const stageIndex = stages.findIndex((s) => s.id === lesson.stage_id);
+  const prevStage = stageIndex > 0 ? stages[stageIndex - 1] : null;
+  const nextStage = stageIndex >= 0 && stageIndex < stages.length - 1 ? stages[stageIndex + 1] : null;
+  const nextStageOpen = !!nextStage && !!nextStage.lesson_id && (nextStage.can_attempt || nextStage.completed);
 
   const allBlocks = useMemo(() => parseLessonBlocks(lesson.content_body), [lesson.content_body]);
   const bodyBlocks = allBlocks[0]?.type === 'h' && allBlocks[0].level === 2 ? allBlocks.slice(1) : allBlocks;
@@ -389,15 +419,48 @@ function LessonReader({ lesson, trackId, dark }: { lesson: LessonDetail; trackId
         title={lesson.title}
         subtitle={`${lesson.track_title} · Stage ${lesson.stage_number}: ${lesson.stage_title} · ~${lesson.estimated_minutes} min`}
       />
+
+      {/* Stage nav — "Stage 2 of 23", jump to the adjacent stage.
+          Hidden if the stage list hasn't loaded (or is a single-stage
+          track) rather than showing a meaningless "Stage 1 of 1". */}
+      {stages.length > 1 && stageIndex >= 0 && (
+        <div className="flex items-center justify-between gap-2 mb-4">
+          <button
+            onClick={() => prevStage?.lesson_id && navigate(`/learn/tracks/${trackId}/lessons/${prevStage.lesson_id}`)}
+            disabled={!prevStage?.lesson_id}
+            className={navBtnCls}
+          >
+            <ChevronLeft size={15} /> Prev Stage
+          </button>
+          <span className={`text-xs font-semibold shrink-0 ${mutedCls}`}>
+            Stage {lesson.stage_number} of {stages.length}
+          </span>
+          <button
+            onClick={() => nextStage?.lesson_id && navigate(`/learn/tracks/${trackId}/lessons/${nextStage.lesson_id}`)}
+            disabled={!nextStageOpen}
+            title={nextStage && !nextStageOpen ? 'Complete this stage to unlock the next one' : undefined}
+            className={navBtnCls}
+          >
+            {nextStageOpen ? <>Next Stage <ChevronRight size={15} /></> : <><Lock size={13} /> Next Stage</>}
+          </button>
+        </div>
+      )}
+
       <div className="flex flex-wrap items-center gap-2 mb-4">
         <BookmarkButton stageId={lesson.stage_id} dark={dark} />
         <NotebookWidget stageId={lesson.stage_id} dark={dark} />
         <ListenButton text={lesson.content_body} dark={dark} />
       </div>
 
-      {/* Page progress — the "computer-based-training" feel: a slim
-          bar plus "Page X of Y: <name>", not everything stacked at
-          once. */}
+      {/* Substage nav — a slim progress bar plus a row of clickable
+          pills, one per page, so a page already read can be jumped to
+          directly instead of only Back/Next. Pills are never lock-
+          gated: "Skip" below already lets a trainee bypass every
+          acknowledgement straight to the end, so gating the pills too
+          would just be a second, inconsistent way to express the same
+          rule — the "I understand" checkbox is a reading nudge, not
+          hard enforcement (stage completion server-side is the real
+          gate — see markComplete below). */}
       <div className="mb-4">
         <div className="flex items-center justify-between mb-1.5">
           <span className={`text-xs font-semibold ${dark ? 'text-white/70' : 'text-corporate-text-on-bg'}`}>
@@ -405,8 +468,27 @@ function LessonReader({ lesson, trackId, dark }: { lesson: LessonDetail; trackId
           </span>
           <span className={`text-xs ${mutedCls}`}>{Math.round(((pageIndex + 1) / pages.length) * 100)}%</span>
         </div>
-        <div className={`h-1.5 rounded-full overflow-hidden ${dark ? 'bg-white/10' : 'bg-corporate-bg'}`}>
+        <div className={`h-1.5 rounded-full overflow-hidden mb-2 ${dark ? 'bg-white/10' : 'bg-corporate-bg'}`}>
           <div className="h-full rounded-full bg-corporate-hero transition-all" style={{ width: `${((pageIndex + 1) / pages.length) * 100}%` }} />
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {pages.map((p, i) => (
+            <button
+              key={i}
+              onClick={() => setPageIndex(i)}
+              title={p.title}
+              aria-current={i === pageIndex ? 'step' : undefined}
+              className={`w-7 h-7 shrink-0 rounded-lg text-[11px] font-bold flex items-center justify-center transition-colors ${
+                i === pageIndex
+                  ? 'bg-corporate-hero text-white'
+                  : pageAck[i]
+                  ? dark ? 'bg-corporate-hero/20 text-white/80' : 'bg-corporate-hero/10 text-corporate-hero'
+                  : dark ? 'bg-white/5 text-white/40 hover:bg-white/10' : 'bg-corporate-bg text-gray-400 hover:bg-corporate-hero/10'
+              }`}
+            >
+              {i + 1}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -534,6 +616,13 @@ export function LessonPage() {
   const [lesson, setLesson] = useState<LessonDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [phase, setPhase] = useState<FetchPhase>('idle');
+  // Powers the Stage nav header ("Stage 2 of 23" + Prev/Next Stage) —
+  // failing silently to an empty list on error simply hides that nav
+  // (see the `stages.length > 1` guard in LessonReader) rather than
+  // blocking the lesson content itself from loading; the actual
+  // content is the point of this page, the stage nav is a convenience
+  // on top of it.
+  const [stages, setStages] = useState<StageNavEntry[]>([]);
 
   useEffect(() => {
     if (!token || !lessonId) return;
@@ -548,6 +637,14 @@ export function LessonPage() {
       else setError(detail || 'Could not load this lesson right now.');
     });
   }, [token, lessonId]);
+
+  useEffect(() => {
+    if (!token || !trackId) return;
+    apiFetch(`${API_URL}/curriculum/tracks/${trackId}`, { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setStages(d?.stages ?? []))
+      .catch(() => setStages([]));
+  }, [token, trackId]);
 
   const backHref = trackId ? `/learn/tracks/${trackId}` : '/learn';
 
@@ -571,7 +668,7 @@ export function LessonPage() {
 
       {lesson && (
         lesson.content_body
-          ? <LessonReader lesson={lesson} trackId={trackId} dark={dark} />
+          ? <LessonReader lesson={lesson} trackId={trackId} stages={stages} dark={dark} />
           : (
             <>
               <PageHeader title={lesson.title} subtitle={`${lesson.track_title} · Stage ${lesson.stage_number}: ${lesson.stage_title}`} />
