@@ -1,10 +1,51 @@
 import { useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Maximize2, Minimize2, Sun, Moon, TrendingUp, X, Zap, Receipt, CandlestickChart } from 'lucide-react';
-import { TradingViewChart, type ChartPosition } from './TradingViewChart';
+import { Maximize2, Minimize2, Sun, Moon, TrendingUp, X, Zap, Receipt, CandlestickChart, Target } from 'lucide-react';
+import { TradingViewChart, type ChartPosition, formatSignedMoney } from './TradingViewChart';
 import { CandleColorPicker } from './CandleColorPicker';
 import { useEffectiveChartColors } from '../hooks/useCandleColors';
 import { useQuickPrice } from '../hooks/useQuickPrice';
+
+/**
+ * PositionSummaryCard — the caller's own open/pending trade on this
+ * chart's symbol, shown as a small info card instead of real
+ * price-aligned lines drawn ON the chart. See TradingViewChart.tsx's
+ * module doc for why: the free public TradingView widget this app
+ * embeds has no JS API to draw shapes (that requires TradingView's
+ * separately-licensed Charting Library) — so lines drawn "on the
+ * chart" were never actually possible here, no matter how `position`
+ * was wired down to it. This card is the honest replacement, folded
+ * behind its own "Position" toggle (default folded) exactly like the
+ * existing Pairs/Order toggles — by direct request ("embedded in a
+ * foldable button like Pairs or Order").
+ */
+function PositionSummaryCard({ position, dark }: { position: ChartPosition; dark: boolean }) {
+  const dirLabel = position.direction === 'long' ? 'LONG' : 'SHORT';
+  const rows: { label: string; value: string; color?: string }[] = [
+    { label: 'Direction', value: dirLabel },
+    { label: 'Entry', value: String(position.entryPrice) },
+  ];
+  if (position.stopLoss != null) rows.push({ label: 'Stop loss', value: String(position.stopLoss), color: '#EF5350' });
+  if (position.takeProfit1 != null) rows.push({ label: 'TP1', value: String(position.takeProfit1), color: '#26A69A' });
+  if (position.takeProfit2 != null) rows.push({ label: 'TP2', value: String(position.takeProfit2), color: '#26A69A' });
+  if (position.takeProfit3 != null) rows.push({ label: 'TP3', value: String(position.takeProfit3), color: '#26A69A' });
+  rows.push({
+    label: 'Status',
+    value: position.pending ? 'Pending — not filled yet' : position.unrealizedPnl != null ? `P/L ${formatSignedMoney(position.unrealizedPnl)}` : '—',
+    color: position.pending ? undefined : position.unrealizedPnl != null ? (position.unrealizedPnl >= 0 ? '#26A69A' : '#EF5350') : undefined,
+  });
+
+  return (
+    <div className={`mb-2 rounded-lg p-3 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3 text-xs ${dark ? 'bg-white/5' : 'bg-black/5'}`}>
+      {rows.map((r) => (
+        <div key={r.label}>
+          <span className={`block text-[10px] uppercase tracking-wide mb-0.5 ${dark ? 'text-white/40' : 'text-gray-400'}`}>{r.label}</span>
+          <span className="font-semibold" style={r.color ? { color: r.color } : undefined}>{r.value}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 /**
  * ChartPanel — the one reusable chart embed every page uses (Trade,
@@ -79,11 +120,12 @@ export function ChartPanel({
   /** Rendered directly under the toolbar while Pairs is unfolded —
    * normally <PairsPanel /> (see ChartWithPairs). */
   pairsPanel?: ReactNode;
-  /** The caller's own open trade on this exact `symbol`, if any — drawn
-   * as live Entry/SL/TP lines with a P/L label. See
-   * TradingViewChart.tsx's `position` doc for how this is rendered and
-   * its limits (redrawn on each update, not draggable). Omit entirely
-   * on pages with no concept of an open position (Learn, Dashboard). */
+  /** The caller's own open or pending trade on this exact `symbol`, if
+   * any — shown as a foldable "Position" info card (default folded)
+   * right in this toolbar, next to Pairs/Order. See
+   * TradingViewChart.tsx's module doc for why this is a card next to
+   * the chart rather than lines drawn on it. Omit entirely on pages
+   * with no concept of an open position (Learn, Dashboard). */
   position?: ChartPosition | null;
 
 }) {
@@ -106,6 +148,8 @@ export function ChartPanel({
   }
   const [chartTheme, setChartTheme] = useState<'light' | 'dark'>('light');
   const [fullscreen, setFullscreen] = useState(false);
+  // Default folded — same contract as Pairs/Order, by direct request.
+  const [positionOpen, setPositionOpen] = useState(false);
   const chartDark = chartTheme === 'dark';
 
   const toolbar = (
@@ -160,6 +204,18 @@ export function ChartPanel({
             <Receipt size={13} /> Order
           </button>
         )}
+        {position && (
+          <button
+            onClick={() => setPositionOpen((o) => !o)}
+            aria-label={positionOpen ? 'Hide position details' : 'Show position details'}
+            title={positionOpen ? 'Hide position details' : 'Entry/SL/TP for your open order on this symbol'}
+            className={`p-1.5 rounded-md flex items-center gap-1.5 text-xs font-medium ${
+              positionOpen ? 'bg-blue-600 text-white' : containerDark ? 'text-white/50 hover:text-white/80 bg-white/5' : 'text-gray-500 hover:text-gray-700 bg-black/5'
+            }`}
+          >
+            <Target size={13} /> Position
+          </button>
+        )}
         <CandleColorPicker
           dark={containerDark}
           colors={colors} chartStyle={chartStyle}
@@ -196,9 +252,10 @@ export function ChartPanel({
         </div>
         {toolbar}
         {pairsOpen && pairsPanel}
+        {positionOpen && position && <PositionSummaryCard position={position} dark />}
         <div className="flex-1 min-h-0 rounded-lg overflow-hidden">
 
-          <TradingViewChart symbol={symbol} interval={interval} theme={chartTheme} candleColors={colors} chartStyle={chartStyle} position={position} />
+          <TradingViewChart symbol={symbol} interval={interval} theme={chartTheme} candleColors={colors} chartStyle={chartStyle} />
         </div>
       </div>
     );
@@ -208,8 +265,9 @@ export function ChartPanel({
     <div>
       {toolbar}
       {pairsOpen && pairsPanel}
+      {positionOpen && position && <PositionSummaryCard position={position} dark={containerDark} />}
       <div className={`rounded-lg overflow-hidden ${chartDark ? '' : 'border border-gray-200'}`} style={{ height }}>
-        <TradingViewChart symbol={symbol} interval={interval} theme={chartTheme} candleColors={colors} chartStyle={chartStyle} position={position} />
+        <TradingViewChart symbol={symbol} interval={interval} theme={chartTheme} candleColors={colors} chartStyle={chartStyle} />
       </div>
     </div>
   );
