@@ -90,10 +90,16 @@ export function AdminConsolePage() {
     )) return;
     setSwitchingMode(true);
     try {
+      // 60s — same cold-start reasoning as RoleAdministrationPanel's
+      // own Apply button: these platform-wide toggles are exactly the
+      // kind of one-off action a Super Admin takes right after opening
+      // the console, which is precisely when a free-tier backend is
+      // most likely still asleep.
       const res = await apiFetch(`${API_URL}/payments/mode`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ mode }),
+        timeoutMs: 60_000,
       });
       if (res.ok) setPaymentsMode((await res.json()).mode);
     } finally {
@@ -112,6 +118,7 @@ export function AdminConsolePage() {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ paper_enforced: next }),
+        timeoutMs: 60_000,
       });
       if (res.ok) setPaperEnforced((await res.json()).paper_enforced);
     } finally {

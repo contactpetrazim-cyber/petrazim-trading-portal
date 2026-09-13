@@ -42,17 +42,31 @@ export function RoleAdministrationPanel({ dark = true }: { dark?: boolean }) {
     setStatus(null);
     setSubmitting(true);
     try {
+      // 60s, not apiFetch's 20s default — same reasoning as
+      // ManualTradingPage's order placement: a free-tier backend
+      // waking from sleep regularly needs more than 20s for the FIRST
+      // request, and this was aborting client-side before Render's
+      // container even finished starting (confirmed directly: zero
+      // server-side log entry for the request at all, not even a
+      // failed one — it never arrived). Surfaced to the trader as a
+      // bare "Failed to fetch" on Apply, same bug class the comment on
+      // apiFetch itself already documents for other pages.
       const res = await apiFetch(`${API_BASE}/admin/users/by-email/role`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ email, new_role: newRole }),
+        timeoutMs: 60_000,
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.detail || 'Could not change that account\'s role');
       setStatus(`${body.email} is now ${body.role}.`);
       setEmail('');
     } catch (e: any) {
-      setStatus(e.message);
+      setStatus(
+        e.name === 'AbortError' || e.message === 'Failed to fetch'
+          ? 'The server is waking up from sleep — this can take up to a minute on the first request. Please try Apply again.'
+          : e.message,
+      );
     } finally {
       setSubmitting(false);
     }
