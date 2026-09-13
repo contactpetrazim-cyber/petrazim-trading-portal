@@ -43,6 +43,24 @@ interface QuickPairsState {
   removePair: (tv: string) => void;
 }
 
+// A real TradingView symbol is always `EXCHANGE:TICKER` — this store
+// predates that being enforced everywhere a pair gets created (see
+// this file's own module doc: "Guessed tickers TradingView doesn't
+// carry make the widget silently fall back to its own default chart
+// ... the reported 'whatever I click, the chart still shows BTC'").
+// That's fixed at every CURRENT entry point (pairFromResult below),
+// but this store is persisted to localStorage — a browser that
+// cached a malformed pair before that fix shipped keeps replaying the
+// exact same bug forever on THAT one saved pill, by direct recurring
+// bug report, with no code change since able to touch it because the
+// bad data itself, not the code path, is what's stale. isValidTv +
+// the migrate() below drop anything that doesn't look like a real
+// TradingView symbol the moment a browser with old cached pairs next
+// loads the app.
+function isValidTv(tv: unknown): tv is string {
+  return typeof tv === 'string' && /^[A-Z0-9_]+:[A-Z0-9_.!/-]+$/i.test(tv);
+}
+
 export const useQuickPairsStore = create<QuickPairsState>()(
   persist(
     (set) => ({
@@ -61,6 +79,13 @@ export const useQuickPairsStore = create<QuickPairsState>()(
     {
       name: 'petrazim.quickPairs',
       storage: createJSONStorage(() => localStorage),
+      version: 1,
+      migrate: (persisted: any) => {
+        const cleaned = Array.isArray(persisted?.pairs)
+          ? persisted.pairs.filter((p: any) => p && isValidTv(p.tv) && typeof p.trade === 'string' && p.trade)
+          : [];
+        return { pairs: cleaned.length ? cleaned : DEFAULT_QUICK_PAIRS };
+      },
       partialize: (s) => ({ pairs: s.pairs }),
     },
   ),

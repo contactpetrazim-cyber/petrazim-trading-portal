@@ -209,7 +209,7 @@ export function ChartPanel({
       {toolbar}
       {pairsOpen && pairsPanel}
       <div className={`rounded-lg overflow-hidden ${chartDark ? '' : 'border border-gray-200'}`} style={{ height }}>
-        <TradingViewChart symbol={symbol} interval={interval} theme={chartTheme} candleColors={colors} chartStyle={chartStyle} />
+        <TradingViewChart symbol={symbol} interval={interval} theme={chartTheme} candleColors={colors} chartStyle={chartStyle} position={position} />
       </div>
     </div>
   );
