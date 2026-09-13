@@ -42,7 +42,7 @@ from app.services import google_calendar
 from app.services.facilitator_booking import (
     check_booking_eligibility, compute_calendar_strip, generate_jitsi_room_url,
 )
-from app.services.fireflies import invite_fireflies_notetaker
+from app.services.fireflies import NotetakerInviteResult, invite_fireflies_notetaker
 
 # Band -> (start_hour, end_hour), UTC. Never defined anywhere else in
 # the codebase — bands were only ever labels, not clock times — so
@@ -114,6 +114,12 @@ class BookRequest(BaseModel):
     day: str
     band: str
     topic: str
+    # Defaults to True (unchanged behavior) — the "Fireflies notetaker"
+    # toggle on the booking form, by direct request ("Add the
+    # 'Fireflies' toggle in the portal pages"). A trainee who'd rather
+    # this session not be recorded/transcribed can turn it off per
+    # booking; nothing else about the booking changes either way.
+    include_fireflies: bool = True
 
 
 class BookResponse(BaseModel):
@@ -153,7 +159,11 @@ async def book_session(
     # attendee on the calendar event itself. fireflies_meeting_id stays
     # unset since there's no real Fireflies-side id to record without
     # a direct API call.
-    notetaker = invite_fireflies_notetaker(room_url, req.topic)
+    notetaker = (
+        invite_fireflies_notetaker(room_url, req.topic)
+        if req.include_fireflies
+        else NotetakerInviteResult(invited=False)
+    )
 
     # Best-effort calendar sync — same fail-soft convention as
     # Fireflies above: a booking always succeeds even if this fails or
@@ -196,9 +206,14 @@ async def book_session(
                 )
         await db.commit()   # persists get_valid_access_token's refreshed cache either way
 
+    fireflies_status = (
+        "connected" if notetaker.invited
+        else "off_by_choice" if not req.include_fireflies
+        else "not_configured"
+    )
     return BookResponse(
         booking_id=str(booking.id), jitsi_room_url=room_url,
-        fireflies_status=("connected" if notetaker.invited else "not_configured"),
+        fireflies_status=fireflies_status,
     )
 
 
