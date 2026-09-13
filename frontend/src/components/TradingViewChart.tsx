@@ -69,6 +69,12 @@ export interface ChartPosition {
   takeProfit2?: number | null;
   takeProfit3?: number | null;
   unrealizedPnl?: number | null;
+  /** True for a PENDING (not yet filled) limit/stop order — same
+   * Entry/SL/TP lines are drawn, but the Entry label shows "Pending"
+   * instead of a live P/L, since a position that isn't open yet has
+   * none. By direct request ("show same for pending trades also ...
+   * with comment pending instead of the dynamic PL"). */
+  pending?: boolean;
 }
 
 export interface CandleColors {
@@ -124,6 +130,15 @@ function drawPositionOverlay(chart: any, position: ChartPosition | null | undefi
   if (!position) return [];
 
   const drawn: number[] = [];
+  // linewidth: 1 is TradingView's own minimum (its property panel's
+  // Thickness dropdown bottoms out at 1px — there's no thinner option
+  // to ask for) — by direct request ("for open trades make the lines
+  // very thin"), also dropped the earlier `bold` on the label text,
+  // the only other "heavier" knob these shapes had. Pending orders get
+  // their own Dotted style (vs. Dashed for an already-open position)
+  // so the two are visually distinguishable at a glance, not just by
+  // reading the label.
+  const lineStyle = position.pending ? 1 : 2; // 1 = Dotted, 2 = Dashed
   const addLine = (price: number | null | undefined, color: string, text: string) => {
     if (price == null) return;
     try {
@@ -137,7 +152,7 @@ function drawPositionOverlay(chart: any, position: ChartPosition | null | undefi
           disableUndo: true,
           zOrder: 'top',
           text,
-          overrides: { linecolor: color, linewidth: 1, linestyle: 2, showLabel: true, textcolor: color, fontsize: 11, bold: true },
+          overrides: { linecolor: color, linewidth: 1, linestyle: lineStyle, showLabel: true, textcolor: color, fontsize: 11 },
         }
       );
       if (typeof id === 'number') drawn.push(id);
@@ -145,7 +160,9 @@ function drawPositionOverlay(chart: any, position: ChartPosition | null | undefi
   };
 
   const dirLabel = position.direction === 'long' ? 'LONG' : 'SHORT';
-  const pnlLabel = position.unrealizedPnl != null ? `  P/L ${formatSignedMoney(position.unrealizedPnl)}` : '';
+  const pnlLabel = position.pending
+    ? '  (Pending)'
+    : position.unrealizedPnl != null ? `  P/L ${formatSignedMoney(position.unrealizedPnl)}` : '';
   addLine(position.entryPrice, ENTRY_COLOR, `Entry ${dirLabel} ${position.entryPrice}${pnlLabel}`);
   addLine(position.stopLoss, SL_COLOR, `SL ${position.stopLoss}`);
   addLine(position.takeProfit1, TP_COLOR, `TP1 ${position.takeProfit1}`);

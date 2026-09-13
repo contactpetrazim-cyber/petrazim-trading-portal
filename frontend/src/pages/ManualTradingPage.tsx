@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { ArrowLeft, Settings2, ArrowLeftRight, Calculator, ChevronDown } from 'lucide-react';
 import { ChartPanel } from '../components/ChartPanel';
 import type { ChartPosition } from '../components/TradingViewChart';
+import { PositionManager } from '../components/PositionManager';
 import { useAuth } from '../hooks/useAuth';
 import { useThemeStore } from '../hooks/useTheme';
 import { useQuickPrice } from '../hooks/useQuickPrice';
@@ -492,36 +493,68 @@ export function ManualTradingPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [symbol.trade]);
 
-  // Live position-on-chart overlay ("view active trades on the chart
-  // ... showing entry, SL and TP with current PL or drawdown") — polls
-  // the caller's own open trades, keeps only the one on the symbol
-  // currently displayed (a trader can hold several symbols at once;
-  // ChartPanel/TradingViewChart only ever draw the one for what's on
-  // screen), and feeds it to ChartPanel below. Same silent-poll shape
-  // as the quick-price effect above, on its own interval since active
-  // trades change far less often than a live price tick.
-  const [chartPosition, setChartPosition] = useState<ChartPosition | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    const load = () => {
-      tradesApi.getActiveTrades().then((trades) => {
-        if (cancelled) return;
-        const open = trades.find((t) => t.symbol === symbol.trade && t.entry_price != null);
-        setChartPosition(open ? {
-          direction: open.direction,
-          entryPrice: open.entry_price as number,
-          stopLoss: open.stop_loss,
-          takeProfit1: open.take_profit,
-          takeProfit2: open.take_profit_2,
-          takeProfit3: open.take_profit_3,
-          unrealizedPnl: open.unrealized_pnl,
-        } : null);
-      }).catch(() => { if (!cancelled) setChartPosition(null); });
-    };
-    load();
-    const t = setInterval(load, 8000);
-    return () => { cancelled = true; clearInterval(t); };
+  // Live position-on-chart overlay + the "manage this position"
+  // dashboard below ("view active trades on the chart ... showing
+  // entry, SL and TP with current PL or drawdown" / "view and edit
+  // the statistics of this trade ... exchange style trade order
+  // management") — polls the caller's own open trades, keeps only the
+  // one on the symbol currently displayed (a trader can hold several
+  // symbols at once; both the chart and this page's own management
+  // panel only ever show the one for what's on screen), and feeds the
+  // RAW trade to PositionManager and the mapped subset to ChartPanel.
+  // Same silent-poll shape as the quick-price effect above, on its own
+  // interval since active trades change far less often than a live
+  // price tick.
+  //
+  // A still-PENDING (not yet filled) limit/stop order gets its OWN
+  // state, polled alongside — by direct request ("show same for
+  // pending trades also"). Kept separate from openPositionTrade rather
+  // than folded into one "the current thing" state because
+  // PositionManager's edit/partial-close only work on an ACTIVE trade
+  // (modify_targets/partial_close both 409 on anything else) — a
+  // pending order has nothing to manage yet beyond the Cancel button
+  // Trade Management already offers, so it feeds the chart overlay
+  // only, never PositionManager.
+  const [openPositionTrade, setOpenPositionTrade] = useState<Trade | null>(null);
+  const [pendingOrderTrade, setPendingOrderTrade] = useState<Trade | null>(null);
+  const loadOpenPosition = useCallback(() => {
+    return Promise.all([
+      tradesApi.getActiveTrades(),
+      tradesApi.getTrades({ status: 'pending', symbol: symbol.trade }),
+    ]).then(([active, pending]) => {
+      setOpenPositionTrade(active.find((t) => t.symbol === symbol.trade && t.entry_price != null) ?? null);
+      setPendingOrderTrade(pending.find((t) => t.entry_price != null) ?? null);
+    }).catch(() => { setOpenPositionTrade(null); setPendingOrderTrade(null); });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [symbol.trade]);
+  useEffect(() => {
+    loadOpenPosition();
+    const t = setInterval(loadOpenPosition, 8000);
+    return () => clearInterval(t);
+  }, [loadOpenPosition]);
+
+  // The subset TradingViewChart actually draws — see its `position`
+  // doc for why this is a one-way write, not a live-editable overlay.
+  // An open position takes priority over a pending order on the same
+  // symbol (the common case is the same trade: pending until filled,
+  // then active — showing both would just be the same lines twice).
+  const chartPosition: ChartPosition | null = openPositionTrade ? {
+    direction: openPositionTrade.direction,
+    entryPrice: openPositionTrade.entry_price as number,
+    stopLoss: openPositionTrade.stop_loss,
+    takeProfit1: openPositionTrade.take_profit,
+    takeProfit2: openPositionTrade.take_profit_2,
+    takeProfit3: openPositionTrade.take_profit_3,
+    unrealizedPnl: openPositionTrade.unrealized_pnl,
+  } : pendingOrderTrade ? {
+    direction: pendingOrderTrade.direction,
+    entryPrice: pendingOrderTrade.entry_price as number,
+    stopLoss: pendingOrderTrade.stop_loss,
+    takeProfit1: pendingOrderTrade.take_profit,
+    takeProfit2: pendingOrderTrade.take_profit_2,
+    takeProfit3: pendingOrderTrade.take_profit_3,
+    pending: true,
+  } : null;
 
   // Same fixed-fractional formula services/manual_trading.py's
   // compute_lot_size uses server-side — a live preview only, the real
@@ -726,6 +759,21 @@ export function ManualTradingPage() {
             position={chartPosition}
 
           />
+
+          {/* Your open position on this symbol — "view and edit the
+              statistics of this trade ... exchange style trade order
+              management", by direct request. Sits alongside (not
+              instead of) the order ticket: a trader can still add to
+              or place a second order on the same symbol while managing
+              the existing one. Only rendered once a position actually
+              exists, same "unmount, don't just hide" reasoning as the
+              order card's own comment above. */}
+          {openPositionTrade && (
+            <div className={orderFormOpen ? 'lg:col-span-2' : ''}>
+              <div className={`text-xs font-semibold mb-2 ${dark ? 'text-white/40' : 'text-gray-400'}`}>Your open position — {symbol.trade}</div>
+              <PositionManager trade={openPositionTrade} dark={dark} onChanged={loadOpenPosition} />
+            </div>
+          )}
 
           {orderFormOpen && (
           <div>
