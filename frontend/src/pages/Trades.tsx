@@ -26,7 +26,8 @@ const LIVE_PNL_POLL_MS = 10_000;
  * here — they're real now, via POST /trades/approve.
  */
 export function TradesPage() {
-  const { theme } = useThemeStore();
+  const { portalThemes } = useThemeStore();
+  const theme = portalThemes.trader;
   const dark = theme === 'dark';
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);

@@ -65,19 +65,24 @@ const TRADER_NAV_ITEMS: NavItem[] = [
  * "Switch Portal" — it had no way back to the rest of the app at all
  * before this.
  *
- * Follows the site-wide light/dark toggle now too, by direct
- * instruction — every other portal already did (Manager/Partner/Admin
- * via CorporateLayout); this was the one console still forced dark
- * regardless of the toggle. Dark keeps the exact original smc-* dark-
- * terminal palette unchanged. Light does NOT invent a new "light
- * terminal" look — it reuses the same white/corporate-bg/corporate-
- * hero palette every other light-mode page already uses, so toggling
- * light here looks like the rest of the site, not a third theme.
+ * Has its own light/dark toggle now too, by direct instruction — its
+ * own slot (useThemeStore's portalThemes.trader), independent of every
+ * other portal's remembered choice, defaulting to light. Dark keeps
+ * the exact original smc-* dark-terminal palette unchanged. Light does
+ * NOT invent a new "light terminal" look — it reuses the same white/
+ * corporate-bg/corporate-hero palette every other light-mode page
+ * already uses, so toggling light here looks like the rest of the
+ * site, not a third theme. The five pages this wraps (Dashboard/
+ * Trades/Bots/Analytics/Risk) each read the same portalThemes.trader
+ * slot themselves for their own internal styling — this file's `dark`
+ * only covers its own header/sidebar chrome.
  */
 export function Layout({ children, navItems = TRADER_NAV_ITEMS }: { children: React.ReactNode; navItems?: NavItem[] }) {
   const { sidebarOpen, toggleSidebar, wsConnected, stats } = useAppStore();
   const location = useLocation();
-  const { theme, setTheme } = useThemeStore();
+  const { portalThemes, setPortalTheme } = useThemeStore();
+  const theme = portalThemes.trader;
+  const setTheme = (t: 'light' | 'dark') => setPortalTheme('trader', t);
   const dark = theme === 'dark';
   const [settingsOpen, setSettingsOpen] = useState(false);
 

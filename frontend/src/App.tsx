@@ -99,15 +99,22 @@ const TRADER_CONSOLE_ROLES: UserRole[] = ['trader', 'fund_manager', 'partner', '
  * toggle (useThemeStore), which this layout is what actually applies
  * to the page background; individual pages opt into dark-aware
  * styling via the same store. The Trader console keeps its own dark
- * Layout (sidebar) unchanged below — deliberately untouched by this
- * toggle, see config/theme.ts.
+ * Layout (sidebar) below, now with its own separate toggle too (see
+ * useTheme.ts's portalThemes).
+ *
+ * `portal="admin"` switches this layout (and the TopNav it renders)
+ * over to useThemeStore's separate `portalThemes.admin` slot instead
+ * of the shared `theme` — by direct request, Admin remembers its own
+ * light/dark choice independently of every other corporate-shell page
+ * rather than sharing one setting with them. Every other route omits
+ * this prop and keeps behaving exactly as before, on the shared slot.
  */
-function CorporateLayout({ children }: { children: React.ReactNode }) {
-  const { theme } = useThemeStore();
-  const dark = theme === 'dark';
+function CorporateLayout({ children, portal }: { children: React.ReactNode; portal?: 'admin' }) {
+  const { theme, portalThemes } = useThemeStore();
+  const dark = (portal === 'admin' ? portalThemes.admin : theme) === 'dark';
   return (
     <div className={`min-h-screen pb-20 transition-colors duration-300 ${dark ? 'bg-smc-dark' : 'bg-corporate-bg'}`}>
-      <TopNav />
+      <TopNav portal={portal} />
       <main className="max-w-5xl mx-auto px-5 py-8">{children}</main>
       <BottomNav />
       <FloatingTradeAI />
@@ -198,7 +205,7 @@ function App() {
         } />
         <Route path="/admin" element={
           <ProtectedRoute allowedRoles={['admin', 'super_admin']}>
-            <CorporateLayout><AdminConsolePage /></CorporateLayout>
+            <CorporateLayout portal="admin"><AdminConsolePage /></CorporateLayout>
           </ProtectedRoute>
         } />
 
