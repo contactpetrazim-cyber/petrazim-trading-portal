@@ -107,7 +107,15 @@ async def check_manual_trade_risk(
     if reward_risk_ratio < limits.min_rr_ratio:
         return RiskCheckResult(False, f"Reward:risk of {reward_risk_ratio:.2f} is below your {limits.min_rr_ratio:.2f} minimum.")
 
-    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    # Naive UTC, not datetime.now(timezone.utc) — Trade.created_at is a
+    # plain DateTime column (no timezone=True), storing naive UTC via
+    # its own default=datetime.utcnow. Comparing it against a
+    # timezone-aware value here made asyncpg reject the query outright
+    # ("can't subtract offset-naive and offset-aware datetimes") —
+    # confirmed directly against production logs and a live synthetic
+    # order, not just by inspection: every manual order past the R:R
+    # check 500'd on this exact line.
+    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
     today_count = (await db.execute(
         select(func.count(Trade.id)).where(
             Trade.user_id == user_id, Trade.strategy_type == "manual", Trade.created_at >= today_start,
