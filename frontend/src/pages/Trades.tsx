@@ -7,6 +7,7 @@ import { tradesApi } from '../services/api';
 import { Trade } from '../types';
 import { useThemeStore } from '../hooks/useTheme';
 import { Filter, Search, Download, RefreshCw } from 'lucide-react';
+import { formatApiError } from '../lib/apiError';
 
 // Live unrealized PnL only means something if it's actually kept
 // current — by direct request ("the order should show as an existing
@@ -93,7 +94,7 @@ export function TradesPage() {
       setError(null);
       loadTrades();
     } catch (e: any) {
-      setError(e?.response?.data?.detail || 'Could not cancel — try again in a moment.');
+      setError(formatApiError(e?.response?.data?.detail, 'Could not cancel — try again in a moment.'));
     }
   }
 

@@ -32,6 +32,7 @@ from app.models.trade import Trade, TradeStatus
 
 async def load_trade_history(
     db: AsyncSession, bot_id: Optional[str] = None, user_id: Optional[str] = None,
+    source: Optional[str] = None,
 ) -> List[TradeRecord]:
     """Live trades only — this is what the Monte Carlo forecast is built
     from. Queries the app's real `trades` table (models/trade.py) directly
@@ -40,10 +41,27 @@ async def load_trade_history(
     of this function silently returned an empty history no matter how
     many real trades existed. user_id scopes to one Trader's own trades;
     omit it (Admin/Super Admin only) to forecast across the whole
-    platform, matching every other router's staff-see-all convention."""
+    platform, matching every other router's staff-see-all convention.
+
+    `source` — 'all' (default)/'bots'/'manual', by direct request
+    ("create option for manual trade and strategies to be analysed by
+    the 'performance forecast' tool"): a trader's own manually-placed
+    trades were only ever forecastable mixed in with every bot's
+    trades, with no way to see "if I keep trading the way I have been
+    manually, what does that look like projected forward" on its own.
+    Same bot_id-prefix convention routers/trades.py's own
+    _apply_source_filter already established for exactly this split —
+    reused here rather than inventing a second rule, since a manual
+    trade's bot_id is always "manual_<symbol>", never a real bot id."""
     stmt = select(Trade).where(Trade.status == TradeStatus.CLOSED, Trade.r_multiple.isnot(None))
     if bot_id:
         stmt = stmt.where(Trade.bot_id == bot_id)
+    if source and source.lower() != "all":
+        src = source.lower()
+        if src == "manual":
+            stmt = stmt.where(Trade.bot_id.like("manual\\_%", escape="\\"))
+        elif src == "bots":
+            stmt = stmt.where(~Trade.bot_id.like("manual\\_%", escape="\\"))
     if user_id:
         stmt = stmt.where(Trade.user_id == user_id)
     stmt = stmt.order_by(Trade.exit_timestamp)

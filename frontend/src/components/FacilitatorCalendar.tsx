@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, Lock, Loader2, Mic, Video, X } from 'lucide-react';
 import { apiFetch } from './AccessExpiredGate';
 import { fetchJsonWithRetry } from '../lib/resilientFetch';
+import { formatApiError } from '../lib/apiError';
 
 const BAND_LABELS: Record<string, string> = { am: 'AM', afternoon: 'Afternoon', evening: 'Evening' };
 const BAND_SHORT: Record<string, string> = { am: 'AM', afternoon: 'PM', evening: 'EV' };
@@ -176,7 +177,7 @@ export function FacilitatorCalendar({
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error(body.detail || 'Booking failed');
+        throw new Error(formatApiError(body.detail, 'Booking failed'));
       }
       const data = await res.json();
       setConfirmed({ band, jitsi_room_url: data.jitsi_room_url });

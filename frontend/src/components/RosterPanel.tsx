@@ -3,6 +3,7 @@ import { UserPlus, Trash2, X, Users } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { FoldedCard } from './FoldedCard';
 import { apiFetch } from './AccessExpiredGate';
+import { formatApiError } from '../lib/apiError';
 
 /**
  * RosterPanel — invite/assign/detach Traders. Mounted on
@@ -68,7 +69,7 @@ export function RosterPanel({ dark = false }: { dark?: boolean }) {
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error(body.detail || 'Invite failed');
+        throw new Error(formatApiError(body.detail, 'Invite failed'));
       }
       const data = await res.json();
       setInviteResult(data);

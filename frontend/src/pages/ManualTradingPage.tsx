@@ -10,6 +10,7 @@ import { useQuickPrice } from '../hooks/useQuickPrice';
 import { useBackendStatus } from '../hooks/useBackendStatus';
 import { apiFetch } from '../components/AccessExpiredGate';
 import { fetchJsonWithRetry, makeIdempotencyKey, type FetchPhase } from '../lib/resilientFetch';
+import { formatApiError } from '../lib/apiError';
 import { LoadingIndicator } from '../components/LoadingIndicator';
 import { tradesApi, botsApi } from '../services/api';
 import { PairsPanel } from '../components/PairsPanel';
@@ -448,7 +449,7 @@ export function ManualTradingPage() {
         body: JSON.stringify({ percent: Number(closePercent), exit_price: Number(closePrice) }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'Close failed.');
+      if (!res.ok) throw new Error(formatApiError(data.detail, 'Close failed.'));
       setResult({
         ok: true, tradeId: data.status === 'closed' ? undefined : result.tradeId,
         message: data.status === 'closed'

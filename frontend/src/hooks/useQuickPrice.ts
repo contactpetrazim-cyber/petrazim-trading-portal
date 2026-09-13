@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useAuth } from './useAuth';
 import { apiFetch } from '../components/AccessExpiredGate';
+import { formatApiError } from '../lib/apiError';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -27,7 +28,7 @@ export function useQuickPrice(symbol: string) {
       const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
       const res = await apiFetch(`${API_URL}/manual-trading/quick-price/${encodeURIComponent(symbol)}`, { headers });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'No live price for this symbol.');
+      if (!res.ok) throw new Error(formatApiError(data.detail, 'No live price for this symbol.'));
       setPrice(data.price);
       return data.price as number;
     } catch (e: any) {
