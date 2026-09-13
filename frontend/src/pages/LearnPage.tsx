@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Lock, Timer as TimerIcon } from 'lucide-react';
+import { Lock, Timer as TimerIcon, Trophy, BarChart3, Dumbbell, RotateCcw, Gamepad2, ArrowRight } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
 import { LoadingIndicator } from '../components/LoadingIndicator';
 import { FocusTimer } from '../components/FocusTimer';
@@ -27,6 +27,25 @@ interface TrackSummary {
   total_stages: number;
   locked: boolean;
 }
+
+interface Badge { id: string; title: string; description: string; icon: string; earned: boolean; progress: number }
+interface Awards { badges: Badge[] }
+
+// The rest of the learning loop, one click from the Learn hub — by
+// direct request ("copy awards and mastery and practice and review
+// and add them to the Learn section"). Practice Drills, Retention
+// Review, and the Trading Simulator Game live under the separate
+// Practise area (its own bottom-nav tab, a deliberate IA choice —
+// see featureRegistry.ts) rather than being physically moved under
+// /learn; this strip is what actually ties them into the Learn hub a
+// trainee lands on, instead of requiring a trip through the Site Map.
+const QUICK_LINKS = [
+  { to: '/learn/mastery', label: 'Mastery Overview', icon: BarChart3 },
+  { to: '/learn/awards', label: 'Awards & Certificates', icon: Trophy },
+  { to: '/practise/drills', label: 'Practice Drills', icon: Dumbbell },
+  { to: '/practise/review', label: 'Retention Review', icon: RotateCcw },
+  { to: '/practise/game', label: 'Trading Simulator Game', icon: Gamepad2 },
+] as const;
 
 /**
  * LearnPage — the real Learn area, replacing the generic AreaPage link
@@ -65,6 +84,7 @@ export function LearnPage({ categoryFilter }: { categoryFilter?: 'basics' | 'bot
   const { token } = useAuth();
   const [stats, setStats] = useState<Stats | null>(null);
   const [tracks, setTracks] = useState<TrackSummary[] | null>(null);
+  const [awards, setAwards] = useState<Awards | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [phase, setPhase] = useState<FetchPhase>('idle');
   const [retryTick, setRetryTick] = useState(0);
@@ -85,6 +105,10 @@ export function LearnPage({ categoryFilter }: { categoryFilter?: 'basics' | 'bot
       setTracks(t);
       if (!s || !t) setError('Could not load your Learn progress right now — showing defaults below.');
     });
+    // Best-effort, no shared error state — the awards summary card
+    // below simply doesn't render if this fails, it never blocks the
+    // rest of the page the way the stats/tracks failure above does.
+    fetchJsonWithRetry<Awards>(`${API_URL}/curriculum/awards`, { headers }).then((a) => { if (a) setAwards(a); });
   }, [token, retryTick]);
 
   // A failed load used to leave the whole page blank below the error
@@ -166,6 +190,65 @@ export function LearnPage({ categoryFilter }: { categoryFilter?: 'basics' | 'bot
           ))}
         </div>
       )}
+
+      {/* Quick links into the rest of the learning loop — Mastery,
+          Awards, Practice, Review, and the Simulator Game — surfaced
+          right on the Learn hub instead of only reachable via the Site
+          Map. Only on the unfiltered page; a category-filtered view
+          (e.g. /learn/bots) keeps its narrower focus. */}
+      {!categoryFilter && (
+        <div className="flex flex-wrap gap-2 mb-6">
+          {QUICK_LINKS.map(({ to, label, icon: Icon }) => (
+            <Link
+              key={to}
+              to={to}
+              className={`inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-xl transition-colors ${
+                dark ? 'bg-white/5 text-white hover:bg-white/10' : 'bg-corporate-bg text-corporate-hero hover:bg-corporate-hero/10'
+              }`}
+            >
+              <Icon size={13} /> {label}
+            </Link>
+          ))}
+        </div>
+      )}
+
+      {/* Awards summary card — adapted from the reference training
+          portal's "X of Y badges earned — Next up: ..." card, backed
+          by this app's real GET /curriculum/awards data rather than a
+          client-side progress store. Silently absent if awards hasn't
+          loaded yet (best-effort fetch above) rather than blocking the
+          page on a third endpoint. */}
+      {!categoryFilter && awards && awards.badges.length > 0 && (() => {
+        const earnedCount = awards.badges.filter((b) => b.earned).length;
+        const nextUp = awards.badges.filter((b) => !b.earned).sort((a, b) => b.progress - a.progress)[0];
+        return (
+          <Link
+            to="/learn/awards"
+            className={`block rounded-2xl border p-5 mb-6 transition-shadow hover:shadow-[0_8px_30px_rgba(15,45,110,0.08)] ${
+              dark ? 'bg-corporate-surface-dark border-corporate-border-dark' : 'bg-white border-[#dcdce8]'
+            }`}
+          >
+            <div className="flex items-center gap-4">
+              <div className="w-14 h-14 rounded-2xl flex items-center justify-center text-2xl shrink-0" style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)' }}>
+                🏆
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className={`font-semibold ${dark ? 'text-white' : 'text-corporate-text-on-bg'}`}>
+                  {earnedCount} of {awards.badges.length} badges earned
+                </div>
+                {nextUp && (
+                  <p className={`text-xs mt-0.5 ${dark ? 'text-white/40' : 'text-gray-500'}`}>
+                    Next up: {nextUp.title} — {Math.round(nextUp.progress * 100)}% there. {nextUp.description}
+                  </p>
+                )}
+              </div>
+              <span className={`shrink-0 inline-flex items-center gap-1 text-xs font-semibold px-3 py-2 rounded-lg ${dark ? 'bg-white/5 text-white' : 'bg-corporate-bg text-corporate-hero'}`}>
+                View awards <ArrowRight size={13} />
+              </span>
+            </div>
+          </Link>
+        );
+      })()}
 
       {filteredTracks === null && !error && (
         <p className={`text-sm ${dark ? 'text-white/40' : 'text-gray-400'}`}>Loading your tracks…</p>
