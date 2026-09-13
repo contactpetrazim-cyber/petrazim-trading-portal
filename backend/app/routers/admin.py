@@ -94,32 +94,21 @@ async def create_user(
                          badge_color=ROLE_BADGE_COLOR[user.role])
 
 
-@router.patch("/users/{user_id}/role", response_model=UserListItem)
-async def change_role(
-    user_id: str,
-    req: RoleChangeRequest,
-    db: AsyncSession = Depends(get_db),
-    admin: User = Depends(require_super_admin),
-):
-    target = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
-    if target is None:
-        raise HTTPException(status_code=404, detail="User not found")
-    if target.is_super_admin_seed:
-        raise HTTPException(status_code=400, detail="Cannot change the seeded Super Admin's role")
-
-    target.role = req.new_role
-    await db.commit()
-    await db.refresh(target)
-    return UserListItem(id=str(target.id), email=target.email, full_name=target.full_name,
-                         role=target.role.value, status=target.status.value,
-                         badge_color=ROLE_BADGE_COLOR[target.role])
-
-
 class RoleChangeByEmailRequest(BaseModel):
     email: str
     new_role: UserRole
 
 
+# Registered BEFORE /users/{user_id}/role deliberately: FastAPI/Starlette
+# match routes in registration order, and {user_id} is a plain str path
+# param with no UUID-shaped constraint, so it would otherwise swallow a
+# request to /users/by-email/role first (user_id="by-email"), which then
+# fails downstream trying to cast the literal string "by-email" to a
+# UUID for the User.id comparison. Real bug, confirmed directly from a
+# production traceback (asyncpg.exceptions.DataError: invalid input for
+# query argument $1: 'by-email' ...) — the Admin console's "Role
+# Administration" panel (Member email + New level + Apply) was 500ing on
+# every single use.
 @router.patch("/users/by-email/role", response_model=UserListItem)
 async def change_role_by_email(
     req: RoleChangeByEmailRequest,
@@ -128,7 +117,7 @@ async def change_role_by_email(
 ):
     """The Admin console's "Role Administration" panel (Member email +
     New level + Apply), adapted from the reference training portal's
-    own promote/demote-by-email flow — same rule as change_role above
+    own promote/demote-by-email flow — same rule as change_role below
     (id-keyed, used internally by any future admin UI that already has
     a user row to act on), just addressed by email since that's the
     only identifier a Super Admin has on hand for someone not already
@@ -147,6 +136,27 @@ async def change_role_by_email(
     target = (await db.execute(select(User).where(User.email == req.email.strip()))).scalar_one_or_none()
     if target is None:
         raise HTTPException(status_code=404, detail="No account found with that email")
+    if target.is_super_admin_seed:
+        raise HTTPException(status_code=400, detail="Cannot change the seeded Super Admin's role")
+
+    target.role = req.new_role
+    await db.commit()
+    await db.refresh(target)
+    return UserListItem(id=str(target.id), email=target.email, full_name=target.full_name,
+                         role=target.role.value, status=target.status.value,
+                         badge_color=ROLE_BADGE_COLOR[target.role])
+
+
+@router.patch("/users/{user_id}/role", response_model=UserListItem)
+async def change_role(
+    user_id: str,
+    req: RoleChangeRequest,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_super_admin),
+):
+    target = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+    if target is None:
+        raise HTTPException(status_code=404, detail="User not found")
     if target.is_super_admin_seed:
         raise HTTPException(status_code=400, detail="Cannot change the seeded Super Admin's role")
 
