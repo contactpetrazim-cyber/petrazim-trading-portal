@@ -2,7 +2,7 @@ import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { AlertTriangle, LogIn, RefreshCw } from 'lucide-react';
 
 interface Props { children: ReactNode }
-interface State { error: Error | null }
+interface State { error: Error | null; reloading: boolean }
 
 // Originally only matched a specific list of known "stale chunk"
 // browser error phrasings (see main.tsx's own `vite:preloadError`
@@ -23,15 +23,30 @@ const CHUNK_RELOAD_FLAG = 'petrazim-chunk-reload';
 
 /** Keeps an unexpected page failure from becoming a blank screen. */
 export class AppErrorBoundary extends Component<Props, State> {
-  state: State = { error: null };
+  state: State = { error: null, reloading: false };
 
   static getDerivedStateFromError(error: Error): State {
-    return { error };
+    // React's own error-boundary lifecycle runs
+    // getDerivedStateFromError -> render -> componentDidCatch, in that
+    // order — reading sessionStorage HERE, before componentDidCatch
+    // has a chance to write to it, is what makes `reloading` correct
+    // on the very FIRST render after an error, not just the second
+    // one. By direct bug report ("still showing this for a very brief
+    // moment - fix permanently"): the previous version decided what to
+    // render by re-reading sessionStorage inside render() itself, but
+    // componentDidCatch (which sets the flag) hadn't run yet on that
+    // first pass — so the full "This page could not open" screen
+    // painted for one frame before componentDidCatch's own
+    // window.location.reload() actually took effect, exactly the
+    // "brief flash" being reported. Computing `reloading` once, here,
+    // and reusing that same decision in both componentDidCatch and
+    // render eliminates the race instead of narrowing its window.
+    return { error, reloading: !sessionStorage.getItem(CHUNK_RELOAD_FLAG) };
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error('Petrazim page error', error, info.componentStack);
-    if (!sessionStorage.getItem(CHUNK_RELOAD_FLAG)) {
+    if (this.state.reloading) {
       sessionStorage.setItem(CHUNK_RELOAD_FLAG, '1');
       window.location.reload();
     }
@@ -43,14 +58,16 @@ export class AppErrorBoundary extends Component<Props, State> {
   render() {
     if (!this.state.error) return this.props.children;
 
-    // A reload is already in flight (componentDidCatch just triggered
-    // one) — show a plain, non-alarming "hang on" instead of the full
-    // "This page could not open" screen for the split second before
+    // A reload is already in flight (getDerivedStateFromError decided
+    // this the instant the error was caught, before this first paint)
+    // — show a plain, non-alarming "hang on" instead of the full
+    // "This page could not open" screen for the brief moment before
     // window.location.reload() actually navigates away. If the reload
-    // itself somehow doesn't happen, the flag stays set and a SECOND
-    // occurrence falls through to the real error screen below — never
-    // stuck silently on this forever, and a genuine bug still surfaces.
-    if (sessionStorage.getItem(CHUNK_RELOAD_FLAG)) {
+    // itself somehow doesn't happen, or a SECOND error occurs after a
+    // reload already ran once this session, `reloading` is false and
+    // this falls through to the real error screen below — never stuck
+    // silently on this forever, and a genuine bug still surfaces.
+    if (this.state.reloading) {
       return (
         <main className="min-h-screen bg-corporate-bg flex items-center justify-center">
           <p className="text-sm text-gray-500">Updating to the latest version…</p>
