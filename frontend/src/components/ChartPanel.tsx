@@ -13,7 +13,7 @@ import type { Trade } from '../types';
  * as lines — derived from the caller's raw Trade rather than asked of
  * the caller directly, so ChartPanel only needs ONE prop (`position`)
  * to power both the management card and the on-chart view. */
-function tradeToChartPosition(trade: Trade): ChartPosition {
+export function tradeToChartPosition(trade: Trade): ChartPosition {
   return {
     direction: trade.direction,
     entryPrice: trade.entry_price as number,
