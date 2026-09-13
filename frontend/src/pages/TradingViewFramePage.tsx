@@ -313,7 +313,7 @@ export function TradingViewFramePage() {
           style={{ aspectRatio: '16/9' }}
         >
           {(mode === 'widget' || mode === 'workspace') && (
-            <TradingViewChart symbol={symbol.value} interval={interval.value} theme={frameTheme} candleColors={colors} chartStyle={chartStyle} position={chartPosition} />
+            <TradingViewChart symbol={symbol.value} interval={interval.value} theme={frameTheme} candleColors={colors} chartStyle={chartStyle} />
           )}
 
           {mode === 'workspace' && savedViewsOpen && (
