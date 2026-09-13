@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { UserCog } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { apiFetch } from './AccessExpiredGate';
+import { FoldedCard } from './FoldedCard';
 
 /**
  * RoleAdministrationPanel — promote/demote by email, adapted from the
@@ -57,18 +58,13 @@ export function RoleAdministrationPanel({ dark = true }: { dark?: boolean }) {
     }
   }
 
-  const cardClass = dark ? 'bg-smc-card border-smc-border' : 'bg-white border-corporate-bg';
   const inputClass = dark
     ? 'bg-smc-dark border-smc-border text-white placeholder:text-gray-600'
     : 'border-gray-200 text-corporate-text-on-bg';
 
   return (
-    <div className={`border rounded-xl p-6 ${cardClass}`}>
-      <div className={`flex items-center gap-2 mb-1 ${dark ? 'text-gray-300' : 'text-gray-500'}`}>
-        <UserCog size={16} />
-        <h2 className="text-sm font-medium">Role Administration</h2>
-      </div>
-      <div className="flex flex-col md:flex-row gap-3 mt-3">
+    <FoldedCard title="Role Administration" icon={<UserCog size={19} />} dark={dark}>
+      <div className="flex flex-col md:flex-row gap-3">
         <div className="flex-1">
           <label className={`text-xs font-medium block mb-1 ${dark ? 'text-gray-500' : 'text-gray-500'}`}>Member email</label>
           <input
@@ -101,6 +97,6 @@ export function RoleAdministrationPanel({ dark = true }: { dark?: boolean }) {
         Levels are strictly downward: a promoted member gains their own workspace plus everything beneath it, never anything above.
         {!isSuperAdmin && ' Changing a role requires the Super Admin.'}
       </p>
-    </div>
+    </FoldedCard>
   );
 }

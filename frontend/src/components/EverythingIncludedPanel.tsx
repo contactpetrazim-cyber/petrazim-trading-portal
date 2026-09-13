@@ -1,7 +1,8 @@
 import { Link } from 'react-router-dom';
-import { ArrowUpRight } from 'lucide-react';
+import { ArrowUpRight, LayoutGrid } from 'lucide-react';
 import { FEATURE_AREAS, FEATURE_REGISTRY } from '../config/featureRegistry';
 import { PARTNER_TOOLS, FUND_MANAGER_TOOLS, ADMIN_TOOLS, TierTool } from '../config/portalTiers';
+import { FoldedCard } from './FoldedCard';
 
 /**
  * EverythingIncludedPanel — "Everything included at this level",
@@ -54,15 +55,14 @@ function ToolGrid({ tools, dark }: { tools: TierTool[]; dark: boolean }) {
 
 export function EverythingIncludedPanel({ tier, dark = false }: { tier: ConsoleTier; dark?: boolean }) {
   const upTo = TIER_ORDER.slice(0, TIER_ORDER.indexOf(tier) + 1);
-  const cardClass = `rounded-2xl border p-5 ${dark ? 'bg-corporate-surface-dark border-corporate-border-dark' : 'bg-white border-corporate-bg'}`;
 
   return (
-    <div className={cardClass}>
-      <h3 className={`font-semibold ${dark ? 'text-white' : 'text-corporate-text-on-bg'}`}>Everything included at this level</h3>
-      <p className={`text-xs mb-4 ${dark ? 'text-white/40' : 'text-gray-500'}`}>
-        Access runs downward only: this portal carries every tool from the levels beneath it. Select anything below to open it.
-      </p>
-
+    <FoldedCard
+      title="Everything included at this level"
+      summary="Access runs downward only: this portal carries every tool from the levels beneath it."
+      icon={<LayoutGrid size={19} />}
+      dark={dark}
+    >
       <div className="space-y-4">
         <div>
           <h4 className={`text-xs font-semibold uppercase tracking-wide mb-2 ${dark ? 'text-white/50' : 'text-gray-500'}`}>Trader tools</h4>
@@ -105,6 +105,6 @@ export function EverythingIncludedPanel({ tier, dark = false }: { tier: ConsoleT
           </div>
         )}
       </div>
-    </div>
+    </FoldedCard>
   );
 }
