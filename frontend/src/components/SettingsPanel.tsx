@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   X, Home, CreditCard, GraduationCap, CalendarClock, LayoutGrid,
-  HardDriveDownload, Link2, ChevronRight, Sun, Moon, Map, LogOut,
+  HardDriveDownload, Link2, ChevronRight, Sun, Moon, Map, LogOut, Crown,
 } from 'lucide-react';
 import { HERO_GRADIENT } from '../config/theme';
 import type { ThemeName } from '../hooks/useTheme';
@@ -10,6 +10,7 @@ import { useAuth } from '../hooks/useAuth';
 import { useTradeAIStore } from '../hooks/useTradeAI';
 import { PortalSelectionCard, PortalOption } from './PortalSelectionCard';
 import { BackupOfflinePanel } from './BackupOfflinePanel';
+import { EverythingIncludedPanel } from './EverythingIncludedPanel';
 import { apiFetch } from './AccessExpiredGate';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -52,10 +53,23 @@ export function SettingsPanel({
   dark: boolean;
 }) {
   const navigate = useNavigate();
-  const { token, logout } = useAuth();
+  const { token, user, logout } = useAuth();
   const { setOpen: setTradeAIOpen } = useTradeAIStore();
   const [switchPortals, setSwitchPortals] = useState<PortalOption[] | null>(null);
   const [backupOfflineOpen, setBackupOfflineOpen] = useState(false);
+  const [premiumOverviewOpen, setPremiumOverviewOpen] = useState(false);
+
+  // EverythingIncludedPanel only knows 'partner' | 'fund_manager' |
+  // 'admin' (it renders that tier's own tools plus every tier
+  // beneath it — see its own docstring); a Trader has no tier beneath
+  // it to show, so the row below is simply omitted for Trader users,
+  // matching that no console page renders this panel for Trader
+  // either. super_admin reuses 'admin' — a Super Admin's access is a
+  // strict superset of Admin's, never less.
+  const premiumTier = user?.role === 'admin' || user?.role === 'super_admin' ? 'admin'
+    : user?.role === 'fund_manager' ? 'fund_manager'
+    : user?.role === 'partner' ? 'partner'
+    : null;
 
   if (!open) return null;
 
@@ -86,6 +100,11 @@ export function SettingsPanel({
     { icon: GraduationCap, label: 'Ask Trading Coach', detail: 'Open Trade AI', onClick: openTradeAI },
     { icon: CalendarClock, label: 'Facilitator Sessions', detail: 'Book time with a Manager or Partner (Tier 2/3)', to: '/meetings' },
     { icon: LayoutGrid, label: 'Switch Portal', detail: 'Trader / Fund Manager / Partner / Admin — jump to a console you have access to', onClick: openSwitchPortal },
+    // "Everything included at this level" — embedded here too, by
+    // direct request, so it's reachable from wherever you are in the
+    // app instead of only on the console dashboard it's already
+    // mounted on. Omitted entirely for Trader (see premiumTier above).
+    ...(premiumTier ? [{ icon: Crown, label: 'Everything Included', detail: 'Every tool and feature at your level, one overview', onClick: () => setPremiumOverviewOpen(true) }] : []),
     { icon: Map, label: 'Site Map', detail: 'Every page in the app, one list', to: '/sitemap' },
     { icon: HardDriveDownload, label: 'Backup and Offline', detail: 'Manage local data and sync', onClick: () => setBackupOfflineOpen(true) },
     { icon: Link2, label: 'Quick Links', detail: 'Shortcuts to frequent pages' },
@@ -180,6 +199,28 @@ export function SettingsPanel({
       )}
 
       {backupOfflineOpen && <BackupOfflinePanel onClose={() => setBackupOfflineOpen(false)} />}
+
+      {premiumOverviewOpen && premiumTier && (
+        <div className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center p-4" onClick={() => setPremiumOverviewOpen(false)}>
+          <div
+            className={`w-full max-w-xl max-h-[90vh] overflow-y-auto rounded-3xl shadow-2xl ${dark ? 'bg-corporate-surface-dark' : 'bg-white'}`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-5 rounded-t-3xl flex items-center justify-between" style={{ background: HERO_GRADIENT }}>
+              <div className="flex items-center gap-2.5 text-white">
+                <Crown size={20} />
+                <span className="font-bold font-display">Everything Included</span>
+              </div>
+              <button onClick={() => setPremiumOverviewOpen(false)} aria-label="Close">
+                <X size={20} className="text-white/80" />
+              </button>
+            </div>
+            <div className="p-5">
+              <EverythingIncludedPanel tier={premiumTier} dark={dark} defaultOpen />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

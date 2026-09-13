@@ -3,6 +3,7 @@ import { ArrowUpRight, LayoutGrid } from 'lucide-react';
 import { FEATURE_AREAS, FEATURE_REGISTRY } from '../config/featureRegistry';
 import { PARTNER_TOOLS, FUND_MANAGER_TOOLS, ADMIN_TOOLS, TierTool } from '../config/portalTiers';
 import { FoldedCard } from './FoldedCard';
+import { HERO_GRADIENT } from '../config/theme';
 
 /**
  * EverythingIncludedPanel — "Everything included at this level",
@@ -25,6 +26,27 @@ type ConsoleTier = 'partner' | 'fund_manager' | 'admin';
 
 const TIER_ORDER: ConsoleTier[] = ['partner', 'fund_manager', 'admin'];
 
+// Premium card treatment for this panel specifically — by direct
+// request ("Make the cards ... premium looking"), scoped to
+// "Everything included at this level" rather than a sweeping
+// site-wide FoldedCard restyle (that primitive is shared by dozens of
+// unrelated cards across Learn/Tools/Insights/Community/Explore, and
+// a blind global change there is a much bigger, separate risk). A
+// gradient-filled icon chip (the same HERO_GRADIENT the brand already
+// uses for its primary CTAs and the dark-theme toggle, not a new
+// color), a soft 1px ring that only appears on hover, and a touch
+// more lift than the plain cards elsewhere in the app.
+function ToolCardIcon({ Icon }: { Icon: TierTool['icon'] }) {
+  return (
+    <div
+      className="flex-shrink-0 w-9 h-9 rounded-full flex items-center justify-center text-white shadow-sm"
+      style={{ background: HERO_GRADIENT }}
+    >
+      <Icon size={15} />
+    </div>
+  );
+}
+
 function ToolGrid({ tools, dark }: { tools: TierTool[]; dark: boolean }) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
@@ -34,15 +56,17 @@ function ToolGrid({ tools, dark }: { tools: TierTool[]; dark: boolean }) {
           <Link
             key={t.title}
             to={t.route}
-            className={`group flex items-start gap-3 rounded-lg p-3 transition-all hover:-translate-y-0.5 hover:shadow-md ${dark ? 'bg-corporate-nav-dark hover:bg-white/5' : 'bg-corporate-bg hover:bg-white'}`}
+            className={`group flex items-start gap-3 rounded-xl p-3 border transition-all hover:-translate-y-0.5 ${
+              dark
+                ? 'bg-corporate-nav-dark border-white/5 hover:border-corporate-accent/40 hover:bg-white/5 hover:shadow-[0_8px_24px_rgba(0,0,0,0.35)]'
+                : 'bg-corporate-bg border-transparent hover:border-corporate-accent/25 hover:bg-white hover:shadow-[0_8px_24px_rgba(15,45,110,0.10)]'
+            }`}
           >
-            <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${dark ? 'bg-corporate-accent/20 text-corporate-accent' : 'bg-corporate-accent/10 text-corporate-accent'}`}>
-              <Icon size={15} />
-            </div>
+            <ToolCardIcon Icon={Icon} />
             <div className="min-w-0">
-              <div className={`text-sm font-medium flex items-center gap-1 ${dark ? 'text-white' : 'text-corporate-text-on-bg'}`}>
+              <div className={`text-sm font-semibold flex items-center gap-1 ${dark ? 'text-white' : 'text-corporate-text-on-bg'}`}>
                 {t.title}
-                <ArrowUpRight size={12} className="opacity-0 group-hover:opacity-60 transition-opacity" />
+                <ArrowUpRight size={12} className="opacity-0 group-hover:opacity-70 transition-opacity" />
               </div>
               <div className={`text-xs mt-0.5 ${dark ? 'text-white/40' : 'text-gray-500'}`}>{t.description}</div>
             </div>
@@ -53,7 +77,9 @@ function ToolGrid({ tools, dark }: { tools: TierTool[]; dark: boolean }) {
   );
 }
 
-export function EverythingIncludedPanel({ tier, dark = false }: { tier: ConsoleTier; dark?: boolean }) {
+export function EverythingIncludedPanel({
+  tier, dark = false, defaultOpen = false,
+}: { tier: ConsoleTier; dark?: boolean; defaultOpen?: boolean }) {
   const upTo = TIER_ORDER.slice(0, TIER_ORDER.indexOf(tier) + 1);
 
   return (
@@ -62,6 +88,7 @@ export function EverythingIncludedPanel({ tier, dark = false }: { tier: ConsoleT
       summary="Access runs downward only: this portal carries every tool from the levels beneath it."
       icon={<LayoutGrid size={19} />}
       dark={dark}
+      defaultOpen={defaultOpen}
     >
       <div className="space-y-4">
         <div>
@@ -73,11 +100,15 @@ export function EverythingIncludedPanel({ tier, dark = false }: { tier: ConsoleT
                 <Link
                   key={area.id}
                   to={`/${area.id}`}
-                  className={`group rounded-lg p-3 block transition-all hover:-translate-y-0.5 hover:shadow-md ${dark ? 'bg-corporate-nav-dark hover:bg-white/5' : 'bg-corporate-bg hover:bg-white'}`}
+                  className={`group rounded-xl p-3 border block transition-all hover:-translate-y-0.5 ${
+                    dark
+                      ? 'bg-corporate-nav-dark border-white/5 hover:border-corporate-accent/40 hover:bg-white/5 hover:shadow-[0_8px_24px_rgba(0,0,0,0.35)]'
+                      : 'bg-corporate-bg border-transparent hover:border-corporate-accent/25 hover:bg-white hover:shadow-[0_8px_24px_rgba(15,45,110,0.10)]'
+                  }`}
                 >
-                  <div className={`text-sm font-medium flex items-center gap-1 ${dark ? 'text-white' : 'text-corporate-text-on-bg'}`}>
+                  <div className={`text-sm font-semibold flex items-center gap-1 ${dark ? 'text-white' : 'text-corporate-text-on-bg'}`}>
                     {area.label}
-                    <ArrowUpRight size={12} className="opacity-0 group-hover:opacity-60 transition-opacity" />
+                    <ArrowUpRight size={12} className="opacity-0 group-hover:opacity-70 transition-opacity" />
                   </div>
                   <div className={`text-xs mt-0.5 ${dark ? 'text-white/40' : 'text-gray-500'}`}>{count} feature{count === 1 ? '' : 's'} — {area.description}</div>
                 </Link>
