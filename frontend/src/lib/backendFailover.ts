@@ -78,6 +78,32 @@ function switchToPrimary() {
 
 if (activeBase === VM_BASE) scheduleFailbackCheck(); // page loaded mid-session already failed over (sessionStorage carried it forward)
 
+// Proactive warm-up race — by direct request ("make the VM trigger
+// first for the first 2 mins until Render wakes up ... then move to
+// auto. Can this make the site more responsive?"). Yes, and this does
+// it better than a blind fixed timer: on a fresh page load that
+// hasn't already failed over, race a quick Render health check with a
+// short timeout — if Render doesn't answer well inside it, it's very
+// likely mid cold-start (Render's free tier can take up to ~90s to
+// wake — see useBackendStatus.ts's own WAKE_TIMEOUT_MS) or genuinely
+// down, either way not worth making the FIRST real request of the
+// session sit through. Switch to the VM immediately in that case; the
+// existing failback poller below then switches back to Render the
+// moment it actually responds — for exactly as long as the cold start
+// really takes, not a guessed 2-minute window that either cuts off
+// too early or keeps using the VM long after Render was already
+// awake. A fast, healthy Render (the common case) never touches the
+// VM at all.
+const WARMUP_CHECK_TIMEOUT_MS = 4_000;
+if (VM_BASE && activeBase === PRIMARY_BASE) {
+  const controller = new AbortController();
+  const warmupTimer = window.setTimeout(() => controller.abort(), WARMUP_CHECK_TIMEOUT_MS);
+  fetch(`${PRIMARY_BASE}/health`, { signal: controller.signal })
+    .then((res) => { if (!res.ok) tryFailoverToVm(); })
+    .catch(() => { tryFailoverToVm(); })
+    .finally(() => window.clearTimeout(warmupTimer));
+}
+
 /** The base URL every request should use right now. */
 export function getActiveBase(): string {
   return activeBase;
