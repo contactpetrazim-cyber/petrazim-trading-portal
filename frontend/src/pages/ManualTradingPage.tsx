@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { ArrowLeft, Settings2, ArrowLeftRight, Calculator, ChevronDown } from 'lucide-react';
 import { ChartPanel } from '../components/ChartPanel';
+import type { ChartPosition } from '../components/TradingViewChart';
 import { useAuth } from '../hooks/useAuth';
 import { useThemeStore } from '../hooks/useTheme';
 import { useQuickPrice } from '../hooks/useQuickPrice';
@@ -491,6 +492,37 @@ export function ManualTradingPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [symbol.trade]);
 
+  // Live position-on-chart overlay ("view active trades on the chart
+  // ... showing entry, SL and TP with current PL or drawdown") — polls
+  // the caller's own open trades, keeps only the one on the symbol
+  // currently displayed (a trader can hold several symbols at once;
+  // ChartPanel/TradingViewChart only ever draw the one for what's on
+  // screen), and feeds it to ChartPanel below. Same silent-poll shape
+  // as the quick-price effect above, on its own interval since active
+  // trades change far less often than a live price tick.
+  const [chartPosition, setChartPosition] = useState<ChartPosition | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const load = () => {
+      tradesApi.getActiveTrades().then((trades) => {
+        if (cancelled) return;
+        const open = trades.find((t) => t.symbol === symbol.trade && t.entry_price != null);
+        setChartPosition(open ? {
+          direction: open.direction,
+          entryPrice: open.entry_price as number,
+          stopLoss: open.stop_loss,
+          takeProfit1: open.take_profit,
+          takeProfit2: open.take_profit_2,
+          takeProfit3: open.take_profit_3,
+          unrealizedPnl: open.unrealized_pnl,
+        } : null);
+      }).catch(() => { if (!cancelled) setChartPosition(null); });
+    };
+    load();
+    const t = setInterval(load, 8000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [symbol.trade]);
+
   // Same fixed-fractional formula services/manual_trading.py's
   // compute_lot_size uses server-side — a live preview only, the real
   // number always comes back from the actual order response.
@@ -691,6 +723,7 @@ export function ManualTradingPage() {
             pairsOpen={pairsOpen}
             onTogglePairs={() => setPairsOpen((o) => !o)}
             pairsPanel={<PairsPanel selected={quickSymbol} onSelect={(p) => setSelectedTv(p.tv)} dark={dark} />}
+            position={chartPosition}
 
           />
 

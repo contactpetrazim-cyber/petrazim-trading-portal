@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Maximize2, Minimize2, Sun, Moon, TrendingUp, X, Zap, Receipt, CandlestickChart } from 'lucide-react';
-import { TradingViewChart } from './TradingViewChart';
+import { TradingViewChart, type ChartPosition } from './TradingViewChart';
 import { CandleColorPicker } from './CandleColorPicker';
 import { useEffectiveChartColors } from '../hooks/useCandleColors';
 import { useQuickPrice } from '../hooks/useQuickPrice';
@@ -43,6 +43,7 @@ export function ChartPanel({
   pairsOpen,
   onTogglePairs,
   pairsPanel,
+  position,
 
 }: {
   symbol: string;
@@ -78,6 +79,12 @@ export function ChartPanel({
   /** Rendered directly under the toolbar while Pairs is unfolded —
    * normally <PairsPanel /> (see ChartWithPairs). */
   pairsPanel?: ReactNode;
+  /** The caller's own open trade on this exact `symbol`, if any — drawn
+   * as live Entry/SL/TP lines with a P/L label. See
+   * TradingViewChart.tsx's `position` doc for how this is rendered and
+   * its limits (redrawn on each update, not draggable). Omit entirely
+   * on pages with no concept of an open position (Learn, Dashboard). */
+  position?: ChartPosition | null;
 
 }) {
   const navigate = useNavigate();
@@ -191,7 +198,7 @@ export function ChartPanel({
         {pairsOpen && pairsPanel}
         <div className="flex-1 min-h-0 rounded-lg overflow-hidden">
 
-          <TradingViewChart symbol={symbol} interval={interval} theme={chartTheme} candleColors={colors} chartStyle={chartStyle} />
+          <TradingViewChart symbol={symbol} interval={interval} theme={chartTheme} candleColors={colors} chartStyle={chartStyle} position={position} />
         </div>
       </div>
     );
