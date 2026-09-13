@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, Link } from 'react-router-dom';
 import { PageHeader } from '../components/PageHeader';
 import { FoldedCard } from '../components/FoldedCard';
 import { LoadingIndicator } from '../components/LoadingIndicator';
@@ -105,6 +105,18 @@ export function PracticeDrillsPage() {
   return (
     <div>
       <PageHeader title="Practice Drills" subtitle="Repeated, scored scenario drills per concept." />
+
+      <div className="flex flex-wrap gap-x-4 gap-y-1.5 mb-4">
+        <Link to="/learn/mastery" className={`text-sm font-medium ${dark ? 'text-white/60 hover:text-white' : 'text-corporate-hero'}`}>
+          Mastery Overview →
+        </Link>
+        <Link to="/learn/awards" className={`text-sm font-medium ${dark ? 'text-white/60 hover:text-white' : 'text-corporate-hero'}`}>
+          Awards & Certificates →
+        </Link>
+        <Link to="/practise/review" className={`text-sm font-medium ${dark ? 'text-white/60 hover:text-white' : 'text-corporate-hero'}`}>
+          Retention Review →
+        </Link>
+      </div>
 
       {/* A failed load used to leave the page blank below the error
           line — by direct bug report ("same for practice - fix you

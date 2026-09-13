@@ -5,6 +5,8 @@ import { TopNav } from './components/TopNav';
 import { BottomNav } from './components/BottomNav';
 import { FloatingTradeAI } from './components/FloatingTradeAI';
 import { ProgrammeStepsModal } from './components/ProgrammeStepsModal';
+import { ToastProvider } from './components/ToastStack';
+import { BadgeUnlockWatcher } from './components/BadgeUnlockWatcher';
 import { useThemeStore } from './hooks/useTheme';
 import { useInstallPromptStore } from './hooks/useInstallPrompt';
 const DashboardPage = lazy(() => import('./pages/Dashboard').then((module) => ({ default: module.DashboardPage })));
@@ -148,9 +150,18 @@ function App() {
   }, [setEvent, setInstalled]);
 
   return (
+    <ToastProvider>
     <BrowserRouter>
       <AccessExpiredGate>
       <AppErrorBoundary>
+        {/* Mounted once at the app root, not inside CorporateLayout —
+            CorporateLayout is re-instantiated on every corporate-page
+            navigation (it's not a React Router layout route with an
+            Outlet), so a watcher placed there would remount constantly.
+            Here it survives every navigation and keeps celebrating a
+            badge or level-up no matter which screen the trainee is on
+            when it lands — see BadgeUnlockWatcher's own docstring. */}
+        <BadgeUnlockWatcher />
         <Suspense fallback={<RouteLoadingFallback />}>
           <Routes>
         <Route path="/login" element={<LoginPage />} />
@@ -330,6 +341,7 @@ function App() {
       </AppErrorBoundary>
       </AccessExpiredGate>
     </BrowserRouter>
+    </ToastProvider>
   );
 }
 
