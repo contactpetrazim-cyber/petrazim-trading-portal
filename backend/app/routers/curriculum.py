@@ -224,6 +224,17 @@ class BadgeResponse(BaseModel):
     icon: str
     earned: bool
     earned_detail: str = ""   # e.g. "Reached on 04/09/2026" or progress toward it, e.g. "3 of 5 tracks"
+    # Cosmetic difficulty band — drives the frontend's icon styling
+    # (bronze/silver/gold get progressively richer treatment, mastery is
+    # the rarest). Assigned by hand below per badge, not derived from
+    # anything — there's no numeric "difficulty" this data model tracks.
+    tier: str = "bronze"      # 'bronze' | 'silver' | 'gold' | 'mastery'
+    # 0.0-1.0 fraction of the way to earning this badge — 1.0 once
+    # earned. Backs the frontend's "closest to unlocking" nudge section
+    # and per-badge progress bars, matching earned_detail's numbers
+    # exactly (both come from the same done/total values below) rather
+    # than a second, potentially-drifting computation.
+    progress: float = 0.0
 
 
 class CertificateResponse(BaseModel):
@@ -787,12 +798,21 @@ async def get_awards(
     stages_done_total = sum(d for d, _ in trackable)
     all_tracks_complete = bool(trackable) and all(d >= tot for d, tot in trackable)
 
+    # Tiers assigned by hand per badge (see BadgeResponse.tier) — bronze
+    # for the easiest entry point, escalating to mastery for the
+    # hardest, rarest one. Streak/level badges scale their own tier
+    # with the specific threshold rather than sharing one tier across
+    # every badge in the group.
+    _STREAK_TIERS = {3: "bronze", 7: "silver", 30: "gold"}
+    _LEVEL_TIERS = {5: "bronze", 10: "silver", 25: "gold"}
+
     badges: List[BadgeResponse] = []
     badges.append(BadgeResponse(
-        id="first-step", title="First Step", icon="🎯",
+        id="first-step", title="First Step", icon="🎯", tier="bronze",
         description="Complete your first learning stage.",
         earned=stages_done_total >= 1,
         earned_detail="Unlocked" if stages_done_total >= 1 else "0 stages complete",
+        progress=1.0 if stages_done_total >= 1 else 0.0,
     ))
     for cat, label, icon in [
         (TrackCategory.BASICS, "Basics Mastered", "📘"),
@@ -801,33 +821,38 @@ async def get_awards(
     ]:
         complete, done_count, total_count = _category_complete(cat)
         badges.append(BadgeResponse(
-            id=f"category-{cat.value}", title=label, icon=icon,
+            id=f"category-{cat.value}", title=label, icon=icon, tier="silver",
             description=f"Complete every track in the {label.split(' ')[0]} category.",
             earned=complete,
             earned_detail="Unlocked" if complete else f"{done_count} of {total_count} tracks complete",
+            progress=(done_count / total_count) if total_count else 0.0,
         ))
     for days in _STREAK_BADGE_DAYS:
         earned = stats.longest_streak_days >= days
         badges.append(BadgeResponse(
-            id=f"streak-{days}", title=f"{days}-Day Streak", icon="🔥",
+            id=f"streak-{days}", title=f"{days}-Day Streak", icon="🔥", tier=_STREAK_TIERS[days],
             description=f"Reach a {days}-day learning streak.",
             earned=earned,
             earned_detail="Unlocked" if earned else f"Best streak so far: {stats.longest_streak_days}d",
+            progress=min(1.0, stats.longest_streak_days / days),
         ))
     level = (stats.total_xp // 100) + 1
     for lvl in _LEVEL_BADGE_LEVELS:
         earned = level >= lvl
         badges.append(BadgeResponse(
-            id=f"level-{lvl}", title=f"Level {lvl}", icon="⭐",
+            id=f"level-{lvl}", title=f"Level {lvl}", icon="⭐", tier=_LEVEL_TIERS[lvl],
             description=f"Reach Level {lvl} ({(lvl - 1) * 100} XP).",
             earned=earned,
             earned_detail="Unlocked" if earned else f"Currently Level {level} ({stats.total_xp} XP)",
+            progress=min(1.0, level / lvl),
         ))
+    stages_total_all = sum(tot for _d, tot in trackable)
     badges.append(BadgeResponse(
-        id="full-curriculum", title="Full Curriculum", icon="🏆",
+        id="full-curriculum", title="Full Curriculum", icon="🏆", tier="mastery",
         description="Complete every track currently published.",
         earned=all_tracks_complete,
         earned_detail="Unlocked" if all_tracks_complete else f"{sum(1 for d, tot in trackable if d >= tot)} of {len(trackable)} tracks complete",
+        progress=(stages_done_total / stages_total_all) if stages_total_all else 0.0,
     ))
 
     certs = (await db.execute(

@@ -102,6 +102,15 @@ export function MasteryOverviewPage() {
       <PageHeader title="Mastery Overview" subtitle="Your mastery level across every track, at a glance." />
 
       <div className="flex flex-wrap gap-x-4 gap-y-1.5 mb-4">
+        <Link to="/learn/awards" className={`text-sm font-medium ${dark ? 'text-white/60 hover:text-white' : 'text-corporate-hero'}`}>
+          Awards & Certificates →
+        </Link>
+        <Link to="/practise/drills" className={`text-sm font-medium ${dark ? 'text-white/60 hover:text-white' : 'text-corporate-hero'}`}>
+          Practice Drills →
+        </Link>
+        <Link to="/practise/review" className={`text-sm font-medium ${dark ? 'text-white/60 hover:text-white' : 'text-corporate-hero'}`}>
+          Retention Review →
+        </Link>
         <Link to="/learn/reflections" className={`text-sm font-medium ${dark ? 'text-white/60 hover:text-white' : 'text-corporate-hero'}`}>
           My Reflections →
         </Link>

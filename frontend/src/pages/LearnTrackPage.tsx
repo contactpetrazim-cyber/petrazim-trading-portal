@@ -6,6 +6,8 @@ import { ReflectionPrompt } from '../components/ReflectionPrompt';
 import { useThemeStore } from '../hooks/useTheme';
 import { useAuth } from '../hooks/useAuth';
 import { apiFetch } from '../components/AccessExpiredGate';
+import { useToast } from '../components/ToastStack';
+import { AWARDS_REFRESH_EVENT } from '../components/BadgeUnlockWatcher';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -79,6 +81,7 @@ export function LearnTrackPage() {
   const { theme } = useThemeStore();
   const dark = theme === 'dark';
   const { token } = useAuth();
+  const showToast = useToast();
   const [track, setTrack] = useState<TrackDetail | null>(null);
   const [busyStage, setBusyStage] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -109,6 +112,29 @@ export function LearnTrackPage() {
       const data = await res.json();
       if (data.completed) {
         setMessage(`Stage complete — +${data.xp_awarded} XP.`);
+        showToast({ icon: '✅', title: `Stage complete — +${data.xp_awarded} XP`, variant: 'info' });
+        // A streak day only just counted (see update_streak in
+        // progression_engine.py — same-day repeats report unchanged and
+        // stay silent here) and every multi-day streak is worth a beat
+        // of its own, not folded into the plain completion toast above.
+        if (typeof data.new_streak_days === 'number' && data.new_streak_days > 1) {
+          showToast({
+            icon: '🔥', title: `${data.new_streak_days}-day streak`,
+            description: 'Keep the streak alive — come back tomorrow.', variant: 'streak',
+          });
+        }
+        if (data.certificate_issued) {
+          showToast({
+            icon: '🏆', title: 'Certificate issued!',
+            description: `${track?.title ?? 'Track'} — see it on Awards & Certificates.`, variant: 'certificate',
+          });
+        }
+        // Badges are computed from progress, not returned by this
+        // endpoint — ask BadgeUnlockWatcher (mounted at the app root)
+        // to re-check right now instead of waiting for its own
+        // cooldown, so a badge earned by *this* stage completion
+        // celebrates immediately rather than on the next navigation.
+        window.dispatchEvent(new CustomEvent(AWARDS_REFRESH_EVENT));
         await load();
       } else {
         setMessage(data.reason || 'Not ready to complete yet.');
