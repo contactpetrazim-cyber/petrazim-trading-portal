@@ -45,7 +45,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.access_gate import require_active_access, learner_progress_snapshot
 from app.database import get_db
-from app.engines.learning_content_ai import generate_flashcards, generate_recap, generate_retrieval_questions
+from app.engines.learning_content_ai import (
+    extract_authored_flashcards, generate_flashcards, generate_recap, generate_retrieval_questions,
+)
 from app.services.ai_coach import any_provider_configured
 from app.engines.progression_engine import (
     MasteryInput, StreakUpdateResult, can_attempt_stage, compute_mastery_level,
@@ -1263,7 +1265,14 @@ async def get_lesson_flashcards(
     )).scalar_one_or_none()
 
     if cached is None or cached.content_hash != current_hash:
-        drafts = await generate_flashcards(lesson.title, lesson.content_body)
+        # The lesson's own real '### Flashcards' section first — free,
+        # instant, and exactly what was authored (see
+        # extract_authored_flashcards's own docstring for why this
+        # replaced always calling the AI provider here). Only a lesson
+        # with no such section at all falls through to generation.
+        drafts = extract_authored_flashcards(lesson.content_body)
+        if not drafts:
+            drafts = await generate_flashcards(lesson.title, lesson.content_body)
         if not drafts:
             raise HTTPException(status_code=503, detail=_ai_unavailable_detail("Flashcards"))
         payload = json.dumps([{"term": d.term, "definition": d.definition} for d in drafts])
