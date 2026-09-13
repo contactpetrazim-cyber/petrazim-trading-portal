@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, BookOpen, CheckCircle2, Lock } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
@@ -6,6 +6,7 @@ import { ReflectionPrompt } from '../components/ReflectionPrompt';
 import { useThemeStore } from '../hooks/useTheme';
 import { useAuth } from '../hooks/useAuth';
 import { apiFetch } from '../components/AccessExpiredGate';
+import { makeIdempotencyKey } from '../lib/resilientFetch';
 import { useToast } from '../components/ToastStack';
 import { AWARDS_REFRESH_EVENT } from '../components/BadgeUnlockWatcher';
 
@@ -85,6 +86,19 @@ export function LearnTrackPage() {
   const [track, setTrack] = useState<TrackDetail | null>(null);
   const [busyStage, setBusyStage] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  // One key per stage for this page's lifetime (a fresh Map on
+  // navigating away and back) — pairs with the backend's
+  // Idempotency-Key guard so a retry of completing THIS stage replays
+  // the original result instead of re-running completion.
+  const stageKeysRef = useRef<Map<string, string>>(new Map());
+  function stageIdempotencyKey(stageId: string): string {
+    let key = stageKeysRef.current.get(stageId);
+    if (!key) {
+      key = makeIdempotencyKey();
+      stageKeysRef.current.set(stageId, key);
+    }
+    return key;
+  }
 
   async function load() {
     if (!token || !trackId) return;
@@ -106,7 +120,10 @@ export function LearnTrackPage() {
     try {
       const res = await apiFetch(`${API_URL}/curriculum/stages/complete`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        headers: {
+          'Content-Type': 'application/json', Authorization: `Bearer ${token}`,
+          'Idempotency-Key': stageIdempotencyKey(stageId),
+        },
         body: JSON.stringify({ stage_id: stageId }),
       });
       const data = await res.json();

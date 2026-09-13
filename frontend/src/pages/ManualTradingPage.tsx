@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { ArrowLeft, Settings2, ArrowLeftRight, Calculator, ChevronDown } from 'lucide-react';
 import { ChartPanel } from '../components/ChartPanel';
@@ -7,7 +7,7 @@ import { useThemeStore } from '../hooks/useTheme';
 import { useQuickPrice } from '../hooks/useQuickPrice';
 import { useBackendStatus } from '../hooks/useBackendStatus';
 import { apiFetch } from '../components/AccessExpiredGate';
-import { fetchJsonWithRetry, type FetchPhase } from '../lib/resilientFetch';
+import { fetchJsonWithRetry, makeIdempotencyKey, type FetchPhase } from '../lib/resilientFetch';
 import { LoadingIndicator } from '../components/LoadingIndicator';
 import { tradesApi, botsApi } from '../services/api';
 import { PairsPanel } from '../components/PairsPanel';
@@ -308,6 +308,22 @@ export function ManualTradingPage() {
     if (res.ok) setSettings(await res.json());
   }
 
+  // Keyed on the exact order payload, not freshly random per click:
+  // pairs with the backend's Idempotency-Key guard (app/core/
+  // idempotency.py) so a retry with IDENTICAL order parameters (the
+  // trader re-clicking Place Order after a client-side timeout whose
+  // request actually succeeded server-side) replays the original
+  // result instead of placing a second real order, while changing ANY
+  // field (a genuinely different order) naturally gets a fresh key.
+  const lastOrderKeyRef = useRef<{ key: string; payload: string } | null>(null);
+  function orderIdempotencyKey(payload: unknown): string {
+    const serialized = JSON.stringify(payload);
+    if (lastOrderKeyRef.current?.payload === serialized) return lastOrderKeyRef.current.key;
+    const key = makeIdempotencyKey();
+    lastOrderKeyRef.current = { key, payload: serialized };
+    return key;
+  }
+
   async function submitOrder() {
     // Used to silently no-op here if settings hadn't loaded yet (or
     // failed to, e.g. the settings-endpoint paywall bug) — clicking
@@ -369,6 +385,24 @@ export function ManualTradingPage() {
     }
 
     try {
+      const orderPayload = {
+        symbol: symbol.trade, direction, order_type: orderType,
+        entry_price: effectiveEntryPrice, stop_loss: Number(stopLoss),
+        take_profit: tpEnabled && takeProfit ? Number(takeProfit) : null,
+        take_profit_2: tpEnabled && takeProfit2 ? Number(takeProfit2) : null,
+        take_profit_3: tpEnabled && takeProfit3 ? Number(takeProfit3) : null,
+        account_equity: Number(accountEquity), risk_mode: riskMode,
+        risk_amount: riskMode === 'dollar' ? Number(riskAmount) : null,
+        risk_percent: riskMode === 'percent' ? Number(riskPercent) : null,
+        // Wires the Exchange selector through to real broker
+        // routing (execution_engine.py's own preferred_broker pin)
+        // — only for a crypto perpetual; the two fixed-feed
+        // instruments (USD/JPY, Nasdaq 100) aren't listed on any of
+        // these 4 crypto exchanges, so this deliberately leaves
+        // preferred_broker unset for them and lets the backend's
+        // own symbol-based routing decide instead.
+        preferred_broker: quickSymbol.brokerId ?? null,
+      };
       const res = await apiFetch(`${API_URL}/manual-trading/order`, {
         // 60s, not the default 20s: a free-tier backend waking from
         // sleep routinely needs longer than 20s for its first request,
@@ -376,26 +410,9 @@ export function ManualTradingPage() {
         // "failed to fetch" — in paper/test mode too, since even a
         // paper order is placed through the same server route.
         timeoutMs: 60_000,
-        method: 'POST', headers,
-
-        body: JSON.stringify({
-          symbol: symbol.trade, direction, order_type: orderType,
-          entry_price: effectiveEntryPrice, stop_loss: Number(stopLoss),
-          take_profit: tpEnabled && takeProfit ? Number(takeProfit) : null,
-          take_profit_2: tpEnabled && takeProfit2 ? Number(takeProfit2) : null,
-          take_profit_3: tpEnabled && takeProfit3 ? Number(takeProfit3) : null,
-          account_equity: Number(accountEquity), risk_mode: riskMode,
-          risk_amount: riskMode === 'dollar' ? Number(riskAmount) : null,
-          risk_percent: riskMode === 'percent' ? Number(riskPercent) : null,
-          // Wires the Exchange selector through to real broker
-          // routing (execution_engine.py's own preferred_broker pin)
-          // — only for a crypto perpetual; the two fixed-feed
-          // instruments (USD/JPY, Nasdaq 100) aren't listed on any of
-          // these 4 crypto exchanges, so this deliberately leaves
-          // preferred_broker unset for them and lets the backend's
-          // own symbol-based routing decide instead.
-          preferred_broker: quickSymbol.brokerId ?? null,
-        }),
+        method: 'POST',
+        headers: { ...headers, 'Idempotency-Key': orderIdempotencyKey(orderPayload) },
+        body: JSON.stringify(orderPayload),
       });
       const data = await res.json().catch(() => null);
       if (!res.ok) {

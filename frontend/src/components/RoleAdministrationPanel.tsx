@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { UserCog } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { apiFetch } from './AccessExpiredGate';
 import { FoldedCard } from './FoldedCard';
+import { makeIdempotencyKey } from '../lib/resilientFetch';
 
 /**
  * RoleAdministrationPanel — promote/demote by email, adapted from the
@@ -37,11 +38,21 @@ export function RoleAdministrationPanel({ dark = true }: { dark?: boolean }) {
   const [newRole, setNewRole] = useState('partner');
   const [status, setStatus] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // Same pattern as ManualTradingPage's orderIdempotencyKey — keyed on
+  // the exact (email, new role) pair so a retry after a client-side
+  // timeout replays the original result instead of re-applying,
+  // while changing either field gets a fresh key.
+  const lastRoleKeyRef = useRef<{ key: string; payload: string } | null>(null);
 
   async function apply() {
     setStatus(null);
     setSubmitting(true);
     try {
+      const payload = { email, new_role: newRole };
+      const serializedPayload = JSON.stringify(payload);
+      const idempotencyKey = lastRoleKeyRef.current?.payload === serializedPayload
+        ? lastRoleKeyRef.current.key
+        : (lastRoleKeyRef.current = { key: makeIdempotencyKey(), payload: serializedPayload }).key;
       // 60s, not apiFetch's 20s default — same reasoning as
       // ManualTradingPage's order placement: a free-tier backend
       // waking from sleep regularly needs more than 20s for the FIRST
@@ -53,8 +64,11 @@ export function RoleAdministrationPanel({ dark = true }: { dark?: boolean }) {
       // apiFetch itself already documents for other pages.
       const res = await apiFetch(`${API_BASE}/admin/users/by-email/role`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ email, new_role: newRole }),
+        headers: {
+          'Content-Type': 'application/json', Authorization: `Bearer ${token}`,
+          'Idempotency-Key': idempotencyKey,
+        },
+        body: JSON.stringify(payload),
         timeoutMs: 60_000,
       });
       const body = await res.json().catch(() => ({}));
