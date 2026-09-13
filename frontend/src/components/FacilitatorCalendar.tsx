@@ -94,11 +94,20 @@ export function FacilitatorCalendar({
   const [monthIndex, setMonthIndex] = useState(0);
   const [selected, setSelected] = useState<string | null>(null);
   const [topic, setTopic] = useState('');
-  // Fireflies notetaker toggle — on by default (unchanged behavior),
-  // by direct request ("Add the 'Fireflies' toggle in the portal
-  // pages"). A trainee who'd rather this session not be
-  // recorded/transcribed can turn it off per booking.
-  const [includeFireflies, setIncludeFireflies] = useState(true);
+  // Fireflies is now a platform-wide Super Admin master control
+  // (GET/PATCH /meetings/fireflies-setting), not a per-booking choice
+  // — by direct request ("Remove fireflies button from facilitator
+  // session section and put a Fireflies toggle on vs off in the
+  // portals follow hierarchy"). This just reads and shows the
+  // resolved state; only a Super Admin can change it (Admin Console).
+  const [firefliesEnabled, setFirefliesEnabled] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (!token) return;
+    apiFetch(`${API_BASE}/meetings/fireflies-setting`, { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => d && setFirefliesEnabled(d.enabled))
+      .catch(() => {});
+  }, [token]);
   const [booking, setBooking] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirmed, setConfirmed] = useState<{ band: string; jitsi_room_url: string } | null>(null);
@@ -163,10 +172,7 @@ export function FacilitatorCalendar({
       const res = await apiFetch(`${API_BASE}/meetings/book`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          day: selectedDay.day, band, topic: topic.trim() || undefined,
-          include_fireflies: includeFireflies,
-        }),
+        body: JSON.stringify({ day: selectedDay.day, band, topic: topic.trim() || undefined }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -340,29 +346,16 @@ export function FacilitatorCalendar({
             />
           </div>
 
-          <button
-            type="button"
-            onClick={() => setIncludeFireflies((v) => !v)}
-            aria-pressed={includeFireflies}
-            className={`w-full max-w-md flex items-center gap-3 rounded-lg p-3 mb-4 border text-left transition-colors ${
-              dark ? 'border-corporate-border-dark hover:bg-white/5' : 'border-gray-200 hover:bg-corporate-bg'
-            }`}
-          >
-            <Mic size={16} className={includeFireflies ? 'text-corporate-accent' : mutedCls} />
-            <span className="flex-1 min-w-0">
-              <span className={`block text-sm font-medium ${dark ? 'text-white' : 'text-corporate-text-on-bg'}`}>
-                Fireflies notetaker
+          {firefliesEnabled !== null && (
+            <div className={`w-full max-w-md flex items-center gap-2.5 rounded-lg p-3 mb-4 border ${dark ? 'border-corporate-border-dark' : 'border-gray-200'}`}>
+              <Mic size={16} className={firefliesEnabled ? 'text-corporate-accent' : mutedCls} />
+              <span className={`text-xs ${mutedCls}`}>
+                {firefliesEnabled
+                  ? 'Fireflies notetaker: On — this session will be recorded and transcribed automatically.'
+                  : 'Fireflies notetaker: Off, platform-wide (set by a Super Admin) — this session will not be recorded.'}
               </span>
-              <span className={`block text-xs mt-0.5 ${mutedCls}`}>
-                {includeFireflies ? 'Session will be recorded and transcribed automatically.' : 'This session will not be recorded.'}
-              </span>
-            </span>
-            <span
-              className={`relative shrink-0 w-9 h-5 rounded-full transition-colors ${includeFireflies ? 'bg-corporate-accent' : dark ? 'bg-white/15' : 'bg-gray-300'}`}
-            >
-              <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${includeFireflies ? 'translate-x-4' : 'translate-x-0.5'}`} />
-            </span>
-          </button>
+            </div>
+          )}
 
           {error && <p className="text-xs text-red-500 mb-3">{error}</p>}
 
