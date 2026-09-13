@@ -4,12 +4,10 @@ import { Trade, BotConfig, BotPerformance, BotMetricsUpdate, DashboardStats, Sig
 import { useAuthStore } from '../hooks/useAuth';
 import { triggerAccessExpired } from '../components/AccessExpiredGate';
 import { handleUnauthorized } from '../lib/authGuard';
+import { getActiveBase, tryFailoverToVm } from '../lib/backendFailover';
 
-
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 const api = axios.create({
-  baseURL: API_URL,
   timeout: 20_000,
   headers: {
     'Content-Type': 'application/json',
@@ -22,6 +20,13 @@ const api = axios.create({
 // the zustand store rather than a prop/hook: this module is imported
 // by plain .then()-chained API objects below, outside any component.
 api.interceptors.request.use((config) => {
+  // Dual-failover — see lib/backendFailover.ts. Resolved fresh on
+  // EVERY request (not a static `baseURL` on the client, which is
+  // what this used to be) so a request made after a failover already
+  // switched mid-session picks it up automatically, same as the
+  // fixed-once retry below picks it up for the request that triggered
+  // the switch.
+  config.baseURL = getActiveBase();
   const token = useAuthStore.getState().token;
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
@@ -46,6 +51,17 @@ api.interceptors.response.use(
       void handleUnauthorized();
     }
 
+    // A genuine connection failure never reaches a server at all, so
+    // axios never populates `error.response` for one — a real HTTP
+    // error status always has one, and must never trigger a failover
+    // (the backend answering with e.g. a 500 means it's up). Guarded
+    // to one retry per request via a flag on its own config, same
+    // shape as apiFetch's own `_failoverRetried` — a VM that's ALSO
+    // down fails straight through instead of retrying forever.
+    if (!error.response && !error.config?.__failoverRetried && tryFailoverToVm()) {
+      error.config.__failoverRetried = true;
+      return api(error.config);
+    }
 
     return Promise.reject(error);
   },
