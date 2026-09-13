@@ -26,6 +26,16 @@ type ChatMessage = { role: 'user' | 'ai'; text: string };
  *      The fallback covers that too, and a real failure now says so and
  *      keeps the question in the box.
  */
+// Both of ai_coach.py's own degraded-fallback strings — matched here so
+// the real fallback below (Lovable) actually gets a turn. The backend
+// returns these as an ordinary 200 OK reply (a booking/session succeeding
+// even when the AI behind it didn't feels like the right call there), but
+// that meant this function returned them as if they were real answers and
+// askFallback() never ran — the exact bug behind "Coach is temporarily
+// unavailable" being shown instead of a real reply, even though Lovable's
+// own model was perfectly reachable the whole time.
+const BACKEND_DEGRADED_MARKERS = ['temporarily unavailable', "isn't wired to a live AI provider"];
+
 async function askBackendCoach(message: string, token: string | null, contextLessonId: string | null) {
   if (!token) return null;
   const res = await apiFetch(`${API_URL}/coach/ask`, {
@@ -36,7 +46,9 @@ async function askBackendCoach(message: string, token: string | null, contextLes
   if (!res.ok) return null;
   const data = await res.json().catch(() => null);
   const reply = typeof data?.reply === 'string' ? data.reply.trim() : '';
-  return reply.length > 0 ? reply : null;
+  if (!reply) return null;
+  if (BACKEND_DEGRADED_MARKERS.some((marker) => reply.includes(marker))) return null;
+  return reply;
 }
 
 async function askFallback(message: string, history: ChatMessage[]) {
