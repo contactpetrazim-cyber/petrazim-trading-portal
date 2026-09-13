@@ -74,6 +74,16 @@ export const tradesApi = {
   // actually does for a PENDING vs an ACTIVE trade).
   cancelOrder: (tradeId: string, exitPrice?: number) =>
     api.post(`/manual-trading/${tradeId}/cancel`, { exit_price: exitPrice ?? null }).then(r => r.data),
+  // Exchange-style "manage this position" actions — by direct request
+  // ("view and edit the statistics of this trade ... entry, SL, TP,
+  // partial TP, partial exit ... copy exchange style trade order
+  // management"). Both already existed as real, working backend
+  // endpoints (routers/manual_trading.py) with no frontend caller at
+  // all until PositionManager.tsx.
+  modifyTargets: (tradeId: string, targets: { stop_loss?: number; take_profit?: number; take_profit_2?: number; take_profit_3?: number }) =>
+    api.patch(`/manual-trading/${tradeId}/modify-targets`, targets).then(r => r.data),
+  partialClose: (tradeId: string, percent: number, exitPrice: number) =>
+    api.post(`/manual-trading/${tradeId}/partial-close`, { percent, exit_price: exitPrice }).then(r => r.data),
 };
 
 export const botsApi = {
