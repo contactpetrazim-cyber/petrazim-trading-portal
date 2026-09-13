@@ -201,6 +201,29 @@ function buildPages(blocks: Block[]): Page[] {
   return pages.filter((p) => p.blocks.length > 0);
 }
 
+/** Plain readable text for one page's own blocks only — used to feed
+ * ListenButton, by direct bug report ("listen mode should be on
+ * current page and not from the learning begining"): it was always
+ * given `lesson.content_body`, the ENTIRE lesson (every substage
+ * concatenated), so hitting Listen on substage 4 still started
+ * narrating from substage 1. ListenButton itself already strips
+ * markdown syntax before speaking, so this only needs to flatten each
+ * block's own text into one string, not reproduce that stripping. */
+function blocksToText(blocks: Block[]): string {
+  return blocks
+    .map((b) => {
+      switch (b.type) {
+        case 'h': return b.text;
+        case 'p': return b.text;
+        case 'ul': case 'ol': return b.items.join('. ');
+        case 'table': return b.rows.map((row) => row.join(', ')).join('. ');
+        case 'hr': return '';
+      }
+    })
+    .filter(Boolean)
+    .join('. ');
+}
+
 function renderParagraph(text: string, dark: boolean, key: number): ReactNode {
   const mutedCls = dark ? 'text-white/70' : 'text-gray-700';
 
@@ -376,6 +399,7 @@ function LessonReader({
   const completeIdempotencyKey = useMemo(() => makeIdempotencyKey(), [lesson.id]);
 
   const page = pages[pageIndex];
+  const pageText = useMemo(() => blocksToText(page.blocks), [page]);
   const isLastPage = pageIndex === pages.length - 1;
   const mutedCls = dark ? 'text-white/40' : 'text-gray-400';
   const navBtnCls = `inline-flex items-center gap-1.5 text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${
@@ -449,7 +473,7 @@ function LessonReader({
       <div className="flex flex-wrap items-center gap-2 mb-4">
         <BookmarkButton stageId={lesson.stage_id} dark={dark} />
         <NotebookWidget stageId={lesson.stage_id} dark={dark} />
-        <ListenButton text={lesson.content_body} dark={dark} />
+        <ListenButton text={pageText} dark={dark} />
       </div>
 
       {/* Substage nav — a slim progress bar plus a row of clickable
