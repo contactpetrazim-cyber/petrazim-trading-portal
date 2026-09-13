@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
+import { Link2, CalendarClock } from 'lucide-react';
 import { ConnectorCards } from '../components/ConnectorCards';
 import { FacilitatorCalendar } from '../components/FacilitatorCalendar';
+import { FoldedCard } from '../components/FoldedCard';
 import { useAuth } from '../hooks/useAuth';
 import { useThemeStore } from '../hooks/useTheme';
 import { fetchJsonWithRetry } from '../lib/resilientFetch';
@@ -64,15 +66,18 @@ export function MeetingsPage() {
         </p>
       </div>
 
-      <div>
-        <h2 className={`text-sm font-semibold mb-3 ${dark ? 'text-white/40' : 'text-gray-500'}`}>Connections</h2>
+      {/* By direct request ("make all cards in the entire portal
+          collapsible... default is close") — folded by default like
+          every other FoldedCard on the site, using the same primitive
+          Dashboard/Learn/Tools/etc. already share rather than a new
+          one-off pattern. */}
+      <FoldedCard title="Connections" icon={<Link2 size={19} />} dark={dark}>
         <ConnectorCards dark={dark} />
-      </div>
+      </FoldedCard>
 
-      <div>
-        <h2 className={`text-sm font-semibold mb-3 ${dark ? 'text-white/40' : 'text-gray-500'}`}>Availability</h2>
+      <FoldedCard title="Availability" icon={<CalendarClock size={19} />} dark={dark}>
         <FacilitatorCalendar userTier={userTier} tierLoading={tierLoading} token={token} privileged={privileged} dark={dark} />
-      </div>
+      </FoldedCard>
     </div>
   );
 }

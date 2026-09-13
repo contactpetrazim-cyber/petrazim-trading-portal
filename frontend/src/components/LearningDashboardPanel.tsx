@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Users, TrendingUp, MessageCircle, Trophy, CalendarClock, Video, Save } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { apiFetch } from './AccessExpiredGate';
+import { FoldedCard } from './FoldedCard';
 
 /**
  * LearningDashboardPanel — adapted from the reference training
@@ -127,7 +128,11 @@ export function LearningDashboardPanel({ dark = false }: { dark?: boolean }) {
   if (!data) return null;
 
   return (
-    <div className="space-y-4">
+    // By direct request ("all cards... default closed, helps for easy
+    // scrolling") — this whole multi-section panel folds as one card,
+    // same granularity as RosterPanel/AccessCodesPanel next to it.
+    <FoldedCard title="Learning Dashboard" icon={<Users size={19} />} dark={dark}>
+      <div className="space-y-4">
       <div className={cardClass}>
         <h3 className={`font-semibold mb-4 ${bodyText}`}>Cohorts and Your Sessions</h3>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -253,6 +258,7 @@ export function LearningDashboardPanel({ dark = false }: { dark?: boolean }) {
           </table>
         </div>
       </div>
-    </div>
+      </div>
+    </FoldedCard>
   );
 }
