@@ -505,12 +505,26 @@ export function ManualTradingPage() {
   // Same silent-poll shape as the quick-price effect above, on its own
   // interval since active trades change far less often than a live
   // price tick.
+  //
+  // A still-PENDING (not yet filled) limit/stop order gets its OWN
+  // state, polled alongside — by direct request ("show same for
+  // pending trades also"). Kept separate from openPositionTrade rather
+  // than folded into one "the current thing" state because
+  // PositionManager's edit/partial-close only work on an ACTIVE trade
+  // (modify_targets/partial_close both 409 on anything else) — a
+  // pending order has nothing to manage yet beyond the Cancel button
+  // Trade Management already offers, so it feeds the chart overlay
+  // only, never PositionManager.
   const [openPositionTrade, setOpenPositionTrade] = useState<Trade | null>(null);
+  const [pendingOrderTrade, setPendingOrderTrade] = useState<Trade | null>(null);
   const loadOpenPosition = useCallback(() => {
-    return tradesApi.getActiveTrades().then((trades) => {
-      const open = trades.find((t) => t.symbol === symbol.trade && t.entry_price != null);
-      setOpenPositionTrade(open ?? null);
-    }).catch(() => setOpenPositionTrade(null));
+    return Promise.all([
+      tradesApi.getActiveTrades(),
+      tradesApi.getTrades({ status: 'pending', symbol: symbol.trade }),
+    ]).then(([active, pending]) => {
+      setOpenPositionTrade(active.find((t) => t.symbol === symbol.trade && t.entry_price != null) ?? null);
+      setPendingOrderTrade(pending.find((t) => t.entry_price != null) ?? null);
+    }).catch(() => { setOpenPositionTrade(null); setPendingOrderTrade(null); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [symbol.trade]);
   useEffect(() => {
@@ -521,6 +535,9 @@ export function ManualTradingPage() {
 
   // The subset TradingViewChart actually draws — see its `position`
   // doc for why this is a one-way write, not a live-editable overlay.
+  // An open position takes priority over a pending order on the same
+  // symbol (the common case is the same trade: pending until filled,
+  // then active — showing both would just be the same lines twice).
   const chartPosition: ChartPosition | null = openPositionTrade ? {
     direction: openPositionTrade.direction,
     entryPrice: openPositionTrade.entry_price as number,
@@ -529,6 +546,14 @@ export function ManualTradingPage() {
     takeProfit2: openPositionTrade.take_profit_2,
     takeProfit3: openPositionTrade.take_profit_3,
     unrealizedPnl: openPositionTrade.unrealized_pnl,
+  } : pendingOrderTrade ? {
+    direction: pendingOrderTrade.direction,
+    entryPrice: pendingOrderTrade.entry_price as number,
+    stopLoss: pendingOrderTrade.stop_loss,
+    takeProfit1: pendingOrderTrade.take_profit,
+    takeProfit2: pendingOrderTrade.take_profit_2,
+    takeProfit3: pendingOrderTrade.take_profit_3,
+    pending: true,
   } : null;
 
   // Same fixed-fractional formula services/manual_trading.py's
