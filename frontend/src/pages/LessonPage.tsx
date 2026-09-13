@@ -323,6 +323,17 @@ function LessonReader({ lesson, trackId, dark }: { lesson: LessonDetail; trackId
   const [pageIndex, setPageIndex] = useState(0);
   useEffect(() => setPageIndex(0), [lesson.id]);
 
+  // Per-substage "I understand" acknowledgement — by direct request
+  // ("Add the toggle and 'I understand' for every substage and it is a
+  // trigger to go the next page"), extending what previously only
+  // gated the final Wrap-Up page's Mark Stage Complete button. Keyed
+  // by page index rather than a single flag so moving Back and
+  // re-Next doesn't lose an earlier page's acknowledgement, and reset
+  // whenever a different lesson is opened (a fresh read-through).
+  const [pageAck, setPageAck] = useState<Record<number, boolean>>({});
+  useEffect(() => setPageAck({}), [lesson.id]);
+  const acknowledgedCurrentPage = !!pageAck[pageIndex];
+
   const [understood, setUnderstood] = useState(false);
   const [completing, setCompleting] = useState(false);
   const [completeResult, setCompleteResult] = useState<{ ok: boolean; message: string } | null>(null);
@@ -417,6 +428,20 @@ function LessonReader({ lesson, trackId, dark }: { lesson: LessonDetail; trackId
           </Link>
         )}
 
+        {!isLastPage && (
+          <div className={`mt-6 pt-5 border-t ${dark ? 'border-white/10' : 'border-gray-100'}`}>
+            <button
+              onClick={() => setPageAck((prev) => ({ ...prev, [pageIndex]: !prev[pageIndex] }))}
+              className={`w-full flex items-start gap-3 text-left rounded-xl p-3.5 transition-colors ${dark ? 'bg-white/5 hover:bg-white/10' : 'bg-corporate-bg hover:bg-corporate-hero/10'}`}
+            >
+              {acknowledgedCurrentPage ? <CheckSquare size={20} className="text-corporate-hero shrink-0 mt-0.5" /> : <Square size={20} className={`shrink-0 mt-0.5 ${mutedCls}`} />}
+              <span className={`text-sm font-medium ${dark ? 'text-white' : 'text-corporate-text-on-bg'}`}>
+                I understand this section and I'm ready to move on.
+              </span>
+            </button>
+          </div>
+        )}
+
         {page.title === 'Wrap-Up' && (
           <>
             <div className="flex flex-col gap-3 mt-5">
@@ -467,7 +492,12 @@ function LessonReader({ lesson, trackId, dark }: { lesson: LessonDetail; trackId
         <button onClick={() => setPageIndex((i) => Math.max(0, i - 1))} disabled={pageIndex === 0} className={navBtnCls}>
           <ArrowLeft size={15} /> Back
         </button>
-        <button onClick={() => setPageIndex((i) => Math.min(pages.length - 1, i + 1))} disabled={isLastPage} className={navBtnCls}>
+        <button
+          onClick={() => setPageIndex((i) => Math.min(pages.length - 1, i + 1))}
+          disabled={isLastPage || !acknowledgedCurrentPage}
+          title={!isLastPage && !acknowledgedCurrentPage ? "Check “I understand this section” above to continue" : undefined}
+          className={navBtnCls}
+        >
           Next <ArrowRight size={15} />
         </button>
         <button onClick={() => setPageIndex(pages.length - 1)} disabled={isLastPage} className={navBtnCls} title="Skip to the end of this lesson">
