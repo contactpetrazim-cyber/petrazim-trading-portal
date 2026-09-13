@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   X, Home, CreditCard, GraduationCap, CalendarClock, LayoutGrid,
-  HardDriveDownload, Link2, ChevronRight, Sun, Moon, Map,
+  HardDriveDownload, Link2, ChevronRight, Sun, Moon, Map, LogOut,
 } from 'lucide-react';
 import { HERO_GRADIENT } from '../config/theme';
 import type { ThemeName } from '../hooks/useTheme';
@@ -52,12 +52,18 @@ export function SettingsPanel({
   dark: boolean;
 }) {
   const navigate = useNavigate();
-  const { token } = useAuth();
+  const { token, logout } = useAuth();
   const { setOpen: setTradeAIOpen } = useTradeAIStore();
   const [switchPortals, setSwitchPortals] = useState<PortalOption[] | null>(null);
   const [backupOfflineOpen, setBackupOfflineOpen] = useState(false);
 
   if (!open) return null;
+
+  function handleLogOut() {
+    logout();
+    onClose();
+    navigate('/login');
+  }
 
   async function openSwitchPortal() {
     if (!token) return;
@@ -141,6 +147,23 @@ export function SettingsPanel({
               <button key={i} onClick={it.onClick} className={className}>{content}</button>
             );
           })}
+        </div>
+
+        {/* Log Out — separated from the regular nav rows above by its
+            own border and red styling, by direct request ("include a
+            log out button in settings embedded in settings icon").
+            Same gear-icon slide-over every portal already shares, so
+            this covers Trader, Manager, Partner, and Admin alike. */}
+        <div className={`p-3 border-t ${dark ? 'border-corporate-border-dark' : 'border-corporate-bg'}`}>
+          <button
+            onClick={handleLogOut}
+            className={`w-full flex items-center gap-3 p-3 rounded-xl transition-colors text-red-500 ${dark ? 'hover:bg-red-500/10' : 'hover:bg-red-50'}`}
+          >
+            <span className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0 bg-red-500/10">
+              <LogOut size={16} />
+            </span>
+            <span className="text-sm font-medium">Log Out</span>
+          </button>
         </div>
       </div>
 
