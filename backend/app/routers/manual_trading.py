@@ -261,7 +261,18 @@ async def place_manual_order(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    trade_id = f"MANUAL_{user.id}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
+    # Trade.trade_id is String(50) — the previous format (MANUAL_ + a
+    # full user.id UUID + timestamp + a random suffix) ran to 66
+    # characters, which asyncpg rejects outright
+    # (StringDataRightTruncationError), so every manual order 500'd at
+    # the DB insert regardless of how valid the order itself was. Real
+    # bug, confirmed directly from a production traceback. Shortened to
+    # the user id's first 8 hex chars (still enough entropy alongside
+    # the timestamp + random suffix to make collisions practically
+    # impossible) — comfortably under the column limit (~32 chars) with
+    # room to spare, and nothing elsewhere in the codebase parses this
+    # format's exact shape.
+    trade_id = f"MANUAL_{str(user.id).replace('-', '')[:8]}_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:6]}"
     # Trade.is_test now means "no real broker call happened for this
     # trade" — true whether that's because trading_mode is TEST or
     # because the independent Paper Trading toggle was on in Live mode
