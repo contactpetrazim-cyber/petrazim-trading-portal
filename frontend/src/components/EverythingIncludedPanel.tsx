@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { ArrowUpRight, LayoutGrid } from 'lucide-react';
-import { FEATURE_AREAS, FEATURE_REGISTRY } from '../config/featureRegistry';
+import { AREA_ICONS, FEATURE_AREAS, FEATURE_REGISTRY } from '../config/featureRegistry';
 import { PARTNER_TOOLS, FUND_MANAGER_TOOLS, ADMIN_TOOLS, TierTool } from '../config/portalTiers';
 import { FoldedCard } from './FoldedCard';
 import { HERO_GRADIENT } from '../config/theme';
@@ -96,21 +96,25 @@ export function EverythingIncludedPanel({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
             {FEATURE_AREAS.map((area) => {
               const count = FEATURE_REGISTRY.filter((f) => f.area === area.id).length;
+              const AreaIcon = AREA_ICONS[area.id];
               return (
                 <Link
                   key={area.id}
                   to={`/${area.id}`}
-                  className={`group rounded-xl p-3 border block transition-all hover:-translate-y-0.5 ${
+                  className={`group flex items-start gap-3 rounded-xl p-3 border transition-all hover:-translate-y-0.5 ${
                     dark
                       ? 'bg-corporate-nav-dark border-white/5 hover:border-corporate-accent/40 hover:bg-white/5 hover:shadow-[0_8px_24px_rgba(0,0,0,0.35)]'
                       : 'bg-corporate-bg border-transparent hover:border-corporate-accent/25 hover:bg-white hover:shadow-[0_8px_24px_rgba(15,45,110,0.10)]'
                   }`}
                 >
-                  <div className={`text-sm font-semibold flex items-center gap-1 ${dark ? 'text-white' : 'text-corporate-text-on-bg'}`}>
-                    {area.label}
-                    <ArrowUpRight size={12} className="opacity-0 group-hover:opacity-70 transition-opacity" />
+                  <ToolCardIcon Icon={AreaIcon} />
+                  <div className="min-w-0">
+                    <div className={`text-sm font-semibold flex items-center gap-1 ${dark ? 'text-white' : 'text-corporate-text-on-bg'}`}>
+                      {area.label}
+                      <ArrowUpRight size={12} className="opacity-0 group-hover:opacity-70 transition-opacity" />
+                    </div>
+                    <div className={`text-xs mt-0.5 ${dark ? 'text-white/40' : 'text-gray-500'}`}>{count} feature{count === 1 ? '' : 's'} — {area.description}</div>
                   </div>
-                  <div className={`text-xs mt-0.5 ${dark ? 'text-white/40' : 'text-gray-500'}`}>{count} feature{count === 1 ? '' : 's'} — {area.description}</div>
                 </Link>
               );
             })}

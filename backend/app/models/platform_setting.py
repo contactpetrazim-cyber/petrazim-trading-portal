@@ -33,3 +33,16 @@ PAYMENTS_MODE_KEY = "payments.mode"
 # computation. Defaults to unset/"false" (no override) the same
 # fail-safe-not-fail-open way PAYMENTS_MODE_KEY defaults to "test".
 TRADING_PAPER_ENFORCED_KEY = "trading.paper_enforced"
+
+# Super Admin's platform-wide Fireflies notetaker switch — by direct
+# request ("put a Fireflies toggle on vs off in the portals follow
+# hierarchy"), replacing an earlier per-booking checkbox that let each
+# trainee opt out individually. One control point, same "Admin sets
+# it, every portal beneath inherits the same resolved state" pattern
+# as TRADING_PAPER_ENFORCED_KEY's own master control — a Fund
+# Manager/Partner/Trader session can't diverge from what Admin set.
+# Defaults to unset/"true" when no row exists — Fireflies being
+# invited to every session was the original, unmodified behavior
+# before this switch existed, so an absent row preserves that rather
+# than silently going quiet.
+FIREFLIES_ENABLED_KEY = "fireflies.enabled"

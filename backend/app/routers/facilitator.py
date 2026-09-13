@@ -34,6 +34,7 @@ from app.core.access_gate import require_active_access
 from app.core.auth import get_current_user, require_role, require_super_admin
 from app.database import get_db
 from app.models.access import UserAccess
+from app.models.platform_setting import FIREFLIES_ENABLED_KEY, PlatformSetting
 from app.models.facilitator import (
     BookingStatus, ExternalConnector, GoogleCalendarCredential, MeetingBand, MeetingBooking,
 )
@@ -42,7 +43,7 @@ from app.services import google_calendar
 from app.services.facilitator_booking import (
     check_booking_eligibility, compute_calendar_strip, generate_jitsi_room_url,
 )
-from app.services.fireflies import invite_fireflies_notetaker
+from app.services.fireflies import NotetakerInviteResult, invite_fireflies_notetaker
 
 # Band -> (start_hour, end_hour), UTC. Never defined anywhere else in
 # the codebase — bands were only ever labels, not clock times — so
@@ -110,6 +111,50 @@ async def get_availability(start: Optional[str] = None, db: AsyncSession = Depen
     ]
 
 
+async def get_fireflies_enabled(db: AsyncSession) -> bool:
+    """No row = unset = the original, unmodified behavior (Fireflies
+    always invited) — see FIREFLIES_ENABLED_KEY's own docstring."""
+    row = (await db.execute(
+        select(PlatformSetting).where(PlatformSetting.key == FIREFLIES_ENABLED_KEY)
+    )).scalar_one_or_none()
+    return row.value != "false" if row else True
+
+
+class FirefliesSettingResponse(BaseModel):
+    enabled: bool
+
+
+@router.get("/fireflies-setting", response_model=FirefliesSettingResponse)
+async def get_fireflies_setting(db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+    """Any authenticated user can read this — every portal's booking
+    page shows the resolved state, by direct request ("put a Fireflies
+    toggle on vs off in the portals follow hierarchy")."""
+    return FirefliesSettingResponse(enabled=await get_fireflies_enabled(db))
+
+
+class SetFirefliesSettingRequest(BaseModel):
+    enabled: bool
+
+
+@router.patch("/fireflies-setting", response_model=FirefliesSettingResponse)
+async def set_fireflies_setting(
+    req: SetFirefliesSettingRequest, db: AsyncSession = Depends(get_db), admin: User = Depends(require_super_admin),
+):
+    """Super Admin only — same master-control pattern as
+    /manual-trading/master-mode: one switch, every portal beneath
+    inherits the resolved state rather than each choosing its own."""
+    value = "true" if req.enabled else "false"
+    row = (await db.execute(
+        select(PlatformSetting).where(PlatformSetting.key == FIREFLIES_ENABLED_KEY)
+    )).scalar_one_or_none()
+    if row:
+        row.value = value
+    else:
+        db.add(PlatformSetting(key=FIREFLIES_ENABLED_KEY, value=value))
+    await db.commit()
+    return FirefliesSettingResponse(enabled=req.enabled)
+
+
 class BookRequest(BaseModel):
     day: str
     band: str
@@ -152,8 +197,15 @@ async def book_session(
     # email is configured; the actual invite happens below, as an
     # attendee on the calendar event itself. fireflies_meeting_id stays
     # unset since there's no real Fireflies-side id to record without
-    # a direct API call.
-    notetaker = invite_fireflies_notetaker(room_url, req.topic)
+    # a direct API call. Gated on the Super Admin master control
+    # (fireflies.enabled), not a per-booking choice — see
+    # get_fireflies_enabled below.
+    fireflies_enabled = await get_fireflies_enabled(db)
+    notetaker = (
+        invite_fireflies_notetaker(room_url, req.topic)
+        if fireflies_enabled
+        else NotetakerInviteResult(invited=False)
+    )
 
     # Best-effort calendar sync — same fail-soft convention as
     # Fireflies above: a booking always succeeds even if this fails or
@@ -196,9 +248,14 @@ async def book_session(
                 )
         await db.commit()   # persists get_valid_access_token's refreshed cache either way
 
+    fireflies_status = (
+        "connected" if notetaker.invited
+        else "disabled_platform_wide" if not fireflies_enabled
+        else "not_configured"
+    )
     return BookResponse(
         booking_id=str(booking.id), jitsi_room_url=room_url,
-        fireflies_status=("connected" if notetaker.invited else "not_configured"),
+        fireflies_status=fireflies_status,
     )
 
 

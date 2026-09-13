@@ -59,6 +59,8 @@ export function AdminConsolePage() {
   const [switchingMode, setSwitchingMode] = useState(false);
   const [paperEnforced, setPaperEnforced] = useState<boolean | null>(null);
   const [switchingPaper, setSwitchingPaper] = useState(false);
+  const [firefliesEnabled, setFirefliesEnabled] = useState<boolean | null>(null);
+  const [switchingFireflies, setSwitchingFireflies] = useState(false);
 
   const isSuperAdmin = user?.role === 'super_admin';
 
@@ -81,6 +83,8 @@ export function AdminConsolePage() {
       .then((r) => (r.ok ? r.json() : null)).then((d) => d && setPaymentsMode(d.mode)).catch(() => {});
     apiFetch(`${API_URL}/manual-trading/master-mode`, { headers: { Authorization: `Bearer ${token}` } })
       .then((r) => (r.ok ? r.json() : null)).then((d) => d && setPaperEnforced(d.paper_enforced)).catch(() => {});
+    apiFetch(`${API_URL}/meetings/fireflies-setting`, { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => (r.ok ? r.json() : null)).then((d) => d && setFirefliesEnabled(d.enabled)).catch(() => {});
   }, [token]);
 
   async function setMode(mode: 'test' | 'live') {
@@ -123,6 +127,22 @@ export function AdminConsolePage() {
       if (res.ok) setPaperEnforced((await res.json()).paper_enforced);
     } finally {
       setSwitchingPaper(false);
+    }
+  }
+
+  async function setFireflies(next: boolean) {
+    if (next === firefliesEnabled) return;
+    setSwitchingFireflies(true);
+    try {
+      const res = await apiFetch(`${API_URL}/meetings/fireflies-setting`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ enabled: next }),
+        timeoutMs: 60_000,
+      });
+      if (res.ok) setFirefliesEnabled((await res.json()).enabled);
+    } finally {
+      setSwitchingFireflies(false);
     }
   }
 
@@ -228,6 +248,50 @@ export function AdminConsolePage() {
               Off — respect individual settings
             </button>
             {paperEnforced === null && <span className="text-xs text-gray-500">Loading…</span>}
+          </div>
+        </div>
+      )}
+
+      {/* Fireflies Master Control — same pattern as Trading Master
+          Control above, by direct request ("Remove fireflies button
+          from facilitator session section and put a Fireflies toggle
+          on vs off in the portals follow hierarchy"): one Super
+          Admin-set switch, every portal's Meetings page beneath it
+          just shows the resolved state (FacilitatorCalendar.tsx). */}
+      {isSuperAdmin && (
+        <div className={`border rounded-xl p-6 mb-4 ${dark ? 'bg-smc-card border-smc-border' : 'bg-white border-corporate-bg'}`}>
+          <div className="flex items-center gap-2 mb-1">
+            <ShieldAlert size={16} className="text-amber-400" />
+            <h2 className={`text-sm font-medium ${dark ? 'text-gray-300' : 'text-corporate-text-on-bg'}`}>Fireflies Master Control</h2>
+          </div>
+          <p className="text-xs text-gray-500 mb-3">
+            On: the Fireflies notetaker is invited to every facilitator session booked platform-wide, across every
+            portal. Off: no session anywhere gets a notetaker invite, regardless of who books it.
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setFireflies(true)}
+              disabled={switchingFireflies}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 border ${
+                firefliesEnabled === true
+                  ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
+                  : dark ? 'bg-smc-dark text-gray-400 border-smc-border hover:text-white' : 'bg-gray-50 text-gray-500 border-corporate-bg hover:text-corporate-text-on-bg'
+              }`}
+            >
+              On
+            </button>
+            <button
+              onClick={() => setFireflies(false)}
+              disabled={switchingFireflies}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 border ${
+                firefliesEnabled === false
+                  ? 'bg-amber-500/20 text-amber-400 border-amber-500/40'
+                  : dark ? 'bg-smc-dark text-gray-400 border-smc-border hover:text-white' : 'bg-gray-50 text-gray-500 border-corporate-bg hover:text-corporate-text-on-bg'
+              }`}
+            >
+              Off
+            </button>
+            {firefliesEnabled === null && <span className="text-xs text-gray-500">Loading…</span>}
           </div>
         </div>
       )}

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, Lock, Loader2, Video, X } from 'lucide-react';
+import { CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, Lock, Loader2, Mic, Video, X } from 'lucide-react';
 import { apiFetch } from './AccessExpiredGate';
 import { fetchJsonWithRetry } from '../lib/resilientFetch';
 
@@ -94,6 +94,20 @@ export function FacilitatorCalendar({
   const [monthIndex, setMonthIndex] = useState(0);
   const [selected, setSelected] = useState<string | null>(null);
   const [topic, setTopic] = useState('');
+  // Fireflies is now a platform-wide Super Admin master control
+  // (GET/PATCH /meetings/fireflies-setting), not a per-booking choice
+  // — by direct request ("Remove fireflies button from facilitator
+  // session section and put a Fireflies toggle on vs off in the
+  // portals follow hierarchy"). This just reads and shows the
+  // resolved state; only a Super Admin can change it (Admin Console).
+  const [firefliesEnabled, setFirefliesEnabled] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (!token) return;
+    apiFetch(`${API_BASE}/meetings/fireflies-setting`, { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => d && setFirefliesEnabled(d.enabled))
+      .catch(() => {});
+  }, [token]);
   const [booking, setBooking] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirmed, setConfirmed] = useState<{ band: string; jitsi_room_url: string } | null>(null);
@@ -331,6 +345,17 @@ export function FacilitatorCalendar({
               }`}
             />
           </div>
+
+          {firefliesEnabled !== null && (
+            <div className={`w-full max-w-md flex items-center gap-2.5 rounded-lg p-3 mb-4 border ${dark ? 'border-corporate-border-dark' : 'border-gray-200'}`}>
+              <Mic size={16} className={firefliesEnabled ? 'text-corporate-accent' : mutedCls} />
+              <span className={`text-xs ${mutedCls}`}>
+                {firefliesEnabled
+                  ? 'Fireflies notetaker: On — this session will be recorded and transcribed automatically.'
+                  : 'Fireflies notetaker: Off, platform-wide (set by a Super Admin) — this session will not be recorded.'}
+              </span>
+            </div>
+          )}
 
           {error && <p className="text-xs text-red-500 mb-3">{error}</p>}
 
