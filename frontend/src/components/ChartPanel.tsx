@@ -1,10 +1,30 @@
 import { useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Maximize2, Minimize2, Sun, Moon, TrendingUp, X, Zap, Receipt, CandlestickChart } from 'lucide-react';
+import { Maximize2, Minimize2, Sun, Moon, TrendingUp, X, Zap, Receipt, CandlestickChart, Target, LineChart } from 'lucide-react';
 import { TradingViewChart, type ChartPosition } from './TradingViewChart';
 import { CandleColorPicker } from './CandleColorPicker';
+import { PositionManager } from './PositionManager';
+import { PositionOnChartModal } from './PositionOnChartModal';
 import { useEffectiveChartColors } from '../hooks/useCandleColors';
 import { useQuickPrice } from '../hooks/useQuickPrice';
+import type { Trade } from '../types';
+
+/** ChartPosition is the lightweight subset PositionOnChartModal draws
+ * as lines — derived from the caller's raw Trade rather than asked of
+ * the caller directly, so ChartPanel only needs ONE prop (`position`)
+ * to power both the management card and the on-chart view. */
+function tradeToChartPosition(trade: Trade): ChartPosition {
+  return {
+    direction: trade.direction,
+    entryPrice: trade.entry_price as number,
+    stopLoss: trade.stop_loss,
+    takeProfit1: trade.take_profit,
+    takeProfit2: trade.take_profit_2,
+    takeProfit3: trade.take_profit_3,
+    unrealizedPnl: trade.unrealized_pnl,
+    pending: trade.status === 'pending',
+  };
+}
 
 /**
  * ChartPanel — the one reusable chart embed every page uses (Trade,
@@ -44,6 +64,7 @@ export function ChartPanel({
   onTogglePairs,
   pairsPanel,
   position,
+  onPositionChanged,
 
 }: {
   symbol: string;
@@ -79,12 +100,27 @@ export function ChartPanel({
   /** Rendered directly under the toolbar while Pairs is unfolded —
    * normally <PairsPanel /> (see ChartWithPairs). */
   pairsPanel?: ReactNode;
-  /** The caller's own open trade on this exact `symbol`, if any — drawn
-   * as live Entry/SL/TP lines with a P/L label. See
-   * TradingViewChart.tsx's `position` doc for how this is rendered and
-   * its limits (redrawn on each update, not draggable). Omit entirely
-   * on pages with no concept of an open position (Learn, Dashboard). */
-  position?: ChartPosition | null;
+  /** The caller's own open or pending trade on this exact `symbol`, if
+   * any — the RAW Trade (not just entry/SL/TP), so the folded
+   * "Position" card can do real trade management (edit SL/TP, partial
+   * close, cancel pending), not just display numbers — by direct
+   * request ("make the position button allow trade management - Edit
+   * SL, TP, Partial TP or Partial Close etc"). Reuses PositionManager,
+   * the exact same component TradeRow's Manage view and
+   * ManualTradingPage's side panel already use — one implementation,
+   * not a second read-only one. A second "On Chart" toggle draws the
+   * same trade's Entry/SL/TP as real lines on this app's own
+   * CandleChart (see PositionOnChartModal.tsx for why that's a
+   * separate chart rather than something drawn on the embedded
+   * TradingView widget). Omit `position` entirely on pages with no
+   * concept of an open position (Learn, Dashboard). */
+  position?: Trade | null;
+  /** Called after an edit/cancel/partial-close inside the folded
+   * Position card succeeds, so the caller can re-poll and pass a fresh
+   * `position` down — same contract as PositionManager's own
+   * `onChanged`. Optional: omitting it just means the card won't
+   * reflect a change until the caller's own poll next runs. */
+  onPositionChanged?: () => void;
 
 }) {
   const navigate = useNavigate();
@@ -106,6 +142,9 @@ export function ChartPanel({
   }
   const [chartTheme, setChartTheme] = useState<'light' | 'dark'>('light');
   const [fullscreen, setFullscreen] = useState(false);
+  // Default folded — same contract as Pairs/Order, by direct request.
+  const [positionOpen, setPositionOpen] = useState(false);
+  const [onChartOpen, setOnChartOpen] = useState(false);
   const chartDark = chartTheme === 'dark';
 
   const toolbar = (
@@ -160,6 +199,28 @@ export function ChartPanel({
             <Receipt size={13} /> Order
           </button>
         )}
+        {position && (
+          <button
+            onClick={() => setPositionOpen((o) => !o)}
+            aria-label={positionOpen ? 'Hide position management' : 'Manage this position'}
+            title={positionOpen ? 'Hide position management' : 'Edit SL/TP, partial close or cancel this order'}
+            className={`p-1.5 rounded-md flex items-center gap-1.5 text-xs font-medium ${
+              positionOpen ? 'bg-blue-600 text-white' : containerDark ? 'text-white/50 hover:text-white/80 bg-white/5' : 'text-gray-500 hover:text-gray-700 bg-black/5'
+            }`}
+          >
+            <Target size={13} /> Position
+          </button>
+        )}
+        {position && (
+          <button
+            onClick={() => setOnChartOpen(true)}
+            aria-label="Show Entry/SL/TP drawn on a real chart"
+            title="Open a chart with Entry/SL/TP actually drawn on it"
+            className={`p-1.5 rounded-md flex items-center gap-1.5 text-xs font-medium ${containerDark ? 'text-white/50 hover:text-white/80 bg-white/5' : 'text-gray-500 hover:text-gray-700 bg-black/5'}`}
+          >
+            <LineChart size={13} /> On Chart
+          </button>
+        )}
         <CandleColorPicker
           dark={containerDark}
           colors={colors} chartStyle={chartStyle}
@@ -196,10 +257,14 @@ export function ChartPanel({
         </div>
         {toolbar}
         {pairsOpen && pairsPanel}
+        {positionOpen && position && <div className="mb-2"><PositionManager trade={position} dark onChanged={onPositionChanged} /></div>}
         <div className="flex-1 min-h-0 rounded-lg overflow-hidden">
 
-          <TradingViewChart symbol={symbol} interval={interval} theme={chartTheme} candleColors={colors} chartStyle={chartStyle} position={position} />
+          <TradingViewChart symbol={symbol} interval={interval} theme={chartTheme} candleColors={colors} chartStyle={chartStyle} />
         </div>
+        {onChartOpen && position && (
+          <PositionOnChartModal position={tradeToChartPosition(position)} symbol={position.symbol} onClose={() => setOnChartOpen(false)} />
+        )}
       </div>
     );
   }
@@ -208,9 +273,13 @@ export function ChartPanel({
     <div>
       {toolbar}
       {pairsOpen && pairsPanel}
+      {positionOpen && position && <div className="mb-2"><PositionManager trade={position} dark={containerDark} onChanged={onPositionChanged} /></div>}
       <div className={`rounded-lg overflow-hidden ${chartDark ? '' : 'border border-gray-200'}`} style={{ height }}>
-        <TradingViewChart symbol={symbol} interval={interval} theme={chartTheme} candleColors={colors} chartStyle={chartStyle} position={position} />
+        <TradingViewChart symbol={symbol} interval={interval} theme={chartTheme} candleColors={colors} chartStyle={chartStyle} />
       </div>
+      {onChartOpen && position && (
+        <PositionOnChartModal position={tradeToChartPosition(position)} symbol={position.symbol} onClose={() => setOnChartOpen(false)} />
+      )}
     </div>
   );
 

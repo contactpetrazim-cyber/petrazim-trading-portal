@@ -154,6 +154,29 @@ export const botsApi = {
     ).then(r => r.data.results),
 };
 
+export interface KlineBar {
+  time_ms: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+}
+
+export const orderFlowApi = {
+  // Real Binance OHLC candles for the small crypto allow-list
+  // order_flow.py already validates against (see that router's own
+  // ALLOWED_SYMBOLS comment) — used by ChartPanel's "On Chart" position
+  // view (PositionOnChartModal.tsx) to actually draw Entry/SL/TP as
+  // lines on real candles, something the embedded TradingView iframe
+  // can't do (see TradingViewChart.tsx's own docstring on why). A 400
+  // here for an unsupported symbol (e.g. a forex pair) is expected and
+  // handled by the caller, not a bug.
+  getKlines: (symbol: string, interval: string = '1h', limit: number = 100) =>
+    api.get<{ symbol: string; interval: string; candles: KlineBar[] }>(
+      '/order-flow/klines', { params: { symbol, interval, limit } }
+    ).then(r => r.data),
+};
+
 export interface TraderBotSummary {
   bot_id: string;
   bot_name: string;
