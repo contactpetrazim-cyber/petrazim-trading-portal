@@ -75,7 +75,7 @@ export function MeetingsPage() {
         <ConnectorCards dark={dark} />
       </FoldedCard>
 
-      <FoldedCard title="Availability" icon={<CalendarClock size={19} />} dark={dark}>
+      <FoldedCard title="Availability" icon={<CalendarClock size={19} />} dark={dark} defaultOpen>
         <FacilitatorCalendar userTier={userTier} tierLoading={tierLoading} token={token} privileged={privileged} dark={dark} />
       </FoldedCard>
     </div>
