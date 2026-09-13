@@ -137,10 +137,15 @@ export function TradeRow({ trade, onApprove, onReject, onCancel, onChanged }: Tr
           )}
 
           {/* Manage — view/edit SL, TP1-3, and partial-exit this
-              position, exchange style. Any active trade, bot-placed or
-              manual — modify_targets' own backend already scopes it
-              that way (see PositionManager.tsx's docstring). */}
-          {trade.status === 'active' && (
+              position, exchange style. Any active OR still-pending
+              trade, bot-placed or manual — modify_targets' own
+              backend already scopes it that way (see
+              PositionManager.tsx's docstring). PENDING added by
+              direct bug report ("no menu to review trade order
+              statistics or update or manage trades") — a still-
+              pending order had no way to review its own stats or
+              amend its SL/TP/trigger price before this, only Cancel. */}
+          {(trade.status === 'active' || trade.status === 'pending') && (
             <button
               onClick={() => setManaging((v) => !v)}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
