@@ -20,6 +20,26 @@ jobs:
     steps:
       - name: POST /community/broadcast/daily-tip
         run: |
-          curl -sf -X POST \
+          # --retry rides out a Render free-tier cold start (the backend
+          # sleeps after ~15 idle minutes; a single-shot request that
+          # lands mid-wake used to just fail outright — this is the same
+          # "actively wait for a cold backend" fix already applied to
+          # order placement in the app itself). -w prints the HTTP status
+          # and -o keeps the body so a non-2xx or a silent zero-channel
+          # send (see community_broadcast.py's channels_sent/
+          # channels_failed) is visible in the run log instead of just
+          # "step failed, no further detail" — a plain `curl -sf` used to
+          # swallow the response body entirely, so a real failure here
+          # was previously impossible to diagnose from the log alone.
+          http_code=$(curl -sS -X POST \
+            --retry 5 --retry-delay 15 --retry-all-errors --max-time 45 \
             -H "X-Cron-Secret: ${{ secrets.CRON_SECRET }}" \
-            https://petrazim-trading-backend.onrender.com/community/broadcast/daily-tip
+            -o response.json -w '%{http_code}' \
+            https://petrazim-trading-backend.onrender.com/community/broadcast/daily-tip)
+          echo "HTTP $http_code"
+          cat response.json
+          echo
+          if [ "$http_code" -lt 200 ] || [ "$http_code" -ge 300 ]; then
+            echo "::error::daily-tip broadcast returned HTTP $http_code"
+            exit 1
+          fi
