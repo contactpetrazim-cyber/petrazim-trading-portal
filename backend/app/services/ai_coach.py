@@ -137,7 +137,12 @@ async def _call_openrouter(client: httpx.AsyncClient, api_key: str, system_promp
 
 
 async def _call_gemini(client: httpx.AsyncClient, api_key: str, system_prompt: str, message: str, max_tokens: int) -> str:
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
+    # gemini-2.0-flash 404s now — Google's own error names the
+    # replacement directly ("This model...is no longer available...use
+    # models/gemini-3.6-flash"). Confirmed live against the real
+    # configured key: 404 on 2.0-flash, 200 on 3.6-flash — the key
+    # itself was never the problem, only this hardcoded model name was.
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key={api_key}"
     resp = await client.post(
         url,
         json={
