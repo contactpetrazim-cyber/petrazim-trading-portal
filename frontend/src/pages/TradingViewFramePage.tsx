@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Sun, Moon, Save, Trash2, FolderOpen, X, TrendingUp, CandlestickChart } from 'lucide-react';
-import { TradingViewChart } from '../components/TradingViewChart';
+import { TradingViewChart, type ChartPosition } from '../components/TradingViewChart';
 import { CandleColorPicker } from '../components/CandleColorPicker';
 import { useEffectiveChartColors } from '../hooks/useCandleColors';
 import { OpenInTradingView } from '../components/OpenInTradingView';
@@ -11,6 +11,7 @@ import { PairsPanel } from '../components/PairsPanel';
 import { useQuickPairsStore } from '../hooks/useQuickPairs';
 import { useAuth } from '../hooks/useAuth';
 import { apiFetch } from '../components/AccessExpiredGate';
+import { tradesApi } from '../services/api';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -88,6 +89,52 @@ export function TradingViewFramePage() {
   const authHeaders: Record<string, string> = token
     ? { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
     : { 'Content-Type': 'application/json' };
+
+  // Entry/SL/TP overlay for whatever open position or pending order
+  // the trader already has on the symbol currently shown — by direct
+  // bug report ("Executed or pending trades on the chart" not
+  // showing), same gap ManualTradingPage.tsx's own chart already had
+  // fixed: this "Free Chart"/"My Workspace" page renders
+  // TradingViewChart directly rather than through ChartPanel, so it
+  // never got the `position` prop wired in at all. Same polling shape
+  // as ManualTradingPage.tsx (active trades take priority over a
+  // pending order on the same symbol).
+  const [openPositionTrade, setOpenPositionTrade] = useState<import('../types').Trade | null>(null);
+  const [pendingOrderTrade, setPendingOrderTrade] = useState<import('../types').Trade | null>(null);
+  const loadOpenPosition = useCallback(() => {
+    return Promise.all([
+      tradesApi.getActiveTrades(),
+      tradesApi.getTrades({ status: 'pending', symbol: symbol.tradeSymbol }),
+    ]).then(([active, pending]) => {
+      setOpenPositionTrade(active.find((t) => t.symbol === symbol.tradeSymbol && t.entry_price != null) ?? null);
+      setPendingOrderTrade(pending.find((t) => t.entry_price != null) ?? null);
+    }).catch(() => { setOpenPositionTrade(null); setPendingOrderTrade(null); });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [symbol.tradeSymbol, token]);
+  useEffect(() => {
+    if (!token) return;
+    loadOpenPosition();
+    const t = setInterval(loadOpenPosition, 8000);
+    return () => clearInterval(t);
+  }, [loadOpenPosition, token]);
+
+  const chartPosition: ChartPosition | null = openPositionTrade ? {
+    direction: openPositionTrade.direction,
+    entryPrice: openPositionTrade.entry_price as number,
+    stopLoss: openPositionTrade.stop_loss,
+    takeProfit1: openPositionTrade.take_profit,
+    takeProfit2: openPositionTrade.take_profit_2,
+    takeProfit3: openPositionTrade.take_profit_3,
+    unrealizedPnl: openPositionTrade.unrealized_pnl,
+  } : pendingOrderTrade ? {
+    direction: pendingOrderTrade.direction,
+    entryPrice: pendingOrderTrade.entry_price as number,
+    stopLoss: pendingOrderTrade.stop_loss,
+    takeProfit1: pendingOrderTrade.take_profit,
+    takeProfit2: pendingOrderTrade.take_profit_2,
+    takeProfit3: pendingOrderTrade.take_profit_3,
+    pending: true,
+  } : null;
 
   async function loadLayouts() {
     if (!token) return;
@@ -266,7 +313,7 @@ export function TradingViewFramePage() {
           style={{ aspectRatio: '16/9' }}
         >
           {(mode === 'widget' || mode === 'workspace') && (
-            <TradingViewChart symbol={symbol.value} interval={interval.value} theme={frameTheme} candleColors={colors} chartStyle={chartStyle} />
+            <TradingViewChart symbol={symbol.value} interval={interval.value} theme={frameTheme} candleColors={colors} chartStyle={chartStyle} position={chartPosition} />
           )}
 
           {mode === 'workspace' && savedViewsOpen && (

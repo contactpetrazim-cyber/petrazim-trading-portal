@@ -201,7 +201,16 @@ async def today_stats(db: AsyncSession = Depends(get_db), user: User = Depends(r
     """Get today's trading statistics."""
     today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
 
-    query = _scope_to_owner(select(Trade), user).where(Trade.created_at >= today_start)
+    # CANCELLED/ERROR excluded — same fix as dashboard.py's own
+    # /dashboard/stats, by the same direct bug report ("if a trade
+    # order is cancelled - why is it still showing up on the traders
+    # dashboard as a pending or executed order"): an order that was
+    # withdrawn before it ever became a real position was never
+    # actually "a trade taken today".
+    query = _scope_to_owner(select(Trade), user).where(
+        Trade.created_at >= today_start,
+        Trade.status.notin_([TradeStatus.CANCELLED, TradeStatus.ERROR]),
+    )
     result = await db.execute(query)
     trades = result.scalars().all()
 

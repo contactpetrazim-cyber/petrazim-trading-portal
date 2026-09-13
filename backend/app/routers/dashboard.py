@@ -45,7 +45,11 @@ async def dashboard_stats(db: AsyncSession = Depends(get_db), user: User = Depen
     # showing up on the traders dashboard as a pending or executed
     # order") and its direct follow-up request ("can you provide more
     # clarity / Pending trades Vs Executed Trades Vs Canceled Vs Loss
-    # Vs Won Vs BreakEven").
+    # Vs Won Vs BreakEven"). PR #55 filtered CANCELLED/ERROR out at
+    # this same query directly, before this breakdown existed — that
+    # would have hidden them from the `cancelled` bucket below too, so
+    # this stays unfiltered here and the exclusion is applied in
+    # Python instead, right below, for just the headline pair.
     trades_query = _scope_trades(select(Trade), user).where(Trade.created_at >= today_start)
     result = await db.execute(trades_query)
     all_today_trades = result.scalars().all()

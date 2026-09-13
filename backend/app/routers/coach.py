@@ -19,6 +19,12 @@ content_body as grounding context, with instructions to answer only
 from it (or say so honestly) rather than a bare "answer anything"
 call. With no lesson open, it falls back to the general trading-coach
 voice (CHAT_SYSTEM_PROMPT) — no crash, no error, just less specific.
+
+answer_coach_question() below is the one shared answering system the
+spec calls for ("Section 4... reused by the Telegram community Q&A —
+one shared answering system, not two"): both this router's /ask route
+and app/routers/telegram_webhook.py's message handler call through it
+rather than each keeping its own grounding/fallback logic.
 """
 
 from __future__ import annotations
@@ -47,6 +53,26 @@ GROUNDED_SYSTEM_PROMPT_TEMPLATE = (
 )
 
 
+async def answer_coach_question(db: AsyncSession, message: str, context_lesson_id: Optional[str]) -> str:
+    """The actual grounding + fallback logic, factored out of ask_coach
+    so telegram_webhook.py can call the exact same answering path
+    instead of reimplementing it."""
+    if context_lesson_id:
+        lesson = (await db.execute(
+            select(Lesson).where(Lesson.id == context_lesson_id)
+        )).scalar_one_or_none()
+        if lesson is not None and lesson.content_body:
+            system_prompt = GROUNDED_SYSTEM_PROMPT_TEMPLATE.format(title=lesson.title, content=lesson.content_body)
+            reply = await generate_text(system_prompt, message, max_tokens=500)
+            if reply is not None:
+                return reply
+            # Fall through to the ungrounded path below only if every
+            # provider failed — never silently drop the grounding
+            # attempt without at least trying the general fallback.
+
+    return await get_coach_reply(message)
+
+
 class AskCoachRequest(BaseModel):
     message: str = Field(min_length=1, max_length=2000)
     context_lesson_id: Optional[str] = None
@@ -60,18 +86,5 @@ class AskCoachResponse(BaseModel):
 async def ask_coach(
     req: AskCoachRequest, db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access),
 ):
-    if req.context_lesson_id:
-        lesson = (await db.execute(
-            select(Lesson).where(Lesson.id == req.context_lesson_id)
-        )).scalar_one_or_none()
-        if lesson is not None and lesson.content_body:
-            system_prompt = GROUNDED_SYSTEM_PROMPT_TEMPLATE.format(title=lesson.title, content=lesson.content_body)
-            reply = await generate_text(system_prompt, req.message, max_tokens=500)
-            if reply is not None:
-                return AskCoachResponse(reply=reply)
-            # Fall through to the ungrounded path below only if every
-            # provider failed — never silently drop the grounding
-            # attempt without at least trying the general fallback.
-
-    reply = await get_coach_reply(req.message)
+    reply = await answer_coach_question(db, req.message, req.context_lesson_id)
     return AskCoachResponse(reply=reply)

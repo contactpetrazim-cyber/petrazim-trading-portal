@@ -195,7 +195,11 @@ export function MasteryOverviewPage() {
                 key={d.date}
                 title={`${d.date}${d.active ? ' — active' : ''}`}
                 className="flex-1 h-4 rounded-sm"
-                style={{ background: d.active ? '#10b981' : dark ? 'rgba(255,255,255,0.08)' : '#eef0f6' }}
+                // Portal blue, not green — by direct request ("use
+                // theme colour blue instead of green colour for Last
+                // 30 days"), matching the Assessment Performance
+                // chart's own switch just above.
+                style={{ background: d.active ? '#005FB8' : dark ? 'rgba(255,255,255,0.08)' : '#eef0f6' }}
               />
             ))}
           </div>
