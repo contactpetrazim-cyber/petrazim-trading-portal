@@ -4,6 +4,22 @@ import { AlertTriangle, LogIn, RefreshCw } from 'lucide-react';
 interface Props { children: ReactNode }
 interface State { error: Error | null }
 
+// Matches the handful of known browser error messages for "a lazy-
+// loaded chunk's hashed filename no longer exists on the server" — see
+// main.tsx's own `vite:preloadError` listener for the full mechanism
+// and why this happens "every time we are changing sections" after a
+// deploy. That listener is the primary fix; this is the backstop for
+// whatever it doesn't catch (Safari phrases the failure differently,
+// and a rejected `.then()` inside a route's own `lazy(() => import(...)
+// .then(...))` call — every route here uses that shape, to pick a
+// named export — surfaces here as a plain thrown error rather than a
+// `vite:preloadError` event). Deliberately narrow: only THIS specific,
+// recoverable-by-reloading failure gets silently retried; any other
+// error still shows the real "This page could not open" screen rather
+// than papering over an actual bug with an endless-feeling reload.
+const STALE_CHUNK_ERROR = /dynamically imported module|loading chunk|importing a module script failed/i;
+const CHUNK_RELOAD_FLAG = 'petrazim-chunk-reload';
+
 /** Keeps an unexpected page failure from becoming a blank screen. */
 export class AppErrorBoundary extends Component<Props, State> {
   state: State = { error: null };
@@ -14,6 +30,10 @@ export class AppErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error('Petrazim page error', error, info.componentStack);
+    if (STALE_CHUNK_ERROR.test(error.message) && !sessionStorage.getItem(CHUNK_RELOAD_FLAG)) {
+      sessionStorage.setItem(CHUNK_RELOAD_FLAG, '1');
+      window.location.reload();
+    }
   }
 
   private retry = () => window.location.reload();
@@ -21,6 +41,21 @@ export class AppErrorBoundary extends Component<Props, State> {
 
   render() {
     if (!this.state.error) return this.props.children;
+
+    // A reload is already in flight (componentDidCatch just triggered
+    // one) — show a plain, non-alarming "hang on" instead of the full
+    // "This page could not open" screen for the split second before
+    // window.location.reload() actually navigates away. If the reload
+    // itself somehow doesn't happen, the flag stays set and a THIRD
+    // occurrence would fall through to the real error screen below —
+    // never stuck silently on this forever.
+    if (STALE_CHUNK_ERROR.test(this.state.error.message) && sessionStorage.getItem(CHUNK_RELOAD_FLAG)) {
+      return (
+        <main className="min-h-screen bg-corporate-bg flex items-center justify-center">
+          <p className="text-sm text-gray-500">Updating to the latest version…</p>
+        </main>
+      );
+    }
 
     return (
       <main className="min-h-screen bg-corporate-bg px-5 py-12 text-corporate-text-on-bg flex items-center justify-center">
