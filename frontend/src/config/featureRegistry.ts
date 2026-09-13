@@ -90,6 +90,15 @@ export const FEATURE_REGISTRY: FeatureEntry[] = [
     description: 'Session count, average session length, most-viewed symbols.' },
 
   // --- Insights ---
+  // insights-chart/insights-analytics were real, working sections of
+  // /insights (InsightsPage.tsx) that had never been added here — by
+  // direct bug report ("some features in Insights are not showing"),
+  // invisible to TopNav/GlobalSearchModal even though they worked fine
+  // if you already knew to scroll down to them.
+  { id: 'insights-chart', label: 'Insights Chart', area: 'insights', route: '/insights',
+    description: 'A live TradingView chart, right on the Insights page.' },
+  { id: 'insights-analytics', label: 'Trader Analytics', area: 'insights', route: '/insights',
+    description: 'Win rate, PnL by symbol and by day, and more — from your real trade history.' },
   { id: 'insights-forecast', label: 'Performance Forecast', area: 'insights', route: '/insights/forecast',
     description: 'Monte Carlo projection of a future set of trades.' },
   { id: 'insights-weekly-review', label: 'Weekly Review', area: 'insights', route: '/insights/weekly-review',

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { apiFetch } from './AccessExpiredGate';
+import { useAuth } from '../hooks/useAuth';
 
 /**
  * GoLiveChecklistPanel
@@ -60,6 +61,9 @@ function StatusPill({ status }) {
 }
 
 function AttestationForm({ botId, checkName, apiBaseUrl, onSubmitted }) {
+  // See PerformanceForecastPanel.jsx's own comment — same missing-auth
+  // root cause, same fix.
+  const { token } = useAuth();
   const [signedBy, setSignedBy] = useState('');
   const [passed, setPassed] = useState(true);
   const [notes, setNotes] = useState('');
@@ -76,7 +80,7 @@ function AttestationForm({ botId, checkName, apiBaseUrl, onSubmitted }) {
     try {
       const res = await apiFetch(`${apiBaseUrl}/api/validation-gate/attest`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify({ bot_id: botId, check_name: checkName, passed, signed_by: signedBy, notes }),
       });
       if (!res.ok) throw new Error('Failed to submit attestation');
@@ -117,6 +121,9 @@ function AttestationForm({ botId, checkName, apiBaseUrl, onSubmitted }) {
 }
 
 export default function GoLiveChecklistPanel({ apiBaseUrl = '' }) {
+  // See PerformanceForecastPanel.jsx's own comment — same missing-auth
+  // root cause, same fix.
+  const { token } = useAuth();
   const [botId, setBotId] = useState(BOT_OPTIONS[0].id);
   const [report, setReport] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -129,7 +136,7 @@ export default function GoLiveChecklistPanel({ apiBaseUrl = '' }) {
     try {
       const res = await apiFetch(`${apiBaseUrl}/api/validation-gate/evaluate`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify({ bot_id: botId }),
       });
       if (!res.ok) {

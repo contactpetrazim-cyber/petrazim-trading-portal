@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { ArrowRight } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
 import { FoldedCard } from '../components/FoldedCard';
 import { ChartPanel } from '../components/ChartPanel';
@@ -31,6 +33,13 @@ interface Tile {
   note?: string;
   /** 0-100 — every metric here gets an actual bar, not just a number, by direct request ("visual is always better"). */
   barPct?: number;
+  /** The full interactive version of this tile's own engine — by
+   * direct bug report ("some features in Insights are not showing"):
+   * PerformanceForecastPanel/WeeklyReviewPanel/GoLiveChecklistPanel
+   * were fully built with a real backend but never linked from
+   * anywhere, so this summary number was the only way to see any of
+   * the three at all. */
+  route: string;
 }
 
 /**
@@ -80,9 +89,9 @@ export function InsightsPage() {
           ? {
               label: 'Expectancy per trade', value: `${m.expectancy_r > 0 ? '+' : ''}${m.expectancy_r.toFixed(2)}R`,
               color: m.expectancy_r >= 0 ? 'emerald' : 'amber', note: `${m.n_trades} closed trades, ${Math.round(m.win_rate * 100)}% win rate`,
-              barPct: Math.round(m.win_rate * 100),
+              barPct: Math.round(m.win_rate * 100), route: '/insights/forecast',
             }
-          : { label: 'Performance Forecast', value: '—', color: 'gray', note: 'Not enough closed trades yet.' },
+          : { label: 'Performance Forecast', value: '—', color: 'gray', note: 'Not enough closed trades yet.', route: '/insights/forecast' },
       );
 
       // 2. Weekly Review
@@ -102,9 +111,9 @@ export function InsightsPage() {
               label: 'This week', value: `${w.n_trades} trade${w.n_trades === 1 ? '' : 's'}`,
               color: w.n_trades > 0 ? 'blue' : 'gray',
               note: w.n_trades > 0 ? `${Math.round(w.win_rate * 100)}% win rate, ${w.expectancy_r.toFixed(2)}R expectancy` : 'No trades taken this week yet.',
-              barPct: w.n_trades > 0 ? Math.round(w.win_rate * 100) : 0,
+              barPct: w.n_trades > 0 ? Math.round(w.win_rate * 100) : 0, route: '/insights/weekly-review',
             }
-          : { label: 'Weekly Review', value: '—', color: 'gray', note: 'No trades taken this week yet.' },
+          : { label: 'Weekly Review', value: '—', color: 'gray', note: 'No trades taken this week yet.', route: '/insights/weekly-review' },
       );
 
       // 3. Go-Live Checklist
@@ -119,11 +128,12 @@ export function InsightsPage() {
                 color: g.overall_pass ? 'emerald' : 'amber',
                 note: g.overall_pass ? 'Ready to go live.' : (g.blocking_failures[0] || 'Some checks still incomplete.'),
                 barPct: g.checks.length ? Math.round((g.checks.filter((c) => c.status === 'pass').length / g.checks.length) * 100) : 0,
+                route: '/insights/go-live',
               }
-            : { label: 'Go-Live Checklist', value: '—', color: 'gray', note: 'No backtest on file for this bot yet.' },
+            : { label: 'Go-Live Checklist', value: '—', color: 'gray', note: 'No backtest on file for this bot yet.', route: '/insights/go-live' },
         );
       } else {
-        out.push({ label: 'Go-Live Checklist', value: '—', color: 'gray', note: 'No bot configured yet.' });
+        out.push({ label: 'Go-Live Checklist', value: '—', color: 'gray', note: 'No bot configured yet.', route: '/insights/go-live' });
       }
 
       setTiles(out);
@@ -162,7 +172,13 @@ export function InsightsPage() {
                   <div className={`h-full rounded-full ${barClass[t.color]}`} style={{ width: `${t.barPct}%` }} />
                 </div>
               )}
-              {t.note && <div className={`text-xs ${dark ? 'text-white/40' : 'text-gray-400'}`}>{t.note}</div>}
+              {t.note && <div className={`text-xs mb-3 ${dark ? 'text-white/40' : 'text-gray-400'}`}>{t.note}</div>}
+              <Link
+                to={t.route}
+                className={`inline-flex items-center gap-1 text-xs font-semibold ${dark ? 'text-white/70 hover:text-white' : 'text-corporate-hero hover:underline'}`}
+              >
+                Open full view <ArrowRight size={12} />
+              </Link>
             </div>
           ))}
         </div>

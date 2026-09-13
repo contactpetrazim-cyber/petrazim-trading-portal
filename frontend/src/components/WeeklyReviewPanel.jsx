@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { apiFetch } from './AccessExpiredGate';
+import { useAuth } from '../hooks/useAuth';
 
 /**
  * WeeklyReviewPanel
@@ -37,6 +38,9 @@ const inputClass =
   'focus:outline-none focus:ring-1 focus:ring-smc-accent focus:border-smc-accent';
 
 export default function WeeklyReviewPanel({ apiBaseUrl = '' }) {
+  // See PerformanceForecastPanel.jsx's own comment — same missing-auth
+  // root cause, same fix.
+  const { token } = useAuth();
   const [weekStart, setWeekStart] = useState(mondayOfCurrentWeek());
   const [report, setReport] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -49,7 +53,9 @@ export default function WeeklyReviewPanel({ apiBaseUrl = '' }) {
     setError(null);
     try {
       const params = new URLSearchParams({ week_start: weekStart, week_end: weekEnd });
-      const res = await apiFetch(`${apiBaseUrl}/api/weekly-review/report?${params}`);
+      const res = await apiFetch(`${apiBaseUrl}/api/weekly-review/report?${params}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.detail || `Failed to load review (${res.status})`);
