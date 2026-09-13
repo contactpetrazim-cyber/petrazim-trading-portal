@@ -182,7 +182,7 @@ export function TradesPage() {
       {/* Trade List */}
       <div className="space-y-2">
         {trades.map((trade) => (
-          <TradeRow key={trade.trade_id} trade={trade} onApprove={handleApprove} onReject={handleReject} onCancel={handleCancel} />
+          <TradeRow key={trade.trade_id} trade={trade} onApprove={handleApprove} onReject={handleReject} onCancel={handleCancel} onChanged={loadTrades} />
         ))}
       </div>
 
