@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { LogIn, UserPlus } from 'lucide-react';
+import { LogIn, UserPlus, Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { useThemeStore } from '../hooks/useTheme';
 import { CardLogoBand } from '../components/CardLogoBand';
@@ -21,6 +21,24 @@ function inputClass(dark: boolean) {
       ? 'bg-corporate-surface-dark border border-corporate-border-dark text-white placeholder:text-white/40 focus:border-[#005FB8]'
       : 'bg-white border border-blue-100 text-[#141a33] placeholder:text-gray-400 focus:border-[#005FB8]'
   }`;
+}
+
+/** The eye/eye-off toggle sitting inside every password field here — a
+ * plain <button type="button"> (not submit) positioned over the input's
+ * own right padding, never a separate row, so it costs no extra layout
+ * space in a card family that's already tight on vertical rhythm. */
+function PasswordToggleButton({ shown, onClick, dark }: { shown: boolean; onClick: () => void; dark: boolean }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      tabIndex={-1}
+      aria-label={shown ? 'Hide password' : 'Show password'}
+      className={`absolute right-3 top-1/2 -translate-y-1/2 ${dark ? 'text-white/40 hover:text-white/70' : 'text-gray-400 hover:text-gray-600'}`}
+    >
+      {shown ? <EyeOff size={16} /> : <Eye size={16} />}
+    </button>
+  );
 }
 
 /**
@@ -60,6 +78,11 @@ export function LoginPage() {
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  // Off by default on every mount/mode switch — a password field that
+  // silently remembered "visible" across a sign-in/register toggle
+  // would be a bigger surprise than the extra click to turn it back on.
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   // The free-tier backend sleeps after idle and can take up to ~90s to
@@ -235,14 +258,17 @@ export function LoginPage() {
                 placeholder="Email"
                 className={inputClass(dark)}
               />
-              <input
-                type="password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Password"
-                className={`${inputClass(dark)} mb-0`}
-              />
+              <div className="relative">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Password"
+                  className={`${inputClass(dark)} mb-0 pr-10`}
+                />
+                <PasswordToggleButton shown={showPassword} onClick={() => setShowPassword((s) => !s)} dark={dark} />
+              </div>
             </div>
 
             {loading && (phase === 'loading' || phase === 'stalled') && (
@@ -290,22 +316,28 @@ export function LoginPage() {
                 placeholder="Phone (optional)"
                 className={inputClass(dark)}
               />
-              <input
-                type="password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Password (min. 8 characters)"
-                className={inputClass(dark)}
-              />
-              <input
-                type="password"
-                required
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                placeholder="Confirm password"
-                className={`${inputClass(dark)} mb-0`}
-              />
+              <div className="relative">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Password (min. 8 characters)"
+                  className={`${inputClass(dark)} pr-10`}
+                />
+                <PasswordToggleButton shown={showPassword} onClick={() => setShowPassword((s) => !s)} dark={dark} />
+              </div>
+              <div className="relative">
+                <input
+                  type={showConfirmPassword ? 'text' : 'password'}
+                  required
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="Confirm password"
+                  className={`${inputClass(dark)} mb-0 pr-10`}
+                />
+                <PasswordToggleButton shown={showConfirmPassword} onClick={() => setShowConfirmPassword((s) => !s)} dark={dark} />
+              </div>
             </div>
 
             {error && <p className="text-sm text-red-500 mb-4">{error}</p>}
