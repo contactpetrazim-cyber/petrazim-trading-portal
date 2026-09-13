@@ -114,6 +114,14 @@ export const botsApi = {
     api.get<{ instruments: { symbol: string; base_asset: string; quote_asset: string }[] }>(
       '/order-flow/instruments', { params: { q, limit: 25 } }
     ).then(r => r.data.instruments),
+  // The chart's own "search any instrument" — real TradingView symbols
+  // across every asset class (not just Binance crypto), proxied
+  // server-side. See order_flow.py's chart_symbol_search for why this
+  // has to be a backend proxy rather than a direct browser call.
+  chartSymbolSearch: (q: string) =>
+    api.get<{ results: { symbol: string; exchange: string; description: string; type: string }[] }>(
+      '/order-flow/symbol-search', { params: { q, limit: 25 } }
+    ).then(r => r.data.results),
 };
 
 export interface TraderBotSummary {

@@ -42,6 +42,10 @@ export function PairsPanel({
   useEffect(() => {
     if (!searching) return;
     const q = query.trim();
+    // Local catalogue first — instant, zero-latency results for the
+    // handful of common instruments (and every DEFAULT_QUICK_PAIRS
+    // entry, guaranteed to still match itself), while the broader
+    // TradingView-backed search below fills in behind it.
     const local = searchCatalogue(q).map((i) => ({
       symbol: i.symbol, exchange: i.exchange, description: i.description, type: i.type as string,
     }));
@@ -49,13 +53,19 @@ export function PairsPanel({
     if (q.length < 2 || !token) { setRemoteBusy(false); return; }
     setRemoteBusy(true);
     const t = setTimeout(() => {
-      botsApi.searchInstruments(q)
+      // Real TradingView symbols across every asset class — the exact
+      // database the chart's own internal search uses (see
+      // order_flow.py's chart_symbol_search) — by direct bug report
+      // ("the search any instrument should connect to the chart
+      // search ... at the moment it sometimes gives an error that
+      // 'nothing matched' — yet the search in the chart actually
+      // brings out the correct instrument"). Replaces the old
+      // Binance-only /instruments fallback, which could never find a
+      // forex/stock/index symbol no matter how exactly it was typed.
+      botsApi.chartSymbolSearch(q)
         .then((list) => {
           const extra = list
-            .map((i: any) => ({
-              symbol: String(i.symbol).toUpperCase(), exchange: 'BINANCE',
-              description: `${i.base_asset} / ${i.quote_asset}`, type: 'crypto',
-            }))
+            .map((i) => ({ symbol: i.symbol, exchange: i.exchange, description: i.description, type: i.type }))
             .filter((i) => !local.some((l) => l.symbol === i.symbol && l.exchange === i.exchange));
           setResults([...local, ...extra].slice(0, 30));
         })
