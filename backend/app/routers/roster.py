@@ -210,7 +210,13 @@ async def trader_overview(
 
     today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
     all_trades = (await db.execute(select(Trade).where(Trade.user_id == trader_id))).scalars().all()
-    today_trades = [t for t in all_trades if t.created_at >= today_start]
+    # CANCELLED/ERROR excluded — same fix as dashboard.py's own
+    # "Today's Trades", by the same direct bug report: a withdrawn
+    # order was never actually a trade taken today.
+    today_trades = [
+        t for t in all_trades
+        if t.created_at >= today_start and t.status not in (TradeStatus.CANCELLED, TradeStatus.ERROR)
+    ]
     active_trades = [t for t in all_trades if t.status == TradeStatus.ACTIVE]
 
     bot_summaries = []
