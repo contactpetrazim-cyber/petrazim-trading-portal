@@ -69,6 +69,9 @@ const TradingGamePage = lazy(() => import('./pages/TradingGamePage').then((modul
 const ToolsPage = lazy(() => import('./pages/ToolsPage').then((module) => ({ default: module.ToolsPage })));
 const OrderFlowFullPage = lazy(() => import('./pages/OrderFlowFullPage').then((module) => ({ default: module.OrderFlowFullPage })));
 const InsightsPage = lazy(() => import('./pages/InsightsPage').then((module) => ({ default: module.InsightsPage })));
+const PerformanceForecastPage = lazy(() => import('./pages/PerformanceForecastPage').then((module) => ({ default: module.PerformanceForecastPage })));
+const WeeklyReviewPage = lazy(() => import('./pages/WeeklyReviewPage').then((module) => ({ default: module.WeeklyReviewPage })));
+const GoLiveChecklistPage = lazy(() => import('./pages/GoLiveChecklistPage').then((module) => ({ default: module.GoLiveChecklistPage })));
 const CommunityPage = lazy(() => import('./pages/CommunityPage').then((module) => ({ default: module.CommunityPage })));
 const ManualTradingPage = lazy(() => import('./pages/ManualTradingPage').then((module) => ({ default: module.ManualTradingPage })));
 const TradePage = lazy(() => import('./pages/TradePage').then((module) => ({ default: module.TradePage })));
@@ -268,6 +271,23 @@ function App() {
         } />
         <Route path="/insights" element={
           <CorporateLayout><EntitlementGate feature="Market intelligence"><InsightsPage /></EntitlementGate></CorporateLayout>
+        } />
+        {/* The full interactive version of each Insights summary tile
+            — by direct bug report ("some features in Insights are not
+            showing"): these were fully built and already had a real,
+            working backend, just never mounted onto a route. Routes
+            match what featureRegistry.ts already promised (its 3
+            "insights-*" entries linked here well before this page
+            existed) rather than the registry being changed to match a
+            gap. */}
+        <Route path="/insights/forecast" element={
+          <CorporateLayout><EntitlementGate feature="Market intelligence"><PerformanceForecastPage /></EntitlementGate></CorporateLayout>
+        } />
+        <Route path="/insights/weekly-review" element={
+          <CorporateLayout><EntitlementGate feature="Market intelligence"><WeeklyReviewPage /></EntitlementGate></CorporateLayout>
+        } />
+        <Route path="/insights/go-live" element={
+          <CorporateLayout><EntitlementGate feature="Market intelligence"><GoLiveChecklistPage /></EntitlementGate></CorporateLayout>
         } />
         <Route path="/community" element={<CorporateLayout><CommunityPage /></CorporateLayout>} />
         <Route path="/trade" element={<CorporateLayout><TradePage /></CorporateLayout>} />

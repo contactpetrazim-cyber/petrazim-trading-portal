@@ -4,6 +4,7 @@ import {
   Tooltip, ResponsiveContainer, ReferenceLine,
 } from 'recharts';
 import { apiFetch } from './AccessExpiredGate';
+import { useAuth } from '../hooks/useAuth';
 
 /**
  * PerformanceForecastPanel
@@ -68,6 +69,14 @@ const inputClass =
   'focus:outline-none focus:ring-1 focus:ring-smc-accent focus:border-smc-accent';
 
 export default function PerformanceForecastPanel({ apiBaseUrl = '' }) {
+  // Was built generic ("wire apiBaseUrl to your backend") and never
+  // actually adapted to this app's own auth — every route it calls
+  // requires require_active_access() server-side, so with no
+  // Authorization header every request here 401'd, by direct bug
+  // report ("some features in Insights are not showing"). This is
+  // the same Bearer-token pattern every other component in this app
+  // uses (useAuth() from the zustand auth store).
+  const { token } = useAuth();
   const [params, setParams] = useState(DEFAULT_PARAMS);
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -97,7 +106,7 @@ export default function PerformanceForecastPanel({ apiBaseUrl = '' }) {
       };
       const res = await apiFetch(`${apiBaseUrl}/api/monte-carlo/simulate`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify(payload),
       });
       if (!res.ok) {

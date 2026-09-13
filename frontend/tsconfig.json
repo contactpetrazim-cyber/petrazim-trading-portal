@@ -8,6 +8,12 @@
     "skipLibCheck": true,
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
+    // A handful of components (PerformanceForecastPanel.jsx and its
+    // siblings) are plain .jsx, not .tsx — Vite's own build (esbuild)
+    // already handled them fine either way; this just lets `tsc
+    // --noEmit` (this session's own type-check step) import them
+    // too, now that PerformanceForecastPage.tsx etc. do.
+    "allowJs": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
