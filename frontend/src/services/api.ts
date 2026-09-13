@@ -96,7 +96,11 @@ export const tradesApi = {
   // management"). Both already existed as real, working backend
   // endpoints (routers/manual_trading.py) with no frontend caller at
   // all until PositionManager.tsx.
-  modifyTargets: (tradeId: string, targets: { stop_loss?: number; take_profit?: number; take_profit_2?: number; take_profit_3?: number }) =>
+  // entry_price only ever takes effect for a still-PENDING trade
+  // (amending the resting order's own trigger price) — the backend
+  // silently ignores it for an already-ACTIVE one; see that route's
+  // own docstring.
+  modifyTargets: (tradeId: string, targets: { stop_loss?: number; take_profit?: number; take_profit_2?: number; take_profit_3?: number; entry_price?: number }) =>
     api.patch(`/manual-trading/${tradeId}/modify-targets`, targets).then(r => r.data),
   partialClose: (tradeId: string, percent: number, exitPrice: number) =>
     api.post(`/manual-trading/${tradeId}/partial-close`, { percent, exit_price: exitPrice }).then(r => r.data),

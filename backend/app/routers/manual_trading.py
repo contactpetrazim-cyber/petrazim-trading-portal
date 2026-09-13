@@ -547,10 +547,20 @@ class ModifyTargetsRequest(BaseModel):
     take_profit: Optional[float] = Field(default=None, gt=0)
     take_profit_2: Optional[float] = Field(default=None, gt=0)
     take_profit_3: Optional[float] = Field(default=None, gt=0)
+    # Only meaningful for a still-PENDING order (the trigger price it
+    # hasn't filled at yet) — see this endpoint's own docstring for why
+    # PENDING is now allowed here, not just ACTIVE. Editing an ACTIVE
+    # trade's already-filled entry_price would rewrite history rather
+    # than manage a real position, so this is silently ignored unless
+    # the trade is still PENDING (checked below, not just accepted
+    # blindly because the field is present).
+    entry_price: Optional[float] = Field(default=None, gt=0)
 
 
 class ModifyTargetsResponse(BaseModel):
     trade_id: str
+    status: str
+    entry_price: Optional[float]
     stop_loss: float
     take_profit: Optional[float]
     take_profit_2: Optional[float]
@@ -564,9 +574,16 @@ async def modify_targets(
     """Move/edit SL and TP1/2/3 on an open position — the real backend
     for the Trade Specs panel's "Modify" action, by direct request
     ("fix or move or edit all SL and TP ... from the charts"). Works on
-    ANY of the caller's own active trades, bot-placed or manual — not
-    manual-only — since a trader manages both the same way once a
-    position is open.
+    ANY of the caller's own active OR still-pending trades, bot-placed
+    or manual — not manual-only — since a trader manages both the same
+    way. PENDING was added by direct bug report ("no menu to review
+    trade order statistics or update or manage trades" — the two
+    trades shown were both still-pending manual orders, which this
+    endpoint previously refused outright with a 409): a resting order
+    that hasn't filled yet is exactly the kind of thing a trader
+    reasonably wants to amend (move the trigger price, tighten a
+    target) before it does, same as amending a resting limit order at
+    a real exchange.
 
     Honest scope: this updates OUR OWN record of the trade's targets,
     the same thing partial-close already treats as trader-managed
@@ -584,8 +601,8 @@ async def modify_targets(
     )).scalar_one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail="Trade not found")
-    if row.status != TradeStatus.ACTIVE:
-        raise HTTPException(status_code=409, detail=f"Trade is {row.status.value}, not active.")
+    if row.status not in (TradeStatus.ACTIVE, TradeStatus.PENDING):
+        raise HTTPException(status_code=409, detail=f"Trade is {row.status.value}, not active or pending.")
     if not row.is_test:
         await _raise_if_access_expired(db, user)
 
@@ -595,12 +612,15 @@ async def modify_targets(
     # over time - a measure how you change your trading plan"). Only
     # an ACTUAL change is logged (skips a no-op "modify" to the same
     # value already set), and only for the fields this request touches.
-    for field, event_type, new_value in (
+    fields = [
         ("stop_loss", "sl_update", req.stop_loss),
         ("take_profit_1", "tp_update", req.take_profit),
         ("take_profit_2", "tp_update", req.take_profit_2),
         ("take_profit_3", "tp_update", req.take_profit_3),
-    ):
+    ]
+    if row.status == TradeStatus.PENDING:
+        fields.append(("entry_price", "entry_update", req.entry_price))
+    for field, event_type, new_value in fields:
         if new_value is None:
             continue
         old_value = getattr(row, field)
@@ -615,8 +635,8 @@ async def modify_targets(
     await db.commit()
 
     return ModifyTargetsResponse(
-        trade_id=trade_id, stop_loss=row.stop_loss, take_profit=row.take_profit_1,
-        take_profit_2=row.take_profit_2, take_profit_3=row.take_profit_3,
+        trade_id=trade_id, status=row.status.value, entry_price=row.entry_price, stop_loss=row.stop_loss,
+        take_profit=row.take_profit_1, take_profit_2=row.take_profit_2, take_profit_3=row.take_profit_3,
     )
 
 

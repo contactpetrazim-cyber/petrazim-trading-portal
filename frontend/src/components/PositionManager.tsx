@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { formatDistanceToNow } from 'date-fns';
-import { Pencil, X, Check, Scissors, AlertCircle } from 'lucide-react';
+import { Pencil, X, Check, Scissors, AlertCircle, Ban } from 'lucide-react';
 import { Trade } from '../types';
 import { tradesApi } from '../services/api';
 import { useQuickPrice } from '../hooks/useQuickPrice';
@@ -32,6 +32,7 @@ import { formatApiError } from '../lib/apiError';
  */
 export function PositionManager({ trade, dark = false, onChanged }: { trade: Trade; dark?: boolean; onChanged?: () => void }) {
   const [editingTargets, setEditingTargets] = useState(false);
+  const [entryDraft, setEntryDraft] = useState('');
   const [slDraft, setSlDraft] = useState('');
   const [tp1Draft, setTp1Draft] = useState('');
   const [tp2Draft, setTp2Draft] = useState('');
@@ -43,9 +44,16 @@ export function PositionManager({ trade, dark = false, onChanged }: { trade: Tra
   const [closePrice, setClosePrice] = useState('');
   const [closing, setClosing] = useState(false);
 
+  const [cancelling, setCancelling] = useState(false);
+
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const { price: livePrice, refresh: refreshLivePrice } = useQuickPrice(trade.symbol);
 
+  // By direct bug report ("no menu to review trade order statistics
+  // or update or manage trades") — the two trades in that report were
+  // both still-PENDING manual orders, which this component (and the
+  // backend it calls) previously only handled for ACTIVE ones.
+  const isPending = trade.status === 'pending';
   const isLong = trade.direction === 'long';
   const entry = trade.entry_price ?? 0;
   const pnl = trade.unrealized_pnl ?? 0;
@@ -63,6 +71,7 @@ export function PositionManager({ trade, dark = false, onChanged }: { trade: Tra
     : null;
 
   function startEditingTargets() {
+    setEntryDraft(trade.entry_price != null ? String(trade.entry_price) : '');
     setSlDraft(String(trade.stop_loss ?? ''));
     setTp1Draft(trade.take_profit != null ? String(trade.take_profit) : '');
     setTp2Draft(trade.take_profit_2 != null ? String(trade.take_profit_2) : '');
@@ -80,6 +89,10 @@ export function PositionManager({ trade, dark = false, onChanged }: { trade: Tra
       const tp1 = tp1Draft ? Number(tp1Draft) : NaN;
       const tp2 = tp2Draft ? Number(tp2Draft) : NaN;
       const tp3 = tp3Draft ? Number(tp3Draft) : NaN;
+      if (isPending) {
+        const entryVal = Number(entryDraft);
+        if (entryVal && entryVal !== trade.entry_price) body.entry_price = entryVal;
+      }
       if (sl && sl !== trade.stop_loss) body.stop_loss = sl;
       if (tp1Draft && tp1 !== trade.take_profit) body.take_profit = tp1;
       if (tp2Draft && tp2 !== trade.take_profit_2) body.take_profit_2 = tp2;
@@ -133,6 +146,25 @@ export function PositionManager({ trade, dark = false, onChanged }: { trade: Tra
     }
   }
 
+  // A still-PENDING order has nothing to partially close — it hasn't
+  // filled yet — so it gets Cancel instead of the exit-% form, reusing
+  // the same endpoint TradeRow's own row-level Cancel button already
+  // calls (cancel_order's own docstring: a PENDING order needs no
+  // exit price, there's nothing to price yet).
+  async function cancelPendingOrder() {
+    setCancelling(true);
+    setMessage(null);
+    try {
+      await tradesApi.cancelOrder(trade.trade_id);
+      setMessage({ ok: true, text: 'Order cancelled.' });
+      onChanged?.();
+    } catch (err: any) {
+      setMessage({ ok: false, text: formatApiError(err?.response?.data?.detail, 'Could not cancel — try again.') });
+    } finally {
+      setCancelling(false);
+    }
+  }
+
   const cardCls = `rounded-xl border p-4 space-y-4 ${dark ? 'bg-corporate-surface-dark border-corporate-border-dark text-white' : 'bg-white border-gray-200 text-gray-900'}`;
   const inputCls = `w-full rounded-lg px-2.5 py-1.5 text-sm font-mono outline-none border ${dark ? 'bg-corporate-nav-dark border-corporate-border-dark text-white' : 'bg-gray-50 border-gray-200 text-gray-900'}`;
   const labelCls = `text-[11px] font-medium ${dark ? 'text-white/40' : 'text-gray-400'}`;
@@ -140,25 +172,37 @@ export function PositionManager({ trade, dark = false, onChanged }: { trade: Tra
 
   return (
     <div className={cardCls}>
-      {/* Stats row — the "dashboard" half of the request */}
+      {/* Stats row — the "dashboard" half of the request. A pending
+          order has no mark price/P&L/R-multiple yet (it hasn't filled),
+          so those three swap for a plain "Pending" status instead of
+          showing fabricated numbers computed off a $0 P&L. */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div>
-          <div className={labelCls}>Entry</div>
+          <div className={labelCls}>{isPending ? 'Trigger price' : 'Entry'}</div>
           <div className={statCls}>{entry ? entry.toFixed(5) : '—'}</div>
         </div>
-        <div>
-          <div className={labelCls}>Mark (est.)</div>
-          <div className={statCls}>{impliedPrice ? impliedPrice.toFixed(5) : '—'}</div>
-        </div>
-        <div>
-          <div className={labelCls}>Unrealized P/L</div>
-          <div className={`text-sm font-mono font-bold ${pnl >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
-            {pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}
-            {pnlPercent != null && <span className="ml-1 text-xs font-normal opacity-70">({pnlPercent >= 0 ? '+' : ''}{pnlPercent.toFixed(2)}%)</span>}
+        {isPending ? (
+          <div>
+            <div className={labelCls}>Status</div>
+            <div className="text-sm font-mono font-semibold text-amber-500">Pending — not filled yet</div>
           </div>
-        </div>
+        ) : (
+          <>
+            <div>
+              <div className={labelCls}>Mark (est.)</div>
+              <div className={statCls}>{impliedPrice ? impliedPrice.toFixed(5) : '—'}</div>
+            </div>
+            <div>
+              <div className={labelCls}>Unrealized P/L</div>
+              <div className={`text-sm font-mono font-bold ${pnl >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
+                {pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}
+                {pnlPercent != null && <span className="ml-1 text-xs font-normal opacity-70">({pnlPercent >= 0 ? '+' : ''}{pnlPercent.toFixed(2)}%)</span>}
+              </div>
+            </div>
+          </>
+        )}
         <div>
-          <div className={labelCls}>Open</div>
+          <div className={labelCls}>{isPending ? 'Placed' : 'Open'}</div>
           <div className={statCls}>
             {trade.entry_timestamp || trade.created_at ? formatDistanceToNow(new Date(trade.entry_timestamp || trade.created_at), { addSuffix: false }) : '—'}
           </div>
@@ -167,12 +211,14 @@ export function PositionManager({ trade, dark = false, onChanged }: { trade: Tra
           <div className={labelCls}>Size</div>
           <div className={statCls}>{trade.lot_size} {trade.symbol}</div>
         </div>
-        <div>
-          <div className={labelCls}>R-multiple</div>
-          <div className={`text-sm font-mono font-semibold ${rMultiple != null && rMultiple < 0 ? 'text-red-500' : rMultiple != null ? 'text-emerald-500' : statCls}`}>
-            {rMultiple != null ? `${rMultiple >= 0 ? '+' : ''}${rMultiple.toFixed(2)}R` : '—'}
+        {!isPending && (
+          <div>
+            <div className={labelCls}>R-multiple</div>
+            <div className={`text-sm font-mono font-semibold ${rMultiple != null && rMultiple < 0 ? 'text-red-500' : rMultiple != null ? 'text-emerald-500' : statCls}`}>
+              {rMultiple != null ? `${rMultiple >= 0 ? '+' : ''}${rMultiple.toFixed(2)}R` : '—'}
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       {message && (
@@ -194,6 +240,7 @@ export function PositionManager({ trade, dark = false, onChanged }: { trade: Tra
 
         {!editingTargets ? (
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-sm font-mono">
+            {isPending && <div><span className="text-corporate-hero">Trigger</span> {trade.entry_price?.toFixed(5) ?? '—'}</div>}
             <div><span className="text-red-500">SL</span> {trade.stop_loss?.toFixed(5) ?? '—'}</div>
             <div><span className="text-emerald-500">TP1</span> {trade.take_profit?.toFixed(5) ?? '—'}</div>
             <div><span className="text-emerald-500">TP2</span> {trade.take_profit_2?.toFixed(5) ?? '—'}</div>
@@ -202,6 +249,12 @@ export function PositionManager({ trade, dark = false, onChanged }: { trade: Tra
         ) : (
           <div className="space-y-2">
             <div className="grid grid-cols-2 gap-2">
+              {isPending && (
+                <div>
+                  <label className={labelCls}>Trigger price</label>
+                  <input className={inputCls} value={entryDraft} onChange={(e) => setEntryDraft(e.target.value)} inputMode="decimal" />
+                </div>
+              )}
               <div>
                 <label className={labelCls}>Stop Loss</label>
                 <input className={inputCls} value={slDraft} onChange={(e) => setSlDraft(e.target.value)} inputMode="decimal" />
@@ -237,7 +290,20 @@ export function PositionManager({ trade, dark = false, onChanged }: { trade: Tra
         )}
       </div>
 
-      {/* Partial / full exit */}
+      {/* Partial / full exit — a PENDING order hasn't filled yet, so
+          there's nothing to partially close; it gets Cancel instead,
+          the same action its row-level Cancel button already offers,
+          just also reachable from this dashboard. */}
+      {isPending ? (
+        <div>
+          <button
+            onClick={cancelPendingOrder} disabled={cancelling}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-500/15 text-red-500 hover:bg-red-500/25 disabled:opacity-50"
+          >
+            <Ban size={13} /> {cancelling ? 'Cancelling…' : 'Cancel this order'}
+          </button>
+        </div>
+      ) : (
       <div>
         {!closingOpen ? (
           <button
@@ -286,6 +352,7 @@ export function PositionManager({ trade, dark = false, onChanged }: { trade: Tra
           </div>
         )}
       </div>
+      )}
     </div>
   );
 }
