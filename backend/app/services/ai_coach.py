@@ -91,17 +91,24 @@ async def _call_openai_compatible(
 
 
 async def _call_groq(client: httpx.AsyncClient, api_key: str, system_prompt: str, message: str, max_tokens: int) -> str:
+    # llama-3.3-70b-versatile was decommissioned (Groq's own deprecation
+    # schedule: shut down 2026-08-16) — every live call was 404ing on it
+    # by the time anyone actually hit Ask Coach. openai/gpt-oss-120b is
+    # Groq's own recommended replacement for that model class.
     return await _call_openai_compatible(
         client, base_url="https://api.groq.com/openai/v1/chat/completions",
-        api_key=api_key, model="llama-3.3-70b-versatile",
+        api_key=api_key, model="openai/gpt-oss-120b",
         system_prompt=system_prompt, message=message, max_tokens=max_tokens,
     )
 
 
 async def _call_cerebras(client: httpx.AsyncClient, api_key: str, system_prompt: str, message: str, max_tokens: int) -> str:
+    # "llama-3.3-70b" (hyphenated) 404s against Cerebras' real API —
+    # confirmed directly from this backend's own production logs, not
+    # just docs — their actual model id drops the hyphen after "llama".
     return await _call_openai_compatible(
         client, base_url="https://api.cerebras.ai/v1/chat/completions",
-        api_key=api_key, model="llama-3.3-70b",
+        api_key=api_key, model="llama3.3-70b",
         system_prompt=system_prompt, message=message, max_tokens=max_tokens,
     )
 
@@ -115,9 +122,14 @@ async def _call_mistral(client: httpx.AsyncClient, api_key: str, system_prompt: 
 
 
 async def _call_openrouter(client: httpx.AsyncClient, api_key: str, system_prompt: str, message: str, max_tokens: int) -> str:
+    # meta-llama/llama-3.3-70b-instruct:free went offline along with
+    # OpenRouter's entire free Llama tier (~August 2026) — 404ing on
+    # every real call. "openrouter/free" is their own auto-router
+    # (launched Feb 2026): it picks a live free model for you, so this
+    # stops going stale every time OpenRouter rotates its free lineup.
     return await _call_openai_compatible(
         client, base_url="https://openrouter.ai/api/v1/chat/completions",
-        api_key=api_key, model="meta-llama/llama-3.3-70b-instruct:free",
+        api_key=api_key, model="openrouter/free",
         system_prompt=system_prompt, message=message, max_tokens=max_tokens,
         # Non-required but recommended by OpenRouter to identify the caller.
         extra_headers={"HTTP-Referer": "https://petrazim.online", "X-Title": "Petrazim Trading Portal"},
