@@ -310,6 +310,34 @@ async def place_manual_order(
         db.add(trade)
         await db.commit()
 
+        # A paper LIMIT/STOP order stays genuinely PENDING here — no
+        # broker call at all, on purpose. Real bug report: this used to
+        # fall through to the exact same instant-fill path a paper
+        # MARKET order takes (see _paper_place_order's own docstring on
+        # why paper mode historically instant-filled everything), which
+        # meant the "Pending — not filled yet" label was only ever true
+        # for the length of one HTTP request — and if THAT request got
+        # interrupted (a Render cold-start, a network hiccup on the
+        # price-deviation guard's live ticker fetch below), the row was
+        # left stuck at PENDING forever with nothing ever revisiting it.
+        # It also meant the trigger price itself was never actually
+        # checked against live price at all — an order could "fill" the
+        # instant it was submitted regardless of where price actually
+        # was. pending_order_monitor.py is what now genuinely fills
+        # this the moment live price reaches the trigger — see its own
+        # module docstring for the full story. Paper MARKET orders are
+        # unaffected (still fill instantly below, correctly, since a
+        # market order has nothing to wait for) and so is a real LIVE
+        # order of any type (a real broker has its own real order book
+        # to rest a resting order on).
+        if paper and req.order_type in ("limit", "stop"):
+            response = ManualOrderResponse(
+                trade_id=trade_id, status="pending", is_test=is_test, lot_size=lot_size, risk_percent=risk_percent,
+                message="Order placed — Paper Trading will fill it automatically once live price reaches your trigger price.",
+            )
+            await guard.finalize(response)
+            return response
+
         # Both Test and a real Live order run through the exact same real
         # broker-selection + price-deviation-guard pipeline
         # (execution_engine.py::_execute_broker_order) — `paper` only

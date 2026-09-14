@@ -38,6 +38,7 @@ from app.db.session import engine as legacy_engine, Base as LegacyBase
 from app.services.execution_engine import ExecutionEngine
 from app.services.market_scanner import MarketScanner
 from app.services.position_monitor import PositionMonitor
+from app.services.pending_order_monitor import PendingOrderMonitor
 
 settings = get_settings()
 logger = structlog.get_logger()
@@ -158,9 +159,18 @@ async def lifespan(app: FastAPI):
     # own module docstring for why this is Test-mode-only and safe to
     # run on by default, unlike the market scanner above).
     position_monitor = None
+    pending_order_monitor = None
     if settings.POSITION_MONITOR_ENABLED:
         position_monitor = PositionMonitor()
         position_monitor.start()
+        # Same flag/interval as PositionMonitor above — this is the
+        # other half of the same "watch live prices for paper trades"
+        # feature (fills a still-PENDING LIMIT/STOP order once price
+        # reaches its trigger, rather than the old — and buggy —
+        # instant-fill-at-submission behavior). See its own module
+        # docstring for the bug report that led to it.
+        pending_order_monitor = PendingOrderMonitor()
+        pending_order_monitor.start()
 
     yield
 
@@ -168,6 +178,8 @@ async def lifespan(app: FastAPI):
         await scanner.stop()
     if position_monitor is not None:
         await position_monitor.stop()
+    if pending_order_monitor is not None:
+        await pending_order_monitor.stop()
 
     logger.info("app_shutdown")
     await engine.dispose()
