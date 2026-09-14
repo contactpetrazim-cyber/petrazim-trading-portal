@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { X, Loader2, RotateCcw, Sun, Moon, Palette, Target, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Maximize2 } from 'lucide-react';
-import { CandleChart, type Candle, type ChartLine } from './CandleChart';
+import { X, Loader2, RotateCcw, Sun, Moon, Palette, Target, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Maximize2, Crosshair, TrendingUp, PenLine, Eraser } from 'lucide-react';
+import { CandleChart, CHART_LAYOUT, computeChartRange, type Candle, type ChartLine, type OverlaySeries, type DrawnSegment } from './CandleChart';
 import { formatSignedMoney, type ChartPosition } from './TradingViewChart';
 import { PositionManager } from './PositionManager';
 import { orderFlowApi } from '../services/api';
@@ -125,17 +125,24 @@ const COLOR_PRESETS: { label: string; up: string; down: string }[] = [
  * trade's SL/TP.
  *
  * Zoom (fewer/more candles visible) and pan (scroll back through
- * history, up to the POOL_SIZE-candle fetch) are real, button-driven
- * controls — see the toolbar row above the chart pane — by direct
- * request ("add feature to resize or move the chart or scroll ...
- * increase or decrease scale ... zoom in or out"). Deliberately +/-/
- * ‹/› buttons rather than pinch/drag gesture physics: this modal is
- * used identically on touch and desktop, and buttons behave
- * identically on both with no gesture-library dependency. A genuinely
- * full-featured chart (real drawing tools, click-drag pan, live
- * indicators) still needs TradingView's paid/licensed Charting
- * Library — see this component's own tracking note for that upgrade
- * path; this stays the fallback if that license isn't approved.
+ * history, up to the POOL_SIZE-candle fetch) work both as +/-/‹/›
+ * toolbar buttons AND as real click-drag/touch-drag/pinch/wheel
+ * gestures side by side — by direct request ("add feature to ...
+ * zoom in or out", then "keep the tap/click buttons ... work on
+ * [the hands-on feel] additional[ly]"). By further direct request
+ * ("add drawing tools and other standard charting tools"), a
+ * crosshair + OHLC readout, SMA(20)/SMA(50) overlays, and straight
+ * trend-line drawing (persisted per symbol in localStorage) are real
+ * too — see the toolbar row above the chart pane and pixelToChartLive
+ * below. SCOPE, stated plainly: no shape library (rectangles/
+ * Fibonacci/text annotations), no per-line selection/recolor (Clear
+ * removes every drawn segment on a symbol at once), no live server-
+ * side indicators beyond the two SMAs computed client-side here. A
+ * genuinely full-featured chart (that full toolset, plus multi-chart
+ * layouts, saved templates) still needs TradingView's paid/licensed
+ * Charting Library — see this component's own tracking note for that
+ * upgrade path; this stays the fallback if that license isn't
+ * approved.
  *
  * HONEST SCOPE: the real candle data comes from order_flow.py's
  * `/klines` proxy, which only covers Binance's own small, explicit
@@ -217,6 +224,14 @@ export function PositionOnChartModal({
   const [visibleCount, setVisibleCount] = useState(DEFAULT_VISIBLE);
   const [panOffset, setPanOffset] = useState(0);
   const maxPanOffset = Math.max(0, (allCandles?.length ?? 0) - visibleCount);
+  // `visibleStart` — the index into the STABLE `allCandles` pool where
+  // the current visible window begins. Exposed (not just used inline)
+  // because drawings/crosshair below anchor to `allCandles`-relative
+  // index specifically so they stay attached to their real candle as
+  // you pan/zoom (only `visibleStart`/`visibleCount` change on pan/
+  // zoom — `allCandles` itself doesn't, so an index into IT is stable
+  // in a way an index into the shifting visible slice isn't).
+  const visibleStart = allCandles ? Math.max(0, Math.max(0, allCandles.length - panOffset) - visibleCount) : 0;
   const candles = useMemo(() => {
     if (!allCandles) return null;
     const end = Math.max(0, allCandles.length - panOffset);
@@ -229,6 +244,7 @@ export function PositionOnChartModal({
   function panNewer() { setPanOffset((p) => Math.max(0, p - Math.max(1, Math.round(visibleCount * 0.5)))); }
   function resetView() { setVisibleCount(DEFAULT_VISIBLE); setPanOffset(0); }
 
+  const CHART_HEIGHT = 520;
   // Click-drag / touch-drag pan + two-finger pinch-zoom, attached to
   // the chart pane below via ref (native listeners, not React's
   // onWheel/onTouch* — React attaches those as passive at the root for
@@ -241,14 +257,65 @@ export function PositionOnChartModal({
   // on every pixel of movement, and only the derived visibleCount/
   // panOffset actually need to be React state (they're what's drawn).
   const chartPaneRef = useRef<HTMLDivElement>(null);
-  // Always holds the LATEST visibleCount/panOffset — the gesture
-  // effect below intentionally does not re-run when these change (see
-  // its own comment on why), so a new gesture starting after an
-  // earlier one already moved the view would otherwise read stale
-  // values baked in when the effect last (re-)attached, instead of
-  // where the view actually is now.
-  const viewRef = useRef({ visibleCount, panOffset });
-  useEffect(() => { viewRef.current = { visibleCount, panOffset }; }, [visibleCount, panOffset]);
+  // Tight wrapper directly around <CandleChart> only (no padding) —
+  // used for pixel<->chart conversion (crosshair, drawing) so it lines
+  // up exactly with what CandleChart renders; chartPaneRef above has
+  // its own p-3 padding around that, which would throw the math off.
+  const chartBoxRef = useRef<HTMLDivElement>(null);
+
+  // Drawing tool — by direct request ("add drawing tools ... to this
+  // chart"). Segments are anchored to `allCandles`-relative (absolute)
+  // index/price pairs — same reasoning as `visibleStart` above — and
+  // only converted to visible-relative right before being handed to
+  // CandleChart (see `visibleDrawings` below). Persisted per-symbol in
+  // localStorage (survives closing/reopening this modal); every
+  // read/write is wrapped since storage can fail (private browsing,
+  // quota) without that being a reason to break the feature.
+  const [drawMode, setDrawMode] = useState(false);
+  const [drawings, setDrawings] = useState<DrawnSegment[]>([]);
+  const [inProgressDraw, setInProgressDraw] = useState<DrawnSegment | null>(null);
+  const drawStorageKey = `petrazim.chartDrawings.${symbol}`;
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(drawStorageKey);
+      setDrawings(raw ? JSON.parse(raw) : []);
+    } catch { setDrawings([]); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [symbol]);
+  useEffect(() => {
+    try { localStorage.setItem(drawStorageKey, JSON.stringify(drawings)); } catch { /* not fatal — just won't persist */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [drawings, symbol]);
+  function clearDrawings() { setDrawings([]); }
+
+  // Crosshair — by direct request ("add ... other standard charting
+  // tools"). Relative to the CURRENTLY VISIBLE `candles` — unlike
+  // drawings, a hover position is instantaneous and never needs to
+  // survive a pan/zoom, so there's no reason to route it through the
+  // heavier absolute-index scheme those use.
+  const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+
+  // Moving average overlay — by direct request. Computed from the
+  // STABLE allCandles pool (needs real lookback beyond just what's
+  // currently visible to be accurate near the left edge of the
+  // visible window), then sliced to match it — see `maSeries` below.
+  const [showMA, setShowMA] = useState(false);
+
+  // Always holds the LATEST visibleCount/panOffset/visibleStart AND
+  // the candle count/price range CandleChart is CURRENTLY drawing
+  // against — the gesture effect below intentionally does not re-run
+  // when any of these change (re-running it mid-gesture would freeze
+  // whatever drag/draw was in progress — same class of bug documented
+  // on the effect's own dependency array), so pixelToChartLive (used
+  // for BOTH the crosshair and drawing pixel math) reads this ref at
+  // call time instead of closing over stale values from whenever the
+  // effect last (re-)attached.
+  const liveRef = useRef({ visibleCount, panOffset, visibleStart, candlesLength: 0, yTop: 0, yBottom: 0 });
+  useEffect(() => {
+    const range = candles && candles.length > 0 ? computeChartRange(candles, [], lines, []) : { yTop: 0, yBottom: 0 };
+    liveRef.current = { visibleCount, panOffset, visibleStart, candlesLength: candles?.length ?? 0, yTop: range.yTop, yBottom: range.yBottom };
+  });
+
   useEffect(() => {
     const el = chartPaneRef.current;
     if (!el || !allCandles) return;
@@ -260,10 +327,39 @@ export function PositionOnChartModal({
       return Math.max(0, Math.min(offset, Math.max(0, (allCandles?.length ?? 0) - visible)));
     }
 
+    /** Viewport pixel -> {visibleIndex, price}, reading liveRef fresh
+     * on every call (see liveRef's own comment on why). */
+    function pixelToChartLive(clientX: number, clientY: number): { visibleIndex: number; price: number } | null {
+      const box = chartBoxRef.current;
+      const live = liveRef.current;
+      if (!box || live.candlesLength === 0) return null;
+      const rect = box.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) return null;
+      const { padLeft, padRight, padTop, padBottom, width } = CHART_LAYOUT;
+      const plotWidth = width - padLeft - padRight;
+      const plotHeight = CHART_HEIGHT - padTop - padBottom;
+      const relX = ((clientX - rect.left) / rect.width) * width;
+      const slotWidth = plotWidth / live.candlesLength;
+      const idx = (relX - padLeft) / slotWidth - 0.5;
+      const visibleIndex = Math.round(Math.max(0, Math.min(live.candlesLength - 1, idx)));
+      const relY = ((clientY - rect.top) / rect.height) * CHART_HEIGHT;
+      const priceFrac = (relY - padTop) / plotHeight;
+      const price = live.yTop - priceFrac * (live.yTop - live.yBottom);
+      return { visibleIndex, price };
+    }
+
     function onPointerDown(e: PointerEvent) {
       el!.setPointerCapture(e.pointerId);
       pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-      const { visibleCount: vc, panOffset: po } = viewRef.current;
+      if (drawMode) {
+        const pt = pixelToChartLive(e.clientX, e.clientY);
+        if (pt) {
+          const abs = liveRef.current.visibleStart + pt.visibleIndex;
+          setInProgressDraw({ id: 'preview', index1: abs, price1: pt.price, index2: abs, price2: pt.price });
+        }
+        return;
+      }
+      const { visibleCount: vc, panOffset: po } = liveRef.current;
       if (pointers.size === 1) {
         gesture = { mode: 'pan', visibleCount: vc, panOffset: po, x: e.clientX };
       } else if (pointers.size === 2) {
@@ -272,6 +368,22 @@ export function PositionOnChartModal({
       }
     }
     function onPointerMove(e: PointerEvent) {
+      // Crosshair follows ANY pointer movement over the chart —
+      // independent of an active pan/pinch/draw gesture, so it also
+      // works as a plain hover (mouse, no button pressed).
+      const pt = pixelToChartLive(e.clientX, e.clientY);
+      setHoverIndex(pt ? pt.visibleIndex : null);
+
+      if (drawMode) {
+        if (!pointers.has(e.pointerId)) return;
+        pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        if (pt) {
+          const abs = liveRef.current.visibleStart + pt.visibleIndex;
+          setInProgressDraw((prev) => (prev ? { ...prev, index2: abs, price2: pt.price } : prev));
+        }
+        return;
+      }
+
       if (!pointers.has(e.pointerId) || !gesture || !allCandles) return;
       pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (gesture.mode === 'pan' && pointers.size === 1) {
@@ -292,17 +404,30 @@ export function PositionOnChartModal({
     }
     function onPointerUp(e: PointerEvent) {
       pointers.delete(e.pointerId);
+      if (drawMode) {
+        if (pointers.size === 0) {
+          setInProgressDraw((prev) => {
+            if (prev && (prev.index1 !== prev.index2 || prev.price1 !== prev.price2)) {
+              const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+              setDrawings((ds) => [...ds, { ...prev, id }]);
+            }
+            return null;
+          });
+        }
+        return;
+      }
       if (pointers.size === 0) {
         gesture = null;
       } else if (pointers.size === 1 && gesture) {
         // Lifted one finger mid-pinch — re-baseline as a fresh pan
         // from here rather than jumping using stale pinch state.
         const [remaining] = Array.from(pointers.values());
-        gesture = { mode: 'pan', visibleCount: viewRef.current.visibleCount, panOffset: viewRef.current.panOffset, x: remaining.x };
+        gesture = { mode: 'pan', visibleCount: liveRef.current.visibleCount, panOffset: liveRef.current.panOffset, x: remaining.x };
       }
     }
+    function onPointerLeave() { setHoverIndex(null); }
     function onWheel(e: WheelEvent) {
-      if (!allCandles) return;
+      if (!allCandles || drawMode) return;
       e.preventDefault();
       setVisibleCount((v) => (e.deltaY < 0 ? Math.max(MIN_VISIBLE, Math.round(v * 0.85)) : Math.min(allCandles.length, Math.round(v * 1.18))));
     }
@@ -311,27 +436,76 @@ export function PositionOnChartModal({
     el.addEventListener('pointermove', onPointerMove);
     el.addEventListener('pointerup', onPointerUp);
     el.addEventListener('pointercancel', onPointerUp);
+    el.addEventListener('pointerleave', onPointerLeave);
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => {
       el.removeEventListener('pointerdown', onPointerDown);
       el.removeEventListener('pointermove', onPointerMove);
       el.removeEventListener('pointerup', onPointerUp);
       el.removeEventListener('pointercancel', onPointerUp);
+      el.removeEventListener('pointerleave', onPointerLeave);
       el.removeEventListener('wheel', onWheel);
     };
-    // Deliberately depends on `allCandles` ONLY, not `visibleCount`/
-    // `panOffset`/`candles` — those change on every single pan/zoom
-    // step (including mid-drag, via the setPanOffset calls above), and
+    // Deliberately depends on `allCandles`/`drawMode` only, not
+    // `visibleCount`/`panOffset`/`candles` — those change on every
+    // single pan/zoom/draw step (including mid-gesture, via this same
+    // effect's own setPanOffset/setInProgressDraw calls), and
     // re-running this effect tears down + re-attaches the listeners,
     // which would reset `pointers`/`gesture` to empty and silently
-    // freeze whatever drag was already in progress. `allCandles` only
-    // changes on a real refetch (symbol/interval/retry), which is
-    // exactly when a fresh listener attachment (clean gesture state)
-    // is actually wanted. `visibleCount`/`panOffset` are read fresh at
-    // gesture START (pointerdown) via closure, so correctness mid-drag
-    // never depended on them being deps here.
+    // freeze whatever gesture was in progress. `allCandles` only
+    // changes on a real refetch (symbol/interval/retry — exactly when
+    // a fresh, clean gesture-state reattachment is wanted); `drawMode`
+    // toggling mid-gesture is fine to re-attach on — there's no
+    // in-progress gesture worth preserving across a deliberate
+    // pan<->draw mode switch. Every value that DOES need to stay fresh
+    // without being a dep (visibleCount/panOffset/visibleStart/
+    // candlesLength/yTop/yBottom) is read from liveRef at call time
+    // instead.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allCandles]);
+  }, [allCandles, drawMode]);
+
+  /** Persisted drawings, converted from stable allCandles-relative
+   * index to the CURRENTLY VISIBLE window's relative index — this is
+   * what actually gets handed to CandleChart. A segment whose both
+   * endpoints fall outside the visible window still gets passed
+   * through (SVG clips it automatically, same as how a horizontal
+   * reference line already behaves when its price is off-screen) —
+   * no separate filtering needed. */
+  const visibleDrawings: DrawnSegment[] = useMemo(() => {
+    const toVisible = (d: DrawnSegment): DrawnSegment => ({
+      ...d, index1: d.index1 - visibleStart, index2: d.index2 - visibleStart,
+    });
+    const list = drawings.map(toVisible);
+    if (inProgressDraw) list.push({ ...toVisible(inProgressDraw), color: '#2563eb', id: 'preview' });
+    return list;
+  }, [drawings, inProgressDraw, visibleStart]);
+
+  /** Simple moving average(s) — by direct request ("add ... standard
+   * charting tools"). Computed from the STABLE allCandles pool (real
+   * lookback, not just what happens to be visible) then sliced to the
+   * visible window so CandleChart gets exactly one point per visible
+   * candle, same shape `lines`/`zones` already use. */
+  const maSeries: OverlaySeries[] = useMemo(() => {
+    if (!showMA || !allCandles || !candles || candles.length === 0) return [];
+    const pool = allCandles;
+    function sma(period: number): (number | null)[] {
+      const closes = pool.map((c) => c.close);
+      return closes.map((_, i) => {
+        if (i < period - 1) return null;
+        let sum = 0;
+        for (let k = i - period + 1; k <= i; k++) sum += closes[k];
+        return sum / period;
+      });
+    }
+    const sma20 = sma(20).slice(visibleStart, visibleStart + candles.length);
+    const sma50 = sma(50).slice(visibleStart, visibleStart + candles.length);
+    return [
+      { points: sma20, color: '#a855f7', label: 'SMA 20' },
+      { points: sma50, color: '#f97316', label: 'SMA 50' },
+    ];
+  }, [showMA, allCandles, candles, visibleStart]);
+
+  const hoveredCandle = hoverIndex != null ? candles?.[hoverIndex] : null;
 
   // Local-only theme/color overrides. Theme defaults to light always
   // (by direct instruction), independent of whatever the calling chart
@@ -535,13 +709,51 @@ export function PositionOnChartModal({
           <button onClick={resetView} disabled={visibleCount === DEFAULT_VISIBLE && panOffset === 0} aria-label="Reset zoom and scroll" title="Reset to the live view" className={`flex items-center gap-1 px-2 py-1.5 rounded-md text-[11px] font-medium disabled:opacity-30 ${chromeMutedCls}`}>
             <Maximize2 size={12} /> Reset
           </button>
+          <span className={`w-px self-stretch mx-0.5 ${localDark ? 'bg-white/10' : 'bg-black/10'}`} />
+          {/* Moving average + drawing tool — by direct request ("add
+              drawing tools and other standard charting tools to this
+              chart"). SCOPE, said plainly rather than overpromising:
+              SMA(20)/SMA(50) overlays and straight trend-line segments
+              only — no shape library (rectangles/Fibonacci/text), no
+              per-line selection or color picker (Clear removes every
+              drawn segment on this symbol, not one at a time). A real
+              full toolset (those, plus live indicators, multi-chart
+              layouts) is what TradingView's paid Charting Library is
+              for — see this component's own tracking note. */}
+          <button
+            onClick={() => setShowMA((v) => !v)}
+            aria-label={showMA ? 'Hide moving averages' : 'Show moving averages (SMA 20 / SMA 50)'}
+            title="SMA 20 / SMA 50"
+            className={`flex items-center gap-1 px-2 py-1.5 rounded-md text-[11px] font-medium ${showMA ? 'bg-corporate-hero text-white' : chromeMutedCls}`}
+          >
+            <TrendingUp size={13} /> MA
+          </button>
+          <button
+            onClick={() => setDrawMode((v) => !v)}
+            aria-label={drawMode ? 'Stop drawing' : 'Draw a trend line'}
+            title={drawMode ? 'Drawing — drag to add a line; click again to stop' : 'Draw a trend line'}
+            className={`flex items-center gap-1 px-2 py-1.5 rounded-md text-[11px] font-medium ${drawMode ? 'bg-corporate-hero text-white' : chromeMutedCls}`}
+          >
+            <PenLine size={13} /> Draw
+          </button>
+          {drawings.length > 0 && (
+            <button onClick={clearDrawings} aria-label="Clear all drawn lines" title="Clear all drawn lines" className={`p-1.5 rounded-md ${chromeMutedCls}`}>
+              <Eraser size={14} />
+            </button>
+          )}
         </div>
       )}
       {/* overflow-hidden (was overflow-auto — CandleChart always fills
           `height` exactly, nothing to scroll) + touchAction: 'none' so
           the browser's own native touch-scroll/pinch-zoom never fights
-          the pointer handlers above for the same gesture. */}
-      <div ref={chartPaneRef} className={`flex-1 min-h-0 rounded-lg ${paneCls} p-3 overflow-hidden`} style={{ touchAction: 'none', cursor: candles ? 'grab' : undefined }}>
+          the pointer handlers above for the same gesture. Cursor hints
+          which mode is active: crosshair while drawing, grab otherwise
+          (drag to pan). */}
+      <div
+        ref={chartPaneRef}
+        className={`relative flex-1 min-h-0 rounded-lg ${paneCls} p-3 overflow-hidden`}
+        style={{ touchAction: 'none', cursor: !candles ? undefined : drawMode ? 'crosshair' : 'grab' }}
+      >
         {error ? (
           <div className={`h-full flex flex-col items-center justify-center text-center gap-3 text-sm px-6 ${localDark ? 'text-white/70' : 'text-gray-500'}`}>
             <span>{error}</span>
@@ -557,7 +769,33 @@ export function PositionOnChartModal({
             <Loader2 size={16} className="animate-spin" /> Loading live candles…
           </div>
         ) : (
-          <CandleChart candles={candles} lines={lines} height={520} dark={localDark} bullColor={localBull} bearColor={localBear} />
+          <>
+            <div ref={chartBoxRef}>
+              <CandleChart
+                candles={candles} lines={lines} overlaySeries={maSeries} drawings={visibleDrawings}
+                height={CHART_HEIGHT} dark={localDark} bullColor={localBull} bearColor={localBear}
+              />
+            </div>
+            {/* Crosshair guide + OHLC readout — by direct request ("add
+                ... other standard charting tools"). Vertical guide at
+                the hovered candle; readout pinned top-left so it never
+                sits under the reader's own finger on touch. */}
+            {hoveredCandle && hoverIndex != null && candles.length > 0 && (
+              <div className="absolute inset-3 pointer-events-none">
+                <div
+                  className={`absolute top-0 bottom-0 w-px ${localDark ? 'bg-white/30' : 'bg-black/25'}`}
+                  style={{ left: `${((hoverIndex + 0.5) / candles.length) * 100}%` }}
+                />
+                <div className={`absolute top-1 left-1 rounded-lg px-2 py-1.5 text-[10px] font-mono leading-relaxed ${localDark ? 'bg-black/80 text-white/90' : 'bg-white/90 text-gray-800'} shadow`}>
+                  <div className="flex items-center gap-1 font-sans font-semibold text-[10px] mb-0.5 opacity-70">
+                    <Crosshair size={10} />
+                    {hoveredCandle.time ? new Date(hoveredCandle.time).toLocaleString() : `Candle ${hoverIndex + 1}`}
+                  </div>
+                  O <span className="text-inherit">{hoveredCandle.open}</span> · H <span className="text-emerald-500">{hoveredCandle.high}</span> · L <span className="text-red-500">{hoveredCandle.low}</span> · C <span className="font-bold">{hoveredCandle.close}</span>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>
