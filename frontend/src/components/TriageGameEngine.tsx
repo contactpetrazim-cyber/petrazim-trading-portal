@@ -9,7 +9,26 @@ import { makeIdempotencyKey } from '../lib/resilientFetch';
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 export interface TriageOption { label: string; correct: boolean }
-export interface TriageScenario { id: string; prompt: string; options: TriageOption[]; whatYoudDoDifferently: string }
+export interface TriageScenario {
+  id: string;
+  prompt: string;
+  options: TriageOption[];
+  whatYoudDoDifferently: string;
+  /**
+   * Optional chart illustrating the scenario's price action, so a
+   * trainee doesn't have to picture a described setup from words
+   * alone (direct request: "create and include chart diagrams... to
+   * remove ambiguity"). A function of `dark` rather than a plain
+   * ReactNode because SCENARIOS arrays are module-level constants
+   * built before the page component (and its theme) exists — deferred
+   * until render, same reason TradingGamePage-style pages thread
+   * `dark` through everything else. Must show only what the prompt
+   * text itself already describes (candles/zones/markers restating
+   * the setup) — never a caption or label that states which answer is
+   * correct, or the chart would just hand over the quiz.
+   */
+  chart?: (dark: boolean) => ReactNode;
+}
 
 /**
  * TriageGameEngine — shared "read a scenario, choose under a countdown"
@@ -138,7 +157,9 @@ export function TriageGameEngine({
       </div>
 
       <div className={`text-xs mb-1 ${dark ? 'text-white/40' : 'text-gray-400'}`}>Scenario {index + 1} of {scenarios.length}</div>
-      <p className={`text-base font-medium mb-5 leading-relaxed ${dark ? 'text-white' : 'text-corporate-text-on-bg'}`}>{scenario.prompt}</p>
+      <p className={`text-base font-medium mb-4 leading-relaxed ${dark ? 'text-white' : 'text-corporate-text-on-bg'}`}>{scenario.prompt}</p>
+
+      {scenario.chart && <div className="mb-5">{scenario.chart(dark)}</div>}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-4">
         {scenario.options.map((opt, i) => {
