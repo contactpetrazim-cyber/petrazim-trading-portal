@@ -92,25 +92,38 @@ export const useQuickPairsStore = create<QuickPairsState>()(
   ),
 );
 
+// Maps Trade.broker_name (execution_engine.py's own lowercase broker
+// ids — see _determine_broker) to the matching TradingView exchange
+// prefix — same 4 crypto brokers PairsPanel's own ORDER_BROKERS tags
+// order results with. tradelocker/metatrader (forex/MT5) have no
+// single TradingView exchange equivalent, so a trade on either falls
+// through to the INSTRUMENT_CATALOGUE guess below instead of guessing
+// wrong here.
+const BROKER_TV_EXCHANGE: Record<string, string> = {
+  binance: 'BINANCE', bybit: 'BYBIT', bingx: 'BINGX', mexc: 'MEXC',
+};
+
 /**
  * Builds a QuickPair straight from a Trade's own exchange-format
  * `symbol` (e.g. "BTCUSDT") — for the "Goto Chart" link on an order
- * management card (PositionManager), by direct request. A `Trade`
- * record doesn't carry which exchange it was routed to (neither the
- * frontend `Trade` type nor the backend model has an `exchange`
- * field — manual orders in particular have no such link at all), so
- * this can't always be exact: it looks the symbol up in the same
- * INSTRUMENT_CATALOGUE the search panel uses (an exact `symbol` match
- * there IS a real, chart-verified `EXCHANGE:TICKER`), and only when
- * that lookup misses does it fall back to `BINANCE:<symbol>` — this
- * app's own default/primary crypto feed (see DEFAULT_QUICK_PAIRS
- * above), which is right for the common case and at least loads a
- * real chart for the rest rather than guessing wrong silently.
+ * management card (PositionManager), by direct request. Now that
+ * Trade.broker_name is surfaced by the API (see TradeResponse — it
+ * was always recorded at execution time, just never returned to a
+ * client before, by direct follow-up request: "exchange record is
+ * important"), a real recorded broker maps straight to its
+ * TradingView exchange via BROKER_TV_EXCHANGE and is always exact.
+ * `brokerName` stays optional and falls back to the same
+ * INSTRUMENT_CATALOGUE-lookup guess as before — this app's own
+ * default/primary crypto feed (see DEFAULT_QUICK_PAIRS above) — for a
+ * trade with no broker recorded (placed before this field existed) or
+ * one on tradelocker/metatrader, which BROKER_TV_EXCHANGE doesn't
+ * cover.
  */
-export function pairFromTradeSymbol(tradeSymbol: string): QuickPair {
+export function pairFromTradeSymbol(tradeSymbol: string, brokerName?: string | null): QuickPair {
   const clean = tradeSymbol.trim().toUpperCase();
+  const brokerExch = brokerName ? BROKER_TV_EXCHANGE[brokerName.trim().toLowerCase()] : undefined;
   const match = INSTRUMENT_CATALOGUE.find((i) => i.symbol.toUpperCase() === clean);
-  const exch = match?.exchange ?? 'BINANCE';
+  const exch = brokerExch ?? match?.exchange ?? 'BINANCE';
   const desc = match?.description || '';
   return {
     label: desc && desc.length <= 16 ? desc : clean,
