@@ -38,7 +38,7 @@ from app.models.trade import EntryType, ExitType, ManualTradingSettings, Trade, 
 from app.models.user import User
 from app.services.execution_engine import ExecutionEngine
 from app.services.live_price import get_crypto_price
-from app.services.manual_trading import check_manual_trade_risk, compute_lot_size, effective_limits, get_master_paper_enforced
+from app.services.manual_trading import check_manual_trade_risk, compute_lot_size, compute_r_multiple, effective_limits, get_master_paper_enforced
 
 router = APIRouter(prefix="/manual-trading", tags=["manual-trading"])
 logger = structlog.get_logger()
@@ -399,6 +399,10 @@ async def partial_close(
         row.exit_timestamp = datetime.now(timezone.utc)
         row.exit_type = ExitType.MANUAL
         row.lot_size = 0.0
+        # See compute_r_multiple's own docstring — this was never set
+        # anywhere before, silently zeroing out average_r everywhere
+        # it's read.
+        row.r_multiple = compute_r_multiple(row.entry_price, req.exit_price, row.stop_loss, row.direction)
     await db.commit()
 
     return PartialCloseResponse(
@@ -548,6 +552,7 @@ async def cancel_order(
     row.status = TradeStatus.CLOSED
     row.exit_price = exit_price
     row.exit_timestamp = datetime.now(timezone.utc)
+    row.r_multiple = compute_r_multiple(row.entry_price, exit_price, row.stop_loss, row.direction)
     row.exit_type = ExitType.MANUAL
     await db.commit()
 

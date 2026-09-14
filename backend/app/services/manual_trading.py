@@ -37,7 +37,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.models.platform_setting import PlatformSetting, TRADING_PAPER_ENFORCED_KEY
-from app.models.trade import ManualTradingSettings, Trade, TradeStatus
+from app.models.trade import ManualTradingSettings, Trade, TradeDirection, TradeStatus
 
 
 async def get_master_paper_enforced(db: AsyncSession) -> bool:
@@ -167,3 +167,33 @@ def compute_lot_size(account_equity: float, risk_percent: float, entry_price: fl
     if per_unit_risk <= 0:
         raise ValueError("stop_loss must differ from entry_price")
     return round(risk_amount / per_unit_risk, 6)
+
+
+def compute_r_multiple(
+    entry_price: float, exit_price: float, stop_loss: float, direction: TradeDirection,
+) -> Optional[float]:
+    """How many multiples of the ORIGINAL risk (entry-to-stop distance)
+    this trade's exit represents — the standard R-multiple, same sign
+    convention journal_reviewer.py's own _r_multiple already uses for a
+    manually-logged trade. Found missing during a critical review of
+    trading calculations: Trade.r_multiple was NEVER assigned anywhere
+    in the backend (confirmed via a full-codebase search for
+    `.r_multiple =`) despite being read in bots.py's /performance
+    (average_r) and dashboard.py's /performance (average_r_multiple) —
+    both of those numbers were silently 0.0 for every bot/trader,
+    always, regardless of real trade history, since the
+    `r_multiple is not None` filter they apply excluded every row.
+    Wired into every real close site (manual_trading.py's partial_close
+    100%-case and cancel_order's ACTIVE fallback-to-close, plus
+    position_monitor.py's own SL/TP auto-close) so this is finally a
+    real number. Returns None (not 0.0) when risk_per_unit is 0 —
+    entry_price == stop_loss should never happen for a trade actually
+    opened through this app (compute_lot_size itself refuses that
+    combination), but an older or manually-edited row could still hit
+    it, and a genuine 0R (breakeven) exit is a real, different value
+    that shouldn't be conflated with "couldn't compute"."""
+    risk_per_unit = abs(entry_price - stop_loss)
+    if risk_per_unit == 0:
+        return None
+    sign = 1 if direction == TradeDirection.LONG else -1
+    return sign * (exit_price - entry_price) / risk_per_unit
