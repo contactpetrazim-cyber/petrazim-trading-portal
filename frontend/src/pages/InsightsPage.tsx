@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { ArrowRight } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
 import { FoldedCard } from '../components/FoldedCard';
-import { ChartPanel } from '../components/ChartPanel';
+import { ChartWithPairs } from '../components/ChartWithPairs';
 import { TradeAnalytics } from '../components/TradeAnalytics';
 import { LoadingIndicator } from '../components/LoadingIndicator';
 import { LineChart, BarChart3 } from 'lucide-react';
@@ -155,7 +155,7 @@ export function InsightsPage() {
 
       <div className="mb-4">
         <FoldedCard title="Chart" summary="A live TradingView chart, right here" icon={<LineChart size={19} />} dark={dark} defaultOpen>
-          <ChartPanel symbol="OANDA:EURUSD" height={380} tradeSymbol="EURUSD" dark={dark} />
+          <ChartWithPairs height={380} dark={dark} defaultTv="OANDA:EURUSD" />
         </FoldedCard>
       </div>
 

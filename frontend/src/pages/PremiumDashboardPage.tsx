@@ -8,7 +8,7 @@ import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, A
 import { StatCard } from '../components/StatCard';
 import { TradeRow } from '../components/TradeRow';
 import { FoldedCard } from '../components/FoldedCard';
-import { ChartPanel } from '../components/ChartPanel';
+import { ChartWithPairs } from '../components/ChartWithPairs';
 import { LoadingIndicator } from '../components/LoadingIndicator';
 import { AccessStatusBanner } from '../components/AccessStatusBanner';
 import { RoleBadge } from '../components/RoleBadge';
@@ -189,7 +189,7 @@ export function PremiumDashboardPage() {
       </div>
 
       <FoldedCard title="Live Chart" summary="A live TradingView chart with your saved workspace one click away" icon={<LineChartIcon size={19} />} dark={dark} defaultOpen>
-        <ChartPanel symbol="BINANCE:BTCUSDT" height={420} tradeSymbol="BTCUSDT" dark={dark} />
+        <ChartWithPairs height={420} dark={dark} />
         <Link to="/tradingview" className={`mt-2 inline-block text-xs font-medium ${dark ? 'text-white/50' : 'text-corporate-hero'}`}>
           Open My Workspace (saved views, drawing tools) →
         </Link>

@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom';
 import { LineChart } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
 import { FoldedCard } from '../components/FoldedCard';
-import { ChartPanel } from '../components/ChartPanel';
+import { ChartWithPairs } from '../components/ChartWithPairs';
 import { FEATURE_AREAS, FEATURE_REGISTRY, AREA_ICONS, FeatureArea } from '../config/featureRegistry';
 import { useThemeStore } from '../hooks/useTheme';
 
@@ -57,7 +57,7 @@ export function AreaPage({ area }: { area: FeatureArea }) {
           title="Chart" summary="A live TradingView chart, right here" icon={<LineChart size={19} />}
           dark={dark} defaultOpen
         >
-          <ChartPanel symbol="OANDA:EURUSD" height={420} tradeSymbol="EURUSD" dark={dark} />
+          <ChartWithPairs height={420} dark={dark} defaultTv="OANDA:EURUSD" />
         </FoldedCard>
       </div>
 
