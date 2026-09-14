@@ -94,7 +94,24 @@ if (activeBase === VM_BASE) scheduleFailbackCheck(); // page loaded mid-session 
 // too early or keeps using the VM long after Render was already
 // awake. A fast, healthy Render (the common case) never touches the
 // VM at all.
-const WARMUP_CHECK_TIMEOUT_MS = 4_000;
+// 2s, not the original 4s — by direct follow-up ("4 seconds might be
+// long for a trader? What would be the effect? For 2 seconds"). The
+// effect, worked through: this only changes the outcome in the narrow
+// band where Render's real response time falls BETWEEN 2s and 4s — a
+// warm, healthy Render answers in well under 1s either way (no
+// difference), and a genuinely cold/dead one doesn't answer for many
+// seconds to minutes either way (also no difference — both correctly
+// fail over, 2s just reaches that correct call 2s sooner, so any real
+// request the app fires in that same window is exposed to a hanging
+// cold Render for 2s less). The actual tradeoff: a Render that's
+// merely slow right now (not cold, just poor network/load — e.g. a
+// 2.5-3.5s response) now gets treated as "failed" and this
+// unnecessarily diverts to the VM for what would've been a fine, if
+// sluggish, Render response. Low-cost false positive, though — the VM
+// serves the identical code/DB, and the failback poller below
+// switches back the moment Render answers normally, so it costs a
+// slightly-slower request or two, not a broken one.
+const WARMUP_CHECK_TIMEOUT_MS = 2_000;
 if (VM_BASE && activeBase === PRIMARY_BASE) {
   const controller = new AbortController();
   const warmupTimer = window.setTimeout(() => controller.abort(), WARMUP_CHECK_TIMEOUT_MS);
