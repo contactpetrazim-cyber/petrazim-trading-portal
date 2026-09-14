@@ -201,7 +201,7 @@ export function AwardsPage() {
           <div className="flex flex-wrap items-end justify-between gap-3 mb-4">
             <div className={titleCls.replace('mb-4', 'mb-0')}>Badges ({unlocked.length} of {data.badges.length} unlocked)</div>
             <div className={`inline-flex items-center gap-1 rounded-full border p-1 ${dark ? 'border-white/10 bg-white/5' : 'border-[#dcdce8] bg-white'}`}>
-              {(['all', 'unlocked', 'locked'] as Filter[]).map((f) => (
+              {(['unlocked', 'locked', 'all'] as Filter[]).map((f) => (
                 <button
                   key={f}
                   onClick={() => setFilter(f)}
