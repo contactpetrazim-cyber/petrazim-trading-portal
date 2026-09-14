@@ -1,7 +1,10 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { ChartPanel } from './ChartPanel';
 import { PairsPanel } from './PairsPanel';
 import { useQuickPairsStore, type QuickPair } from '../hooks/useQuickPairs';
+import { useAuth } from '../hooks/useAuth';
+import { tradesApi } from '../services/api';
+import type { Trade } from '../types';
 
 /**
  * ChartWithPairs — a ChartPanel that owns its own "Pairs" quick-link
@@ -20,6 +23,20 @@ import { useQuickPairsStore, type QuickPair } from '../hooks/useQuickPairs';
  * Trading/My Workspace already did — one real Pairs implementation
  * everywhere a chart appears, not a fixed symbol on some pages and a
  * real switcher on others.
+ *
+ * Also now polls the trader's own active/pending trades — by direct
+ * follow-up bug report, with screenshot: on every one of the pages
+ * above, "Position" always showed "No open or pending order" with NO
+ * way to reach wherever a real order actually was, even when one
+ * existed, because this component never fetched or passed `position`/
+ * `otherOpenTrades` to ChartPanel at all — they simply stayed
+ * undefined here, on every page, regardless of the trader's actual
+ * open positions ("in all charts ... outside the trade chart ...
+ * Work this flow to be seamless"). ManualTradingPage.tsx and
+ * TradingViewFramePage.tsx already had their own real version of
+ * exactly this polling (they need the fetched Trade for their own
+ * order forms too) — this is that same, one real implementation, not
+ * a third copy, now reachable from every other chart in the app too.
  */
 export function ChartWithPairs({
   interval = '60',
@@ -43,6 +60,7 @@ export function ChartWithPairs({
    * switcher on top of it. */
   defaultTv?: string;
 }) {
+  const { token } = useAuth();
   const { pairs } = useQuickPairsStore();
   const [selectedTv, setSelectedTv] = useState<string>(
     () => (defaultTv && pairs.some((p) => p.tv === defaultTv) ? defaultTv : pairs[0]?.tv),
@@ -55,6 +73,36 @@ export function ChartWithPairs({
     onSelect?.(pair);
   }
 
+  // Same shape as ManualTradingPage.tsx's own polling — see this
+  // component's own docstring for why it lives here too now rather
+  // than only there. An open position takes priority over a pending
+  // order on the same symbol (the common case is the same trade:
+  // pending until filled, then active).
+  const [openPositionTrade, setOpenPositionTrade] = useState<Trade | null>(null);
+  const [pendingOrderTrade, setPendingOrderTrade] = useState<Trade | null>(null);
+  const [otherOpenTrades, setOtherOpenTrades] = useState<Trade[]>([]);
+  const loadOpenPosition = useCallback(() => {
+    return Promise.all([
+      tradesApi.getActiveTrades(),
+      tradesApi.getTrades({ status: 'pending' }),
+    ]).then(([active, pending]) => {
+      setOpenPositionTrade(active.find((t) => t.symbol === selected.trade && t.entry_price != null) ?? null);
+      setPendingOrderTrade(pending.find((t) => t.symbol === selected.trade && t.entry_price != null) ?? null);
+      const bySymbol = new Map<string, Trade>();
+      active.filter((t) => t.symbol !== selected.trade && t.entry_price != null).forEach((t) => bySymbol.set(t.symbol, t));
+      pending.filter((t) => t.symbol !== selected.trade && t.entry_price != null).forEach((t) => { if (!bySymbol.has(t.symbol)) bySymbol.set(t.symbol, t); });
+      setOtherOpenTrades(Array.from(bySymbol.values()));
+    }).catch(() => { setOpenPositionTrade(null); setPendingOrderTrade(null); setOtherOpenTrades([]); });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected.trade, token]);
+  useEffect(() => {
+    if (!token) return;
+    loadOpenPosition();
+    const t = setInterval(loadOpenPosition, 8000);
+    return () => clearInterval(t);
+  }, [loadOpenPosition, token]);
+  const chartPosition: Trade | null = openPositionTrade ?? pendingOrderTrade;
+
   return (
     <ChartPanel
       symbol={selected.tv}
@@ -66,6 +114,9 @@ export function ChartWithPairs({
       pairsOpen={pairsOpen}
       onTogglePairs={() => setPairsOpen((o) => !o)}
       pairsPanel={<PairsPanel selected={selected} onSelect={select} dark={dark} />}
+      position={chartPosition}
+      onPositionChanged={loadOpenPosition}
+      otherOpenTrades={otherOpenTrades}
     />
   );
 }

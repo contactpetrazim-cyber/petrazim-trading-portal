@@ -73,8 +73,11 @@ export function NoPositionCard({ dark, otherTrades }: { dark: boolean; otherTrad
         return (
           <div key={t.trade_id} className={`${rowCls} ${i === 0 ? `pt-2.5 border-t ${dark ? 'border-white/10' : 'border-gray-100'}` : ''}`}>
             <span className="text-sm">You have {t.status === 'pending' ? 'a pending order' : 'an open position'} on {t.symbol} instead.</span>
+            {/* "Position Chart" — matches PositionManager's own label
+                for this exact same idea (the chart where a real order
+                actually is), by direct follow-up request. */}
             <Link to={`/trade/manual?tv=${encodeURIComponent(pair.tv)}`} target="_blank" rel="noopener noreferrer" className={btnCls}>
-              <LineChart size={13} /> Goto {t.symbol} Chart
+              <LineChart size={13} /> Position Chart ({pair.tv})
             </Link>
           </div>
         );
