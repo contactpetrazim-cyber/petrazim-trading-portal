@@ -5,12 +5,14 @@ Execution Engine: Updated with BingX and TradeLocker support
 
 from typing import Optional, Dict, List
 from datetime import datetime
+import httpx
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.core.bot_strategies import BotSignal
 from app.services.broker_integrations import (
     BingXBroker, TradeLockerBroker, BinanceBroker, BybitBroker, MexcBroker, MetaApiBroker,
+    _FAILOVER_EXCEPTIONS,
 )
 from app.services.broker_credentials import build_broker_client
 
@@ -390,13 +392,21 @@ class ExecutionEngine:
             logger.error("broker_cancel_failed", broker=broker, order_id=order_id, error=str(e))
             return {"success": False, "error": str(e)}
 
-    async def _execute_broker_order(self, trade: Dict, db: Optional[AsyncSession] = None, paper: bool = False) -> Dict:
+    async def _execute_broker_order(
+        self, trade: Dict, db: Optional[AsyncSession] = None, paper: bool = False, is_relay: bool = False,
+    ) -> Dict:
         """Execute order via configured broker. `paper=True` is the
         manual-trading Paper Trading toggle: still runs the exact same
         broker-routing/order-shape/price-deviation-guard logic below
         against a real, live-priced ticker, it just never places a real
         order (see _get_broker_client and broker_integrations.py's
-        per-broker paper=True short-circuits)."""
+        per-broker paper=True short-circuits).
+
+        `is_relay=True` means this call ITSELF is already the OTHER
+        backend executing an order relayed to it (see routers/
+        internal.py) — never attempt a further relay from here, or two
+        backends each configured with the other's VM_API_URL could
+        ping-pong a single failing order back and forth forever."""
         broker = self._determine_broker(trade["symbol"], trade.get("preferred_broker"))
         client = await self._get_broker_client(broker, trade.get("bot_id"), db, paper=paper) if broker != "paper" else None
 
@@ -443,9 +453,48 @@ class ExecutionEngine:
                     "broker": "paper",
                     "message": "Paper trade executed (no broker configured)"
                 }
+        except _FAILOVER_EXCEPTIONS as e:
+            # A TRANSPORT failure (proxy down, connection refused,
+            # timed out) — as opposed to the exchange itself rejecting
+            # the order below, which relaying elsewhere wouldn't fix.
+            # Real, non-paper orders only: a paper fill has nothing to
+            # relay to another backend for, it's pure local simulation.
+            logger.error("broker_execution_failed_transport", error=str(e), trade_id=trade["trade_id"], broker=broker)
+            if not paper and not is_relay and self.settings.VM_API_URL and self.settings.INTERNAL_RELAY_SECRET:
+                relay_result = await self._relay_to_other_backend(trade, paper)
+                if relay_result is not None:
+                    return relay_result
+            return {"success": False, "error": str(e), "error_class": "transport"}
         except Exception as e:
             logger.error("broker_execution_failed", error=str(e), trade_id=trade["trade_id"])
             return {"success": False, "error": str(e)}
+
+    async def _relay_to_other_backend(self, trade: Dict, paper: bool) -> Optional[Dict]:
+        """The failover half of routers/internal.py's own docstring —
+        see that file for the full reasoning (failover, not broadcast;
+        why a real duplicate fill risk rules out sending an order down
+        two paths at once). Returns None (never raises) on ANY relay
+        failure, so the caller falls back to its own original local
+        error instead of a confusing second one."""
+        url = f"{self.settings.VM_API_URL.rstrip('/')}/internal/execute-broker-order"
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.post(
+                    url, json={"trade": trade, "paper": paper},
+                    headers={"X-Internal-Secret": self.settings.INTERNAL_RELAY_SECRET},
+                )
+            if resp.status_code != 200:
+                logger.error("relay_to_other_backend_failed", status=resp.status_code, trade_id=trade.get("trade_id"))
+                return None
+            result = resp.json()
+            logger.warning(
+                "relay_to_other_backend_succeeded", trade_id=trade.get("trade_id"),
+                broker=result.get("broker"), success=result.get("success"),
+            )
+            return result
+        except Exception as e:
+            logger.error("relay_to_other_backend_exception", error=str(e), trade_id=trade.get("trade_id"))
+            return None
 
     async def _check_price_deviation(self, client, broker: str, trade: Dict) -> Dict:
         """
