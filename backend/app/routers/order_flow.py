@@ -366,6 +366,28 @@ class KlinesResponse(BaseModel):
     candles: List[KlineBar]
 
 
+# Render's own production logs (checked directly, not guessed) show
+# this fallback firing constantly now — NOT because of Binance's 451
+# geofence any more, but because BOTH Fixie proxies are themselves
+# failing with "407 Proxy Authentication Required" (stale/misconfigured
+# proxy credentials — an infrastructure setting, not something fixable
+# from this code; check BINANCE_PROXY_URL/BINANCE_BACKUP_PROXY_URL on
+# Render). With Binance unreachable on every call, this fallback was
+# getting hit far more often than the "occasional 451" it was built
+# for, at real risk of tripping CoinGecko's own free-tier rate limit
+# for a shared Render IP (their OHLC endpoint doesn't 451 like Binance
+# does, it just quietly 429s once you're over the limit — which
+# `resp.status_code != 200` below reports the exact same way as any
+# other failure: `None`, invisibly re-raising the ORIGINAL Binance
+# error to the caller). A short in-memory cache keyed by symbol cuts
+# the actual CoinGecko call volume down to roughly one every 3 minutes
+# per symbol regardless of how many trainees/games request it, which
+# is the real fix for the rate-limit risk — a real Binance outage was
+# never going to be this frequent.
+_coingecko_cache: Dict[str, tuple] = {}  # symbol -> (fetched_at_monotonic, candles)
+_COINGECKO_CACHE_TTL_SECONDS = 180
+
+
 async def _coingecko_klines_fallback(symbol: str) -> Optional[List[KlineBar]]:
     """Binance's own geofence can 451 even through the Fixie proxy pair
     (the proxy's own exit IP can itself be in a region Binance
@@ -392,6 +414,11 @@ async def _coingecko_klines_fallback(symbol: str) -> Optional[List[KlineBar]]:
     coingecko_id = COINGECKO_IDS.get(symbol)
     if not coingecko_id:
         return None
+
+    cached = _coingecko_cache.get(symbol)
+    if cached is not None and (time.monotonic() - cached[0]) < _COINGECKO_CACHE_TTL_SECONDS:
+        return cached[1]
+
     try:
         async with httpx.AsyncClient(timeout=8.0) as client:
             resp = await client.get(
@@ -400,13 +427,21 @@ async def _coingecko_klines_fallback(symbol: str) -> Optional[List[KlineBar]]:
             )
         if resp.status_code != 200:
             return None
-        raw = resp.json()
-    except httpx.RequestError:
+        # A rate-limited or otherwise degraded response can still come
+        # back with a 200 but non-JSON/unexpected-shaped body (a
+        # gateway's own error page, for instance) — this used to
+        # propagate as an unhandled 500 instead of the honest "no
+        # fallback available, surface the original error" every other
+        # failure path here already gives.
+        candles = [
+            KlineBar(time_ms=int(row[0]), open=float(row[1]), high=float(row[2]), low=float(row[3]), close=float(row[4]))
+            for row in resp.json()
+        ]
+    except (httpx.RequestError, ValueError, TypeError, KeyError, IndexError):
         return None
-    return [
-        KlineBar(time_ms=int(row[0]), open=float(row[1]), high=float(row[2]), low=float(row[3]), close=float(row[4]))
-        for row in raw
-    ]
+
+    _coingecko_cache[symbol] = (time.monotonic(), candles)
+    return candles
 
 
 @router.get("/klines", response_model=KlinesResponse)
