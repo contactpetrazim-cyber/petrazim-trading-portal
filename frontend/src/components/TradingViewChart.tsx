@@ -236,9 +236,33 @@ function TradingViewChartBase({
     // run can never re-attach to the current one.
     let cancelled = false;
 
+    function destroyPreviousWidget() {
+      // CONFIRMED, still-live bug (by repeat report, with video proof:
+      // even the widget's OWN internal symbol-search box never updates
+      // — not just our candles — ruling out every caching layer, since
+      // it reproduces in a fresh Incognito session too). Root cause:
+      // `widgetRef.current` was only ever discarded by wiping its DOM
+      // container (`innerHTML = ''`) — the widget object itself, and
+      // whatever internal state TradingView's tv.js keeps for it (this
+      // free embed widget is documented to persist "last symbol shown"
+      // across instances on the same page when `allow_symbol_change` is
+      // on), was never actually torn down. TradingView's own widget
+      // constructor exposes a real `remove()` method for exactly this —
+      // call it before building the next widget so nothing carries
+      // forward. Guarded: `remove()` can itself throw if the widget
+      // never finished initializing (e.g. torn down mid-load), which
+      // must never block building the next, correct widget.
+      const prev = widgetRef.current;
+      widgetRef.current = null;
+      if (prev && typeof prev.remove === 'function') {
+        try { prev.remove(); } catch { /* already gone — nothing to clean up */ }
+      }
+    }
+
     function createWidget() {
       // @ts-expect-error — TradingView attaches this global at runtime, no official types package
       if (cancelled || !window.TradingView || !containerRef.current) return;
+      destroyPreviousWidget();
       containerRef.current.innerHTML = '';
       containerId.current = `tv_chart_${Math.random().toString(36).slice(2)}`;
       const chartDiv = document.createElement('div');
@@ -283,10 +307,20 @@ function TradingViewChartBase({
       document.body.appendChild(script);
     }
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      destroyPreviousWidget();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [symbol, interval, theme, chartStyle, JSON.stringify(candleColors)]);
 
-  return <div ref={containerRef} style={{ height, width: '100%' }} />;
+  // `key={symbol}` forces React itself to throw away and rebuild this
+  // exact DOM node (not just its children) on every symbol change, on
+  // top of destroyPreviousWidget()/innerHTML above — belt-and-suspenders
+  // against a third-party widget's own internal state ever surviving
+  // into the next instance, given how load-bearing "the chart actually
+  // updates" is and how this exact bug has already recurred once.
+  return <div key={symbol} ref={containerRef} style={{ height, width: '100%' }} />;
 }
 
 export const TradingViewChart = memo(TradingViewChartBase);
