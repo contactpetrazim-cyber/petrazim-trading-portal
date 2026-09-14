@@ -85,13 +85,17 @@ export function PositionManager({ trade, dark = false, onChanged }: { trade: Tra
   // bottom right ... same line with cancel this order") — shared JSX
   // so both bottom-row layouts (pending -> Cancel; open -> Partial/
   // full exit) place it identically rather than drifting apart.
+  // Standard solid-blue primary button — same bg-corporate-hero style
+  // ChartPanel's own "Trade" button uses — by direct follow-up request
+  // ("update the Goto Chart to the standard blue button ... no change
+  // to location, just style and format"). Was a plain text link before.
   const gotoChartLink = (
     <Link
       to={`/trade/manual?tv=${encodeURIComponent(chartPair.tv)}`}
       target="_blank" rel="noopener noreferrer"
-      className={`inline-flex items-center gap-1 text-xs font-medium ${dark ? 'text-white/50 hover:text-white' : 'text-corporate-hero hover:underline'}`}
+      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-corporate-hero hover:opacity-90"
     >
-      <LineChart size={12} /> Goto Chart ({chartPair.tv})
+      <LineChart size={13} /> Goto Chart ({chartPair.tv})
     </Link>
   );
 
