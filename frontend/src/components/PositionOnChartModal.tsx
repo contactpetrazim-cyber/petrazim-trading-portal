@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
-import { X, Loader2, RotateCcw, Sun, Moon, Palette } from 'lucide-react';
+import { X, Loader2, RotateCcw, Sun, Moon, Palette, Target } from 'lucide-react';
 import { CandleChart, type Candle, type ChartLine } from './CandleChart';
 import { formatSignedMoney, type ChartPosition } from './TradingViewChart';
+import { PositionManager } from './PositionManager';
 import { orderFlowApi } from '../services/api';
 import { formatApiError } from '../lib/apiError';
 import { useQuickPrice } from '../hooks/useQuickPrice';
+import type { Trade } from '../types';
 
 const LIVE_PRICE_REFRESH_MS = 15_000;
 
@@ -89,11 +91,29 @@ const COLOR_PRESETS: { label: string; up: string; down: string }[] = [
  * already uses elsewhere — closing and reopening this modal reverts to
  * the calling chart's own colors/theme again, on purpose. The
  * timeframe row was already changeable before this; it's just wider
- * now (see KLINE_INTERVALS above). A genuinely full-featured chart
- * (real drawing tools, zoom/pan, indicators) needs TradingView's
- * paid/licensed Charting Library — see this component's own tracking
- * note for that upgrade path; this stays the fallback if that license
- * isn't approved.
+ * now (see KLINE_INTERVALS above). Defaults to LIGHT regardless of
+ * what the calling chart was showing, by further direct instruction
+ * ("default is light chart") — candle colors still start from the
+ * caller's own, only the theme default was pinned.
+ *
+ * A "Position" toggle (only rendered when `trade` is passed) drops in
+ * the exact same PositionManager card ChartPanel's own folded Position
+ * view and the Trade Management list already use — by direct request
+ * ("in addition to seeing the entry, SL and TP levels ... you can edit
+ * or manage your trade orders in that chart and see it render or
+ * update after refresh"). One implementation, not a second one: same
+ * edit-targets/partial-close/cancel logic, same `onChanged` contract —
+ * an edit here calls the SAME refresh the caller's own Position card
+ * already uses (ChartPanel's onPositionChanged / TradingViewFramePage's
+ * loadOpenPosition), so once that refetch lands a fresh `position` prop,
+ * the horizontal lines drawn below update to match with no extra
+ * plumbing — this modal never caches its own separate copy of the
+ * trade's SL/TP.
+ *
+ * A genuinely full-featured chart (real drawing tools, zoom/pan,
+ * indicators) needs TradingView's paid/licensed Charting Library — see
+ * this component's own tracking note for that upgrade path; this stays
+ * the fallback if that license isn't approved.
  *
  * HONEST SCOPE: the real candle data comes from order_flow.py's
  * `/klines` proxy, which only covers Binance's own small, explicit
@@ -105,23 +125,28 @@ const COLOR_PRESETS: { label: string; up: string; down: string }[] = [
  */
 export function PositionOnChartModal({
   position,
+  trade,
   symbol,
-  dark = true,
   bullColor,
   bearColor,
   initialInterval,
   onClose,
+  onChanged,
 }: {
   position: ChartPosition;
+  /** The full Trade row — needed only to power the "Position" toggle's
+   * real edit/cancel/partial-close card. Omit on a caller that has no
+   * such record to hand (or pass the same one `position` was derived
+   * from via tradeToChartPosition) and the Position button simply
+   * doesn't render, same as ChartPanel's own Position/On Chart toggles
+   * already do when there's no trade to manage. */
+  trade?: Trade | null;
   /** Exchange-format symbol, e.g. "BTCUSDT" — same format order_flow.py's /klines expects. */
   symbol: string;
-  /** Matches the calling chart's current theme. Defaults to dark (this
-   * modal's original look) for any caller that hasn't been updated to
-   * pass its own theme yet. */
-  dark?: boolean;
   /** The calling chart's own up/down candle colors (useCandleColors),
    * so the candles here match rather than always using the fixed
-   * TradingView-default green/red. */
+   * TradingView-default green/red. Theme itself always starts light
+   * regardless of the caller — see this component's own docstring. */
   bullColor?: string;
   bearColor?: string;
   /** The calling chart's current TradingView interval code ("15",
@@ -129,15 +154,23 @@ export function PositionOnChartModal({
    * chart opens already showing the same timeframe you were on. */
   initialInterval?: string;
   onClose: () => void;
+  /** Forwarded straight to the embedded PositionManager's own
+   * `onChanged` — call the SAME refresh the caller's own Position card
+   * already uses, so an edit made here is reflected everywhere,
+   * including the lines drawn on this very chart once the caller's
+   * refreshed `position` prop flows back down. */
+  onChanged?: () => void;
 }) {
   const [interval, setInterval] = useState<KlineInterval>(mapTvIntervalToKlines(initialInterval));
   const [candles, setCandles] = useState<Candle[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [retryTick, setRetryTick] = useState(0);
+  const [positionOpen, setPositionOpen] = useState(false);
 
-  // Local-only theme/color overrides — start from whatever the calling
-  // chart was showing, then can be changed independently right here.
-  const [localDark, setLocalDark] = useState(dark);
+  // Local-only theme/color overrides. Theme defaults to light always
+  // (by direct instruction), independent of whatever the calling chart
+  // was showing; candle colors still start from the caller's own.
+  const [localDark, setLocalDark] = useState(false);
   const [localBull, setLocalBull] = useState(bullColor ?? '#22c55e');
   const [localBear, setLocalBear] = useState(bearColor ?? '#ef4444');
   const [colorPickerOpen, setColorPickerOpen] = useState(false);
@@ -220,7 +253,7 @@ export function PositionOnChartModal({
             <button
               onClick={() => setLocalDark(false)}
               aria-label="Light chart"
-              className={`p-1.5 rounded-md ${!localDark ? (localDark ? 'bg-white/20 text-white' : 'bg-black/10 text-corporate-text-on-bg') : chromeMutedCls}`}
+              className={`p-1.5 rounded-md ${!localDark ? 'bg-black/10 text-corporate-text-on-bg' : chromeMutedCls}`}
             >
               <Sun size={13} />
             </button>
@@ -232,6 +265,21 @@ export function PositionOnChartModal({
               <Moon size={13} />
             </button>
           </div>
+          {/* "Position" — edit/cancel/partial-close this trade right
+              here, by direct request ("in addition to seeing the entry,
+              SL and TP levels ... you can edit or manage your trade
+              orders in that chart"). Only rendered when a full Trade
+              record was actually handed to this modal (see `trade`'s
+              own docstring above). */}
+          {trade && (
+            <button
+              onClick={() => setPositionOpen((o) => !o)}
+              aria-label={positionOpen ? 'Hide position management' : 'Manage this position'}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium ${positionOpen ? 'bg-corporate-hero text-white' : `${chromeMutedCls} ${toggleWrapCls}`}`}
+            >
+              <Target size={13} /> Position
+            </button>
+          )}
           {/* Local candle color picker — by direct request ("add
               ability to change candle colour on the chart"). No chart
               TYPE row here on purpose — see COLOR_PRESETS' own comment
@@ -279,6 +327,11 @@ export function PositionOnChartModal({
           </button>
         </div>
       </div>
+      {positionOpen && trade && (
+        <div className="mb-3">
+          <PositionManager trade={trade} dark={localDark} onChanged={onChanged} />
+        </div>
+      )}
       <div className={`flex-1 min-h-0 rounded-lg ${paneCls} p-3 overflow-auto`}>
         {error ? (
           <div className={`h-full flex flex-col items-center justify-center text-center gap-3 text-sm px-6 ${localDark ? 'text-white/70' : 'text-gray-500'}`}>
