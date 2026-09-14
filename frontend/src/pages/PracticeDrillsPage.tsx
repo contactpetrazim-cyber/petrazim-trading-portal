@@ -169,11 +169,17 @@ export function PracticeDrillsPage() {
                       refers to already lives there — no need to parse
                       free-text prompts for which ones mention a
                       visual specifically, since the lesson is the
-                      right target either way. Opens in a new tab
-                      (target="_blank") so answering the drill doesn't
-                      mean losing your place to go check. */}
+                      right target either way. `?jump=diagram` (read by
+                      LessonPage) opens straight on the page that
+                      actually renders the diagram instead of page 1 —
+                      by further bug report ("the diagram links don't
+                      actually lead to the diagrams"), since a lesson's
+                      visual is usually a few pages in, under Core
+                      Teaching. Opens in a new tab (target="_blank") so
+                      answering the drill doesn't mean losing your
+                      place to go check. */}
                   <a
-                    href={`/learn/tracks/${g.track_id}/lessons/${d.lesson_id}`}
+                    href={`/learn/tracks/${g.track_id}/lessons/${d.lesson_id}?jump=diagram`}
                     target="_blank" rel="noopener noreferrer"
                     className={`inline-flex items-center gap-1 text-xs font-medium mb-3 ${dark ? 'text-white/50 hover:text-white' : 'text-corporate-hero hover:underline'}`}
                   >
