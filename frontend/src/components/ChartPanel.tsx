@@ -7,6 +7,7 @@ import { PositionManager } from './PositionManager';
 import { PositionOnChartModal } from './PositionOnChartModal';
 import { useEffectiveChartColors } from '../hooks/useCandleColors';
 import { useQuickPrice } from '../hooks/useQuickPrice';
+import { pairFromTradeSymbol } from '../hooks/useQuickPairs';
 import type { Trade } from '../types';
 
 /** ChartPosition is the lightweight subset PositionOnChartModal draws
@@ -35,18 +36,43 @@ export function tradeToChartPosition(trade: Trade): ChartPosition {
  * instead of nothing. Its own Goto Chart button uses `symbol` — this
  * IS already the exact TradingView EXCHANGE:TICKER on screen, so
  * unlike PositionManager's own Goto Chart (which has to guess an
- * exchange from a bare trade symbol) this one is always exact. */
-export function NoPositionCard({ symbolTv, dark }: { symbolTv: string; dark: boolean }) {
+ * exchange from a bare trade symbol) this one is always exact.
+ *
+ * `otherTrade` — by direct bug report, with video: a trader viewing
+ * EUR/USD with an actual open BTCUSDT order clicked this card's own
+ * Goto Chart expecting it to jump to that BTCUSDT order, and it just
+ * reopened EUR/USD instead ("the position Goto button from EURUSD
+ * does not deploy auto to the correct chart with position trade
+ * orders (BTCUSD) chart ... it remains on the EURUSD chart"). That
+ * wasn't actually a bug — Goto Chart here has only ever meant "the
+ * chart currently on screen," which has no order — but it's a real
+ * gap: nothing told the trader an order existed elsewhere at all, or
+ * offered a way there. When the caller knows of one (its own poll
+ * already fetches every active/pending trade to check this exact
+ * symbol — see ManualTradingPage's/TradingViewFramePage's own
+ * `otherOpenTrade`), a second row now surfaces it with its own,
+ * correctly-resolved Goto Chart straight to THAT symbol. */
+export function NoPositionCard({ symbolTv, dark, otherTrade }: { symbolTv: string; dark: boolean; otherTrade?: Trade | null }) {
+  const cardCls = `rounded-xl border p-4 space-y-2.5 ${dark ? 'bg-corporate-surface-dark border-corporate-border-dark text-white/60' : 'bg-white border-gray-200 text-gray-500'}`;
+  const rowCls = 'flex items-center justify-between gap-3 flex-wrap';
+  const btnCls = 'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-corporate-hero hover:opacity-90 shrink-0';
+  const otherPair = otherTrade ? pairFromTradeSymbol(otherTrade.symbol, otherTrade.broker_name) : null;
   return (
-    <div className={`rounded-xl border p-4 flex items-center justify-between gap-3 flex-wrap ${dark ? 'bg-corporate-surface-dark border-corporate-border-dark text-white/60' : 'bg-white border-gray-200 text-gray-500'}`}>
-      <span className="text-sm">No open or pending order on this symbol right now.</span>
-      <Link
-        to={`/trade/manual?tv=${encodeURIComponent(symbolTv)}`}
-        target="_blank" rel="noopener noreferrer"
-        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-corporate-hero hover:opacity-90 shrink-0"
-      >
-        <LineChart size={13} /> Goto Chart
-      </Link>
+    <div className={cardCls}>
+      <div className={rowCls}>
+        <span className="text-sm">No open or pending order on this symbol right now.</span>
+        <Link to={`/trade/manual?tv=${encodeURIComponent(symbolTv)}`} target="_blank" rel="noopener noreferrer" className={btnCls}>
+          <LineChart size={13} /> Goto Chart
+        </Link>
+      </div>
+      {otherTrade && otherPair && (
+        <div className={`${rowCls} pt-2.5 border-t ${dark ? 'border-white/10' : 'border-gray-100'}`}>
+          <span className="text-sm">You have {otherTrade.status === 'pending' ? 'a pending order' : 'an open position'} on {otherTrade.symbol} instead.</span>
+          <Link to={`/trade/manual?tv=${encodeURIComponent(otherPair.tv)}`} target="_blank" rel="noopener noreferrer" className={btnCls}>
+            <LineChart size={13} /> Goto {otherTrade.symbol} Chart
+          </Link>
+        </div>
+      )}
     </div>
   );
 }
@@ -90,6 +116,7 @@ export function ChartPanel({
   pairsPanel,
   position,
   onPositionChanged,
+  otherOpenTrade,
 
 }: {
   symbol: string;
@@ -153,6 +180,14 @@ export function ChartPanel({
    * `onChanged`. Optional: omitting it just means the card won't
    * reflect a change until the caller's own poll next runs. */
   onPositionChanged?: () => void;
+  /** Another open/pending trade the caller already knows about, on a
+   * DIFFERENT symbol than this chart's own `position` — surfaced in
+   * NoPositionCard's empty state so a trader isn't left thinking they
+   * have nothing on anywhere just because this particular symbol is
+   * quiet. See NoPositionCard's own docstring for the bug report this
+   * fixes. Omit if the caller doesn't track this (the empty state
+   * then just doesn't mention it, same as before). */
+  otherOpenTrade?: Trade | null;
 
 }) {
   const navigate = useNavigate();
@@ -296,7 +331,7 @@ export function ChartPanel({
           <div className="mb-2">
             {position
               ? <PositionManager trade={position} dark onChanged={onPositionChanged} />
-              : <NoPositionCard symbolTv={symbol} dark />}
+              : <NoPositionCard symbolTv={symbol} dark otherTrade={otherOpenTrade} />}
           </div>
         )}
         <div className="flex-1 min-h-0 rounded-lg overflow-hidden">
@@ -322,7 +357,7 @@ export function ChartPanel({
         <div className="mb-2">
           {position
             ? <PositionManager trade={position} dark={containerDark} onChanged={onPositionChanged} />
-            : <NoPositionCard symbolTv={symbol} dark={containerDark} />}
+            : <NoPositionCard symbolTv={symbol} dark={containerDark} otherTrade={otherOpenTrade} />}
         </div>
       )}
       <div className={`rounded-lg overflow-hidden ${chartDark ? '' : 'border border-gray-200'}`} style={{ height }}>

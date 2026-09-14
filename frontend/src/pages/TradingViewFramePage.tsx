@@ -108,16 +108,26 @@ export function TradingViewFramePage() {
   // symbol).
   const [openPositionTrade, setOpenPositionTrade] = useState<Trade | null>(null);
   const [pendingOrderTrade, setPendingOrderTrade] = useState<Trade | null>(null);
+  // Same "you have an order elsewhere" hint ChartPanel/ManualTradingPage
+  // now surface — see NoPositionCard's own docstring for the bug
+  // report this fixes ("Goto button from EURUSD does not deploy auto
+  // to the correct chart with position trade orders (BTCUSD)").
+  const [otherOpenTrade, setOtherOpenTrade] = useState<Trade | null>(null);
   const [positionOpen, setPositionOpen] = useState(false);
   const [onChartOpen, setOnChartOpen] = useState(false);
   const loadOpenPosition = useCallback(() => {
     return Promise.all([
       tradesApi.getActiveTrades(),
-      tradesApi.getTrades({ status: 'pending', symbol: symbol.tradeSymbol }),
+      tradesApi.getTrades({ status: 'pending' }),
     ]).then(([active, pending]) => {
       setOpenPositionTrade(active.find((t) => t.symbol === symbol.tradeSymbol && t.entry_price != null) ?? null);
-      setPendingOrderTrade(pending.find((t) => t.entry_price != null) ?? null);
-    }).catch(() => { setOpenPositionTrade(null); setPendingOrderTrade(null); });
+      setPendingOrderTrade(pending.find((t) => t.symbol === symbol.tradeSymbol && t.entry_price != null) ?? null);
+      setOtherOpenTrade(
+        active.find((t) => t.symbol !== symbol.tradeSymbol && t.entry_price != null)
+        ?? pending.find((t) => t.symbol !== symbol.tradeSymbol && t.entry_price != null)
+        ?? null,
+      );
+    }).catch(() => { setOpenPositionTrade(null); setPendingOrderTrade(null); setOtherOpenTrade(null); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [symbol.tradeSymbol, token]);
   useEffect(() => {
@@ -331,7 +341,7 @@ export function TradingViewFramePage() {
           <div className="px-2 mb-2">
             {position
               ? <PositionManager trade={position} dark={frameDark} onChanged={loadOpenPosition} />
-              : <NoPositionCard symbolTv={symbol.value} dark={frameDark} />}
+              : <NoPositionCard symbolTv={symbol.value} dark={frameDark} otherTrade={otherOpenTrade} />}
           </div>
         )}
 
