@@ -56,7 +56,7 @@ export function CommunityJoinButtons({
           href={CHANNEL_LINKS[channel]}
           target="_blank"
           rel="noopener noreferrer"
-          className="flex-1 text-center bg-[#229ED9] text-white font-medium py-2.5 rounded-lg text-sm hover:opacity-90 transition"
+          className="flex-1 text-center bg-corporate-hero text-white font-medium py-2.5 rounded-lg text-sm hover:opacity-90 transition"
         >
           Join on Telegram
         </a>

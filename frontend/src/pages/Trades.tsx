@@ -7,6 +7,7 @@ import { tradesApi } from '../services/api';
 import { Trade } from '../types';
 import { useThemeStore } from '../hooks/useTheme';
 import { Filter, Search, Download, RefreshCw } from 'lucide-react';
+import { formatApiError } from '../lib/apiError';
 
 // Live unrealized PnL only means something if it's actually kept
 // current — by direct request ("the order should show as an existing
@@ -26,7 +27,8 @@ const LIVE_PNL_POLL_MS = 10_000;
  * here — they're real now, via POST /trades/approve.
  */
 export function TradesPage() {
-  const { theme } = useThemeStore();
+  const { portalThemes } = useThemeStore();
+  const theme = portalThemes.trader;
   const dark = theme === 'dark';
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
@@ -92,7 +94,7 @@ export function TradesPage() {
       setError(null);
       loadTrades();
     } catch (e: any) {
-      setError(e?.response?.data?.detail || 'Could not cancel — try again in a moment.');
+      setError(formatApiError(e?.response?.data?.detail, 'Could not cancel — try again in a moment.'));
     }
   }
 
@@ -181,7 +183,7 @@ export function TradesPage() {
       {/* Trade List */}
       <div className="space-y-2">
         {trades.map((trade) => (
-          <TradeRow key={trade.trade_id} trade={trade} onApprove={handleApprove} onReject={handleReject} onCancel={handleCancel} />
+          <TradeRow key={trade.trade_id} trade={trade} onApprove={handleApprove} onReject={handleReject} onCancel={handleCancel} onChanged={loadTrades} />
         ))}
       </div>
 

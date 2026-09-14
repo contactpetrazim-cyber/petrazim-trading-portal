@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Brain } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
 import { useThemeStore } from '../hooks/useTheme';
@@ -86,6 +87,18 @@ export function RetentionReviewPage() {
   return (
     <div>
       <PageHeader title="Retention Review" subtitle="Spaced-recall check-ins so what you learned actually sticks." />
+
+      <div className="flex flex-wrap gap-x-4 gap-y-1.5 mb-4">
+        <Link to="/learn/mastery" className={`text-sm font-medium ${dark ? 'text-white/60 hover:text-white' : 'text-corporate-hero'}`}>
+          Mastery Overview →
+        </Link>
+        <Link to="/learn/awards" className={`text-sm font-medium ${dark ? 'text-white/60 hover:text-white' : 'text-corporate-hero'}`}>
+          Awards & Certificates →
+        </Link>
+        <Link to="/practise/drills" className={`text-sm font-medium ${dark ? 'text-white/60 hover:text-white' : 'text-corporate-hero'}`}>
+          Practice Drills →
+        </Link>
+      </div>
 
       {(phase === 'loading' || phase === 'stalled') && !due && (
         <div className="mb-4"><LoadingIndicator phase={phase} dark={dark} /></div>

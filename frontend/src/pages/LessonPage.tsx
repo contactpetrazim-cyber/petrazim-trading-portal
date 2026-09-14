@@ -1,18 +1,24 @@
-import { useEffect, useState, type ReactNode } from 'react';
-import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Dumbbell } from 'lucide-react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useParams, Link, useNavigate } from 'react-router-dom';
+import { ArrowLeft, ArrowRight, ChevronLeft, ChevronRight, Dumbbell, SkipForward, LogOut, CheckSquare, Square, Lock } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
 import { ListenButton } from '../components/ListenButton';
 import { RecapPanel } from '../components/RecapPanel';
 import { RetrievalQuizWidget } from '../components/RetrievalQuizWidget';
 import { FlashcardWidget } from '../components/FlashcardWidget';
-import { SMCDiagram, type SMCDiagramKey } from '../components/SMCDiagram';
+import { OrientDiagram } from '../components/OrientDiagram';
+import { ConceptDiagram } from '../components/ConceptDiagram';
+import { QuizSlide } from '../components/QuizSlide';
 import { BookmarkButton } from '../components/BookmarkButton';
 import { NotebookWidget } from '../components/NotebookWidget';
 import { useThemeStore } from '../hooks/useTheme';
 import { useAuth } from '../hooks/useAuth';
-import { fetchJsonWithRetry, type FetchPhase } from '../lib/resilientFetch';
+import { useToast } from '../components/ToastStack';
+import { AWARDS_REFRESH_EVENT } from '../components/BadgeUnlockWatcher';
+import { fetchJsonWithRetry, makeIdempotencyKey, type FetchPhase } from '../lib/resilientFetch';
+import { apiFetch } from '../components/AccessExpiredGate';
 import { LoadingIndicator } from '../components/LoadingIndicator';
+import { parseMiniQuiz, type QuizQuestion } from '../lib/quizParser';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -28,27 +34,27 @@ interface LessonDetail {
   estimated_minutes: number;
 }
 
-// Keyword -> matching SMCDiagram key. Scanned against a lesson's own
-// real content_body so the relevant annotated schematic appears right
-// where the concept is actually taught, without hand-wiring a diagram
-// list per lesson id (new authored content picks this up for free).
-const DIAGRAM_KEYWORDS: [RegExp, SMCDiagramKey][] = [
-  [/fair value gap|\bfvg\b/i, 'fair-value-gap'],
-  [/order block/i, 'order-block'],
-  [/liquidity sweep|stop hunt|liquidity grab/i, 'liquidity-sweep'],
-  [/premium.{0,3}discount|premium\/discount|equilibrium/i, 'premium-discount'],
-  [/break of structure|\bbos\b|change of character|\bchoch\b/i, 'break-of-structure'],
-  [/demand zone|supply zone|supply.{0,3}demand/i, 'supply-demand-zone'],
-  [/equal highs|equal lows|liquidity pool/i, 'equal-highs-lows'],
-];
-
-function matchingDiagrams(content: string): SMCDiagramKey[] {
-  const found = new Set<SMCDiagramKey>();
-  for (const [pattern, key] of DIAGRAM_KEYWORDS) {
-    if (pattern.test(content)) found.add(key);
-  }
-  return Array.from(found);
+/** Just enough of GET /curriculum/tracks/{id}'s own StageResponse to
+ * drive the Stage nav below — same fields LearnTrackPage.tsx's own
+ * local `Stage` interface already uses, kept as its own small copy
+ * here rather than a cross-file import (this file already does that
+ * for VISUAL_PLACEHOLDER_RE-style small, page-local pieces). */
+interface StageNavEntry {
+  id: string;
+  stage_number: number;
+  title: string;
+  lesson_id: string | null;
+  completed: boolean;
+  can_attempt: boolean;
 }
+
+// This authored curriculum's `[VISUAL: key — description]` bracket
+// format (Honest Gap Orientation only — see OrientDiagram) and every
+// other track's `See diagram: \`file.svg\` — description` sentence.
+// Both previously rendered as literal text — by direct bug report
+// ("turn them all to diagrams - the visuals references").
+const VISUAL_PLACEHOLDER_RE = /\[VISUAL:\s*([a-z0-9-]+)\s*[—-]\s*([^\]]+)\]/i;
+const SEE_DIAGRAM_RE = /See diagram:\s*`([^`]+?)\.svg`\s*[—-]\s*([\s\S]+)$/i;
 
 type Block =
   | { type: 'h'; level: number; text: string }
@@ -101,10 +107,6 @@ function parseLessonBlocks(text: string): Block[] {
       const ordered = /^\d+\.\s+/.test(trimmed);
       const marker = ordered ? /^\d+\.\s+/ : /^-\s+/;
       const items: string[] = [];
-      // Every authored list item wraps across multiple indented lines
-      // rather than staying on one physical line — a continuation line
-      // (doesn't start a new '- '/'N. ' marker or another block type)
-      // gets appended onto the item currently being built.
       while (i < lines.length) {
         const t = lines[i].trim();
         if (t === '') break;
@@ -124,16 +126,10 @@ function parseLessonBlocks(text: string): Block[] {
         rows.push(lines[i].trim().slice(1, -1).split('|').map((c) => c.trim()));
         i++;
       }
-      // Drop the '|---|---|' alignment row every markdown table has.
       blocks.push({ type: 'table', rows: rows.filter((r) => !r.every((c) => /^:?-+:?$/.test(c))) });
       continue;
     }
 
-    // A line starting a fresh bold lead-in ('**Level:** 0', '**Plain-
-    // English explanation.** ...') always marks a new logical line in
-    // the source, whether it's one of a short run of label:value
-    // lines or the start of a longer wrapped paragraph — either way
-    // it should never be glued onto whatever text came before it.
     if (trimmed.startsWith('**') && paragraph.length) flushParagraph();
     paragraph.push(trimmed);
     i++;
@@ -142,12 +138,8 @@ function parseLessonBlocks(text: string): Block[] {
   return blocks;
 }
 
-/** Bold, inline code, and italic — the only inline spans the authored
- * content actually uses (verified above). Order matters: '**bold**'
- * and '`code`' are tried before single-'*' italic so a bold span's
- * own asterisks never get mistaken for an italic one. */
 function renderInline(text: string): ReactNode {
-  const tokens = text.split(/(\*\*[^*]+\*\*|`[^`]+`|\*[^*\n]+\*)/g);
+  const tokens = text.split(/(\*\*[^*]+\*\*|`[^*]+`|\*[^*\n]+\*)/g);
   return tokens.map((tok, i) => {
     if (tok.startsWith('**') && tok.endsWith('**')) return <strong key={i}>{tok.slice(2, -2)}</strong>;
     if (tok.startsWith('`') && tok.endsWith('`')) {
@@ -158,30 +150,128 @@ function renderInline(text: string): ReactNode {
   });
 }
 
-function LessonBody({ content, dark }: { content: string; dark: boolean }) {
+function extractRawSection(content: string, headingName: string): string {
+  const lines = content.replace(/\r\n/g, '\n').split('\n');
+  const startRe = new RegExp(`^#{2,4}\\s+${headingName}\\s*$`, 'i');
+  let start = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (startRe.test(lines[i].trim())) { start = i + 1; break; }
+  }
+  if (start === -1) return '';
+  let end = lines.length;
+  for (let i = start; i < lines.length; i++) {
+    if (/^#{2,4}\s+\S/.test(lines[i].trim())) { end = i; break; }
+  }
+  return lines.slice(start, end).join('\n').trim();
+}
+
+// Groups the ~17 headed sections every authored lesson has (verified
+// against every curriculum/*.md file, same discipline as every other
+// fixed-template assumption in this parser) into a small number of
+// real "pages" — by direct request ("learning content is just a dump
+// of paragraphs ... turn into a dynamic learning training system that
+// moves stage by stage or page by page"). An unrecognized heading
+// (defensive, in case future content varies) falls into the last page
+// rather than being silently dropped.
+const PAGE_GROUPS: [string, string[]][] = [
+  ['Overview', ['Why This Matters']],
+  ['Core Teaching', ['Core Teaching', 'Visual Model']],
+  ['Examples', ['Worked Example', 'Counterexample', 'Good Example / Bad Example']],
+  ['What to Watch For', ['What to Look Out For', 'Common Mistakes', 'Key Takeaways']],
+  ['Practice', ['Practice Drill', 'Scenario Challenge']],
+  ['Mini Quiz', ['Mini Quiz']],
+  ['Wrap-Up', ['Flashcards', 'Reflection', 'Mastery Criteria', 'Spaced Review', 'Bot Connection']],
+];
+
+interface Page { title: string; blocks: Block[] }
+
+function buildPages(blocks: Block[]): Page[] {
+  const pages: Page[] = PAGE_GROUPS.map(([title]) => ({ title, blocks: [] }));
+  const headingToPage = new Map<string, number>();
+  PAGE_GROUPS.forEach(([, headings], idx) => headings.forEach((h) => headingToPage.set(h.toLowerCase(), idx)));
+
+  let current = 0; // meta lines + "Why This Matters" -> Overview
+  for (const block of blocks) {
+    if (block.type === 'h' && block.level === 3) {
+      const idx = headingToPage.get(block.text.toLowerCase());
+      current = idx !== undefined ? idx : pages.length - 1;
+    }
+    pages[current].blocks.push(block);
+  }
+  return pages.filter((p) => p.blocks.length > 0);
+}
+
+/** Plain readable text for one page's own blocks only — used to feed
+ * ListenButton, by direct bug report ("listen mode should be on
+ * current page and not from the learning begining"): it was always
+ * given `lesson.content_body`, the ENTIRE lesson (every substage
+ * concatenated), so hitting Listen on substage 4 still started
+ * narrating from substage 1. ListenButton itself already strips
+ * markdown syntax before speaking, so this only needs to flatten each
+ * block's own text into one string, not reproduce that stripping. */
+function blocksToText(blocks: Block[]): string {
+  return blocks
+    .map((b) => {
+      switch (b.type) {
+        case 'h': return b.text;
+        case 'p': return b.text;
+        case 'ul': case 'ol': return b.items.join('. ');
+        case 'table': return b.rows.map((row) => row.join(', ')).join('. ');
+        case 'hr': return '';
+      }
+    })
+    .filter(Boolean)
+    .join('. ');
+}
+
+function renderParagraph(text: string, dark: boolean, key: number): ReactNode {
+  const mutedCls = dark ? 'text-white/70' : 'text-gray-700';
+
+  const visualMatch = text.match(VISUAL_PLACEHOLDER_RE);
+  if (visualMatch) {
+    const [full, diagramKey, description] = visualMatch;
+    const before = text.slice(0, visualMatch.index).trim();
+    const after = text.slice((visualMatch.index ?? 0) + full.length).trim();
+    return (
+      <div key={key} className="space-y-3">
+        {before && <p className={`text-sm leading-relaxed ${mutedCls}`}>{renderInline(before)}</p>}
+        <OrientDiagram diagramKey={diagramKey} description={description.replace(/\s+/g, ' ').trim()} dark={dark} />
+        {after && <p className={`text-sm leading-relaxed ${mutedCls}`}>{renderInline(after)}</p>}
+      </div>
+    );
+  }
+
+  const seeMatch = text.match(SEE_DIAGRAM_RE);
+  if (seeMatch) {
+    const [full, filePath, description] = seeMatch;
+    const before = text.slice(0, seeMatch.index).trim();
+    const fileSlug = filePath.split('/').pop() || filePath;
+    return (
+      <div key={key} className="space-y-3">
+        {before && <p className={`text-sm leading-relaxed ${mutedCls}`}>{renderInline(before)}</p>}
+        <ConceptDiagram fileSlug={fileSlug} description={description.replace(/\s+/g, ' ').trim()} dark={dark} />
+      </div>
+    );
+  }
+
+  return <p key={key} className={`text-sm leading-relaxed ${mutedCls}`}>{renderInline(text)}</p>;
+}
+
+function PageBlocks({ blocks, dark }: { blocks: Block[]; dark: boolean }) {
   const mutedCls = dark ? 'text-white/70' : 'text-gray-700';
   const headingCls = dark ? 'text-white' : 'text-corporate-text-on-bg';
-  // Every content_body opens with its own '## CODE — Title' header
-  // (parse_authored_lessons's own doing) — drop it here since
-  // PageHeader already shows the lesson's title just above this card.
-  const allBlocks = parseLessonBlocks(content);
-  const blocks = allBlocks[0]?.type === 'h' && allBlocks[0].level === 2 ? allBlocks.slice(1) : allBlocks;
-
   return (
     <div className="space-y-3">
       {blocks.map((b, i) => {
         switch (b.type) {
           case 'h':
             return (
-              <h3
-                key={i}
-                className={`font-bold ${headingCls} ${b.level === 2 ? 'text-lg mt-6' : 'text-sm uppercase tracking-wide mt-5'}`}
-              >
+              <h3 key={i} className={`font-bold ${headingCls} ${b.level === 2 ? 'text-lg mt-6' : 'text-sm uppercase tracking-wide mt-5 first:mt-0'}`}>
                 {renderInline(b.text)}
               </h3>
             );
           case 'p':
-            return <p key={i} className={`text-sm leading-relaxed ${mutedCls}`}>{renderInline(b.text)}</p>;
+            return renderParagraph(b.text, dark, i);
           case 'ul':
             return (
               <ul key={i} className={`list-disc list-outside pl-5 space-y-1 text-sm leading-relaxed ${mutedCls}`}>
@@ -230,23 +320,317 @@ function LessonBody({ content, dark }: { content: string; dark: boolean }) {
 }
 
 /**
+ * LessonReader — the page-by-page, "computer-based-training" reading
+ * flow, by direct request: "learning content is just a dump of
+ * paragraphs ... turn into a dynamic learning training system that
+ * moves stage by stage or page by page ... Put confirm understand this
+ * stage to move on toggle ... Back - Next buttons ... Skip or Forced
+ * End Buttons". Adapted from the reference training portal's
+ * ModuleLearning/AssessmentStage pattern (a Back/Next-paginated reader
+ * with a real interactive quiz and a completion gate at the end) onto
+ * this app's own lesson content and its real POST /stages/complete
+ * dual gate, instead of every section of a lesson stacked into one
+ * long scroll.
+ *
+ * Back/Next move one page at a time. Skip jumps straight to the final
+ * Wrap-Up page (matching common CBT "skip module" semantics — "I
+ * already know this, take me to the end") rather than duplicating
+ * Next's one-step behavior. End Lesson exits immediately back to the
+ * track, from any page, without completing anything. The "I understand
+ * this stage" toggle only appears on the final page and gates Mark
+ * Stage Complete — the same POST /curriculum/stages/complete
+ * LearnTrackPage's own stage list already calls, so completing from
+ * either surface behaves identically (same dual-gate reason message,
+ * same XP/streak/certificate toasts).
+ */
+function LessonReader({
+  lesson, trackId, stages, dark,
+}: { lesson: LessonDetail; trackId: string | undefined; stages: StageNavEntry[]; dark: boolean }) {
+  const { token } = useAuth();
+  const showToast = useToast();
+  const navigate = useNavigate();
+  const backHref = trackId ? `/learn/tracks/${trackId}` : '/learn';
+
+  // Stage-level nav ("Stage 2 of 23", jump to the adjacent stage) — by
+  // direct request ("use this for the learning LMS for the stage and
+  // substage content Nav"). `stages` is the SAME locked-sequence list
+  // LearnTrackPage already fetches and gates on — reused here rather
+  // than duplicating that access logic, so Next Stage can only ever
+  // land somewhere the trainee is actually allowed to be. A previous
+  // stage is always safe to revisit (you can't be on THIS stage
+  // without it already being unlocked), so Prev Stage has no lock
+  // check of its own.
+  const stageIndex = stages.findIndex((s) => s.id === lesson.stage_id);
+  const prevStage = stageIndex > 0 ? stages[stageIndex - 1] : null;
+  const nextStage = stageIndex >= 0 && stageIndex < stages.length - 1 ? stages[stageIndex + 1] : null;
+  const nextStageOpen = !!nextStage && !!nextStage.lesson_id && (nextStage.can_attempt || nextStage.completed);
+
+  const allBlocks = useMemo(() => parseLessonBlocks(lesson.content_body), [lesson.content_body]);
+  const bodyBlocks = allBlocks[0]?.type === 'h' && allBlocks[0].level === 2 ? allBlocks.slice(1) : allBlocks;
+  const pages = useMemo(() => buildPages(bodyBlocks), [bodyBlocks]);
+  const quizQuestions: QuizQuestion[] = useMemo(() => {
+    const raw = extractRawSection(lesson.content_body, 'Mini Quiz');
+    return raw ? parseMiniQuiz(raw) : [];
+  }, [lesson.content_body]);
+
+  const [pageIndex, setPageIndex] = useState(0);
+  useEffect(() => setPageIndex(0), [lesson.id]);
+
+  // Per-substage "I understand" acknowledgement — by direct request
+  // ("Add the toggle and 'I understand' for every substage and it is a
+  // trigger to go the next page"), extending what previously only
+  // gated the final Wrap-Up page's Mark Stage Complete button. Keyed
+  // by page index rather than a single flag so moving Back and
+  // re-Next doesn't lose an earlier page's acknowledgement, and reset
+  // whenever a different lesson is opened (a fresh read-through).
+  const [pageAck, setPageAck] = useState<Record<number, boolean>>({});
+  useEffect(() => setPageAck({}), [lesson.id]);
+  const acknowledgedCurrentPage = !!pageAck[pageIndex];
+
+  const [understood, setUnderstood] = useState(false);
+  const [completing, setCompleting] = useState(false);
+  const [completeResult, setCompleteResult] = useState<{ ok: boolean; message: string } | null>(null);
+  // One key per lesson (regenerates whenever a different lesson is
+  // opened) — pairs with the backend's Idempotency-Key guard
+  // (app/core/idempotency.py) so a retry of Mark Stage Complete for
+  // THIS lesson replays the original result instead of a second
+  // completion attempt, without permanently caching a stale answer
+  // once the trainee moves to a different lesson.
+  const completeIdempotencyKey = useMemo(() => makeIdempotencyKey(), [lesson.id]);
+
+  const page = pages[pageIndex];
+  const pageText = useMemo(() => blocksToText(page.blocks), [page]);
+  const isLastPage = pageIndex === pages.length - 1;
+  const mutedCls = dark ? 'text-white/40' : 'text-gray-400';
+  const navBtnCls = `inline-flex items-center gap-1.5 text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${
+    dark ? 'bg-white/5 text-white hover:bg-white/10' : 'bg-corporate-bg text-corporate-hero hover:bg-corporate-hero/10'
+  }`;
+
+  async function markComplete() {
+    setCompleting(true);
+    setCompleteResult(null);
+    try {
+      const res = await apiFetch(`${API_URL}/curriculum/stages/complete`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json', Authorization: `Bearer ${token}`,
+          'Idempotency-Key': completeIdempotencyKey,
+        },
+        body: JSON.stringify({ stage_id: lesson.stage_id }),
+      });
+      const data = await res.json();
+      if (data.completed) {
+        setCompleteResult({ ok: true, message: `Stage complete — +${data.xp_awarded} XP.` });
+        showToast({ icon: '✅', title: `Stage complete — +${data.xp_awarded} XP`, variant: 'info' });
+        if (typeof data.new_streak_days === 'number' && data.new_streak_days > 1) {
+          showToast({ icon: '🔥', title: `${data.new_streak_days}-day streak`, description: 'Keep the streak alive — come back tomorrow.', variant: 'streak' });
+        }
+        if (data.certificate_issued) {
+          showToast({ icon: '🏆', title: 'Certificate issued!', description: `${lesson.track_title} — see it on Awards & Certificates.`, variant: 'certificate' });
+        }
+        window.dispatchEvent(new CustomEvent(AWARDS_REFRESH_EVENT));
+      } else {
+        setCompleteResult({ ok: false, message: data.reason || 'Not ready to complete yet.' });
+      }
+    } finally {
+      setCompleting(false);
+    }
+  }
+
+  return (
+    <>
+      <PageHeader
+        title={lesson.title}
+        subtitle={`${lesson.track_title} · Stage ${lesson.stage_number}: ${lesson.stage_title} · ~${lesson.estimated_minutes} min`}
+      />
+
+      {/* Stage nav — "Stage 2 of 23", jump to the adjacent stage.
+          Hidden if the stage list hasn't loaded (or is a single-stage
+          track) rather than showing a meaningless "Stage 1 of 1". */}
+      {stages.length > 1 && stageIndex >= 0 && (
+        <div className="flex items-center justify-between gap-2 mb-4">
+          <button
+            onClick={() => prevStage?.lesson_id && navigate(`/learn/tracks/${trackId}/lessons/${prevStage.lesson_id}`)}
+            disabled={!prevStage?.lesson_id}
+            className={navBtnCls}
+          >
+            <ChevronLeft size={15} /> Prev Stage
+          </button>
+          <span className={`text-xs font-semibold shrink-0 ${mutedCls}`}>
+            Stage {lesson.stage_number} of {stages.length}
+          </span>
+          <button
+            onClick={() => nextStage?.lesson_id && navigate(`/learn/tracks/${trackId}/lessons/${nextStage.lesson_id}`)}
+            disabled={!nextStageOpen}
+            title={nextStage && !nextStageOpen ? 'Complete this stage to unlock the next one' : undefined}
+            className={navBtnCls}
+          >
+            {nextStageOpen ? <>Next Stage <ChevronRight size={15} /></> : <><Lock size={13} /> Next Stage</>}
+          </button>
+        </div>
+      )}
+
+      <div className="flex flex-wrap items-center gap-2 mb-4">
+        <BookmarkButton stageId={lesson.stage_id} dark={dark} />
+        <NotebookWidget stageId={lesson.stage_id} dark={dark} />
+        <ListenButton text={pageText} dark={dark} />
+      </div>
+
+      {/* Substage nav — a slim progress bar plus a row of clickable
+          pills, one per page, so a page already read can be jumped to
+          directly instead of only Back/Next. Pills are never lock-
+          gated: "Skip" below already lets a trainee bypass every
+          acknowledgement straight to the end, so gating the pills too
+          would just be a second, inconsistent way to express the same
+          rule — the "I understand" checkbox is a reading nudge, not
+          hard enforcement (stage completion server-side is the real
+          gate — see markComplete below). */}
+      <div className="mb-4">
+        <div className="flex items-center justify-between mb-1.5">
+          <span className={`text-xs font-semibold ${dark ? 'text-white/70' : 'text-corporate-text-on-bg'}`}>
+            Page {pageIndex + 1} of {pages.length} · {page.title}
+          </span>
+          <span className={`text-xs ${mutedCls}`}>{Math.round(((pageIndex + 1) / pages.length) * 100)}%</span>
+        </div>
+        <div className={`h-1.5 rounded-full overflow-hidden mb-2 ${dark ? 'bg-white/10' : 'bg-corporate-bg'}`}>
+          <div className="h-full rounded-full bg-corporate-hero transition-all" style={{ width: `${((pageIndex + 1) / pages.length) * 100}%` }} />
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {pages.map((p, i) => (
+            <button
+              key={i}
+              onClick={() => setPageIndex(i)}
+              title={p.title}
+              aria-current={i === pageIndex ? 'step' : undefined}
+              className={`w-7 h-7 shrink-0 rounded-lg text-[11px] font-bold flex items-center justify-center transition-colors ${
+                i === pageIndex
+                  ? 'bg-corporate-hero text-white'
+                  : pageAck[i]
+                  ? dark ? 'bg-corporate-hero/20 text-white/80' : 'bg-corporate-hero/10 text-corporate-hero'
+                  : dark ? 'bg-white/5 text-white/40 hover:bg-white/10' : 'bg-corporate-bg text-gray-400 hover:bg-corporate-hero/10'
+              }`}
+            >
+              {i + 1}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className={`rounded-2xl p-6 border min-h-[220px] ${dark ? 'bg-corporate-surface-dark border-corporate-border-dark' : 'bg-white border-corporate-bg'}`}>
+        {page.title === 'Mini Quiz' ? (
+          <QuizSlide questions={quizQuestions} lessonId={lesson.id} token={token} dark={dark} />
+        ) : (
+          <PageBlocks blocks={page.blocks} dark={dark} />
+        )}
+
+        {page.title === 'Practice' && lesson.content_body.includes('### Practice Drill') && (
+          <Link
+            to={`/practise/drills?lesson=${lesson.id}`}
+            className={`inline-flex items-center gap-2 text-sm font-medium mt-4 px-4 py-2.5 rounded-xl transition-colors ${
+              dark ? 'bg-white/5 text-white hover:bg-white/10' : 'bg-corporate-bg text-corporate-hero hover:bg-corporate-hero/10'
+            }`}
+          >
+            <Dumbbell size={16} /> Practice this lesson →
+          </Link>
+        )}
+
+        {!isLastPage && (
+          <div className={`mt-6 pt-5 border-t ${dark ? 'border-white/10' : 'border-gray-100'}`}>
+            <button
+              onClick={() => setPageAck((prev) => ({ ...prev, [pageIndex]: !prev[pageIndex] }))}
+              className={`w-full flex items-start gap-3 text-left rounded-xl p-3.5 transition-colors ${dark ? 'bg-white/5 hover:bg-white/10' : 'bg-corporate-bg hover:bg-corporate-hero/10'}`}
+            >
+              {acknowledgedCurrentPage ? <CheckSquare size={20} className="text-corporate-hero shrink-0 mt-0.5" /> : <Square size={20} className={`shrink-0 mt-0.5 ${mutedCls}`} />}
+              <span className={`text-sm font-medium ${dark ? 'text-white' : 'text-corporate-text-on-bg'}`}>
+                I understand this section and I'm ready to move on.
+              </span>
+            </button>
+          </div>
+        )}
+
+        {page.title === 'Wrap-Up' && (
+          <>
+            <div className="flex flex-col gap-3 mt-5">
+              <RecapPanel lessonId={lesson.id} dark={dark} />
+              <RetrievalQuizWidget lessonId={lesson.id} dark={dark} />
+              <FlashcardWidget lessonId={lesson.id} dark={dark} />
+            </div>
+
+            <div className={`mt-6 pt-5 border-t ${dark ? 'border-white/10' : 'border-gray-100'}`}>
+              <button
+                onClick={() => setUnderstood((v) => !v)}
+                className={`w-full flex items-start gap-3 text-left rounded-xl p-3.5 transition-colors ${dark ? 'bg-white/5 hover:bg-white/10' : 'bg-corporate-bg hover:bg-corporate-hero/10'}`}
+              >
+                {understood ? <CheckSquare size={20} className="text-corporate-hero shrink-0 mt-0.5" /> : <Square size={20} className={`shrink-0 mt-0.5 ${mutedCls}`} />}
+                <span className={`text-sm font-medium ${dark ? 'text-white' : 'text-corporate-text-on-bg'}`}>
+                  I understand this stage and I'm ready to move on.
+                </span>
+              </button>
+
+              {completeResult && (
+                <p className={`text-sm mt-3 ${completeResult.ok ? 'text-emerald-500' : dark ? 'text-amber-300' : 'text-amber-600'}`}>
+                  {completeResult.message}
+                </p>
+              )}
+
+              <div className="flex flex-wrap gap-2 mt-3">
+                {!completeResult?.ok ? (
+                  <button
+                    onClick={markComplete}
+                    disabled={!understood || completing}
+                    className="inline-flex items-center gap-1.5 text-sm font-semibold px-4 py-2.5 rounded-xl bg-corporate-accent text-white disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    {completing ? 'Completing…' : 'Mark Stage Complete'}
+                  </button>
+                ) : (
+                  <Link to={backHref} className="inline-flex items-center gap-1.5 text-sm font-semibold px-4 py-2.5 rounded-xl bg-corporate-accent text-white">
+                    Back to Track <ArrowRight size={15} />
+                  </Link>
+                )}
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Back / Next / Skip / End Lesson — by direct request. */}
+      <div className="flex flex-wrap items-center gap-2 mt-4">
+        <button onClick={() => setPageIndex((i) => Math.max(0, i - 1))} disabled={pageIndex === 0} className={navBtnCls}>
+          <ArrowLeft size={15} /> Back
+        </button>
+        <button
+          onClick={() => setPageIndex((i) => Math.min(pages.length - 1, i + 1))}
+          disabled={isLastPage || !acknowledgedCurrentPage}
+          title={!isLastPage && !acknowledgedCurrentPage ? "Check “I understand this section” above to continue" : undefined}
+          className={navBtnCls}
+        >
+          Next <ArrowRight size={15} />
+        </button>
+        <button onClick={() => setPageIndex(pages.length - 1)} disabled={isLastPage} className={navBtnCls} title="Skip to the end of this lesson">
+          <SkipForward size={15} /> Skip
+        </button>
+        <button
+          onClick={() => navigate(backHref)}
+          className={`ml-auto inline-flex items-center gap-1.5 text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors ${dark ? 'text-white/50 hover:text-white' : 'text-gray-500 hover:text-gray-700'}`}
+          title="Exit this lesson without completing it"
+        >
+          <LogOut size={15} /> End Lesson
+        </button>
+      </div>
+    </>
+  );
+}
+
+/**
  * LessonPage — the actual reading view every other Learn page was
  * missing. GET /curriculum/tracks/{id} only ever returned the stage
  * list (title, XP, lock state); the practice/quiz/game endpoints each
  * parse one small subsection of a lesson (Practice Drill, Mini Quiz).
  * Nothing ever let a learner read a lesson's full authored content
  * (Core Teaching, Worked Example, Key Takeaways, etc.) until this page
- * and its backing endpoint (GET /curriculum/lessons/{id}).
- *
- * "Practice this lesson" — connects Learn to Practice, by direct
- * request ("fix and connect learn page and practise page"). Detects a
- * "### Practice Drill" heading in this lesson's own content_body (the
- * exact section routers/practise.py's list_drills already extracts
- * server-side) rather than a second fetch just to ask "does this
- * lesson have a drill" — the full content_body is already sitting
- * right here. Links to /practise/drills?lesson={id}, which
- * PracticeDrillsPage reads to auto-expand and scroll to that lesson's
- * own drill instead of leaving you to hunt across every track's card.
+ * and its backing endpoint (GET /curriculum/lessons/{id}). The actual
+ * reading flow lives in LessonReader above — this component only
+ * handles fetching and the loading/error states.
  */
 export function LessonPage() {
   const { trackId, lessonId } = useParams<{ trackId: string; lessonId: string }>();
@@ -256,14 +640,14 @@ export function LessonPage() {
   const [lesson, setLesson] = useState<LessonDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [phase, setPhase] = useState<FetchPhase>('idle');
+  // Powers the Stage nav header ("Stage 2 of 23" + Prev/Next Stage) —
+  // failing silently to an empty list on error simply hides that nav
+  // (see the `stages.length > 1` guard in LessonReader) rather than
+  // blocking the lesson content itself from loading; the actual
+  // content is the point of this page, the stage nav is a convenience
+  // on top of it.
+  const [stages, setStages] = useState<StageNavEntry[]>([]);
 
-  // Was a plain one-shot apiFetch with no retry — on a cold Render
-  // free-tier start the single attempt could fail before the backend
-  // ever woke up, leaving this stuck on "Could not load this lesson
-  // right now" (same bug already fixed elsewhere — see
-  // resilientFetch.ts). onErrorDetail still surfaces a real 4xx's own
-  // message (e.g. a genuinely missing lesson id) instead of the
-  // generic fallback below.
   useEffect(() => {
     if (!token || !lessonId) return;
     setLesson(null);
@@ -277,6 +661,14 @@ export function LessonPage() {
       else setError(detail || 'Could not load this lesson right now.');
     });
   }, [token, lessonId]);
+
+  useEffect(() => {
+    if (!token || !trackId) return;
+    apiFetch(`${API_URL}/curriculum/tracks/${trackId}`, { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setStages(d?.stages ?? []))
+      .catch(() => setStages([]));
+  }, [token, trackId]);
 
   const backHref = trackId ? `/learn/tracks/${trackId}` : '/learn';
 
@@ -299,53 +691,14 @@ export function LessonPage() {
       )}
 
       {lesson && (
-        <>
-          <PageHeader
-            title={lesson.title}
-            subtitle={`${lesson.track_title} · Stage ${lesson.stage_number}: ${lesson.stage_title} · ~${lesson.estimated_minutes} min`}
-          />
-          <div className="flex flex-wrap gap-2 mb-4">
-            <BookmarkButton stageId={lesson.stage_id} dark={dark} />
-            <NotebookWidget stageId={lesson.stage_id} dark={dark} />
-          </div>
-          <div className={`rounded-2xl p-6 border ${dark ? 'bg-corporate-surface-dark border-corporate-border-dark' : 'bg-white border-corporate-bg'}`}>
-            {lesson.content_body ? (
-              <>
-                <div className="mb-4"><ListenButton text={lesson.content_body} dark={dark} /></div>
-                <LessonBody content={lesson.content_body} dark={dark} />
-              </>
-            ) : (
+        lesson.content_body
+          ? <LessonReader lesson={lesson} trackId={trackId} stages={stages} dark={dark} />
+          : (
+            <>
+              <PageHeader title={lesson.title} subtitle={`${lesson.track_title} · Stage ${lesson.stage_number}: ${lesson.stage_title}`} />
               <p className={`text-sm ${dark ? 'text-white/40' : 'text-gray-400'}`}>Not yet authored.</p>
-            )}
-          </div>
-
-          {lesson.content_body && matchingDiagrams(lesson.content_body).length > 0 && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-              {matchingDiagrams(lesson.content_body).map((key) => (
-                <SMCDiagram key={key} concept={key} dark={dark} />
-              ))}
-            </div>
-          )}
-
-          {lesson.content_body && (
-            <div className="flex flex-col gap-3 mt-4">
-              <RecapPanel lessonId={lesson.id} dark={dark} />
-              <RetrievalQuizWidget lessonId={lesson.id} dark={dark} />
-              <FlashcardWidget lessonId={lesson.id} dark={dark} />
-            </div>
-          )}
-
-          {lesson.content_body?.includes('### Practice Drill') && (
-            <Link
-              to={`/practise/drills?lesson=${lesson.id}`}
-              className={`inline-flex items-center gap-2 text-sm font-medium mt-4 px-4 py-2.5 rounded-xl transition-colors ${
-                dark ? 'bg-white/5 text-white hover:bg-white/10' : 'bg-corporate-bg text-corporate-hero hover:bg-corporate-hero/10'
-              }`}
-            >
-              <Dumbbell size={16} /> Practice this lesson →
-            </Link>
-          )}
-        </>
+            </>
+          )
       )}
     </div>
   );

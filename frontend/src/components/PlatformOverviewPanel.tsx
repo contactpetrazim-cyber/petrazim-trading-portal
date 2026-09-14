@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Building2, Users, Send, CalendarCheck } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
+import { FoldedCard } from './FoldedCard';
+import { apiFetch } from './AccessExpiredGate';
 
 /**
  * PlatformOverviewPanel — Admin/Super Admin's own extra tier of
@@ -24,11 +26,13 @@ export function PlatformOverviewPanel({ dark = true }: { dark?: boolean }) {
   const { token } = useAuth();
   const [data, setData] = useState<PlatformOverview | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
 
   useEffect(() => {
-    fetch(`${API_BASE}/admin/platform-overview`, { headers: { Authorization: `Bearer ${token}` } })
+    apiFetch(`${API_BASE}/admin/platform-overview`, { headers: { Authorization: `Bearer ${token}` } })
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => d && setData(d))
+      .catch(() => setError(true))
       .finally(() => setLoading(false));
   }, [token]);
 
@@ -45,10 +49,14 @@ export function PlatformOverviewPanel({ dark = true }: { dark?: boolean }) {
   ];
 
   return (
-    <div className={`border rounded-xl p-6 ${cardClass}`}>
-      <h2 className={`text-sm font-medium mb-4 ${dark ? 'text-gray-300' : 'text-gray-500'}`}>Platform Overview</h2>
+    // Folds/unfolds on click, closed by default — by direct request
+    // ("make all the cards in the portal fold with one click and
+    // unfold with another ... i dont want permanently open cards").
+    <FoldedCard title="Platform Overview" dark={dark}>
       {loading ? (
         <p className={`text-sm ${mutedText}`}>Loading…</p>
+      ) : error ? (
+        <p className="text-sm text-smc-danger">Platform totals are unavailable right now.</p>
       ) : (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {tiles.map((t) => (
@@ -62,6 +70,6 @@ export function PlatformOverviewPanel({ dark = true }: { dark?: boolean }) {
           ))}
         </div>
       )}
-    </div>
+    </FoldedCard>
   );
 }

@@ -34,7 +34,8 @@ import { useThemeStore } from '../hooks/useTheme';
  *     you last edited above when there is one, editable either way.
  */
 export function RiskPage() {
-  const { theme } = useThemeStore();
+  const { portalThemes } = useThemeStore();
+  const theme = portalThemes.trader;
   const dark = theme === 'dark';
   const inputCls = `w-full mt-1 border rounded-lg px-2 py-1.5 text-sm ${
     dark ? 'bg-smc-dark border-smc-border text-white' : 'bg-white border-corporate-bg text-corporate-text-on-bg'
@@ -47,6 +48,7 @@ export function RiskPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editing, setEditing] = useState<BotMetricsUpdate | null>(null);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // Position Size Calculator — client-side, "dynamic" (recomputes as
   // you type). Seeded from the first configured bot's own risk_per_trade
@@ -60,6 +62,7 @@ export function RiskPage() {
 
   async function load() {
     setLoading(true);
+    setError(null);
     try {
       const [botList, active, all] = await Promise.all([
         botsApi.getBots(),
@@ -72,6 +75,8 @@ export function RiskPage() {
       const todayStart = new Date();
       todayStart.setHours(0, 0, 0, 0);
       setTodayTrades(all.filter((t) => new Date(t.created_at) >= todayStart));
+    } catch {
+      setError('Could not load your risk data.');
     } finally {
       setLoading(false);
     }
@@ -214,7 +219,7 @@ export function RiskPage() {
       {/* Dynamic Position Size Calculator — by direct request ("include
           dynamic position sizing"). Purely client-side; recomputes live
           as any input changes. */}
-      <FoldedCard title="Position Size Calculator" summary="Risk amount and position size, recomputed live" icon={<Calculator size={19} />} dark={dark} defaultOpen>
+      <FoldedCard title="Position Size Calculator" summary="Risk amount and position size, recomputed live" icon={<Calculator size={19} />} dark={dark}>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <label className="text-xs text-gray-400">
             Account balance ($)
@@ -266,7 +271,7 @@ export function RiskPage() {
           real closed trades, chronological. */}
       {seriesData.length > 0 && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <FoldedCard title="Risk Profile Over Time" summary="Risk % per closed trade" dark={dark} defaultOpen>
+          <FoldedCard title="Risk Profile Over Time" summary="Risk % per closed trade" dark={dark}>
             <ResponsiveContainer width="100%" height={200}>
               <BarChart data={seriesData}>
                 <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
@@ -278,7 +283,7 @@ export function RiskPage() {
             </ResponsiveContainer>
           </FoldedCard>
 
-          <FoldedCard title="P&L Profile Over Time" summary="Realized P&L per closed trade" dark={dark} defaultOpen>
+          <FoldedCard title="P&L Profile Over Time" summary="Realized P&L per closed trade" dark={dark}>
             <ResponsiveContainer width="100%" height={200}>
               <BarChart data={seriesData}>
                 <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
@@ -292,7 +297,7 @@ export function RiskPage() {
             </ResponsiveContainer>
           </FoldedCard>
 
-          <FoldedCard title="Cumulative P&L" summary="Running total, closed trades" dark={dark} defaultOpen>
+          <FoldedCard title="Cumulative P&L" summary="Running total, closed trades" dark={dark}>
             <ResponsiveContainer width="100%" height={200}>
               <AreaChart data={seriesData}>
                 <defs>
@@ -314,7 +319,14 @@ export function RiskPage() {
 
       {loading && <p className="text-sm text-gray-400">Loading…</p>}
 
-      {!loading && bots.length === 0 && (
+      {!loading && error && (
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-smc-danger/30 bg-smc-danger/10 p-3 text-sm text-smc-danger">
+          <span>{error}</span>
+          <button type="button" onClick={load} className="font-semibold underline">Try again</button>
+        </div>
+      )}
+
+      {!loading && !error && bots.length === 0 && (
         <div className={`text-center py-16 text-gray-400 border rounded-xl ${dark ? "bg-smc-card border-smc-border" : "bg-white border-corporate-bg"}`}>
           No bots configured yet — risk caps apply per bot once you create one.
         </div>

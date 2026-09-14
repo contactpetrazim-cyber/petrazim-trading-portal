@@ -1,6 +1,24 @@
 import { apiFetch } from '../components/AccessExpiredGate';
 
 /**
+ * One fresh key per logical user action (order submit, role change,
+ * stage/game completion, ...) — generate ONCE before the first attempt
+ * and reuse the SAME value across every cold-start retry of that one
+ * action (fetchWithRetry/fetchJsonWithRetry already do this internally
+ * since they retry the same `init` object, headers included). Pairs
+ * with the backend's Idempotency-Key guard (app/core/idempotency.py):
+ * a retry that actually reached the server the first time (just slow
+ * to answer) replays the original result instead of re-running the
+ * action — concretely, placing a duplicate order, or a trader
+ * double-tapping a slow "Place Order"/"Complete" button. crypto.
+ * randomUUID() is available in every browser this app already targets
+ * (same baseline as the rest of the app's own uuid usage elsewhere).
+ */
+export function makeIdempotencyKey(): string {
+  return crypto.randomUUID();
+}
+
+/**
  * Shared cold-start-aware fetch helper.
  *
  * Root cause of "Learn/Practice/Analytics/Insights/Order Flow are not
@@ -26,11 +44,44 @@ export type FetchPhase = 'idle' | 'loading' | 'stalled' | 'ready' | 'failed';
 // Total window sums to a little over Render's own WAKE_TIMEOUT_MS
 // (~90s) — long enough to ride out a real cold start, short enough
 // that a genuinely-down backend still fails in reasonable time.
-const RETRY_DELAYS_MS = [1500, 3000, 5000, 8000, 12000, 15000, 20000, 20000];
+export const RETRY_DELAYS_MS = [1500, 3000, 5000, 8000, 12000, 15000, 20000, 20000];
 // Once this many attempts have failed, flip the indicator to "stalled"
 // (red) rather than staying "loading" (orange) — a hint to the user
 // this is taking longer than a normal fetch, not that it's broken yet.
 const STALLED_AFTER_ATTEMPT = 2;
+
+/**
+ * Response-returning sibling of fetchJsonWithRetry, for calls whose
+ * body the caller must read itself (sign-in and registration: a 401 is
+ * a real answer with its own `detail` message, not a retryable fault).
+ * Retries only what a cold start actually looks like — a thrown network
+ * error or a 5xx — and hands back the first definitive response.
+ */
+export async function fetchWithRetry(
+  input: RequestInfo,
+  init: RequestInit,
+  onPhase?: (phase: FetchPhase, attempt: number) => void,
+): Promise<Response> {
+  onPhase?.('loading', 0);
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+    try {
+      const res = await apiFetch(input, init);
+      if (res.status < 500) {
+        onPhase?.(res.ok ? 'ready' : 'failed', attempt);
+        return res;
+      }
+    } catch (err) {
+      lastError = err;
+    }
+    onPhase?.(attempt >= STALLED_AFTER_ATTEMPT ? 'stalled' : 'loading', attempt);
+    if (attempt < RETRY_DELAYS_MS.length) {
+      await new Promise((r) => setTimeout(r, RETRY_DELAYS_MS[attempt]));
+    }
+  }
+  onPhase?.('failed', RETRY_DELAYS_MS.length);
+  throw lastError ?? new Error('The server did not respond. Please try again.');
+}
 
 export async function fetchJsonWithRetry<T>(
   url: string,

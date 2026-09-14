@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Send, MessageCircle, CheckCircle2 } from 'lucide-react';
+import { apiFetch } from './AccessExpiredGate';
 
 const CHANNEL_LINKS = {
   individual: 'https://t.me/petrazim_tradefx',
@@ -44,7 +45,7 @@ export function CommunityGateStep({
 
   async function checkStatus() {
     try {
-      const res = await fetch(`${apiBaseUrl}/community/status`, { credentials: 'include' });
+      const res = await apiFetch(`${apiBaseUrl}/community/status`, { credentials: 'include' });
       if (res.ok) {
         const data = await res.json();
         setConnected(data.telegram_connected);
@@ -80,7 +81,7 @@ export function CommunityGateStep({
         target="_blank"
         rel="noopener noreferrer"
         className={`flex items-center justify-center gap-2 w-full py-3 rounded-lg text-sm font-medium transition-colors ${
-          connected ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-[#229ED9] text-white hover:opacity-90'
+          connected ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-corporate-hero text-white hover:opacity-90'
         }`}
       >
         {connected ? <CheckCircle2 size={18} /> : <Send size={18} />}

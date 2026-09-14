@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { Clock, ShieldCheck, RefreshCw } from 'lucide-react';
 import { CardLogoBand } from './CardLogoBand';
 import { useThemeStore } from '../hooks/useTheme';
+import { handleUnauthorized } from '../lib/authGuard';
+import { isNetworkFailure, resolveFailoverUrl, tryFailoverToVm } from '../lib/backendFailover';
 
 /**
  * AccessExpiredGate — matches the exact card design confirmed working
@@ -96,8 +98,60 @@ export function AccessExpiredGate({ children }: { children: React.ReactNode }) {
   );
 }
 
-export async function apiFetch(input: RequestInfo, init?: RequestInit): Promise<Response> {
-  const res = await fetch(input, { ...init, credentials: 'include' });
+export async function apiFetch(
+  input: RequestInfo,
+  init?: RequestInit & { timeoutMs?: number },
+  /** Internal — set on the one automatic retry after a failover, so a
+   * VM that's ALSO down fails straight through instead of retrying
+   * forever. Never pass this from a call site. */
+  _failoverRetried = false,
+): Promise<Response> {
+  const controller = new AbortController();
+  // Default 20s, but a caller can ask for longer — order placement does
+  // (60s): a free-tier backend waking from sleep regularly needs more
+  // than 20s for the FIRST request, and an aborted request surfaces to
+  // the trader as a bare "failed to fetch" on the Place Order button.
+  const timeout = window.setTimeout(() => controller.abort(), init?.timeoutMs ?? 20_000);
+  const abortFromCaller = () => controller.abort();
+  init?.signal?.addEventListener('abort', abortFromCaller, { once: true });
+
+  // Dual-failover — see lib/backendFailover.ts. Every call site
+  // already builds `input` as `${API_URL}/...`; this rewrites it to
+  // whichever backend is currently active (a no-op unless a previous
+  // request has already failed over this session).
+  const url = typeof input === 'string' ? resolveFailoverUrl(input) : input;
+
+  let res: Response;
+  try {
+    // No `credentials: 'include'` here, deliberately, and this is the
+    // real root cause of the reported "failed to fetch": the backend
+    // answers cross-origin requests with `Access-Control-Allow-Origin: *`,
+    // and every browser refuses a credentialed request against a
+    // wildcard origin — so EVERY call from the preview and from
+    // trade.petrazim.online was rejected before it left the browser,
+    // no matter how healthy the server was. This app authenticates with
+    // a Bearer token, never a cookie, so cookies were never needed.
+    res = await fetch(url, { ...init, signal: controller.signal });
+  } catch (err) {
+    // A real connection failure against the currently-active backend
+    // (not an HTTP error status — that's still a normal, non-throwing
+    // Response, handled below) — switch every future request to the
+    // VM and retry this exact one immediately, rather than surfacing
+    // "failed to fetch" for something the VM could have served.
+    if (!_failoverRetried && typeof input === 'string' && isNetworkFailure(err) && tryFailoverToVm()) {
+      return apiFetch(input, init, true);
+    }
+    throw err;
+  } finally {
+    window.clearTimeout(timeout);
+    init?.signal?.removeEventListener('abort', abortFromCaller);
+  }
+
+  if (res.status === 401) {
+    // Verified against /auth/me first — see lib/authGuard.ts for why a
+    // bare 401 must not end the session.
+    void handleUnauthorized();
+  }
   if (res.status === 402) {
     const body = await res.clone().json().catch(() => null);
     if (body?.detail?.error === 'access_expired') {
@@ -106,3 +160,4 @@ export async function apiFetch(input: RequestInfo, init?: RequestInit): Promise<
   }
   return res;
 }
+

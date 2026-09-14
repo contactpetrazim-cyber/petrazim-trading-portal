@@ -74,7 +74,7 @@ export function CommunityPage() {
           </p>
           <a
             href={joinUrl} target="_blank" rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 text-sm font-semibold text-white px-4 py-2 rounded-lg bg-[#229ED9]"
+            className="inline-flex items-center gap-2 text-sm font-semibold text-white px-4 py-2 rounded-lg bg-corporate-hero"
           >
             <ExternalLink size={15} /> Join on Telegram
           </a>
@@ -99,17 +99,17 @@ export function CommunityPage() {
         What's Posting to the Channels
       </h2>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <FoldedCard title="Today's Tip" icon={<Sparkles size={19} />} dark={dark} defaultOpen>
+        <FoldedCard title="Today's Tip" icon={<Sparkles size={19} />} dark={dark}>
           <p className={`text-sm whitespace-pre-line ${dark ? 'text-white/70' : 'text-gray-600'}`}>
             {preview?.daily_tip ?? 'No authored lesson content to draw from yet.'}
           </p>
         </FoldedCard>
-        <FoldedCard title="Leaderboard" icon={<Trophy size={19} />} dark={dark} defaultOpen>
+        <FoldedCard title="Leaderboard" icon={<Trophy size={19} />} dark={dark}>
           <p className={`text-sm whitespace-pre-line ${dark ? 'text-white/70' : 'text-gray-600'}`}>
             {preview?.leaderboard ?? 'No XP earned by anyone yet — the board fills in as Learn stages are completed.'}
           </p>
         </FoldedCard>
-        <FoldedCard title="This Week's Quiz" icon={<HelpCircle size={19} />} dark={dark} defaultOpen>
+        <FoldedCard title="This Week's Quiz" icon={<HelpCircle size={19} />} dark={dark}>
           <p className={`text-sm mb-1 ${dark ? 'text-white/70' : 'text-gray-600'}`}>{preview?.weekly_quiz_question}</p>
           {preview?.weekly_quiz_source && (
             <p className={`text-xs ${dark ? 'text-white/30' : 'text-gray-400'}`}>From: {preview.weekly_quiz_source}</p>

@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 import { LoadingIndicator } from '../components/LoadingIndicator';
-import type { FetchPhase } from '../lib/resilientFetch';
+import { RETRY_DELAYS_MS, type FetchPhase } from '../lib/resilientFetch';
 
 interface EquityPoint {
   timestamp: string;
@@ -42,7 +42,8 @@ interface EquityPoint {
  */
 export function DashboardPage() {
   const { stats, setStats } = useAppStore();
-  const { theme } = useThemeStore();
+  const { portalThemes } = useThemeStore();
+  const theme = portalThemes.trader;
   const dark = theme === 'dark';
   const [equityData, setEquityData] = useState<EquityPoint[]>([]);
   const [pending, setPending] = useState<Trade[]>([]);
@@ -93,7 +94,6 @@ export function DashboardPage() {
   // gets its own small retry loop instead of fetchJsonWithRetry
   // directly, but the same delay ladder and grey→orange→red→green
   // phase language.
-  const RETRY_DELAYS_MS = [1500, 3000, 5000, 8000, 12000, 15000, 20000, 20000];
   async function loadWithRetry() {
     setPhase('loading');
     for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
@@ -159,7 +159,12 @@ export function DashboardPage() {
             <h2 className="text-2xl md:text-3xl font-extrabold text-white font-display">Dashboard</h2>
             <p className="text-white/80 text-sm mt-1">Real-time SMC Trading Engine overview</p>
           </div>
-          {error && <span className="px-3 py-1 bg-red-500/20 text-white rounded-full text-sm font-medium">{error}</span>}
+          <div className="flex items-center gap-3">
+            {error && <span className="px-3 py-1 bg-red-500/20 text-white rounded-full text-sm font-medium">{error}</span>}
+            <Link to="/overview" className="rounded-lg bg-white/15 px-3 py-2 text-xs font-semibold text-white">
+              Premium overview →
+            </Link>
+          </div>
         </div>
       </div>
 
@@ -219,48 +224,50 @@ export function DashboardPage() {
       </FoldedCard>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Equity Curve */}
-        <div className={`lg:col-span-2 ${dark ? 'bg-smc-card border-smc-border' : 'bg-white border-corporate-bg'} border rounded-xl p-6`}>
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-lg font-bold">Equity Curve</h3>
-          </div>
-          {equityData.length === 0 ? (
-            <div className="h-[300px] flex items-center justify-center text-sm text-gray-500">
-              No closed trades yet — the equity curve fills in as trades close.
-            </div>
-          ) : (
-            <ResponsiveContainer width="100%" height={300}>
-              <AreaChart data={equityData}>
-                <defs>
-                  <linearGradient id="equityGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
-                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke={dark ? '#1f2937' : '#e5e7eb'} />
-                <XAxis dataKey="timestamp" stroke="#6b7280" fontSize={12} tickFormatter={(t) => new Date(t).toLocaleDateString()} />
-                <YAxis stroke="#6b7280" fontSize={12} domain={['dataMin - 200', 'dataMax + 200']} />
-                <Tooltip
-                  contentStyle={{ backgroundColor: dark ? '#111827' : '#ffffff', border: `1px solid ${dark ? '#1f2937' : '#e5e7eb'}`, borderRadius: '8px' }}
-                  labelStyle={{ color: dark ? '#9ca3af' : '#374151' }}
-                  labelFormatter={(t) => new Date(t).toLocaleString()}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="equity"
-                  stroke="#3b82f6"
-                  strokeWidth={2}
-                  fillOpacity={1}
-                  fill="url(#equityGradient)"
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          )}
+        {/* Equity Curve — by direct request ("make all the cards in
+            the portal fold with one click and unfold with another ...
+            no permanently open cards"), every card throughout the
+            portal now uses this same FoldedCard primitive instead of a
+            plain always-open div. */}
+        <div className="lg:col-span-2">
+          <FoldedCard title="Equity Curve" dark={dark}>
+            {equityData.length === 0 ? (
+              <div className="h-[300px] flex items-center justify-center text-sm text-gray-500">
+                No closed trades yet — the equity curve fills in as trades close.
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height={300}>
+                <AreaChart data={equityData}>
+                  <defs>
+                    <linearGradient id="equityGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
+                      <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke={dark ? '#1f2937' : '#e5e7eb'} />
+                  <XAxis dataKey="timestamp" stroke="#6b7280" fontSize={12} tickFormatter={(t) => new Date(t).toLocaleDateString()} />
+                  <YAxis stroke="#6b7280" fontSize={12} domain={['dataMin - 200', 'dataMax + 200']} />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: dark ? '#111827' : '#ffffff', border: `1px solid ${dark ? '#1f2937' : '#e5e7eb'}`, borderRadius: '8px' }}
+                    labelStyle={{ color: dark ? '#9ca3af' : '#374151' }}
+                    labelFormatter={(t) => new Date(t).toLocaleString()}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="equity"
+                    stroke="#3b82f6"
+                    strokeWidth={2}
+                    fillOpacity={1}
+                    fill="url(#equityGradient)"
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            )}
+          </FoldedCard>
         </div>
 
         {/* Bot Performance */}
-        <div className={`${dark ? 'bg-smc-card border-smc-border' : 'bg-white border-corporate-bg'} border rounded-xl p-6`}>
-          <h3 className="text-lg font-bold mb-4">Bot Performance</h3>
+        <FoldedCard title="Bot Performance" dark={dark}>
           {bots.length === 0 ? (
             <p className="text-sm text-gray-400">No bots configured yet.</p>
           ) : (
@@ -284,16 +291,18 @@ export function DashboardPage() {
               })}
             </div>
           )}
-        </div>
+        </FoldedCard>
       </div>
 
       {/* Pending Approvals ("Live Signals") */}
-      <div className={`${dark ? 'bg-smc-card border-smc-border' : 'bg-white border-corporate-bg'} border rounded-xl p-6`}>
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-bold">Pending Approvals</h3>
+      <FoldedCard
+        title="Pending Approvals"
+        summary={pending.length === 0 ? 'Nothing waiting on your approval right now.' : `${pending.length} waiting on you`}
+        dark={dark}
+      >
+        <div className="flex items-center justify-end mb-2">
           <span className="text-xs text-gray-400">Auto-refresh every 30s</span>
         </div>
-
         {pending.length === 0 ? (
           <p className="text-sm text-gray-400">Nothing waiting on your approval right now.</p>
         ) : (
@@ -303,11 +312,10 @@ export function DashboardPage() {
             ))}
           </div>
         )}
-      </div>
+      </FoldedCard>
 
       {/* Recent Trades */}
-      <div className={`${dark ? 'bg-smc-card border-smc-border' : 'bg-white border-corporate-bg'} border rounded-xl p-6`}>
-        <h3 className="text-lg font-bold mb-4">Recent Trades</h3>
+      <FoldedCard title="Recent Trades" dark={dark}>
         {recentTrades.length === 0 ? (
           <p className="text-sm text-gray-400">No trades yet.</p>
         ) : (
@@ -317,7 +325,7 @@ export function DashboardPage() {
             ))}
           </div>
         )}
-      </div>
+      </FoldedCard>
     </div>
   );
 }

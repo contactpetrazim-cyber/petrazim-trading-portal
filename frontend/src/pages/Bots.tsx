@@ -4,6 +4,7 @@ import { Bot, Play, Pause, Settings, TrendingUp, Save, Plus, X, Pencil, Trash2, 
 import { botsApi } from '../services/api';
 import { BotConfig, BotPerformance, BotMetricsUpdate } from '../types';
 import { useThemeStore } from '../hooks/useTheme';
+import { formatApiError } from '../lib/apiError';
 
 /**
  * BotsPage — "Bot Configuration". Was 5 hardcoded bots with dead
@@ -66,7 +67,8 @@ const BOT_CATALOG = [
 ];
 
 export function BotsPage() {
-  const { theme } = useThemeStore();
+  const { portalThemes } = useThemeStore();
+  const theme = portalThemes.trader;
   const dark = theme === 'dark';
   const inputCls = `w-full mt-1 border rounded-lg px-2 py-1.5 text-sm ${
     dark ? 'bg-smc-dark border-smc-border text-white' : 'bg-white border-corporate-bg text-corporate-text-on-bg'
@@ -93,9 +95,11 @@ export function BotsPage() {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   async function loadBots() {
     setLoading(true);
+    setLoadError(null);
     try {
       const data = await botsApi.getBots();
       setBots(data);
@@ -105,6 +109,8 @@ export function BotsPage() {
       const perfMap: Record<string, BotPerformance> = {};
       for (const [id, perf] of perfEntries) if (perf) perfMap[id] = perf;
       setPerformance(perfMap);
+    } catch {
+      setLoadError('Could not load your bots.');
     } finally {
       setLoading(false);
     }
@@ -212,7 +218,7 @@ export function BotsPage() {
       setInstrumentResults([]);
       loadBots();
     } catch (e: any) {
-      setCreateError(e?.response?.data?.detail || 'Could not create bot.');
+      setCreateError(formatApiError(e?.response?.data?.detail, 'Could not create bot.'));
     }
   }
 
@@ -239,7 +245,7 @@ export function BotsPage() {
       if (selectedBot === botId) { setSelectedBot(null); setEditing(null); }
       loadBots();
     } catch (e: any) {
-      setDeleteError(e?.response?.data?.detail || 'Could not delete this bot.');
+      setDeleteError(formatApiError(e?.response?.data?.detail, 'Could not delete this bot.'));
     } finally {
       setDeleting(false);
     }
@@ -266,7 +272,14 @@ export function BotsPage() {
 
       {loading && <p className="text-gray-400 text-sm">Loading…</p>}
 
-      {!loading && bots.length === 0 && (
+      {!loading && loadError && (
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-smc-danger/30 bg-smc-danger/10 p-3 text-sm text-smc-danger">
+          <span>{loadError}</span>
+          <button type="button" onClick={loadBots} className="font-semibold underline">Try again</button>
+        </div>
+      )}
+
+      {!loading && !loadError && bots.length === 0 && (
         <div className={`text-center py-16 text-gray-400 border rounded-xl ${dark ? 'bg-smc-card border-smc-border' : 'bg-white border-corporate-bg'}`}>
           No bots yet — create one to start trading.
         </div>

@@ -15,6 +15,18 @@ jobs:
     steps:
       - name: POST /community/broadcast/weekly-quiz
         run: |
-          curl -sf -X POST \
+          # See daily-community-broadcast.yml's step for why: retry
+          # through a Render cold start, and print status + body instead
+          # of swallowing it, so a failure here is actually diagnosable.
+          http_code=$(curl -sS -X POST \
+            --retry 5 --retry-delay 15 --retry-all-errors --max-time 45 \
             -H "X-Cron-Secret: ${{ secrets.CRON_SECRET }}" \
-            https://petrazim-trading-backend.onrender.com/community/broadcast/weekly-quiz
+            -o response.json -w '%{http_code}' \
+            https://petrazim-trading-backend.onrender.com/community/broadcast/weekly-quiz)
+          echo "HTTP $http_code"
+          cat response.json
+          echo
+          if [ "$http_code" -lt 200 ] || [ "$http_code" -ge 300 ]; then
+            echo "::error::weekly-quiz broadcast returned HTTP $http_code"
+            exit 1
+          fi

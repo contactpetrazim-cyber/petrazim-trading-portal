@@ -1,4 +1,4 @@
-import { Navigate } from 'react-router-dom';
+import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth, UserRole } from '../hooks/useAuth';
 
 /**
@@ -16,9 +16,11 @@ export function ProtectedRoute({
   children: React.ReactNode;
 }) {
   const { user, isAuthenticated } = useAuth();
+  const location = useLocation();
 
   if (!isAuthenticated || !user) {
-    return <Navigate to="/login" replace />;
+    const returnTo = `${location.pathname}${location.search}${location.hash}`;
+    return <Navigate to={`/login?returnTo=${encodeURIComponent(returnTo)}`} replace />;
   }
   if (!allowedRoles.includes(user.role)) {
     return <Navigate to={user.landing_route} replace />;

@@ -1,0 +1,89 @@
+name: Create release checkpoint
+
+# Manual, on-demand rollback point — the portal-side twin of
+# petrazim-trading-hub's own release-checkpoint.yml workflow ("Please
+# add - Actions tab -> Create release checkpoint ... I can add the
+# identical thing to portal so you can tag matching checkpoints on
+# both sides after a confirmed sync round"). Run this from the Actions
+# tab after every approved phase, on BOTH repos with the SAME version
+# string, once you've confirmed the mirror workflows have carried that
+# phase's changes across (see mirror-to-lovable-hub.yml's own comment
+# for how to check that): it verifies the tree actually builds from
+# the committed files alone — both frontend AND backend, since this
+# repo (unlike hub) has both — then tags that commit and publishes a
+# GitHub Release, so there's always a matched, named, known-good pair
+# of checkpoints to roll either side back to.
+#
+# Deliberately manual (workflow_dispatch): automatic tagging on every
+# push would produce hundreds of meaningless "checkpoints" and would
+# also fire on mirror commits.
+
+on:
+  push:
+    branches: ['__never_match_this_branch__']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Tag to create, e.g. v1.0.0 or phase-1 — use the SAME string on both repos for a matched pair.'
+        required: true
+      notes:
+        description: 'What this checkpoint contains'
+        required: false
+        default: 'Approved phase checkpoint.'
+
+jobs:
+  checkpoint:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # A checkpoint that does not build is not a checkpoint.
+      - name: Verify a clean frontend rebuild from committed files
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # No live DB/broker credentials exist in CI, so this can't run
+      # the app itself — a full syntax/import compile of everything
+      # under app/ (after installing every real dependency, so imports
+      # of third-party packages are genuine, not skipped) still catches
+      # what actually breaks a checkpoint most often: a typo or a
+      # forgotten import that `git commit` never caught.
+      - name: Verify the backend installs and compiles cleanly
+        working-directory: backend
+        run: |
+          pip install --no-cache-dir -r requirements.txt -r requirements-additions.txt
+          python -m compileall -q app
+
+      - name: Tag and publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+          NOTES: ${{ inputs.notes }}
+        run: |
+          git config user.email "actions@github.com"
+          git config user.name "release-checkpoint"
+          if git rev-parse -q --verify "refs/tags/$VERSION" >/dev/null; then
+            echo "Tag $VERSION already exists — choose a new version." >&2
+            exit 1
+          fi
+          git tag -a "$VERSION" -m "$NOTES"
+          git push origin "refs/tags/$VERSION"
+          gh release create "$VERSION" \
+            --title "$VERSION" \
+            --notes "$NOTES
+
+Verified: frontend (npm ci + npm run build) and backend (pip install + python -m compileall) both succeeded on ${{ github.sha }}."

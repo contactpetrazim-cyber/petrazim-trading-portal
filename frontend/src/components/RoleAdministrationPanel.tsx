@@ -1,6 +1,10 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { UserCog } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
+import { apiFetch } from './AccessExpiredGate';
+import { FoldedCard } from './FoldedCard';
+import { makeIdempotencyKey } from '../lib/resilientFetch';
+import { formatApiError } from '../lib/apiError';
 
 /**
  * RoleAdministrationPanel — promote/demote by email, adapted from the
@@ -35,39 +39,61 @@ export function RoleAdministrationPanel({ dark = true }: { dark?: boolean }) {
   const [newRole, setNewRole] = useState('partner');
   const [status, setStatus] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // Same pattern as ManualTradingPage's orderIdempotencyKey — keyed on
+  // the exact (email, new role) pair so a retry after a client-side
+  // timeout replays the original result instead of re-applying,
+  // while changing either field gets a fresh key.
+  const lastRoleKeyRef = useRef<{ key: string; payload: string } | null>(null);
 
   async function apply() {
     setStatus(null);
     setSubmitting(true);
     try {
-      const res = await fetch(`${API_BASE}/admin/users/by-email/role`, {
+      const payload = { email, new_role: newRole };
+      const serializedPayload = JSON.stringify(payload);
+      const idempotencyKey = lastRoleKeyRef.current?.payload === serializedPayload
+        ? lastRoleKeyRef.current.key
+        : (lastRoleKeyRef.current = { key: makeIdempotencyKey(), payload: serializedPayload }).key;
+      // 60s, not apiFetch's 20s default — same reasoning as
+      // ManualTradingPage's order placement: a free-tier backend
+      // waking from sleep regularly needs more than 20s for the FIRST
+      // request, and this was aborting client-side before Render's
+      // container even finished starting (confirmed directly: zero
+      // server-side log entry for the request at all, not even a
+      // failed one — it never arrived). Surfaced to the trader as a
+      // bare "Failed to fetch" on Apply, same bug class the comment on
+      // apiFetch itself already documents for other pages.
+      const res = await apiFetch(`${API_BASE}/admin/users/by-email/role`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ email, new_role: newRole }),
+        headers: {
+          'Content-Type': 'application/json', Authorization: `Bearer ${token}`,
+          'Idempotency-Key': idempotencyKey,
+        },
+        body: JSON.stringify(payload),
+        timeoutMs: 60_000,
       });
       const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(body.detail || 'Could not change that account\'s role');
+      if (!res.ok) throw new Error(formatApiError(body.detail, 'Could not change that account\'s role'));
       setStatus(`${body.email} is now ${body.role}.`);
       setEmail('');
     } catch (e: any) {
-      setStatus(e.message);
+      setStatus(
+        e.name === 'AbortError' || e.message === 'Failed to fetch'
+          ? 'The server is waking up from sleep — this can take up to a minute on the first request. Please try Apply again.'
+          : e.message,
+      );
     } finally {
       setSubmitting(false);
     }
   }
 
-  const cardClass = dark ? 'bg-smc-card border-smc-border' : 'bg-white border-corporate-bg';
   const inputClass = dark
     ? 'bg-smc-dark border-smc-border text-white placeholder:text-gray-600'
     : 'border-gray-200 text-corporate-text-on-bg';
 
   return (
-    <div className={`border rounded-xl p-6 ${cardClass}`}>
-      <div className={`flex items-center gap-2 mb-1 ${dark ? 'text-gray-300' : 'text-gray-500'}`}>
-        <UserCog size={16} />
-        <h2 className="text-sm font-medium">Role Administration</h2>
-      </div>
-      <div className="flex flex-col md:flex-row gap-3 mt-3">
+    <FoldedCard title="Role Administration" icon={<UserCog size={19} />} dark={dark}>
+      <div className="flex flex-col md:flex-row gap-3">
         <div className="flex-1">
           <label className={`text-xs font-medium block mb-1 ${dark ? 'text-gray-500' : 'text-gray-500'}`}>Member email</label>
           <input
@@ -100,6 +126,6 @@ export function RoleAdministrationPanel({ dark = true }: { dark?: boolean }) {
         Levels are strictly downward: a promoted member gains their own workspace plus everything beneath it, never anything above.
         {!isSuperAdmin && ' Changing a role requires the Super Admin.'}
       </p>
-    </div>
+    </FoldedCard>
   );
 }

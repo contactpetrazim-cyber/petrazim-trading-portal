@@ -6,6 +6,8 @@ import { LearningDashboardPanel } from '../components/LearningDashboardPanel';
 import { EverythingIncludedPanel } from '../components/EverythingIncludedPanel';
 import { useAuth } from '../hooks/useAuth';
 import { useThemeStore } from '../hooks/useTheme';
+import { PremiumOverviewCard } from '../components/PremiumOverviewCard';
+import { HERO_GRADIENT } from '../config/theme';
 
 /**
  * Fund Manager console — roster + access codes, same as
@@ -29,14 +31,19 @@ export function ManagerConsolePage() {
   if (!user) return null;
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className={`text-2xl font-bold ${dark ? 'text-white' : 'text-corporate-text-on-bg'}`}>Fund Manager Console</h1>
-          <p className={`text-sm mt-1 ${dark ? 'text-white/40' : 'text-gray-500'}`}>Manage your Traders, their risk, and corporate access seats.</p>
+    <div className="max-w-5xl mx-auto space-y-6">
+      <div className="rounded-2xl p-6 text-white shadow-lg" style={{ background: HERO_GRADIENT }}>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/70">Petrazim Fund Manager Portal</div>
+            <h1 className="text-2xl font-bold mt-1">Fund Manager Console</h1>
+            <p className="text-sm text-white/70 mt-1">Manage your Traders, their risk, and corporate access seats.</p>
+          </div>
+          <RoleBadge user={user} />
         </div>
-        <RoleBadge user={user} />
       </div>
+
+      <PremiumOverviewCard />
 
       <LearningDashboardPanel dark={dark} />
       <RosterPanel dark={dark} />

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { ChevronDown, ChevronUp, Save, Users } from 'lucide-react';
 import api, { rosterApi, botsApi, TraderOverview } from '../services/api';
 import { BotMetricsUpdate } from '../types';
+import { FoldedCard } from './FoldedCard';
 
 interface RosterEntry {
   trader_user_id: string;
@@ -36,9 +37,13 @@ export function TraderOversightPanel({ dark = false }: { dark?: boolean }) {
   const [editingBotId, setEditingBotId] = useState<string | null>(null);
   const [editing, setEditing] = useState<BotMetricsUpdate | null>(null);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    api.get<RosterEntry[]>('/roster').then((r) => setRoster(r.data)).finally(() => setLoading(false));
+    api.get<RosterEntry[]>('/roster')
+      .then((r) => setRoster(r.data))
+      .catch(() => setError('Could not load the trader roster.'))
+      .finally(() => setLoading(false));
   }, []);
 
   async function toggleTrader(traderId: string) {
@@ -84,22 +89,22 @@ export function TraderOversightPanel({ dark = false }: { dark?: boolean }) {
     }
   }
 
-  const surface = dark ? 'bg-corporate-surface-dark border-corporate-border-dark' : 'bg-white border-corporate-bg';
   const text = dark ? 'text-white' : 'text-corporate-text-on-bg';
   const muted = dark ? 'text-white/40' : 'text-gray-500';
   const rowBg = dark ? 'bg-corporate-nav-dark' : 'bg-corporate-bg';
   const inputCls = `w-full mt-1 rounded-lg px-2 py-1.5 text-sm ${dark ? 'bg-corporate-surface-dark border-corporate-border-dark text-white' : 'border border-gray-200 text-corporate-text-on-bg'}`;
 
   return (
-    <div className={`rounded-2xl border p-5 ${surface}`}>
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2">
-          <Users size={16} className="text-corporate-hero" />
-          <h3 className={`font-semibold ${text}`}>Trader Oversight</h3>
-        </div>
-        <p className={`text-xs ${muted}`}>Real risk, exposure, and trade activity per Trader</p>
-      </div>
-
+    // Folds/unfolds on click, closed by default — by direct request
+    // ("make all the cards in the portal fold with one click and
+    // unfold with another ... i dont want permanently open cards").
+    <FoldedCard
+      title="Trader Oversight"
+      summary="Real risk, exposure, and trade activity per Trader"
+      icon={<Users size={16} />}
+      dark={dark}
+    >
+      {error && <p className="mb-3 text-sm text-smc-danger">{error}</p>}
       {loading ? (
         <p className={`text-sm ${muted}`}>Loading…</p>
       ) : roster.length === 0 ? (
@@ -212,6 +217,6 @@ export function TraderOversightPanel({ dark = false }: { dark?: boolean }) {
           ))}
         </div>
       )}
-    </div>
+    </FoldedCard>
   );
 }

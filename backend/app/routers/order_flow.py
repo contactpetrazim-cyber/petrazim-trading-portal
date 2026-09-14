@@ -46,6 +46,7 @@ intent.
 
 from __future__ import annotations
 
+import re
 import time
 from collections import defaultdict
 from typing import Dict, List, Literal, Optional
@@ -58,6 +59,7 @@ from app.config import get_settings
 from app.core.auth import get_current_user
 from app.models.user import User
 from app.services.broker_integrations import _FAILOVER_EXCEPTIONS, _send_with_failover
+from app.services.live_price import COINGECKO_IDS
 
 router = APIRouter(prefix="/order-flow", tags=["order-flow"])
 
@@ -86,6 +88,29 @@ _backup_client = (
     )
     if _settings.BINANCE_BACKUP_PROXY_URL else None
 )
+
+# TradingView's own public symbol-search endpoint — the exact one the
+# embedded chart widget's own internal search box calls, so a result
+# here is guaranteed to be a real symbol the chart can actually
+# display, across every asset class TradingView carries (stocks,
+# forex, crypto, indices, commodities), not just this router's small
+# Binance-only allow-list above. Calling it straight from the BROWSER
+# gets a 403 (verified directly): TradingView checks the request's
+# Referer/Origin and rejects anything that isn't tradingview.com
+# itself, which a browser can't fake. A server-side call has no such
+# restriction — this is the same technique the widget's own frontend
+# JS uses, just relocated to our backend, and every request still
+# only runs on behalf of a real logged-in user's own search (same
+# require-auth + debounce discipline as /instruments above), not an
+# open scrape.
+_TV_SYMBOL_SEARCH_URL = "https://symbol-search.tradingview.com/symbol_search/v3/"
+_TV_HEADERS = {
+    "Referer": "https://www.tradingview.com/",
+    "Origin": "https://www.tradingview.com",
+    "User-Agent": "Mozilla/5.0 (compatible; PetrazimChartSearch/1.0)",
+}
+_tv_client = httpx.AsyncClient(timeout=8.0, headers=_TV_HEADERS)
+_TV_HIGHLIGHT_TAGS_RE = re.compile(r"</?em>")
 
 
 def _validate_symbol(symbol: str) -> str:
@@ -342,6 +367,48 @@ class KlinesResponse(BaseModel):
 
 
 @router.get("/klines", response_model=KlinesResponse)
+async def _coingecko_klines_fallback(symbol: str) -> Optional[List[KlineBar]]:
+    """Binance's own geofence can 451 even through the Fixie proxy pair
+    (the proxy's own exit IP can itself be in a region Binance
+    restricts — the same class of failure order_flow.py's own module
+    doc already documents for the browser-direct case, just one hop
+    further out) — by direct bug report ("Binance returned 451 for
+    /klines"), the first real caller of this endpoint since it was
+    written (nothing in the frontend called /klines until
+    PositionOnChartModal.tsx). Falls back to CoinGecko's free public
+    OHLC endpoint, which only exists for 4 of the 6 ALLOWED_SYMBOLS
+    (see COINGECKO_IDS in services/live_price.py — the same honest
+    coverage gap get_crypto_price already lives with).
+
+    HONEST APPROXIMATION: CoinGecko's OHLC endpoint takes a `days`
+    window, not our own `interval` — it doesn't offer a matching 15m/
+    1h/4h/1d selector at all, just whatever granularity its own `days`
+    value implies (1 day of history -> 30m candles, 2-30 days -> 4h
+    candles, 31+ days -> 4-day candles, per CoinGecko's own docs).
+    `days=7` (-> 4h candles) is used as a single reasonable general-
+    purpose reference resolution regardless of what interval was
+    requested — this is ONLY reached when Binance is unreachable, as a
+    "some real reference chart is better than none" fallback, not a
+    silent promise that the requested interval was honored."""
+    coingecko_id = COINGECKO_IDS.get(symbol)
+    if not coingecko_id:
+        return None
+    try:
+        resp = await httpx.AsyncClient(timeout=8.0).get(
+            f"https://api.coingecko.com/api/v3/coins/{coingecko_id}/ohlc",
+            params={"vs_currency": "usd", "days": 7},
+        )
+        if resp.status_code != 200:
+            return None
+        raw = resp.json()
+    except httpx.RequestError:
+        return None
+    return [
+        KlineBar(time_ms=int(row[0]), open=float(row[1]), high=float(row[2]), low=float(row[3]), close=float(row[4]))
+        for row in raw
+    ]
+
+
 async def get_klines(
     symbol: str = "BTCUSDT", interval: str = "4h", limit: int = 60,
     user: User = Depends(get_current_user),
@@ -350,15 +417,18 @@ async def get_klines(
     if interval not in ALLOWED_INTERVALS:
         raise HTTPException(status_code=400, detail=f"interval must be one of {ALLOWED_INTERVALS}")
     limit = max(10, min(limit, 500))
-    resp = await _binance_get("/klines", {"symbol": symbol, "interval": interval, "limit": limit})
-    raw = resp.json()
-    return KlinesResponse(
-        symbol=symbol, interval=interval,
-        candles=[
+    try:
+        resp = await _binance_get("/klines", {"symbol": symbol, "interval": interval, "limit": limit})
+        candles = [
             KlineBar(time_ms=int(row[0]), open=float(row[1]), high=float(row[2]), low=float(row[3]), close=float(row[4]))
-            for row in raw
-        ],
-    )
+            for row in resp.json()
+        ]
+    except HTTPException:
+        fallback = await _coingecko_klines_fallback(symbol)
+        if fallback is None:
+            raise
+        candles = fallback[-limit:]
+    return KlinesResponse(symbol=symbol, interval=interval, candles=candles)
 
 
 # ---------------------------------------------------------------------------
@@ -422,3 +492,72 @@ async def search_instruments(
         if query else sorted(all_instruments, key=lambda i: i.symbol)
     )
     return InstrumentsResponse(instruments=matches[:limit])
+
+
+# ---------------------------------------------------------------------------
+# Chart symbol search — the Pairs panel's "search any instrument", by
+# direct bug report ("the search any instrument should connect to the
+# chart search so that instrument selected can choose from the very
+# large database of instrument pairs ... it sometimes gives an error
+# that 'nothing matched' — yet the search in the chart actually brings
+# out the correct instrument"). PairsPanel.tsx previously only had a
+# small ~35-instrument hand-picked catalogue (config/instrumentCatalogue.ts)
+# plus this router's own crypto-only /instruments above, because a
+# direct browser call to TradingView's search was blocked (see
+# _tv_client's own comment) — this is the real fix: the identical
+# search the chart's own widget uses, proxied server-side so it
+# actually reaches TradingView instead of being 403'd.
+# ---------------------------------------------------------------------------
+
+class ChartSymbolResult(BaseModel):
+    symbol: str
+    exchange: str
+    description: str
+    type: str
+
+
+class ChartSymbolSearchResponse(BaseModel):
+    results: List[ChartSymbolResult]
+
+
+@router.get("/symbol-search", response_model=ChartSymbolSearchResponse)
+async def chart_symbol_search(
+    q: str, limit: int = 25, user: User = Depends(get_current_user),
+):
+    """Real TradingView symbols matching `q`, across every asset class
+    — every result's `symbol`+`exchange` is a validated `EXCHANGE:TICKER`
+    pair the chart widget can actually load, the same guarantee
+    config/instrumentCatalogue.ts's hand-picked list makes, just from
+    TradingView's own live database instead of a ~35-row fallback."""
+    query = q.strip()
+    if not query:
+        return ChartSymbolSearchResponse(results=[])
+    try:
+        resp = await _tv_client.get(
+            _TV_SYMBOL_SEARCH_URL,
+            params={
+                "text": query, "hl": 1, "exchange": "", "lang": "en",
+                "search_type": "undefined", "domain": "production",
+            },
+        )
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=502, detail=f"Could not reach the chart's symbol database: {e}")
+    if resp.status_code != 200:
+        raise HTTPException(status_code=502, detail=f"Chart symbol search returned {resp.status_code}")
+
+    raw = resp.json()
+    limit = max(1, min(limit, 50))
+    results = [
+        ChartSymbolResult(
+            symbol=_TV_HIGHLIGHT_TAGS_RE.sub("", s.get("symbol", "")),
+            exchange=s.get("exchange", ""),
+            description=_TV_HIGHLIGHT_TAGS_RE.sub("", s.get("description", "")),
+            type=s.get("type", ""),
+        )
+        for s in raw.get("symbols", [])[:limit]
+        # Skip TradingView's own synthetic/discontinued entries (e.g. the
+        # "APPLEUSD" crypto-swap noise that outranks real AAPL for a
+        # query like "apple") — real, currently listed instruments only.
+        if "discontinued" not in s.get("typespecs", [])
+    ]
+    return ChartSymbolSearchResponse(results=results)

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { fetchJsonWithRetry, type FetchPhase } from '../lib/resilientFetch';
 import { LoadingIndicator } from './LoadingIndicator';
+import { FoldedCard } from './FoldedCard';
 import { AdvancedTradeAnalytics } from './AdvancedTradeAnalytics';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -273,8 +274,6 @@ export function TradeAnalytics({ dark = false }: { dark?: boolean }) {
       });
   }, [token, retryTick, source]);
 
-  const cardCls = `rounded-2xl p-5 border ${dark ? 'bg-corporate-surface-dark border-corporate-border-dark' : 'bg-white border-corporate-bg'}`;
-  const titleCls = `text-xs font-semibold uppercase tracking-wide mb-4 ${dark ? 'text-white/40' : 'text-gray-400'}`;
   const mutedCls = dark ? 'text-white/40' : 'text-gray-400';
 
   const toggle = <div className="mb-4"><SourceToggle value={source} onChange={setSource} dark={dark} /></div>;
@@ -321,8 +320,11 @@ export function TradeAnalytics({ dark = false }: { dark?: boolean }) {
     <div>
     {toggle}
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-      <div className={cardCls}>
-        <div className={titleCls}>Trade Analysis</div>
+      {/* Every card below now folds/unfolds on click (closed by
+          default) — by direct request ("make all the cards in the
+          portal fold with one click and unfold with another ... i
+          dont want permanently open cards"). */}
+      <FoldedCard title="Trade Analysis" dark={dark}>
         <div className="flex items-center gap-6 mb-4">
           <WinRateRing pct={ta.win_rate} dark={dark} />
           <div>
@@ -344,24 +346,21 @@ export function TradeAnalytics({ dark = false }: { dark?: boolean }) {
             <div className="text-sm font-bold text-red-500">{money(ta.worst_trade)}</div>
           </div>
         </div>
-      </div>
+      </FoldedCard>
 
-      <div className={cardCls}>
-        <div className={titleCls}>Most Traded Pairs</div>
+      <FoldedCard title="Most Traded Pairs" dark={dark}>
         <TradedPairsDonut rows={summary.by_symbol} dark={dark} />
-      </div>
+      </FoldedCard>
 
-      <div className={cardCls}>
-        <div className={titleCls}>Performance by Symbol</div>
+      <FoldedCard title="Performance by Symbol" dark={dark}>
         {summary.by_symbol.length === 0 ? (
           <p className={`text-sm ${mutedCls}`}>Nothing to show yet.</p>
         ) : (
           <SymbolBars rows={summary.by_symbol} dark={dark} />
         )}
-      </div>
+      </FoldedCard>
 
-      <div className={cardCls}>
-        <div className={titleCls}>Monthly Realized PnL</div>
+      <FoldedCard title="Monthly Realized PnL" dark={dark}>
         <div className="space-y-1">
           {summary.monthly_pnl.slice(monthPage * PAGE_SIZE, monthPage * PAGE_SIZE + PAGE_SIZE).map((m) => (
             <div key={m.month} className={`flex items-center justify-between py-1.5 text-sm border-b last:border-0 ${dark ? 'border-white/5' : 'border-gray-50'}`}>
@@ -371,36 +370,37 @@ export function TradeAnalytics({ dark = false }: { dark?: boolean }) {
           ))}
         </div>
         <Pager page={monthPage} pageCount={monthPageCount} onChange={setMonthPage} dark={dark} />
-      </div>
+      </FoldedCard>
 
-      <div className={`${cardCls} lg:col-span-2`}>
-        <div className={titleCls}>Daily Summary</div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className={`text-left text-xs ${mutedCls}`}>
-                <th className="pb-2 font-medium">Date</th>
-                <th className="pb-2 font-medium">Trades</th>
-                <th className="pb-2 font-medium">Realized PnL</th>
-              </tr>
-            </thead>
-            <tbody>
-              {summary.daily_summary.slice(dailyPage * PAGE_SIZE, dailyPage * PAGE_SIZE + PAGE_SIZE).map((d) => (
-                <tr key={d.date} className={`border-t ${dark ? 'border-white/5' : 'border-gray-50'}`}>
-                  <td className={`py-2 ${dark ? 'text-white/70' : 'text-gray-700'}`}>{d.date}</td>
-                  <td className={dark ? 'text-white/50' : 'text-gray-500'}>{d.trades}</td>
-                  <td className={`font-semibold ${d.realized_pnl >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>{money(d.realized_pnl)}</td>
+      <div className="lg:col-span-2">
+        <FoldedCard title="Daily Summary" dark={dark}>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className={`text-left text-xs ${mutedCls}`}>
+                  <th className="pb-2 font-medium">Date</th>
+                  <th className="pb-2 font-medium">Trades</th>
+                  <th className="pb-2 font-medium">Realized PnL</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <div className={`text-xs mt-1 ${mutedCls}`}>
-          {summary.daily_summary.length === 0
-            ? 'No days with closed trades yet.'
-            : `${dailyPage * PAGE_SIZE + 1}-${Math.min((dailyPage + 1) * PAGE_SIZE, summary.daily_summary.length)} of ${summary.daily_summary.length}`}
-        </div>
-        <Pager page={dailyPage} pageCount={dailyPageCount} onChange={setDailyPage} dark={dark} />
+              </thead>
+              <tbody>
+                {summary.daily_summary.slice(dailyPage * PAGE_SIZE, dailyPage * PAGE_SIZE + PAGE_SIZE).map((d) => (
+                  <tr key={d.date} className={`border-t ${dark ? 'border-white/5' : 'border-gray-50'}`}>
+                    <td className={`py-2 ${dark ? 'text-white/70' : 'text-gray-700'}`}>{d.date}</td>
+                    <td className={dark ? 'text-white/50' : 'text-gray-500'}>{d.trades}</td>
+                    <td className={`font-semibold ${d.realized_pnl >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>{money(d.realized_pnl)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className={`text-xs mt-1 ${mutedCls}`}>
+            {summary.daily_summary.length === 0
+              ? 'No days with closed trades yet.'
+              : `${dailyPage * PAGE_SIZE + 1}-${Math.min((dailyPage + 1) * PAGE_SIZE, summary.daily_summary.length)} of ${summary.daily_summary.length}`}
+          </div>
+          <Pager page={dailyPage} pageCount={dailyPageCount} onChange={setDailyPage} dark={dark} />
+        </FoldedCard>
       </div>
     </div>
 

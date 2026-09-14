@@ -37,8 +37,19 @@ async def dashboard_stats(db: AsyncSession = Depends(get_db), user: User = Depen
     """Get real-time dashboard statistics for the caller (Admin/Super Admin see the whole platform)."""
     today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
 
-    # Today's trades
-    trades_query = _scope_trades(select(Trade), user).where(Trade.created_at >= today_start)
+    # Today's trades — CANCELLED (and ERROR) excluded, by direct bug
+    # report ("if a trade order is cancelled - why is it still showing
+    # up on the traders dashboard as a pending or executed order"). An
+    # order the trader (or the system) withdrew before it ever became
+    # a real position was never actually "a trade taken today" — it
+    # was inflating total_trades_today (and, since a cancelled order's
+    # realized_pnl is never set, dragging win_rate_today down with it:
+    # exactly the "2 trades, 0% win rate" for what was really 0-1 real
+    # attempts in the screenshot this was reported against).
+    trades_query = _scope_trades(select(Trade), user).where(
+        Trade.created_at >= today_start,
+        Trade.status.notin_([TradeStatus.CANCELLED, TradeStatus.ERROR]),
+    )
     result = await db.execute(trades_query)
     today_trades = result.scalars().all()
 

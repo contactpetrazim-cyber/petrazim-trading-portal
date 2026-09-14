@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, Link } from 'react-router-dom';
+import { BookOpen } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
 import { FoldedCard } from '../components/FoldedCard';
 import { LoadingIndicator } from '../components/LoadingIndicator';
@@ -106,6 +107,18 @@ export function PracticeDrillsPage() {
     <div>
       <PageHeader title="Practice Drills" subtitle="Repeated, scored scenario drills per concept." />
 
+      <div className="flex flex-wrap gap-x-4 gap-y-1.5 mb-4">
+        <Link to="/learn/mastery" className={`text-sm font-medium ${dark ? 'text-white/60 hover:text-white' : 'text-corporate-hero'}`}>
+          Mastery Overview →
+        </Link>
+        <Link to="/learn/awards" className={`text-sm font-medium ${dark ? 'text-white/60 hover:text-white' : 'text-corporate-hero'}`}>
+          Awards & Certificates →
+        </Link>
+        <Link to="/practise/review" className={`text-sm font-medium ${dark ? 'text-white/60 hover:text-white' : 'text-corporate-hero'}`}>
+          Retention Review →
+        </Link>
+      </div>
+
       {/* A failed load used to leave the page blank below the error
           line — by direct bug report ("same for practice - fix you
           can not show"). Always a real "try again" action and a
@@ -145,7 +158,27 @@ export function PracticeDrillsPage() {
                   }`}
                 >
                   <div className={`text-xs font-semibold mb-1 ${dark ? 'text-white/70' : 'text-gray-600'}`}>{d.lesson_title}</div>
-                  <p className={`text-sm mb-3 leading-relaxed ${dark ? 'text-white/80' : 'text-gray-700'}`}>{d.prompt}</p>
+                  <p className={`text-sm mb-1.5 leading-relaxed ${dark ? 'text-white/80' : 'text-gray-700'}`}>{d.prompt}</p>
+                  {/* Quick link back to this drill's own lesson — by
+                      direct request ("where ever charts or diagrams
+                      are reference provide a quick link to the
+                      reference diagrams or charts for a quick review
+                      or check again"). A drill's prompt is authored
+                      straight from its lesson (see this page's own
+                      docstring), so any chart/diagram the prompt
+                      refers to already lives there — no need to parse
+                      free-text prompts for which ones mention a
+                      visual specifically, since the lesson is the
+                      right target either way. Opens in a new tab
+                      (target="_blank") so answering the drill doesn't
+                      mean losing your place to go check. */}
+                  <a
+                    href={`/learn/tracks/${g.track_id}/lessons/${d.lesson_id}`}
+                    target="_blank" rel="noopener noreferrer"
+                    className={`inline-flex items-center gap-1 text-xs font-medium mb-3 ${dark ? 'text-white/50 hover:text-white' : 'text-corporate-hero hover:underline'}`}
+                  >
+                    <BookOpen size={12} /> Review the reference chart/diagram
+                  </a>
                   <div className="flex items-center gap-2">
                     <button
                       disabled={busy === d.lesson_id}

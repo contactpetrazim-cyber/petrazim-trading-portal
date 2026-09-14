@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Play, Pause, Square, Settings2 } from 'lucide-react';
-import { useNarrationStore } from '../hooks/useNarration';
+import { useNarrationStore, type NarrationVoiceSlot } from '../hooks/useNarration';
+import { classifyVoiceGender } from '../lib/voiceGender';
 
 /**
  * ListenButton — ONE shared narration component used on every surface
@@ -44,12 +45,23 @@ function splitSentences(text: string): string[] {
     .filter(Boolean);
 }
 
-function pickVoices(): SpeechSynthesisVoice[] {
+// Every voice matching the visitor's language (not just the first two)
+// — needs the full pool so a real male AND a real female voice can be
+// found, rather than whichever two happen to load first (previously
+// often two of the same apparent gender — the reported bug).
+function pickVoicePool(): SpeechSynthesisVoice[] {
   if (typeof window === 'undefined' || !window.speechSynthesis) return [];
   const all = window.speechSynthesis.getVoices();
   const lang = (navigator.language || 'en-US').split('-')[0];
   const matching = all.filter((v) => v.lang.toLowerCase().startsWith(lang));
-  return (matching.length >= 2 ? matching : all).slice(0, 2);
+  return matching.length >= 2 ? matching : all;
+}
+
+function pickByGender(pool: SpeechSynthesisVoice[]): Record<NarrationVoiceSlot, SpeechSynthesisVoice | undefined> {
+  return {
+    male: pool.find((v) => classifyVoiceGender(v) === 'male'),
+    female: pool.find((v) => classifyVoiceGender(v) === 'female'),
+  };
 }
 
 export function ListenButton({ text, dark = false }: { text: string; dark?: boolean }) {
@@ -57,14 +69,14 @@ export function ListenButton({ text, dark = false }: { text: string; dark?: bool
   const [playing, setPlaying] = useState(false);
   const [paused, setPaused] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [voicesByGender, setVoicesByGender] = useState<Record<NarrationVoiceSlot, SpeechSynthesisVoice | undefined>>({ male: undefined, female: undefined });
   const chunksRef = useRef<string[]>([]);
   const indexRef = useRef(0);
   const supported = typeof window !== 'undefined' && 'speechSynthesis' in window;
 
   useEffect(() => {
     if (!supported) return;
-    const load = () => setVoices(pickVoices());
+    const load = () => setVoicesByGender(pickByGender(pickVoicePool()));
     load();
     window.speechSynthesis.onvoiceschanged = load;
     return () => { window.speechSynthesis.onvoiceschanged = null; };
@@ -81,7 +93,11 @@ export function ListenButton({ text, dark = false }: { text: string; dark?: bool
 
     const utterance = new SpeechSynthesisUtterance(chunk);
     utterance.rate = speed;
-    const voice = voiceSlot === 'voice1' ? voices[0] : voices[1] ?? voices[0];
+    // Falls back to whichever gender IS available if the preferred one
+    // wasn't found on this browser (rather than silently reverting to
+    // the browser's own default voice, which could resurface the exact
+    // "sounds the same either way" complaint this feature fixes).
+    const voice = voicesByGender[voiceSlot] ?? voicesByGender.male ?? voicesByGender.female;
     if (voice) utterance.voice = voice;
     utterance.onend = () => {
       if (indexRef.current + 1 < chunksRef.current.length) {
@@ -121,7 +137,7 @@ export function ListenButton({ text, dark = false }: { text: string; dark?: bool
 
   // VO02 — a voice/speed change mid-playback restarts the CURRENT
   // chunk (not the whole passage) in the new voice/speed.
-  function changeVoice(slot: 'voice1' | 'voice2') {
+  function changeVoice(slot: NarrationVoiceSlot) {
     setVoiceSlot(slot);
     if (playing) setTimeout(() => speakFrom(indexRef.current), 0);
   }
@@ -158,16 +174,17 @@ export function ListenButton({ text, dark = false }: { text: string; dark?: bool
         <div className={`absolute z-20 mt-2 p-3 rounded-xl border shadow-lg w-48 ${dark ? 'bg-corporate-surface-dark border-corporate-border-dark' : 'bg-white border-gray-200'}`}>
           <div className={`text-[11px] font-semibold mb-1.5 ${mutedCls}`}>Voice</div>
           <div className="flex gap-1.5 mb-3">
-            {(['voice1', 'voice2'] as const).map((slot, i) => (
+            {(['male', 'female'] as const).map((slot) => (
               <button
                 key={slot}
                 onClick={() => changeVoice(slot)}
-                disabled={!voices[i]}
-                className={`flex-1 text-xs py-1.5 rounded-lg disabled:opacity-30 ${
+                disabled={!voicesByGender[slot]}
+                title={!voicesByGender[slot] ? 'No matching voice found on this browser' : undefined}
+                className={`flex-1 text-xs py-1.5 rounded-lg capitalize disabled:opacity-30 ${
                   voiceSlot === slot ? 'bg-corporate-hero text-white' : dark ? 'bg-white/5 text-white/70' : 'bg-corporate-bg text-gray-600'
                 }`}
               >
-                Voice {i + 1}
+                {slot}
               </button>
             ))}
           </div>

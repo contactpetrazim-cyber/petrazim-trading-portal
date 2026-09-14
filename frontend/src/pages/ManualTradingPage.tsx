@@ -1,15 +1,20 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { ArrowLeft, Settings2, ArrowLeftRight, Calculator, ChevronDown } from 'lucide-react';
 import { ChartPanel } from '../components/ChartPanel';
 import { useAuth } from '../hooks/useAuth';
 import { useThemeStore } from '../hooks/useTheme';
 import { useQuickPrice } from '../hooks/useQuickPrice';
+import { useBackendStatus } from '../hooks/useBackendStatus';
 import { apiFetch } from '../components/AccessExpiredGate';
-import { fetchJsonWithRetry, type FetchPhase } from '../lib/resilientFetch';
+import { fetchJsonWithRetry, makeIdempotencyKey, type FetchPhase } from '../lib/resilientFetch';
+import { formatApiError } from '../lib/apiError';
 import { LoadingIndicator } from '../components/LoadingIndicator';
-import { tradesApi } from '../services/api';
+import { tradesApi, botsApi } from '../services/api';
+import { PairsPanel } from '../components/PairsPanel';
+import { useQuickPairsStore } from '../hooks/useQuickPairs';
 import type { Trade } from '../types';
+
 
 // Same labels AdvancedTradeAnalytics.tsx's own Exit Reason Breakdown
 // chart uses for these exact backend ExitType values — kept as its
@@ -27,89 +32,13 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 // SL").
 const QUICK_PCTS = [0.5, 1, 2, 3, 4, 5];
 
-// Exchange selector — by direct request ("with a Exchange selection,
-// Binance, Bybit, Bingx, Mexc"). Drives BOTH the chart symbol's prefix
-// for a crypto perpetual (below) AND, for real, which exchange an
-// order actually routes to: `id` matches execution_engine.py's own
-// broker keys (self.brokers = {"bingx", "binance", "bybit", "mexc",
-// ...}) exactly, so selecting one here and placing a Live order sends
-// `preferred_broker` straight through to the real broker-routing logic
-// instead of that field sitting unused.
-const EXCHANGES = [
-  { id: 'binance', label: 'Binance', tvPrefix: 'BINANCE' },
-  { id: 'bybit', label: 'Bybit', tvPrefix: 'BYBIT' },
-  { id: 'bingx', label: 'BingX', tvPrefix: 'BINGX' },
-  { id: 'mexc', label: 'MEXC', tvPrefix: 'MEXC' },
-] as const;
+// Quick-link pairs, the exchange/broker mapping and the instrument
+// search all moved into the ONE shared surface every chart in the app
+// uses now — see hooks/useQuickPairs.ts (persisted list, exact
+// `EXCHANGE:TICKER` symbols, optional broker routing id) and
+// components/PairsPanel.tsx (search + saved pills). This page keeps
+// only which saved pair is currently selected.
 
-// Quick-link symbols — replaced the old BTC/USDT + EUR/USD + GBP/USD +
-// XAU/USD list, by direct bug report ("the quick links ... do not
-// work"). Three kinds now:
-//   - `perp` / `fixedTv` (legacy, still read for the 4 built-in
-//     defaults below and anything saved under the old scheme): see
-//     the git history on this file for the original reasoning. `perp`
-//     builds its chart symbol from whichever Exchange pill is
-//     currently selected.
-//   - `tv` (current — every quick-link added through the search panel
-//     gets this): a REAL, already-validated TradingView symbol
-//     (`EXCHANGE:TICKER`, taken verbatim from a live TradingView
-//     symbol-search result), covering ANY instrument on ANY exchange —
-//     not just a Binance-style crypto perpetual. By direct bug report
-//     ("the default btcusdt keeps showing despite clicking any of the
-//     quick links") + direct request ("allow me to search using the
-//     tradingview search engine and enter any instrument ... this
-//     should tie automatically to the exchange"): the actual root
-//     cause of "stuck on BTCUSDT" was this page GUESSING a chart
-//     symbol by gluing the Exchange pill's prefix onto a `.P` suffix
-//     (e.g. "BYBIT:XAUTUSDT.P") — plausible-looking, but often not a
-//     real TradingView ticker, so the widget silently fell back to
-//     its own default chart instead of erroring visibly. A `tv` entry
-//     sidesteps that guesswork entirely: the exchange is already
-//     baked into the validated symbol a real search returned, so nothing
-//     downstream needs to guess it — see `brokerId` below for the one
-//     other place an exchange still matters (order routing).
-interface QuickSymbol {
-  label: string;
-  trade: string;
-  perp?: string;
-  fixedTv?: string;
-  /** A real, pre-validated `EXCHANGE:TICKER` TradingView symbol — set
-   * for every quick-link added via search. Takes priority over
-   * perp/fixedTv when present: the Exchange pill row plays no part in
-   * building this instrument's chart symbol. */
-  tv?: string;
-  /** One of EXCHANGES' own ids, set automatically (never asked for
-   * separately) when this instrument's real TradingView exchange
-   * happens to be one of the 4 brokers this app can actually route a
-   * live order to. Used only for order execution's preferred_broker;
-   * left unset for anything else (a stock, a forex pair, an index...)
-   * and the backend's own symbol-based routing decides instead. */
-  brokerId?: string;
-}
-const DEFAULT_QUICK_SYMBOLS: QuickSymbol[] = [
-  { label: 'BTC Perp', trade: 'BTCUSDT', perp: 'BTCUSDT.P' },
-  { label: 'Gold Perp', trade: 'XAUTUSDT', perp: 'XAUTUSDT.P' },
-  { label: 'USD/JPY', trade: 'USDJPY', fixedTv: 'OANDA:USDJPY' },
-  { label: 'Nasdaq 100', trade: 'NAS100', fixedTv: 'OANDA:NAS100USD' },
-];
-// The quick-link list is now dynamic — by direct request ("create an
-// option to manually select specific instruments from selected
-// exchanges ... max is 5 ... so that the list can be dynamic"), capped
-// at 5 and persisted per-browser (localStorage — this is a personal
-// chart-shortcut preference, not account data worth a DB migration for).
-const MAX_QUICK_SYMBOLS = 5;
-const QUICK_SYMBOLS_STORAGE_KEY = 'manualTrading.quickSymbols';
-
-function loadStoredQuickSymbols(): QuickSymbol[] {
-  try {
-    const raw = localStorage.getItem(QUICK_SYMBOLS_STORAGE_KEY);
-    if (!raw) return DEFAULT_QUICK_SYMBOLS;
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) && parsed.length > 0 ? parsed.slice(0, MAX_QUICK_SYMBOLS) : DEFAULT_QUICK_SYMBOLS;
-  } catch {
-    return DEFAULT_QUICK_SYMBOLS;
-  }
-}
 
 interface Settings {
   use_global_defaults: boolean;
@@ -226,121 +155,32 @@ export function ManualTradingPage() {
   const { token } = useAuth();
   const { theme } = useThemeStore();
   const dark = theme === 'dark';
+  // Same wake mechanism WakeBackendButton/BackendStatusBadge already
+  // use in the NAV. Order placement previously only widened its OWN
+  // timeout to 60s and hoped a single attempt landed after a cold
+  // start — by repeat bug report ("trade order execution still
+  // showing error") that single gamble still routinely lost. Actively
+  // waking the backend and confirming it's answering BEFORE the order
+  // POST fires is also the only safe fix here: unlike a GET, retrying
+  // the order POST itself risks placing it twice if an earlier attempt
+  // actually landed but its response was lost.
+  const { status: backendStatus, wake: wakeBackend, refresh: refreshBackendStatus } = useBackendStatus();
 
   const preselect = params.get('symbol');
   const preselectPrice = params.get('price');
-  const [quickSymbols, setQuickSymbols] = useState<QuickSymbol[]>(loadStoredQuickSymbols);
-  const [quickSymbol, setQuickSymbol] = useState<QuickSymbol>(
-    () => loadStoredQuickSymbols().find((s) => s.trade === preselect) || loadStoredQuickSymbols()[0]
+  // Pairs now live in the ONE shared quick-links store (useQuickPairs),
+  // so a pair added here shows up on every other chart in the app and
+  // vice-versa — by direct request. The old per-page list, the
+  // exchange-prefix guesswork and this page's own copy of the search
+  // panel are all gone; PairsPanel owns that surface for every chart.
+  const { pairs } = useQuickPairsStore();
+  const [selectedTv, setSelectedTv] = useState<string>(
+    () => pairs.find((p) => p.trade === preselect)?.tv ?? pairs[0]?.tv,
   );
-  const [exchange, setExchange] = useState<typeof EXCHANGES[number]>(EXCHANGES[0]);
-  const [addingSymbol, setAddingSymbol] = useState(false);
-  const [addQuery, setAddQuery] = useState('');
-  const [addResults, setAddResults] = useState<{ symbol: string; exchange: string; description: string; type: string }[]>([]);
-  const [addSearching, setAddSearching] = useState(false);
+  const quickSymbol = pairs.find((p) => p.tv === selectedTv) ?? pairs[0];
 
-  function persistQuickSymbols(next: QuickSymbol[]) {
-    setQuickSymbols(next);
-    try { localStorage.setItem(QUICK_SYMBOLS_STORAGE_KEY, JSON.stringify(next)); } catch { /* private-window etc. — fine, just doesn't persist */ }
-  }
+  const symbol = { label: quickSymbol.label, trade: quickSymbol.trade, tv: quickSymbol.tv };
 
-  // Picking a real search result — the exchange comes bundled with it
-  // (TradingView's own canonical "EXCHANGE:TICKER" pair), so there's no
-  // separate "which exchange is this on" step to ask for any more: it
-  // ties automatically, by direct request. If that exchange happens to
-  // be one this app can actually route a live order to, `brokerId`
-  // captures that for submitOrder's preferred_broker below — otherwise
-  // it's just left unset.
-  function addQuickSymbolFromResult(result: { symbol: string; exchange: string; description: string }) {
-    const trade = result.symbol.trim().toUpperCase();
-    const tv = `${result.exchange.trim().toUpperCase()}:${trade}`;
-    if (!trade || quickSymbols.length >= MAX_QUICK_SYMBOLS || quickSymbols.some((s) => s.tv === tv)) return;
-    const brokerMatch = EXCHANGES.find((ex) => ex.tvPrefix.toUpperCase() === result.exchange.trim().toUpperCase());
-    const label = result.description && result.description.length <= 16 ? result.description : trade;
-    const next: QuickSymbol = { label, trade, tv, brokerId: brokerMatch?.id };
-    persistQuickSymbols([...quickSymbols, next]);
-    setQuickSymbol(next);
-    setAddingSymbol(false);
-    setAddQuery('');
-    setAddResults([]);
-  }
-
-  // Enter with no result clicked — adds the top match if the search
-  // found one, or a literally-typed "EXCHANGE:TICKER" pair (e.g.
-  // "NASDAQ:AAPL") taken at face value. Deliberately does NOT fall back
-  // to guessing an exchange for a bare typed ticker any more — that
-  // exact guesswork (gluing an Exchange pill's prefix onto a typed
-  // symbol) was the real bug this search panel replaces.
-  function addQuickSymbolOnEnter(raw: string) {
-    const clean = raw.trim().toUpperCase();
-    if (!clean) return;
-    if (clean.includes(':')) {
-      const [exch, sym] = clean.split(':');
-      if (exch && sym) addQuickSymbolFromResult({ symbol: sym, exchange: exch, description: '' });
-      return;
-    }
-    if (addResults.length > 0) addQuickSymbolFromResult(addResults[0]);
-  }
-
-  function removeQuickSymbol(trade: string) {
-    const next = quickSymbols.filter((s) => s.trade !== trade);
-    persistQuickSymbols(next.length ? next : DEFAULT_QUICK_SYMBOLS);
-    if (quickSymbol.trade === trade) setQuickSymbol((next.length ? next : DEFAULT_QUICK_SYMBOLS)[0]);
-  }
-
-  // Real TradingView symbol search — every exchange and asset class
-  // TradingView itself covers (crypto, forex, stocks, indices,
-  // commodities...), not just Binance futures (the old
-  // GET /order-flow/instruments this replaces only ever covered
-  // Binance spot/futures tickers). This is TradingView's own public
-  // search endpoint — the exact one its embedded widget's built-in
-  // symbol search calls — fetched directly from the browser rather
-  // than proxied through this app's backend: it's read-only and
-  // publicly reachable, and a server-side proxy risks the SAME
-  // datacenter-IP bot-filtering a hosted backend can run into, with no
-  // upside here. HONEST LIMITATION: this is TradingView's own
-  // undocumented endpoint (no official public API for this), so it can
-  // change shape or start blocking a given request without notice —
-  // if it ever returns nothing, typing a literal "EXCHANGE:TICKER"
-  // and pressing Enter still works as a manual fallback (see
-  // addQuickSymbolOnEnter above).
-  useEffect(() => {
-    if (!addingSymbol || addQuery.trim().length < 2) { setAddResults([]); return; }
-    setAddSearching(true);
-    const t = setTimeout(() => {
-      const stripTags = (s: unknown) => typeof s === 'string' ? s.replace(/<[^>]*>/g, '') : '';
-      fetch(
-        `https://symbol-search.tradingview.com/symbol_search/v3/?text=${encodeURIComponent(addQuery.trim())}&hl=1&lang=en&search_type=undefined&domain=production&sort_by_country=US`,
-      )
-        .then((r) => (r.ok ? r.json() : null))
-        .then((d) => {
-          const raw: any[] = Array.isArray(d?.symbols) ? d.symbols : Array.isArray(d) ? d : [];
-          setAddResults(
-            raw
-              .map((s) => ({
-                symbol: stripTags(s.symbol), exchange: stripTags(s.exchange),
-                description: stripTags(s.description), type: stripTags(s.type),
-              }))
-              .filter((s) => s.symbol && s.exchange)
-              .slice(0, 20),
-          );
-        })
-        .catch(() => setAddResults([]))
-        .finally(() => setAddSearching(false));
-    }, 300);
-    return () => clearTimeout(t);
-  }, [addQuery, addingSymbol]);
-  // `symbol` keeps the same {label, tv, trade} shape every downstream
-  // read below already expects — only how it's built changed. A
-  // fixed-feed instrument (USD/JPY, Nasdaq 100) ignores the exchange
-  // selector entirely (see QUICK_SYMBOLS' own comment on why); a
-  // crypto perpetual's chart symbol is built from whichever exchange
-  // is currently selected.
-  const symbol = {
-    label: quickSymbol.label,
-    trade: quickSymbol.trade,
-    tv: quickSymbol.tv ?? (quickSymbol.perp ? `${exchange.tvPrefix}:${quickSymbol.perp}` : quickSymbol.fixedTv!),
-  };
   const [direction, setDirection] = useState<'long' | 'short'>('long');
   const [orderType, setOrderType] = useState<'market' | 'limit' | 'stop'>('market');
   const [entryPrice, setEntryPrice] = useState(preselectPrice || '');
@@ -380,6 +220,11 @@ export function ManualTradingPage() {
   // — one click opens, another click hides the whole form — by direct
   // request.
   const [orderFormOpen, setOrderFormOpen] = useState(false);
+  // Pairs + Exchange rows are folded by default and toggled by a
+  // "Pairs" button sitting next to "Order" in the chart toolbar — by
+  // direct request. Folding also closes the instrument search, since
+  // that panel is only reachable from the "+" inside the folded group.
+  const [pairsOpen, setPairsOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; message: string; tradeId?: string } | null>(null);
   const [closePercent, setClosePercent] = useState('100');
@@ -464,6 +309,22 @@ export function ManualTradingPage() {
     if (res.ok) setSettings(await res.json());
   }
 
+  // Keyed on the exact order payload, not freshly random per click:
+  // pairs with the backend's Idempotency-Key guard (app/core/
+  // idempotency.py) so a retry with IDENTICAL order parameters (the
+  // trader re-clicking Place Order after a client-side timeout whose
+  // request actually succeeded server-side) replays the original
+  // result instead of placing a second real order, while changing ANY
+  // field (a genuinely different order) naturally gets a fresh key.
+  const lastOrderKeyRef = useRef<{ key: string; payload: string } | null>(null);
+  function orderIdempotencyKey(payload: unknown): string {
+    const serialized = JSON.stringify(payload);
+    if (lastOrderKeyRef.current?.payload === serialized) return lastOrderKeyRef.current.key;
+    const key = makeIdempotencyKey();
+    lastOrderKeyRef.current = { key, payload: serialized };
+    return key;
+  }
+
   async function submitOrder() {
     // Used to silently no-op here if settings hadn't loaded yet (or
     // failed to, e.g. the settings-endpoint paywall bug) — clicking
@@ -507,37 +368,74 @@ export function ManualTradingPage() {
 
     setResult(null);
     setSubmitting(true);
+
+    // Confirm the backend is actually awake BEFORE the order POST
+    // fires at all, rather than firing it and hoping — see this
+    // hook's own comment above for why the order request itself never
+    // retries.
+    if (backendStatus !== 'ready') {
+      setResult({ ok: false, message: 'Waking up the trading server — this can take up to a minute on a cold start…' });
+      await wakeBackend();
+      const awake = await refreshBackendStatus();
+      if (!awake) {
+        setResult({ ok: false, message: 'The trading server is still asleep. Wait a few seconds and place the order again.' });
+        setSubmitting(false);
+        return;
+      }
+      setResult(null);
+    }
+
     try {
+      const orderPayload = {
+        symbol: symbol.trade, direction, order_type: orderType,
+        entry_price: effectiveEntryPrice, stop_loss: Number(stopLoss),
+        take_profit: tpEnabled && takeProfit ? Number(takeProfit) : null,
+        take_profit_2: tpEnabled && takeProfit2 ? Number(takeProfit2) : null,
+        take_profit_3: tpEnabled && takeProfit3 ? Number(takeProfit3) : null,
+        account_equity: Number(accountEquity), risk_mode: riskMode,
+        risk_amount: riskMode === 'dollar' ? Number(riskAmount) : null,
+        risk_percent: riskMode === 'percent' ? Number(riskPercent) : null,
+        // Wires the Exchange selector through to real broker
+        // routing (execution_engine.py's own preferred_broker pin)
+        // — only for a crypto perpetual; the two fixed-feed
+        // instruments (USD/JPY, Nasdaq 100) aren't listed on any of
+        // these 4 crypto exchanges, so this deliberately leaves
+        // preferred_broker unset for them and lets the backend's
+        // own symbol-based routing decide instead.
+        preferred_broker: quickSymbol.brokerId ?? null,
+      };
       const res = await apiFetch(`${API_URL}/manual-trading/order`, {
-        method: 'POST', headers,
-        body: JSON.stringify({
-          symbol: symbol.trade, direction, order_type: orderType,
-          entry_price: effectiveEntryPrice, stop_loss: Number(stopLoss),
-          take_profit: tpEnabled && takeProfit ? Number(takeProfit) : null,
-          take_profit_2: tpEnabled && takeProfit2 ? Number(takeProfit2) : null,
-          take_profit_3: tpEnabled && takeProfit3 ? Number(takeProfit3) : null,
-          account_equity: Number(accountEquity), risk_mode: riskMode,
-          risk_amount: riskMode === 'dollar' ? Number(riskAmount) : null,
-          risk_percent: riskMode === 'percent' ? Number(riskPercent) : null,
-          // Wires the Exchange selector through to real broker
-          // routing (execution_engine.py's own preferred_broker pin)
-          // — only for a crypto perpetual; the two fixed-feed
-          // instruments (USD/JPY, Nasdaq 100) aren't listed on any of
-          // these 4 crypto exchanges, so this deliberately leaves
-          // preferred_broker unset for them and lets the backend's
-          // own symbol-based routing decide instead.
-          preferred_broker: quickSymbol.tv ? (quickSymbol.brokerId ?? null) : (quickSymbol.perp ? exchange.id : null),
-        }),
+        // 60s, not the default 20s: a free-tier backend waking from
+        // sleep routinely needs longer than 20s for its first request,
+        // and that abort is precisely what surfaced on this button as
+        // "failed to fetch" — in paper/test mode too, since even a
+        // paper order is placed through the same server route.
+        timeoutMs: 60_000,
+        method: 'POST',
+        headers: { ...headers, 'Idempotency-Key': orderIdempotencyKey(orderPayload) },
+        body: JSON.stringify(orderPayload),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'Order failed.');
-      setResult({ ok: true, message: data.message, tradeId: data.trade_id });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        const detail = typeof data?.detail === 'string' ? data.detail : null;
+        throw new Error(detail || `Order rejected by the server (${res.status}).`);
+      }
+      setResult({ ok: true, message: data?.message ?? 'Order placed.', tradeId: data?.trade_id });
       setClosePrice(String(effectiveEntryPrice));
     } catch (err: any) {
-      setResult({ ok: false, message: err.message || 'Order failed.' });
+      // A bare "Failed to fetch"/"aborted" tells a trader nothing about
+      // what to do next — name the cause and the retry instead.
+      const network = err?.name === 'AbortError' || /failed to fetch|network|load failed/i.test(err?.message || '');
+      setResult({
+        ok: false,
+        message: network
+          ? 'Could not reach the trading server — it may still be waking up. Wait a few seconds and place the order again.'
+          : err?.message || 'Order failed.',
+      });
     } finally {
       setSubmitting(false);
     }
+
   }
 
   async function submitPartialClose() {
@@ -549,7 +447,7 @@ export function ManualTradingPage() {
         body: JSON.stringify({ percent: Number(closePercent), exit_price: Number(closePrice) }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'Close failed.');
+      if (!res.ok) throw new Error(formatApiError(data.detail, 'Close failed.'));
       setResult({
         ok: true, tradeId: data.status === 'closed' ? undefined : result.tradeId,
         message: data.status === 'closed'
@@ -593,6 +491,51 @@ export function ManualTradingPage() {
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [symbol.trade]);
+
+  // Live position-on-chart overlay + the "manage this position"
+  // dashboard, both now living inside ChartPanel's own foldable
+  // "Position" toggle ("view active trades on the chart in a dynamic
+  // way, showing entry, SL and TP with current PL or drawdown" /
+  // "view and edit the statistics of this trade ... exchange style
+  // trade order management") — polls the caller's own open trades,
+  // keeps only the one on the symbol currently displayed (a trader can
+  // hold several symbols at once; only the one for what's on screen is
+  // shown). Same silent-poll shape as the quick-price effect above, on
+  // its own interval since active trades change far less often than a
+  // live price tick.
+  //
+  // A still-PENDING (not yet filled) limit/stop order gets its OWN
+  // state, polled alongside — by direct request ("show same for
+  // pending trades also"). PositionManager itself now handles both
+  // ACTIVE (edit SL/TP, partial close) and PENDING (edit trigger
+  // price, cancel) trades, so both feed the exact same `chartPosition`
+  // below rather than one being chart-only.
+  const [openPositionTrade, setOpenPositionTrade] = useState<Trade | null>(null);
+  const [pendingOrderTrade, setPendingOrderTrade] = useState<Trade | null>(null);
+  const loadOpenPosition = useCallback(() => {
+    return Promise.all([
+      tradesApi.getActiveTrades(),
+      tradesApi.getTrades({ status: 'pending', symbol: symbol.trade }),
+    ]).then(([active, pending]) => {
+      setOpenPositionTrade(active.find((t) => t.symbol === symbol.trade && t.entry_price != null) ?? null);
+      setPendingOrderTrade(pending.find((t) => t.entry_price != null) ?? null);
+    }).catch(() => { setOpenPositionTrade(null); setPendingOrderTrade(null); });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [symbol.trade]);
+  useEffect(() => {
+    loadOpenPosition();
+    const t = setInterval(loadOpenPosition, 8000);
+    return () => clearInterval(t);
+  }, [loadOpenPosition]);
+
+  // ChartPanel now takes the RAW trade (not a mapped subset) so its
+  // folded "Position" card can do real management (edit SL/TP, partial
+  // close, cancel), not just display numbers — see ChartPanel.tsx's
+  // own `position` doc. An open position takes priority over a pending
+  // order on the same symbol (the common case is the same trade:
+  // pending until filled, then active — showing both would just be
+  // the same trade twice).
+  const chartPosition: Trade | null = openPositionTrade ?? pendingOrderTrade;
 
   // Same fixed-fractional formula services/manual_trading.py's
   // compute_lot_size uses server-side — a live preview only, the real
@@ -764,156 +707,15 @@ export function ManualTradingPage() {
           </div>
         )}
 
-        {/* Symbol picker lives OUTSIDE the two-column layout below, so
-            both the chart and the order ticket start at the exact same
-            top edge — it used to sit only above the chart, pushing the
-            chart's own top down below the order form's. */}
-        <div className="flex items-center gap-2 mb-3 flex-wrap">
-          {/* Instrument quick-links — same pill "format and dimension"
-              as the Exchange group right next to it, by direct
-              request, and now a DYNAMIC list (max 5) rather than a
-              fixed 4 — "create an option to manually select specific
-              instruments from selected exchanges ... so that the list
-              can be dynamic." A small × removes one (hover to reveal);
-              the "+" opens the real instrument search below. */}
-          <div className={`flex items-center gap-1 rounded-lg p-1 ${dark ? 'bg-white/5' : 'bg-black/5'}`}>
-            {quickSymbols.map((s) => (
-              // `inline-flex` here (not plain `relative group`) is the fix
-              // for a real pixel bug, by direct report ("the style of the
-              // quick-link pair instrument and exchange are [not] exactly
-              // the same ... one is slightly bigger"): a bare `<span>` is
-              // an inline box sized off the INHERITED (larger, non-text-xs)
-              // font's line-height, not its button child's — so it padded
-              // out slightly taller than the Exchange group's own buttons,
-              // which have no such wrapper. `inline-flex` makes the span
-              // hug its button tightly instead, matching Exchange's pills
-              // exactly.
-              <span key={s.trade} className="relative group inline-flex">
-                <button
-                  onClick={() => setQuickSymbol(s)}
-                  className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-colors ${
-                    quickSymbol.trade === s.trade
-                      ? dark ? 'bg-white/20 text-white' : 'bg-white text-corporate-text-on-bg shadow-sm'
-                      : dark ? 'text-white/40' : 'text-gray-500'
-                  }`}
-                >
-                  {s.label}
-                </button>
-                {quickSymbols.length > 1 && (
-                  <button
-                    onClick={(e) => { e.stopPropagation(); removeQuickSymbol(s.trade); }}
-                    aria-label={`Remove ${s.label}`}
-                    className={`hidden group-hover:flex absolute -top-1.5 -right-1.5 w-3.5 h-3.5 rounded-full items-center justify-center text-[9px] ${dark ? 'bg-red-500/80 text-white' : 'bg-red-500 text-white'}`}
-                  >
-                    ×
-                  </button>
-                )}
-              </span>
-            ))}
-            {quickSymbols.length < MAX_QUICK_SYMBOLS && (
-              <button
-                onClick={() => setAddingSymbol((v) => !v)}
-                title="Add an instrument quick-link"
-                aria-label="Add an instrument quick-link"
-                className={`px-2 py-1 rounded-md text-xs font-bold ${dark ? 'text-white/40 hover:text-white hover:bg-white/10' : 'text-gray-400 hover:text-gray-700 hover:bg-white'}`}
-              >
-                +
-              </button>
-            )}
-          </div>
-
-          {/* Exchange — by direct request ("with a Exchange selection,
-              Binance, Bybit, Bingx, Mexc"). Only actually changes
-              anything for the 2 legacy perpetual defaults (BTC Perp,
-              Gold Perp) below — a search-added quick-link already
-              carries its own real exchange baked into its `tv` symbol
-              (see QuickSymbol's own comment on why), so this row fades
-              out for those rather than staying interactive and implying
-              a click here would do something it no longer does. */}
-          <div className={`flex items-center gap-1 rounded-lg p-1 ml-1 ${quickSymbol.tv ? 'opacity-40' : ''} ${dark ? 'bg-white/5' : 'bg-black/5'}`}>
-            {EXCHANGES.map((ex) => (
-              <button
-                key={ex.id}
-                onClick={() => setExchange(ex)}
-                disabled={!!quickSymbol.tv}
-                title={
-                  quickSymbol.tv
-                    ? `${quickSymbol.label} already ties to its own real exchange — this selector only applies to Perp defaults`
-                    : quickSymbol.perp ? `Chart + order routing: ${ex.label}` : `${ex.label} — only affects a crypto perpetual, not ${quickSymbol.label}`
-                }
-                className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-colors ${quickSymbol.tv ? 'cursor-not-allowed' : ''} ${
-                  exchange.id === ex.id
-                    ? dark ? 'bg-white/20 text-white' : 'bg-white text-corporate-text-on-bg shadow-sm'
-                    : dark ? 'text-white/40' : 'text-gray-500'
-                }`}
-              >
-                {ex.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {addingSymbol && (
-          <div className={`rounded-lg border p-3 mb-3 ${dark ? 'bg-corporate-surface-dark border-corporate-border-dark' : 'bg-white border-gray-200'}`}>
-            {/* Real TradingView symbol search — ANY instrument on ANY
-                exchange TradingView covers (crypto, forex, stocks,
-                indices, commodities...), not restricted to Binance
-                futures any more, by direct request ("instead of fixing
-                to futures only allow me to search using the tradingview
-                search engine and enter any instrument of interest ...
-                this should tie automatically to the exchange"). Picking
-                a result below carries its own real exchange with it —
-                nothing to pick separately. */}
-            <input
-              autoFocus
-              placeholder="Search any instrument — e.g. AAPL, XAUUSD, EURUSD, BTCUSDT, NAS100…"
-              value={addQuery}
-              onChange={(e) => setAddQuery(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') addQuickSymbolOnEnter(addQuery); }}
-              className={`w-full rounded-lg px-3 py-2 text-sm outline-none border ${dark ? 'bg-corporate-nav-dark border-corporate-border-dark text-white' : 'bg-white border-gray-200'}`}
-            />
-            {addSearching && (
-              <div className={`text-xs mt-1.5 ${dark ? 'text-white/30' : 'text-gray-400'}`}>Searching…</div>
-            )}
-            {!addSearching && addQuery.trim().length >= 2 && addResults.length === 0 && (
-              <div className={`text-xs mt-1.5 ${dark ? 'text-white/30' : 'text-gray-400'}`}>
-                No matches — you can still type an exact "EXCHANGE:TICKER" (e.g. "NASDAQ:AAPL") and press Enter.
-              </div>
-            )}
-            {addResults.length > 0 && (
-              <div className={`mt-1.5 max-h-40 overflow-y-auto rounded-lg border ${dark ? 'border-corporate-border-dark' : 'border-gray-200'}`}>
-                {addResults.map((i) => (
-                  <button
-                    key={`${i.exchange}:${i.symbol}`}
-                    onClick={() => addQuickSymbolFromResult(i)}
-                    className={`w-full flex items-center justify-between gap-2 px-2.5 py-1.5 text-xs text-left ${dark ? 'hover:bg-white/5 text-white/80' : 'hover:bg-gray-50 text-corporate-text-on-bg'}`}
-                  >
-                    <span className="font-semibold shrink-0">{i.exchange}:{i.symbol}</span>
-                    <span className={`truncate ${dark ? 'text-white/40' : 'text-gray-400'}`}>{i.description}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-            <div className={`text-[11px] mt-2 ${dark ? 'text-white/30' : 'text-gray-400'}`}>
-              Adds the real TradingView symbol you pick, tied to its own exchange automatically.
-            </div>
-          </div>
-        )}
-
         {/* Visible confirmation of exactly which chart symbol is being
-            requested — by direct bug report ("the quick link
-            instrument does not change for each selection and exchange
-            ... always defaults to BTC binance"). This label reflects
-            this page's own state the instant you click a quick-link or
-            exchange button; if it updates but the chart itself still
-            doesn't, that's TradingView's own data feed not carrying
-            that exchange's perpetual under this symbol (a real
-            limitation on their end, not this app silently ignoring the
-            click) — if the label itself never changes, that's a real
-            bug here to keep chasing. */}
+            requested — the pairs surface itself now lives inside the
+            chart (PairsPanel, rendered by ChartPanel while "Pairs" is
+            unfolded), so the pill you click and the symbol the chart
+            loads are literally the same string. */}
         <div className={`text-[11px] mb-3 font-mono ${dark ? 'text-white/30' : 'text-gray-400'}`}>
           Chart symbol: {symbol.tv}
         </div>
+
 
         {/* Order card is fully unmounted (not just hidden) when closed —
             by direct request ("remove the order card completely to
@@ -932,7 +734,23 @@ export function ManualTradingPage() {
             onQuickFill={(price) => setEntryPrice(String(price))}
             orderFormOpen={orderFormOpen}
             onToggleOrderForm={() => setOrderFormOpen((o) => !o)}
+            pairsOpen={pairsOpen}
+            onTogglePairs={() => setPairsOpen((o) => !o)}
+            pairsPanel={<PairsPanel selected={quickSymbol} onSelect={(p) => setSelectedTv(p.tv)} dark={dark} />}
+            position={chartPosition}
+            onPositionChanged={loadOpenPosition}
+
           />
+
+          {/* "View and edit the statistics of this trade ... exchange
+              style trade order management" now lives INSIDE ChartPanel's
+              own foldable "Position" toggle above (by direct request,
+              "make the position button allow trade management") — same
+              PositionManager component, same trade, so this page no
+              longer needs its own separate always-visible copy of it.
+              That toggle also covers a still-PENDING order (Cancel,
+              edit trigger price), which this standalone panel never
+              did (it only ever took openPositionTrade). */}
 
           {orderFormOpen && (
           <div>

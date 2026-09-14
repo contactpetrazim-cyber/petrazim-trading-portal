@@ -1,12 +1,16 @@
 import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { LogIn, UserPlus } from 'lucide-react';
+import { LogIn, UserPlus, Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { useThemeStore } from '../hooks/useTheme';
 import { CardLogoBand } from '../components/CardLogoBand';
 import { PortalSelectionCard, PortalOption } from '../components/PortalSelectionCard';
 import { GoogleSignInButton } from '../components/GoogleSignInButton';
 import { HERO_GRADIENT } from '../config/theme';
+import { apiFetch } from '../components/AccessExpiredGate';
+import { fetchWithRetry, type FetchPhase } from '../lib/resilientFetch';
+import { formatApiError } from '../lib/apiError';
+import { LoadingIndicator } from '../components/LoadingIndicator';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -18,6 +22,24 @@ function inputClass(dark: boolean) {
       ? 'bg-corporate-surface-dark border border-corporate-border-dark text-white placeholder:text-white/40 focus:border-[#005FB8]'
       : 'bg-white border border-blue-100 text-[#141a33] placeholder:text-gray-400 focus:border-[#005FB8]'
   }`;
+}
+
+/** The eye/eye-off toggle sitting inside every password field here — a
+ * plain <button type="button"> (not submit) positioned over the input's
+ * own right padding, never a separate row, so it costs no extra layout
+ * space in a card family that's already tight on vertical rhythm. */
+function PasswordToggleButton({ shown, onClick, dark }: { shown: boolean; onClick: () => void; dark: boolean }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      tabIndex={-1}
+      aria-label={shown ? 'Hide password' : 'Show password'}
+      className={`absolute right-3 top-1/2 -translate-y-1/2 ${dark ? 'text-white/40 hover:text-white/70' : 'text-gray-400 hover:text-gray-600'}`}
+    >
+      {shown ? <EyeOff size={16} /> : <Eye size={16} />}
+    </button>
+  );
 }
 
 /**
@@ -57,8 +79,20 @@ export function LoginPage() {
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  // Off by default on every mount/mode switch — a password field that
+  // silently remembered "visible" across a sign-in/register toggle
+  // would be a bigger surprise than the extra click to turn it back on.
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  // The free-tier backend sleeps after idle and can take up to ~90s to
+  // wake. A single sign-in attempt landing mid-wake was the real cause
+  // of the reported "failed to fetch" — the request never reached a
+  // running server. Sign-in now rides the same retry ladder the rest of
+  // the portal uses, with the grey/orange/red/green indicator so the
+  // wait is visible instead of looking broken.
+  const [phase, setPhase] = useState<FetchPhase>('idle');
   const [portals, setPortals] = useState<PortalOption[] | null>(null);
   const { setAuth } = useAuth();
   const { theme } = useThemeStore();
@@ -73,7 +107,7 @@ export function LoginPage() {
   async function handlePostLogin(data: { access_token: string; user: any }) {
     setAuth(data.access_token, data.user);
 
-    const portalsRes = await fetch(`${API_URL}/auth/available-portals`, {
+    const portalsRes = await apiFetch(`${API_URL}/auth/available-portals`, {
       headers: { Authorization: `Bearer ${data.access_token}` },
     });
     if (portalsRes.ok) {
@@ -83,7 +117,9 @@ export function LoginPage() {
         return;
       }
     }
-    navigate(data.user.landing_route);
+    const requested = searchParams.get('returnTo');
+    const safeRequested = requested?.startsWith('/') && !requested.startsWith('//') ? requested : null;
+    navigate(safeRequested ?? data.user.landing_route);
   }
 
   async function handleSignIn(e: React.FormEvent) {
@@ -91,18 +127,22 @@ export function LoginPage() {
     setError(null);
     setLoading(true);
     try {
-      const res = await fetch(`${API_URL}/auth/login`, {
+      const res = await fetchWithRetry(`${API_URL}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
-      });
+      }, setPhase);
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error(body.detail || 'Login failed');
+        // A 422 (e.g. a malformed email) sends `detail` as an array of
+        // validation-error objects, not a string — `new Error(array)`
+        // used to silently stringify to "[object Object],[object
+        // Object]" instead of a real message, by direct bug report.
+        throw new Error(formatApiError(body.detail, 'Login failed'));
       }
       await handlePostLogin(await res.json());
     } catch (err: any) {
-      setError(err.message || 'Something went wrong');
+      setError(err.message || 'The server did not respond. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -121,28 +161,28 @@ export function LoginPage() {
     }
     setLoading(true);
     try {
-      const res = await fetch(`${API_URL}/auth/register`, {
+      const res = await fetchWithRetry(`${API_URL}/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password, full_name: fullName, phone: phone || null }),
-      });
+      }, setPhase);
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         if (res.status === 409) throw new Error('An account with this email already exists — sign in instead.');
-        throw new Error(body.detail || 'Registration failed');
+        throw new Error(formatApiError(body.detail, 'Registration failed'));
       }
 
-      const loginRes = await fetch(`${API_URL}/auth/login`, {
+      const loginRes = await fetchWithRetry(`${API_URL}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
-      });
+      }, setPhase);
       if (!loginRes.ok) throw new Error('Account created — please sign in.');
       const loginData = await loginRes.json();
       setAuth(loginData.access_token, loginData.user);
       navigate('/onboarding');
     } catch (err: any) {
-      setError(err.message || 'Something went wrong');
+      setError(err.message || 'The server did not respond. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -157,7 +197,7 @@ export function LoginPage() {
   return (
     <div className={`min-h-screen flex items-center justify-center p-4 ${dark ? 'bg-[#0a0e1a]' : 'bg-corporate-bg'}`}>
       <div
-        className={`rounded-3xl p-8 max-w-md w-full text-center shadow-2xl ${
+        className={`min-w-0 overflow-hidden rounded-3xl p-8 max-w-md w-full text-center shadow-2xl ${
           dark ? 'bg-corporate-surface-dark' : 'bg-white'
         }`}
       >
@@ -223,16 +263,22 @@ export function LoginPage() {
                 placeholder="Email"
                 className={inputClass(dark)}
               />
-              <input
-                type="password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Password"
-                className={`${inputClass(dark)} mb-0`}
-              />
+              <div className="relative">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Password"
+                  className={`${inputClass(dark)} mb-0 pr-10`}
+                />
+                <PasswordToggleButton shown={showPassword} onClick={() => setShowPassword((s) => !s)} dark={dark} />
+              </div>
             </div>
 
+            {loading && (phase === 'loading' || phase === 'stalled') && (
+              <div className="mb-4 flex justify-center"><LoadingIndicator phase={phase} dark={dark} /></div>
+            )}
             {error && <p className="text-sm text-red-500 mb-4">{error}</p>}
 
             <button
@@ -275,22 +321,28 @@ export function LoginPage() {
                 placeholder="Phone (optional)"
                 className={inputClass(dark)}
               />
-              <input
-                type="password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Password (min. 8 characters)"
-                className={inputClass(dark)}
-              />
-              <input
-                type="password"
-                required
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                placeholder="Confirm password"
-                className={`${inputClass(dark)} mb-0`}
-              />
+              <div className="relative">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Password (min. 8 characters)"
+                  className={`${inputClass(dark)} pr-10`}
+                />
+                <PasswordToggleButton shown={showPassword} onClick={() => setShowPassword((s) => !s)} dark={dark} />
+              </div>
+              <div className="relative">
+                <input
+                  type={showConfirmPassword ? 'text' : 'password'}
+                  required
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="Confirm password"
+                  className={`${inputClass(dark)} mb-0 pr-10`}
+                />
+                <PasswordToggleButton shown={showConfirmPassword} onClick={() => setShowConfirmPassword((s) => !s)} dark={dark} />
+              </div>
             </div>
 
             {error && <p className="text-sm text-red-500 mb-4">{error}</p>}

@@ -122,3 +122,55 @@ async def generate_flashcards(lesson_title: str, content_body: str) -> List[Flas
         return _parse_flashcards(raw)
     except (json.JSONDecodeError, TypeError, AttributeError):
         return []
+
+
+_FLASHCARD_ITEM_RE = re.compile(r"^Front:\s*(.+?)\s+Back:\s*(.+)$", re.IGNORECASE | re.DOTALL)
+
+
+def extract_authored_flashcards(content_body: str) -> List[FlashcardDraft]:
+    """Every lesson in this curriculum already has a real, hand-authored
+    '### Flashcards' section ('- Front: ... Back: ...' pairs) — the same
+    fixed template every lesson follows. Reading that directly is free,
+    instant, and never fails the way a live AI call can ('every
+    configured AI provider failed to respond', the actual bug report
+    this fixes); generate_flashcards() above (an LLM asked to
+    RE-EXTRACT terms from content that already lists them explicitly)
+    should only ever be a fallback for content that genuinely has no
+    authored section, not the primary path for every lesson."""
+    lines = content_body.split("\n")
+    in_section = False
+    items: List[str] = []
+    current: Optional[str] = None
+
+    def flush():
+        nonlocal current
+        if current is not None:
+            items.append(current)
+            current = None
+
+    for raw_line in lines:
+        line = raw_line.strip()
+        if re.match(r"^#{2,4}\s+Flashcards\s*$", line, re.IGNORECASE):
+            in_section = True
+            continue
+        if not in_section:
+            continue
+        if re.match(r"^#{2,4}\s+\S", line):
+            break  # the next section heading ends the Flashcards block
+        if line.startswith("- "):
+            flush()
+            current = line[2:].strip()
+        elif line == "":
+            continue
+        elif current is not None:
+            current += " " + line
+    flush()
+
+    out: List[FlashcardDraft] = []
+    for item in items:
+        m = _FLASHCARD_ITEM_RE.match(item)
+        if m:
+            term, definition = m.group(1).strip(), m.group(2).strip()
+            if term and definition:
+                out.append(FlashcardDraft(term=term, definition=definition))
+    return out

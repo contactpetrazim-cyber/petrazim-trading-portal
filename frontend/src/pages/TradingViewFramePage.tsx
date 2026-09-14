@@ -1,16 +1,24 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Sun, Moon, Save, Trash2, FolderOpen, X, TrendingUp } from 'lucide-react';
+import { Sun, Moon, Save, Trash2, FolderOpen, X, TrendingUp, CandlestickChart, Target, LineChart } from 'lucide-react';
 import { TradingViewChart } from '../components/TradingViewChart';
 import { CandleColorPicker } from '../components/CandleColorPicker';
+import { PositionManager } from '../components/PositionManager';
+import { PositionOnChartModal } from '../components/PositionOnChartModal';
+import { tradeToChartPosition } from '../components/ChartPanel';
 import { useEffectiveChartColors } from '../hooks/useCandleColors';
 import { OpenInTradingView } from '../components/OpenInTradingView';
 import { PetrazimLogo } from '../components/PetrazimLogo';
 import { FoldedCard } from '../components/FoldedCard';
+import { PairsPanel } from '../components/PairsPanel';
+import { useQuickPairsStore } from '../hooks/useQuickPairs';
 import { useAuth } from '../hooks/useAuth';
 import { apiFetch } from '../components/AccessExpiredGate';
+import { tradesApi } from '../services/api';
+import type { Trade } from '../types';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+
 
 /**
  * TradingViewFramePage — v4.
@@ -34,12 +42,12 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
  * shows a chart.
  */
 
-const SYMBOLS = [
-  { label: 'BTC/USDT', value: 'BINANCE:BTCUSDT', deepLink: 'BTCUSDT', tradeSymbol: 'BTCUSDT' },
-  { label: 'EUR/USD', value: 'OANDA:EURUSD', deepLink: 'EURUSD', tradeSymbol: 'EURUSD' },
-  { label: 'GBP/USD', value: 'OANDA:GBPUSD', deepLink: 'GBPUSD', tradeSymbol: 'GBPUSD' },
-  { label: 'XAU/USD', value: 'OANDA:XAUUSD', deepLink: 'XAUUSD', tradeSymbol: 'XAUUSD' },
-];
+// Symbols come from the shared quick-links store (useQuickPairs) now —
+// the old hardcoded four-pill row is gone, by direct request: pairs are
+// picked from the search and saved as quick-links, and the same folded
+// "Pairs" button appears on every chart in the app.
+
+
 
 const INTERVALS = [
   { label: '15m', value: '15' },
@@ -62,7 +70,17 @@ export function TradingViewFramePage() {
   const { token } = useAuth();
   const navigate = useNavigate();
   const { colors, chartStyle, applyLocal, applyGlobal, resetLocal, resetGlobal } = useEffectiveChartColors();
-  const [symbol, setSymbol] = useState(SYMBOLS[0]);
+  const { pairs } = useQuickPairsStore();
+  const [selectedTv, setSelectedTv] = useState<string>(pairs[0]?.tv);
+  const selectedPair = pairs.find((p) => p.tv === selectedTv) ?? pairs[0];
+  const symbol = {
+    label: selectedPair.label,
+    value: selectedPair.tv,
+    deepLink: selectedPair.trade,
+    tradeSymbol: selectedPair.trade,
+  };
+  const [pairsOpen, setPairsOpen] = useState(false);
+
   const [interval, setIntervalValue] = useState(INTERVALS[1]);
   const [mode, setMode] = useState<Mode>('widget');
   const [frameTheme, setFrameTheme] = useState<FrameTheme>('light');
@@ -75,6 +93,41 @@ export function TradingViewFramePage() {
   const authHeaders: Record<string, string> = token
     ? { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
     : { 'Content-Type': 'application/json' };
+
+  // Position management + on-chart view for whatever open position or
+  // pending order the trader already has on the symbol currently
+  // shown — by direct request ("can this be done on my workspace
+  // charts too ... make the position chart markers show on my
+  // workstation charts"). Same pattern ChartPanel.tsx uses (folded
+  // "Position"/"On Chart" toggles, PositionManager for real edit/
+  // cancel/partial-close, PositionOnChartModal for real lines drawn on
+  // this app's own CandleChart) — this page renders TradingViewChart
+  // directly rather than through ChartPanel, so it needs its own copy
+  // of the same toggles. Same polling shape as ManualTradingPage.tsx
+  // (an open position takes priority over a pending order on the same
+  // symbol).
+  const [openPositionTrade, setOpenPositionTrade] = useState<Trade | null>(null);
+  const [pendingOrderTrade, setPendingOrderTrade] = useState<Trade | null>(null);
+  const [positionOpen, setPositionOpen] = useState(false);
+  const [onChartOpen, setOnChartOpen] = useState(false);
+  const loadOpenPosition = useCallback(() => {
+    return Promise.all([
+      tradesApi.getActiveTrades(),
+      tradesApi.getTrades({ status: 'pending', symbol: symbol.tradeSymbol }),
+    ]).then(([active, pending]) => {
+      setOpenPositionTrade(active.find((t) => t.symbol === symbol.tradeSymbol && t.entry_price != null) ?? null);
+      setPendingOrderTrade(pending.find((t) => t.entry_price != null) ?? null);
+    }).catch(() => { setOpenPositionTrade(null); setPendingOrderTrade(null); });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [symbol.tradeSymbol, token]);
+  useEffect(() => {
+    if (!token) return;
+    loadOpenPosition();
+    const t = setInterval(loadOpenPosition, 8000);
+    return () => clearInterval(t);
+  }, [loadOpenPosition, token]);
+
+  const position: Trade | null = openPositionTrade ?? pendingOrderTrade;
 
   async function loadLayouts() {
     if (!token) return;
@@ -114,10 +167,11 @@ export function TradingViewFramePage() {
     const detail = await res.json();
     try {
       const parsed = JSON.parse(detail.content);
-      const foundSymbol = SYMBOLS.find((s) => s.value === parsed.symbol);
+      const foundPair = pairs.find((p) => p.tv === parsed.symbol);
       const foundInterval = INTERVALS.find((i) => i.value === parsed.interval);
-      if (foundSymbol) setSymbol(foundSymbol);
+      if (foundPair) setSelectedTv(foundPair.tv);
       if (foundInterval) setIntervalValue(foundInterval);
+
     } catch {
       /* malformed content — ignore, keep current symbol/interval */
     }
@@ -161,21 +215,19 @@ export function TradingViewFramePage() {
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
-            <div className="flex items-center gap-2">
-              {SYMBOLS.map((s) => (
-                <button
-                  key={s.value}
-                  onClick={() => setSymbol(s)}
-                  className={`px-2.5 py-1 rounded-md text-xs font-medium ${
-                    symbol.value === s.value
-                      ? frameDark ? 'bg-white/20 text-white' : 'bg-black/10 text-[#141a33]'
-                      : frameDark ? 'text-white/40 hover:text-white/70' : 'text-[#141a33]/40 hover:text-[#141a33]/70'
-                  }`}
-                >
-                  {s.label}
-                </button>
-              ))}
-            </div>
+            {/* "Pairs" — same folded button pattern as every other chart
+                in the app (default folded), instead of a fixed row of
+                symbol pills. */}
+            <button
+              onClick={() => setPairsOpen((o) => !o)}
+              aria-label={pairsOpen ? 'Hide pairs' : 'Show pairs'}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium ${
+                pairsOpen ? 'bg-corporate-accent text-white' : frameDark ? 'bg-white/5 text-white/60 hover:text-white' : 'bg-black/5 text-[#141a33]/60 hover:text-[#141a33]'
+              }`}
+            >
+              <CandlestickChart size={13} /> Pairs
+            </button>
+
 
             {mode !== 'external' && (
               <div className={`flex items-center gap-1 rounded-lg p-1 ${frameDark ? 'bg-white/5' : 'bg-black/5'}`}>
@@ -213,6 +265,29 @@ export function TradingViewFramePage() {
               </button>
             )}
 
+            {mode !== 'external' && position && (
+              <button
+                onClick={() => setPositionOpen((o) => !o)}
+                aria-label={positionOpen ? 'Hide position management' : 'Manage this position'}
+                title={positionOpen ? 'Hide position management' : 'Edit SL/TP, partial close or cancel this order'}
+                className={`p-1.5 rounded-md flex items-center gap-1.5 text-xs font-medium ${
+                  positionOpen ? 'bg-blue-600 text-white' : frameDark ? 'bg-white/5 text-white/60 hover:text-white' : 'bg-black/5 text-[#141a33]/60 hover:text-[#141a33]'
+                }`}
+              >
+                <Target size={13} /> Position
+              </button>
+            )}
+            {mode !== 'external' && position && (
+              <button
+                onClick={() => setOnChartOpen(true)}
+                aria-label="Show Entry/SL/TP drawn on a real chart"
+                title="Open a chart with Entry/SL/TP actually drawn on it"
+                className={`p-1.5 rounded-md flex items-center gap-1.5 text-xs font-medium ${frameDark ? 'bg-white/5 text-white/60 hover:text-white' : 'bg-black/5 text-[#141a33]/60 hover:text-[#141a33]'}`}
+              >
+                <LineChart size={13} /> On Chart
+              </button>
+            )}
+
             {mode !== 'external' && (
               <button
                 onClick={() => navigate(`/trade/manual?symbol=${encodeURIComponent(symbol.tradeSymbol)}`)}
@@ -241,6 +316,18 @@ export function TradingViewFramePage() {
             </div>
           </div>
         </div>
+
+        {pairsOpen && (
+          <div className="px-2">
+            <PairsPanel selected={selectedPair} onSelect={(p) => setSelectedTv(p.tv)} dark={frameDark} />
+          </div>
+        )}
+
+        {positionOpen && position && (
+          <div className="px-2 mb-2">
+            <PositionManager trade={position} dark={frameDark} onChanged={loadOpenPosition} />
+          </div>
+        )}
 
         <div
           className={`relative rounded-xl overflow-hidden ${frameDark ? 'bg-black' : 'bg-white border border-[#e0e2ec]'}`}
@@ -330,6 +417,10 @@ export function TradingViewFramePage() {
           <div className={`w-32 h-1.5 rounded-full ${frameDark ? 'bg-white/10' : 'bg-black/10'}`} />
         </div>
       </div>
+
+      {onChartOpen && position && (
+        <PositionOnChartModal position={tradeToChartPosition(position)} symbol={position.symbol} onClose={() => setOnChartOpen(false)} />
+      )}
 
       <div className="w-full max-w-6xl mt-6">
         <FoldedCard title="Why three modes instead of one embedded TradingView?" summary="Worth reading once">

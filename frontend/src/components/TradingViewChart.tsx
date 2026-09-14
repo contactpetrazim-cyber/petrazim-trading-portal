@@ -1,4 +1,5 @@
 import { useEffect, useRef, memo } from 'react';
+import type { Trade } from '../types';
 
 /**
  * TradingViewChart — embeds the free TradingView widget (Method 1 from
@@ -38,7 +39,53 @@ import { useEffect, useRef, memo } from 'react';
  * preference level — what chart_layouts.py's API actually persists —
  * not at the drawn-trendline level, which no mode of this component
  * can read back regardless of page.
+ *
+ * `ChartPosition` — the caller's own open trade (Entry/SL/TP1-3), by
+ * direct request ("view active trades on the chart in a dynamic way,
+ * showing entry, SL and TP with current PL or drawdown"). This type is
+ * still defined and exported here, but this component itself no
+ * longer draws anything with it — see the correction below.
+ *
+ * CORRECTION (confirmed against TradingView's own docs, by direct bug
+ * report — "the pending and executed orders are still not showing
+ * with thin horizontal lines on the chart"): an earlier version of
+ * this file called `widget.onChartReady()` + `chart().createShape()`
+ * to draw real price-aligned horizontal lines, believing that API
+ * shipped with the free public `tv.js` embed used here. It does not —
+ * `onChartReady`/`chart()`/`createShape()`/`removeEntity()` are part
+ * of TradingView's separately-licensed, self-hosted "Charting
+ * Library" (manual approval + NDA required), not the hosted Advanced
+ * Chart widget this app actually embeds. Those calls were silently
+ * no-op'ing (or throwing and being swallowed by the try/catch around
+ * each shape) the entire time — no amount of fixing how `position` was
+ * wired down to this component could ever have made lines appear,
+ * because the widget object here simply doesn't have that method.
+ * Rather than keep dead code that implies a capability this embed
+ * doesn't have, the caller-visible position info now lives in
+ * ChartPanel's own foldable "Position" overlay card, rendered outside
+ * the TradingView iframe entirely — see ChartPanel.tsx.
  */
+
+/** The subset of a live position TradingViewChart needs to overlay —
+ * a caller passes only the ACTIVE trade whose `symbol` already
+ * matches what's on screen (matching is the caller's job, same as
+ * `tradeSymbol`/`specsSymbol` above; this component trusts what it's
+ * given and draws it unconditionally). */
+export interface ChartPosition {
+  direction: Trade['direction'];
+  entryPrice: number;
+  stopLoss?: number | null;
+  takeProfit1?: number | null;
+  takeProfit2?: number | null;
+  takeProfit3?: number | null;
+  unrealizedPnl?: number | null;
+  /** True for a PENDING (not yet filled) limit/stop order — same
+   * Entry/SL/TP lines are drawn, but the Entry label shows "Pending"
+   * instead of a live P/L, since a position that isn't open yet has
+   * none. By direct request ("show same for pending trades also ...
+   * with comment pending instead of the dynamic PL"). */
+  pending?: boolean;
+}
 
 export interface CandleColors {
   upColor?: string;
@@ -61,6 +108,13 @@ interface TradingViewChartProps {
   /** Which series style to render — Candles, Hollow Candles, Heikin
    * Ashi, Bars, Line, Area, Baseline. Defaults to plain Candles. */
   chartStyle?: ChartStyleId;
+}
+
+/** Shared with ChartPanel's PositionSummaryCard, so the sign styling
+ * of a live P/L figure is identical wherever it's shown. */
+export function formatSignedMoney(value: number): string {
+  const sign = value > 0 ? '+' : value < 0 ? '-' : '';
+  return `${sign}$${Math.abs(value).toFixed(2)}`;
 }
 
 /**
@@ -169,44 +223,57 @@ function TradingViewChartBase({
 }: TradingViewChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const containerId = useRef(`tv_chart_${Math.random().toString(36).slice(2)}`);
+  const widgetRef = useRef<any>(null);
 
   useEffect(() => {
     if (!containerRef.current) return;
+    // `cancelled` matters: the widget script can still be loading when
+    // the symbol changes, and TWO pending createWidget callbacks racing
+    // into the same container is exactly how a chart ends up showing the
+    // FIRST (usually default BTC) symbol after you picked another one —
+    // the reported "the chart still shows BTC whatever I click". Each run
+    // also mounts into a freshly-named div, so a widget from a previous
+    // run can never re-attach to the current one.
+    let cancelled = false;
 
     function createWidget() {
       // @ts-expect-error — TradingView attaches this global at runtime, no official types package
-      if (window.TradingView && containerRef.current) {
-        containerRef.current.innerHTML = '';
-        const chartDiv = document.createElement('div');
-        chartDiv.id = containerId.current;
-        chartDiv.style.height = '100%';
-        chartDiv.style.width = '100%';
-        containerRef.current.appendChild(chartDiv);
+      if (cancelled || !window.TradingView || !containerRef.current) return;
+      containerRef.current.innerHTML = '';
+      containerId.current = `tv_chart_${Math.random().toString(36).slice(2)}`;
+      const chartDiv = document.createElement('div');
+      chartDiv.id = containerId.current;
+      chartDiv.style.height = '100%';
+      chartDiv.style.width = '100%';
+      containerRef.current.appendChild(chartDiv);
 
-        // @ts-expect-error — see above
-        new window.TradingView.widget({
-          autosize: true,
-          symbol,
-          interval,
-          timezone: 'Etc/UTC',
-          theme,
-          style: chartStyle,
-          locale: 'en',
-          enable_publishing: false,
-          allow_symbol_change: true,
-          hide_side_toolbar: false,
-          hide_top_toolbar: false,
-          withdateranges: true,
-          container_id: containerId.current,
-          overrides: buildOverrides(candleColors, chartStyle),
-          studies_overrides: buildStudiesOverrides(candleColors),
-        });
-      }
+      // @ts-expect-error — see above
+      const widget = new window.TradingView.widget({
+        autosize: true,
+        symbol,
+        interval,
+        timezone: 'Etc/UTC',
+        theme,
+        style: chartStyle,
+        locale: 'en',
+        enable_publishing: false,
+        allow_symbol_change: true,
+        hide_side_toolbar: false,
+        hide_top_toolbar: false,
+        withdateranges: true,
+        container_id: containerId.current,
+        overrides: buildOverrides(candleColors, chartStyle),
+        studies_overrides: buildStudiesOverrides(candleColors),
+      });
+      widgetRef.current = widget;
     }
 
     const existingScript = document.getElementById('tradingview-widget-script');
-    if (existingScript) {
+    // @ts-expect-error — runtime global
+    if (existingScript && window.TradingView) {
       createWidget();
+    } else if (existingScript) {
+      existingScript.addEventListener('load', createWidget);
     } else {
       const script = document.createElement('script');
       script.id = 'tradingview-widget-script';
@@ -215,6 +282,8 @@ function TradingViewChartBase({
       script.onload = createWidget;
       document.body.appendChild(script);
     }
+
+    return () => { cancelled = true; };
   }, [symbol, interval, theme, chartStyle, JSON.stringify(candleColors)]);
 
   return <div ref={containerRef} style={{ height, width: '100%' }} />;

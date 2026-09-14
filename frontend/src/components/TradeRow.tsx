@@ -1,19 +1,33 @@
 
+import { useState } from 'react';
 import { Trade } from '../types';
-import { ArrowUpRight, ArrowDownRight, Clock, CheckCircle, XCircle, AlertCircle, Ban } from 'lucide-react';
+import { ArrowUpRight, ArrowDownRight, Clock, CheckCircle, XCircle, AlertCircle, Ban, Settings2, ChevronDown } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { useThemeStore } from '../hooks/useTheme';
+import { PositionManager } from './PositionManager';
 
 interface TradeRowProps {
   trade: Trade;
   onApprove?: (tradeId: string) => void;
   onReject?: (tradeId: string) => void;
   onCancel?: (tradeId: string) => void;
+  /** Re-fetches the trade list — passed straight to PositionManager so
+   * an edit/partial-close made from the expanded row is reflected in
+   * this row (and everywhere else the list is shown) right away. */
+  onChanged?: () => void;
 }
 
-export function TradeRow({ trade, onApprove, onReject, onCancel }: TradeRowProps) {
+export function TradeRow({ trade, onApprove, onReject, onCancel, onChanged }: TradeRowProps) {
   const { theme } = useThemeStore();
   const dark = theme === 'dark';
+  // "Copy exchange style trade order management setup and dashboard
+  // for individual trades" — by direct request. Folded by default
+  // (this is a list of every trade, most of them closed history —
+  // expanding by default would be the same "disfiguring the layout"
+  // complaint ChartPanel's own docstring already records for a
+  // different card) so only PositionManager for a row you actually
+  // click into ever mounts.
+  const [managing, setManaging] = useState(false);
   const isLong = trade.direction === 'long';
   const statusColors: Record<string, string> = {
     pending: 'text-amber-400 bg-amber-400/10',
@@ -122,12 +136,38 @@ export function TradeRow({ trade, onApprove, onReject, onCancel }: TradeRowProps
             </button>
           )}
 
+          {/* Manage — view/edit SL, TP1-3, and partial-exit this
+              position, exchange style. Any active OR still-pending
+              trade, bot-placed or manual — modify_targets' own
+              backend already scopes it that way (see
+              PositionManager.tsx's docstring). PENDING added by
+              direct bug report ("no menu to review trade order
+              statistics or update or manage trades") — a still-
+              pending order had no way to review its own stats or
+              amend its SL/TP/trigger price before this, only Cancel. */}
+          {(trade.status === 'active' || trade.status === 'pending') && (
+            <button
+              onClick={() => setManaging((v) => !v)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                managing ? 'bg-blue-600 text-white' : 'bg-blue-500/15 text-blue-500 hover:bg-blue-500/25'
+              }`}
+            >
+              <Settings2 size={13} /> Manage <ChevronDown size={13} className={`transition-transform ${managing ? 'rotate-180' : ''}`} />
+            </button>
+          )}
+
           {/* Time */}
           <div className="text-xs text-gray-500 hidden lg:block">
             {formatDistanceToNow(new Date(trade.created_at), { addSuffix: true })}
           </div>
         </div>
       </div>
+
+      {managing && (
+        <div className="mt-3">
+          <PositionManager trade={trade} dark={dark} onChanged={onChanged} />
+        </div>
+      )}
     </div>
   );
 }

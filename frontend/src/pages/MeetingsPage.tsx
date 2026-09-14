@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
+import { Link2, CalendarClock } from 'lucide-react';
 import { ConnectorCards } from '../components/ConnectorCards';
 import { FacilitatorCalendar } from '../components/FacilitatorCalendar';
+import { FoldedCard } from '../components/FoldedCard';
 import { useAuth } from '../hooks/useAuth';
 import { useThemeStore } from '../hooks/useTheme';
 import { fetchJsonWithRetry } from '../lib/resilientFetch';
@@ -26,7 +28,7 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
  *
  * `tierLoading` — separate from FacilitatorCalendar's own internal
  * `loading` (which only covers the calendar strip fetch): this used a
- * one-shot plain fetch() with a silent catch, so a cold Render
+ * one-shot plain apiFetch() with a silent catch, so a cold Render
  * free-tier start (or any transient failure) left userTier null
  * forever, and the calendar rendered the "Professional/Executive
  * feature — Upgrade" gate as if that were the real, final answer — by
@@ -38,7 +40,8 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 export function MeetingsPage() {
   const { theme } = useThemeStore();
   const dark = theme === 'dark';
-  const { token } = useAuth();
+  const { token, user } = useAuth();
+  const privileged = ['fund_manager', 'partner', 'admin', 'super_admin'].includes(user?.role ?? '');
   const [userTier, setUserTier] = useState<'essential' | 'professional' | 'executive' | null>(null);
   const [tierLoading, setTierLoading] = useState(true);
 
@@ -63,15 +66,18 @@ export function MeetingsPage() {
         </p>
       </div>
 
-      <div>
-        <h2 className={`text-sm font-semibold mb-3 ${dark ? 'text-white/40' : 'text-gray-500'}`}>Connections</h2>
+      {/* By direct request ("make all cards in the entire portal
+          collapsible... default is close") — folded by default like
+          every other FoldedCard on the site, using the same primitive
+          Dashboard/Learn/Tools/etc. already share rather than a new
+          one-off pattern. */}
+      <FoldedCard title="Connections" icon={<Link2 size={19} />} dark={dark}>
         <ConnectorCards dark={dark} />
-      </div>
+      </FoldedCard>
 
-      <div>
-        <h2 className={`text-sm font-semibold mb-3 ${dark ? 'text-white/40' : 'text-gray-500'}`}>Availability</h2>
-        <FacilitatorCalendar userTier={userTier} tierLoading={tierLoading} token={token} dark={dark} />
-      </div>
+      <FoldedCard title="Availability" icon={<CalendarClock size={19} />} dark={dark} defaultOpen>
+        <FacilitatorCalendar userTier={userTier} tierLoading={tierLoading} token={token} privileged={privileged} dark={dark} />
+      </FoldedCard>
     </div>
   );
 }

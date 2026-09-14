@@ -21,10 +21,25 @@ jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
-      - name: Ping /health
+      - name: Ping /health (production URL, always)
+        # Hits the real deployed backend directly, independent of whether
+        # RENDER_BACKEND_URL below was ever configured — that secret is
+        # optional (e.g. for pinging a staging instance too); this step
+        # guarantees the actual production backend that the daily/weekly
+        # Telegram broadcasts and the frontend both depend on never
+        # silently goes unpinged just because a secret setup step was
+        # skipped, which is exactly what let it fall asleep and made the
+        # daily broadcast look "not working" (cold-start timeout) even
+        # after the broadcast's own auth was fixed.
+        run: |
+          curl -sf --max-time 25 "https://petrazim-trading-backend.onrender.com/health" \
+            && echo "Backend responded — awake." \
+            || echo "No response (likely mid-wake from a prior gap) — next run will retry."
+
+      - name: Ping /health (RENDER_BACKEND_URL, if configured separately)
         run: |
           if [ -z "${{ secrets.RENDER_BACKEND_URL }}" ]; then
-            echo "RENDER_BACKEND_URL secret not set yet — add it in repo Settings > Secrets and variables > Actions once the backend is deployed. Skipping."
+            echo "RENDER_BACKEND_URL secret not set — skipping (the step above already covers the real production backend)."
             exit 0
           fi
           curl -sf --max-time 25 "${{ secrets.RENDER_BACKEND_URL }}/health" \

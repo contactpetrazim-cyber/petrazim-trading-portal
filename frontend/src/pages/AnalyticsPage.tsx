@@ -8,7 +8,7 @@ import { TradeAnalytics } from '../components/TradeAnalytics';
 import { dashboardApi } from '../services/api';
 import { PerformanceSummary } from '../types';
 import { useThemeStore } from '../hooks/useTheme';
-import type { FetchPhase } from '../lib/resilientFetch';
+import { RETRY_DELAYS_MS, type FetchPhase } from '../lib/resilientFetch';
 
 const PERIODS: { id: '1d' | '7d' | '30d' | '90d'; label: string }[] = [
   { id: '1d', label: '1D' },
@@ -47,10 +47,9 @@ const PERIODS: { id: '1d' | '7d' | '30d' | '90d'; label: string }[] = [
  * through the axios-based dashboardApi rather than fetch, so it gets
  * its own small retry loop instead of fetchJsonWithRetry directly).
  */
-const RETRY_DELAYS_MS = [1500, 3000, 5000, 8000, 12000, 15000, 20000, 20000];
-
 export function AnalyticsPage() {
-  const { theme } = useThemeStore();
+  const { portalThemes } = useThemeStore();
+  const theme = portalThemes.trader;
   const dark = theme === 'dark';
   const [period, setPeriod] = useState<'1d' | '7d' | '30d' | '90d'>('7d');
   const [summary, setSummary] = useState<PerformanceSummary | null>(null);
@@ -181,7 +180,7 @@ export function AnalyticsPage() {
           Avg R-Multiple as StatCard-only numbers with no per-period
           comparison view. */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <FoldedCard title="Win Rate & Profit Factor by Period" summary="How your edge holds up over 1D/7D/30D/90D" dark={dark} defaultOpen>
+        <FoldedCard title="Win Rate & Profit Factor by Period" summary="How your edge holds up over 1D/7D/30D/90D" dark={dark}>
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={comparisonData}>
               <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
@@ -195,7 +194,7 @@ export function AnalyticsPage() {
           </ResponsiveContainer>
         </FoldedCard>
 
-        <FoldedCard title="Max Drawdown by Period" summary="Peak-to-trough decline, each window compared" dark={dark} defaultOpen>
+        <FoldedCard title="Max Drawdown by Period" summary="Peak-to-trough decline, each window compared" dark={dark}>
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={comparisonData}>
               <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
@@ -207,7 +206,7 @@ export function AnalyticsPage() {
           </ResponsiveContainer>
         </FoldedCard>
 
-        <FoldedCard title="Net P&L by Period" summary="Realized profit/loss, each window compared" dark={dark} defaultOpen>
+        <FoldedCard title="Net P&L by Period" summary="Realized profit/loss, each window compared" dark={dark}>
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={comparisonData}>
               <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
@@ -221,7 +220,7 @@ export function AnalyticsPage() {
           </ResponsiveContainer>
         </FoldedCard>
 
-        <FoldedCard title="Avg R-Multiple by Period" summary="Realized R per trade, each window compared" dark={dark} defaultOpen>
+        <FoldedCard title="Avg R-Multiple by Period" summary="Realized R per trade, each window compared" dark={dark}>
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={comparisonData}>
               <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />

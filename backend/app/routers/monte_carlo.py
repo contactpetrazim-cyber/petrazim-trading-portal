@@ -53,6 +53,11 @@ class SimulationRequest(BaseModel):
     ruin_threshold_pct: float = Field(default=50.0, gt=0, le=100)
     target_equity: Optional[float] = None
     bot_id: Optional[str] = None
+    # 'all' (default)/'bots'/'manual' — by direct request ("create
+    # option for manual trade and strategies to be analysed by the
+    # 'performance forecast' tool"). See load_trade_history's own
+    # docstring for the exact filter this applies.
+    source: Optional[Literal["all", "bots", "manual"]] = "all"
     seed: Optional[int] = None
     include_fan_chart: bool = True
     fan_chart_trials: int = Field(
@@ -106,11 +111,13 @@ class SimulationResponse(BaseModel):
 
 @router.get("/metrics", response_model=MetricsResponse)
 async def get_metrics(
-    bot_id: Optional[str] = None, db: AsyncSession = Depends(get_db),
+    bot_id: Optional[str] = None,
+    source: Optional[Literal["all", "bots", "manual"]] = "all",
+    db: AsyncSession = Depends(get_db),
     user: User = Depends(require_active_access),
 ):
     """Pattern/metric extraction from historical trades, no simulation."""
-    history = await load_trade_history(db, bot_id, user_id=_scope_user_id(user))
+    history = await load_trade_history(db, bot_id, user_id=_scope_user_id(user), source=source)
     engine = MonteCarloEngine(history)
     try:
         m = engine.compute_metrics(bot_id=bot_id)
@@ -129,7 +136,7 @@ async def simulate(
     returns the full distribution of outcomes for a future SET of trades,
     plus (optionally) a fan-chart-ready percentile-band series.
     """
-    history = await load_trade_history(db, req.bot_id, user_id=_scope_user_id(user))
+    history = await load_trade_history(db, req.bot_id, user_id=_scope_user_id(user), source=req.source)
     engine = MonteCarloEngine(history)
 
     try:

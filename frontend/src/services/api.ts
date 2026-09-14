@@ -2,11 +2,13 @@
 import axios from 'axios';
 import { Trade, BotConfig, BotPerformance, BotMetricsUpdate, DashboardStats, SignalPreview, PerformanceSummary } from '../types';
 import { useAuthStore } from '../hooks/useAuth';
+import { triggerAccessExpired } from '../components/AccessExpiredGate';
+import { handleUnauthorized } from '../lib/authGuard';
+import { getActiveBase, tryFailoverToVm } from '../lib/backendFailover';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 const api = axios.create({
-  baseURL: API_URL,
+  timeout: 20_000,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -18,12 +20,52 @@ const api = axios.create({
 // the zustand store rather than a prop/hook: this module is imported
 // by plain .then()-chained API objects below, outside any component.
 api.interceptors.request.use((config) => {
+  // Dual-failover — see lib/backendFailover.ts. Resolved fresh on
+  // EVERY request (not a static `baseURL` on the client, which is
+  // what this used to be) so a request made after a failover already
+  // switched mid-session picks it up automatically, same as the
+  // fixed-once retry below picks it up for the request that triggered
+  // the switch.
+  config.baseURL = getActiveBase();
   const token = useAuthStore.getState().token;
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
 });
+
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    const status = error?.response?.status;
+    const detail = error?.response?.data?.detail;
+
+    if (status === 402 && detail?.error === 'access_expired') {
+      triggerAccessExpired(detail);
+    }
+
+    if (status === 401) {
+      // Only a token /auth/me itself rejects ends the session — see
+      // lib/authGuard.ts (this used to log out on ANY 401, which is
+      // what produced the perpetual sign-in loop).
+      void handleUnauthorized();
+    }
+
+    // A genuine connection failure never reaches a server at all, so
+    // axios never populates `error.response` for one — a real HTTP
+    // error status always has one, and must never trigger a failover
+    // (the backend answering with e.g. a 500 means it's up). Guarded
+    // to one retry per request via a flag on its own config, same
+    // shape as apiFetch's own `_failoverRetried` — a VM that's ALSO
+    // down fails straight through instead of retrying forever.
+    if (!error.response && !error.config?.__failoverRetried && tryFailoverToVm()) {
+      error.config.__failoverRetried = true;
+      return api(error.config);
+    }
+
+    return Promise.reject(error);
+  },
+);
 
 export const dashboardApi = {
   getStats: () => api.get<DashboardStats>('/dashboard/stats').then(r => r.data),
@@ -48,6 +90,20 @@ export const tradesApi = {
   // actually does for a PENDING vs an ACTIVE trade).
   cancelOrder: (tradeId: string, exitPrice?: number) =>
     api.post(`/manual-trading/${tradeId}/cancel`, { exit_price: exitPrice ?? null }).then(r => r.data),
+  // Exchange-style "manage this position" actions — by direct request
+  // ("view and edit the statistics of this trade ... entry, SL, TP,
+  // partial TP, partial exit ... copy exchange style trade order
+  // management"). Both already existed as real, working backend
+  // endpoints (routers/manual_trading.py) with no frontend caller at
+  // all until PositionManager.tsx.
+  // entry_price only ever takes effect for a still-PENDING trade
+  // (amending the resting order's own trigger price) — the backend
+  // silently ignores it for an already-ACTIVE one; see that route's
+  // own docstring.
+  modifyTargets: (tradeId: string, targets: { stop_loss?: number; take_profit?: number; take_profit_2?: number; take_profit_3?: number; entry_price?: number }) =>
+    api.patch(`/manual-trading/${tradeId}/modify-targets`, targets).then(r => r.data),
+  partialClose: (tradeId: string, percent: number, exitPrice: number) =>
+    api.post(`/manual-trading/${tradeId}/partial-close`, { percent, exit_price: exitPrice }).then(r => r.data),
 };
 
 export const botsApi = {
@@ -88,6 +144,37 @@ export const botsApi = {
     api.get<{ instruments: { symbol: string; base_asset: string; quote_asset: string }[] }>(
       '/order-flow/instruments', { params: { q, limit: 25 } }
     ).then(r => r.data.instruments),
+  // The chart's own "search any instrument" — real TradingView symbols
+  // across every asset class (not just Binance crypto), proxied
+  // server-side. See order_flow.py's chart_symbol_search for why this
+  // has to be a backend proxy rather than a direct browser call.
+  chartSymbolSearch: (q: string) =>
+    api.get<{ results: { symbol: string; exchange: string; description: string; type: string }[] }>(
+      '/order-flow/symbol-search', { params: { q, limit: 25 } }
+    ).then(r => r.data.results),
+};
+
+export interface KlineBar {
+  time_ms: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+}
+
+export const orderFlowApi = {
+  // Real Binance OHLC candles for the small crypto allow-list
+  // order_flow.py already validates against (see that router's own
+  // ALLOWED_SYMBOLS comment) — used by ChartPanel's "On Chart" position
+  // view (PositionOnChartModal.tsx) to actually draw Entry/SL/TP as
+  // lines on real candles, something the embedded TradingView iframe
+  // can't do (see TradingViewChart.tsx's own docstring on why). A 400
+  // here for an unsupported symbol (e.g. a forex pair) is expected and
+  // handled by the caller, not a bug.
+  getKlines: (symbol: string, interval: string = '1h', limit: number = 100) =>
+    api.get<{ symbol: string; interval: string; candles: KlineBar[] }>(
+      '/order-flow/klines', { params: { symbol, interval, limit } }
+    ).then(r => r.data),
 };
 
 export interface TraderBotSummary {

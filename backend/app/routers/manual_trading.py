@@ -23,7 +23,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import List, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -31,6 +31,7 @@ import structlog
 
 from app.core.access_gate import _raise_if_access_expired
 from app.core.auth import get_current_user, require_super_admin
+from app.core.idempotency import idempotency_guard
 from app.database import get_db
 from app.models.platform_setting import PlatformSetting, TRADING_PAPER_ENFORCED_KEY
 from app.models.trade import EntryType, ExitType, ManualTradingSettings, Trade, TradeDirection, TradeLog, TradeStatus, TradingMode
@@ -199,132 +200,155 @@ class ManualOrderResponse(BaseModel):
 @router.post("/order", response_model=ManualOrderResponse)
 async def place_manual_order(
     req: ManualOrderRequest, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user),
+    # Optional — the frontend sends one per order-submit attempt (the
+    # SAME value across every cold-start retry of that one submit, see
+    # resilientFetch.ts) so a retry that actually reached the server
+    # the first time (just slow to answer) replays the original result
+    # instead of placing a second real order. See app/core/idempotency.py.
+    idempotency_key: Optional[str] = Header(default=None, alias="Idempotency-Key"),
 ):
-    settings_row = await _get_or_create_settings(db, user.id)
-    limits = effective_limits(settings_row)
+    async with idempotency_guard(db, user.id, "manual_trading.place_order", idempotency_key) as guard:
+        if guard.cached is not None:
+            return guard.cached
 
-    # Paper Trading is its own, permanent toggle — independent of
-    # Test/Live — by direct request ("provide a test vs live toggle
-    # and also while in live mode still provide a paper trading
-    # toggle ... so the paper trading is a permanent toggle both for
-    # test mode and live mode"). `paper` is True whenever no real
-    # broker call should happen: either trading_mode is TEST, or the
-    # trader left Paper Trading on while in Live mode. Either way, the
-    # SAME paper-trading engine handles it (_execute_broker_order's
-    # own `paper` kwarg) — real broker-selection + price-deviation-
-    # guard checks run, the final send-to-broker step is diverted to
-    # a simulated fill. Only Live with Paper Trading OFF is real.
-    paper = (
-        settings_row.trading_mode == TradingMode.TEST
-        or settings_row.paper_trading_enabled
-        or await get_master_paper_enforced(db)
-    )
+        settings_row = await _get_or_create_settings(db, user.id)
+        limits = effective_limits(settings_row)
 
-    # Gated here, not at the dependency level (require_active_access),
-    # because whether this needs an active subscription genuinely
-    # depends on `paper`, not the trading_mode label alone: a
-    # simulated order never reaches a real broker — no different from
-    # any other free practice feature — so it stays open regardless of
-    # access status. Only a real order (money actually at risk) is
-    # gated. By direct request: "at least let's see it work in test
-    # mode."
-    if not paper:
-        await _raise_if_access_expired(db, user)
-
-    risk_dist = abs(req.entry_price - req.stop_loss)
-    if risk_dist <= 0:
-        raise HTTPException(status_code=400, detail="stop_loss must differ from entry_price")
-
-    # Risk-$ is the default sizing mode (matches a real exchange's own
-    # order ticket — "Risk, USD" driving position size) — risk_percent
-    # is derived from it either way, since every risk cap in this app
-    # (and the bot side of the platform) is expressed as a percentage.
-    if req.risk_mode == "dollar":
-        if req.risk_amount is None:
-            raise HTTPException(status_code=400, detail="risk_amount is required when risk_mode is 'dollar'")
-        risk_percent = (req.risk_amount / req.account_equity) * 100
-    else:
-        if req.risk_percent is None:
-            raise HTTPException(status_code=400, detail="risk_percent is required when risk_mode is 'percent'")
-        risk_percent = req.risk_percent
-
-    final_target = req.take_profit_3 or req.take_profit_2 or req.take_profit
-    reward = abs(final_target - req.entry_price) if final_target is not None else None
-    rr_ratio = (reward / risk_dist) if reward is not None else limits.min_rr_ratio
-
-    risk_check = await check_manual_trade_risk(db, user.id, limits, risk_percent, rr_ratio)
-    if not risk_check.allowed:
-        raise HTTPException(status_code=409, detail=risk_check.reason)
-
-    try:
-        lot_size = compute_lot_size(req.account_equity, risk_percent, req.entry_price, req.stop_loss)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-    trade_id = f"MANUAL_{user.id}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
-    # Trade.is_test now means "no real broker call happened for this
-    # trade" — true whether that's because trading_mode is TEST or
-    # because the independent Paper Trading toggle was on in Live mode
-    # (see `paper` above). Both are the exact same engine path from
-    # here on — no separate naive-instant-fill branch any more.
-    is_test = paper
-
-    trade = Trade(
-        trade_id=trade_id, user_id=user.id, bot_id=f"manual_{user.id}", bot_name="Manual Trade",
-        strategy_type="manual", symbol=req.symbol.upper(),
-        direction=TradeDirection.LONG if req.direction == "long" else TradeDirection.SHORT,
-        entry_price=req.entry_price, stop_loss=req.stop_loss,
-        # Immutable snapshots at open — see Trade.initial_stop_loss's
-        # own comment for why these are separate from the mutable
-        # columns modify_targets edits below.
-        initial_stop_loss=req.stop_loss, initial_take_profit_1=req.take_profit,
-        take_profit_1=req.take_profit, take_profit_2=req.take_profit_2, take_profit_3=req.take_profit_3,
-        lot_size=lot_size, risk_percent=risk_percent,
-        risk_amount=lot_size * risk_dist, requires_approval=False, is_test=is_test,
-        broker_name=req.preferred_broker,
-        status=TradeStatus.PENDING,
-        entry_type={"limit": EntryType.LIMIT, "stop": EntryType.STOP}.get(req.order_type, EntryType.MARKET),
-    )
-    db.add(trade)
-    await db.commit()
-
-    # Both Test and a real Live order run through the exact same real
-    # broker-selection + price-deviation-guard pipeline
-    # (execution_engine.py::_execute_broker_order) — `paper` only
-    # decides whether the final step actually reaches the broker or
-    # gets diverted to a simulated fill. A paper order can still
-    # genuinely fail the same price-deviation guard a live one would,
-    # by direct request ("a paper trading engine that works with the
-    # test mode" — not a shortcut around the real checks).
-    result = await _engine._execute_broker_order({
-        "trade_id": trade_id, "symbol": trade.symbol, "direction": req.direction,
-        "entry_price": req.entry_price, "stop_loss": req.stop_loss, "take_profit": req.take_profit,
-        "lot_size": lot_size, "preferred_broker": req.preferred_broker, "bot_id": trade.bot_id,
-        # Real per-broker stop orders (see each _execute_* method in
-        # execution_engine.py / broker_integrations.py) — a genuine
-        # stop-market entry on every broker, not a limit order standing
-        # in for one.
-        "entry_type": req.order_type,
-    }, db, paper=paper)
-
-    if result.get("success"):
-        # A real limit order sits on the exchange's own book until
-        # triggered — ACTIVE here means "the order is live," not
-        # necessarily "filled," same distinction a real exchange's own
-        # order history draws between "working" and "filled."
-        trade.status = TradeStatus.ACTIVE
-        trade.entry_timestamp = datetime.now(timezone.utc)
-        trade.broker_order_id = str(result.get("order_id", ""))
-        trade.broker_name = result.get("broker", trade.broker_name)
-        await db.commit()
-        return ManualOrderResponse(
-            trade_id=trade_id, status="active", is_test=is_test, lot_size=lot_size, risk_percent=risk_percent,
-            message=result.get("message", "Order sent." if not paper else "Simulated fill — Paper Trading, nothing was sent to a real exchange."),
+        # Paper Trading is its own, permanent toggle — independent of
+        # Test/Live — by direct request ("provide a test vs live toggle
+        # and also while in live mode still provide a paper trading
+        # toggle ... so the paper trading is a permanent toggle both for
+        # test mode and live mode"). `paper` is True whenever no real
+        # broker call should happen: either trading_mode is TEST, or the
+        # trader left Paper Trading on while in Live mode. Either way, the
+        # SAME paper-trading engine handles it (_execute_broker_order's
+        # own `paper` kwarg) — real broker-selection + price-deviation-
+        # guard checks run, the final send-to-broker step is diverted to
+        # a simulated fill. Only Live with Paper Trading OFF is real.
+        paper = (
+            settings_row.trading_mode == TradingMode.TEST
+            or settings_row.paper_trading_enabled
+            or await get_master_paper_enforced(db)
         )
 
-    trade.status = TradeStatus.ERROR
-    await db.commit()
-    raise HTTPException(status_code=502, detail=result.get("message") or result.get("error") or "Order failed.")
+        # Gated here, not at the dependency level (require_active_access),
+        # because whether this needs an active subscription genuinely
+        # depends on `paper`, not the trading_mode label alone: a
+        # simulated order never reaches a real broker — no different from
+        # any other free practice feature — so it stays open regardless of
+        # access status. Only a real order (money actually at risk) is
+        # gated. By direct request: "at least let's see it work in test
+        # mode."
+        if not paper:
+            await _raise_if_access_expired(db, user)
+
+        risk_dist = abs(req.entry_price - req.stop_loss)
+        if risk_dist <= 0:
+            raise HTTPException(status_code=400, detail="stop_loss must differ from entry_price")
+
+        # Risk-$ is the default sizing mode (matches a real exchange's own
+        # order ticket — "Risk, USD" driving position size) — risk_percent
+        # is derived from it either way, since every risk cap in this app
+        # (and the bot side of the platform) is expressed as a percentage.
+        if req.risk_mode == "dollar":
+            if req.risk_amount is None:
+                raise HTTPException(status_code=400, detail="risk_amount is required when risk_mode is 'dollar'")
+            risk_percent = (req.risk_amount / req.account_equity) * 100
+        else:
+            if req.risk_percent is None:
+                raise HTTPException(status_code=400, detail="risk_percent is required when risk_mode is 'percent'")
+            risk_percent = req.risk_percent
+
+        final_target = req.take_profit_3 or req.take_profit_2 or req.take_profit
+        reward = abs(final_target - req.entry_price) if final_target is not None else None
+        rr_ratio = (reward / risk_dist) if reward is not None else limits.min_rr_ratio
+
+        risk_check = await check_manual_trade_risk(db, user.id, limits, risk_percent, rr_ratio)
+        if not risk_check.allowed:
+            raise HTTPException(status_code=409, detail=risk_check.reason)
+
+        try:
+            lot_size = compute_lot_size(req.account_equity, risk_percent, req.entry_price, req.stop_loss)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+        # Trade.trade_id is String(50) — the previous format (MANUAL_ + a
+        # full user.id UUID + timestamp + a random suffix) ran to 66
+        # characters, which asyncpg rejects outright
+        # (StringDataRightTruncationError), so every manual order 500'd at
+        # the DB insert regardless of how valid the order itself was. Real
+        # bug, confirmed directly from a production traceback. Shortened to
+        # the user id's first 8 hex chars (still enough entropy alongside
+        # the timestamp + random suffix to make collisions practically
+        # impossible) — comfortably under the column limit (~32 chars) with
+        # room to spare, and nothing elsewhere in the codebase parses this
+        # format's exact shape.
+        trade_id = f"MANUAL_{str(user.id).replace('-', '')[:8]}_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:6]}"
+        # Trade.is_test now means "no real broker call happened for this
+        # trade" — true whether that's because trading_mode is TEST or
+        # because the independent Paper Trading toggle was on in Live mode
+        # (see `paper` above). Both are the exact same engine path from
+        # here on — no separate naive-instant-fill branch any more.
+        is_test = paper
+
+        trade = Trade(
+            trade_id=trade_id, user_id=user.id, bot_id=f"manual_{user.id}", bot_name="Manual Trade",
+            strategy_type="manual", symbol=req.symbol.upper(),
+            direction=TradeDirection.LONG if req.direction == "long" else TradeDirection.SHORT,
+            entry_price=req.entry_price, stop_loss=req.stop_loss,
+            # Immutable snapshots at open — see Trade.initial_stop_loss's
+            # own comment for why these are separate from the mutable
+            # columns modify_targets edits below.
+            initial_stop_loss=req.stop_loss, initial_take_profit_1=req.take_profit,
+            take_profit_1=req.take_profit, take_profit_2=req.take_profit_2, take_profit_3=req.take_profit_3,
+            lot_size=lot_size, risk_percent=risk_percent,
+            risk_amount=lot_size * risk_dist, requires_approval=False, is_test=is_test,
+            broker_name=req.preferred_broker,
+            status=TradeStatus.PENDING,
+            entry_type={"limit": EntryType.LIMIT, "stop": EntryType.STOP}.get(req.order_type, EntryType.MARKET),
+        )
+        db.add(trade)
+        await db.commit()
+
+        # Both Test and a real Live order run through the exact same real
+        # broker-selection + price-deviation-guard pipeline
+        # (execution_engine.py::_execute_broker_order) — `paper` only
+        # decides whether the final step actually reaches the broker or
+        # gets diverted to a simulated fill. A paper order can still
+        # genuinely fail the same price-deviation guard a live one would,
+        # by direct request ("a paper trading engine that works with the
+        # test mode" — not a shortcut around the real checks).
+        result = await _engine._execute_broker_order({
+            "trade_id": trade_id, "symbol": trade.symbol, "direction": req.direction,
+            "entry_price": req.entry_price, "stop_loss": req.stop_loss, "take_profit": req.take_profit,
+            "lot_size": lot_size, "preferred_broker": req.preferred_broker, "bot_id": trade.bot_id,
+            # Real per-broker stop orders (see each _execute_* method in
+            # execution_engine.py / broker_integrations.py) — a genuine
+            # stop-market entry on every broker, not a limit order standing
+            # in for one.
+            "entry_type": req.order_type,
+        }, db, paper=paper)
+
+        if result.get("success"):
+            # A real limit order sits on the exchange's own book until
+            # triggered — ACTIVE here means "the order is live," not
+            # necessarily "filled," same distinction a real exchange's own
+            # order history draws between "working" and "filled."
+            trade.status = TradeStatus.ACTIVE
+            trade.entry_timestamp = datetime.now(timezone.utc)
+            trade.broker_order_id = str(result.get("order_id", ""))
+            trade.broker_name = result.get("broker", trade.broker_name)
+            await db.commit()
+            response = ManualOrderResponse(
+                trade_id=trade_id, status="active", is_test=is_test, lot_size=lot_size, risk_percent=risk_percent,
+                message=result.get("message", "Order sent." if not paper else "Simulated fill — Paper Trading, nothing was sent to a real exchange."),
+            )
+            await guard.finalize(response)
+            return response
+
+        trade.status = TradeStatus.ERROR
+        await db.commit()
+        raise HTTPException(status_code=502, detail=result.get("message") or result.get("error") or "Order failed.")
 
 
 class PartialCloseRequest(BaseModel):
@@ -437,25 +461,41 @@ async def cancel_order(
         raise HTTPException(status_code=404, detail="Trade not found")
 
     if row.status == TradeStatus.PENDING:
-        # Paper trades now carry a real broker_name/broker_order_id
-        # too (the same engine ran the same routing for them), so this
-        # goes through cancel_broker_order either way — `paper=` tells
-        # it whether to simulate the cancel or actually call the
-        # broker (execution_engine.py::cancel_broker_order).
-        cancel_result = await _engine.cancel_broker_order(
-            row.broker_name, row.broker_order_id, row.symbol, row.bot_id, db,
-            is_stop=row.entry_type == EntryType.STOP, paper=row.is_test,
-        )
-        if not cancel_result.get("success"):
-            raise HTTPException(
-                status_code=502,
-                detail=cancel_result.get("message") or cancel_result.get("error") or "Could not cancel this order.",
+        # Was: always called cancel_broker_order and treated ANY
+        # failure — including "there was never a broker reference to
+        # cancel" — as a hard 502 that blocked cancelling the order at
+        # all, by direct bug report ("allow cancellation of paper and
+        # real live trades ... No broker order reference stored for
+        # this trade — nothing to cancel at a broker"). That message is
+        # not a real failure: plenty of pending rows (older ones from
+        # before broker_name/broker_order_id were recorded for every
+        # order, or ones this app never routed to a broker at all) have
+        # no broker reference at all, and "nothing to cancel at a
+        # broker" should mean exactly that — proceed to cancel it in
+        # OUR OWN system — not refuse the whole operation. Only
+        # attempt a REAL broker cancel when there's actually a
+        # broker_order_id/broker_name on file to cancel, mirroring the
+        # ACTIVE branch below's own already-correct guard; a genuine
+        # broker-side failure there still falls through to a local
+        # cancel rather than blocking the trader, same as that branch's
+        # own "falling back to close" behavior on failure.
+        cancelled_at_broker = False
+        if row.broker_order_id and row.broker_name:
+            cancel_result = await _engine.cancel_broker_order(
+                row.broker_name, row.broker_order_id, row.symbol, row.bot_id, db,
+                is_stop=row.entry_type == EntryType.STOP, paper=row.is_test,
             )
+            cancelled_at_broker = bool(cancel_result.get("success"))
+            if not cancelled_at_broker:
+                logger.info(
+                    "cancel_pending_order_broker_cancel_failed_cancelling_locally",
+                    trade_id=trade_id, error=cancel_result.get("error") or cancel_result.get("message"),
+                )
         row.status = TradeStatus.CANCELLED
         await db.commit()
         return CancelOrderResponse(
             trade_id=trade_id, status=row.status.value,
-            message="Order cancelled — it was never filled." if row.is_test else "Order cancelled at your broker — it was never filled.",
+            message="Order cancelled at your broker — it was never filled." if cancelled_at_broker else "Order cancelled — it was never filled.",
         )
 
     if row.status != TradeStatus.ACTIVE:
@@ -523,10 +563,20 @@ class ModifyTargetsRequest(BaseModel):
     take_profit: Optional[float] = Field(default=None, gt=0)
     take_profit_2: Optional[float] = Field(default=None, gt=0)
     take_profit_3: Optional[float] = Field(default=None, gt=0)
+    # Only meaningful for a still-PENDING order (the trigger price it
+    # hasn't filled at yet) — see this endpoint's own docstring for why
+    # PENDING is now allowed here, not just ACTIVE. Editing an ACTIVE
+    # trade's already-filled entry_price would rewrite history rather
+    # than manage a real position, so this is silently ignored unless
+    # the trade is still PENDING (checked below, not just accepted
+    # blindly because the field is present).
+    entry_price: Optional[float] = Field(default=None, gt=0)
 
 
 class ModifyTargetsResponse(BaseModel):
     trade_id: str
+    status: str
+    entry_price: Optional[float]
     stop_loss: float
     take_profit: Optional[float]
     take_profit_2: Optional[float]
@@ -540,9 +590,16 @@ async def modify_targets(
     """Move/edit SL and TP1/2/3 on an open position — the real backend
     for the Trade Specs panel's "Modify" action, by direct request
     ("fix or move or edit all SL and TP ... from the charts"). Works on
-    ANY of the caller's own active trades, bot-placed or manual — not
-    manual-only — since a trader manages both the same way once a
-    position is open.
+    ANY of the caller's own active OR still-pending trades, bot-placed
+    or manual — not manual-only — since a trader manages both the same
+    way. PENDING was added by direct bug report ("no menu to review
+    trade order statistics or update or manage trades" — the two
+    trades shown were both still-pending manual orders, which this
+    endpoint previously refused outright with a 409): a resting order
+    that hasn't filled yet is exactly the kind of thing a trader
+    reasonably wants to amend (move the trigger price, tighten a
+    target) before it does, same as amending a resting limit order at
+    a real exchange.
 
     Honest scope: this updates OUR OWN record of the trade's targets,
     the same thing partial-close already treats as trader-managed
@@ -560,8 +617,8 @@ async def modify_targets(
     )).scalar_one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail="Trade not found")
-    if row.status != TradeStatus.ACTIVE:
-        raise HTTPException(status_code=409, detail=f"Trade is {row.status.value}, not active.")
+    if row.status not in (TradeStatus.ACTIVE, TradeStatus.PENDING):
+        raise HTTPException(status_code=409, detail=f"Trade is {row.status.value}, not active or pending.")
     if not row.is_test:
         await _raise_if_access_expired(db, user)
 
@@ -571,12 +628,15 @@ async def modify_targets(
     # over time - a measure how you change your trading plan"). Only
     # an ACTUAL change is logged (skips a no-op "modify" to the same
     # value already set), and only for the fields this request touches.
-    for field, event_type, new_value in (
+    fields = [
         ("stop_loss", "sl_update", req.stop_loss),
         ("take_profit_1", "tp_update", req.take_profit),
         ("take_profit_2", "tp_update", req.take_profit_2),
         ("take_profit_3", "tp_update", req.take_profit_3),
-    ):
+    ]
+    if row.status == TradeStatus.PENDING:
+        fields.append(("entry_price", "entry_update", req.entry_price))
+    for field, event_type, new_value in fields:
         if new_value is None:
             continue
         old_value = getattr(row, field)
@@ -591,8 +651,8 @@ async def modify_targets(
     await db.commit()
 
     return ModifyTargetsResponse(
-        trade_id=trade_id, stop_loss=row.stop_loss, take_profit=row.take_profit_1,
-        take_profit_2=row.take_profit_2, take_profit_3=row.take_profit_3,
+        trade_id=trade_id, status=row.status.value, entry_price=row.entry_price, stop_loss=row.stop_loss,
+        take_profit=row.take_profit_1, take_profit_2=row.take_profit_2, take_profit_3=row.take_profit_3,
     )
 
 

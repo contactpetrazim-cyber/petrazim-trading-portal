@@ -102,6 +102,15 @@ export function MasteryOverviewPage() {
       <PageHeader title="Mastery Overview" subtitle="Your mastery level across every track, at a glance." />
 
       <div className="flex flex-wrap gap-x-4 gap-y-1.5 mb-4">
+        <Link to="/learn/awards" className={`text-sm font-medium ${dark ? 'text-white/60 hover:text-white' : 'text-corporate-hero'}`}>
+          Awards & Certificates →
+        </Link>
+        <Link to="/practise/drills" className={`text-sm font-medium ${dark ? 'text-white/60 hover:text-white' : 'text-corporate-hero'}`}>
+          Practice Drills →
+        </Link>
+        <Link to="/practise/review" className={`text-sm font-medium ${dark ? 'text-white/60 hover:text-white' : 'text-corporate-hero'}`}>
+          Retention Review →
+        </Link>
         <Link to="/learn/reflections" className={`text-sm font-medium ${dark ? 'text-white/60 hover:text-white' : 'text-corporate-hero'}`}>
           My Reflections →
         </Link>
@@ -186,7 +195,11 @@ export function MasteryOverviewPage() {
                 key={d.date}
                 title={`${d.date}${d.active ? ' — active' : ''}`}
                 className="flex-1 h-4 rounded-sm"
-                style={{ background: d.active ? '#10b981' : dark ? 'rgba(255,255,255,0.08)' : '#eef0f6' }}
+                // Portal blue, not green — by direct request ("use
+                // theme colour blue instead of green colour for Last
+                // 30 days"), matching the Assessment Performance
+                // chart's own switch just above.
+                style={{ background: d.active ? '#005FB8' : dark ? 'rgba(255,255,255,0.08)' : '#eef0f6' }}
               />
             ))}
           </div>
@@ -205,14 +218,25 @@ export function MasteryOverviewPage() {
               data={data.tracks.filter((t) => t.avg_quiz_score_pct !== null).map((t) => ({ name: t.emoji + ' ' + t.title, score: t.avg_quiz_score_pct }))}
               layout="vertical" margin={{ left: 8, right: 16 }}
             >
-              <CartesianGrid strokeDasharray="3 3" stroke={dark ? '#1f2937' : '#e5e7eb'} horizontal={false} />
-              <XAxis type="number" domain={[0, 100]} stroke="#6b7280" fontSize={11} unit="%" />
-              <YAxis type="category" dataKey="name" stroke="#6b7280" fontSize={11} width={170} />
-              <Tooltip formatter={(v: number) => `${v}%`} contentStyle={{ backgroundColor: dark ? '#111827' : '#fff', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 12 }} />
+              <CartesianGrid strokeDasharray="3 3" stroke={dark ? '#2a3150' : '#e5e7eb'} horizontal={false} />
+              <XAxis type="number" domain={[0, 100]} stroke={dark ? '#8b93a5' : '#6b7280'} fontSize={11} unit="%" />
+              <YAxis type="category" dataKey="name" stroke={dark ? '#8b93a5' : '#6b7280'} fontSize={11} width={170} />
+              <Tooltip formatter={(v: number) => `${v}%`} contentStyle={{ backgroundColor: dark ? '#161b2e' : '#fff', border: `1px solid ${dark ? '#2a3150' : '#e5e7eb'}`, borderRadius: 8, fontSize: 12, color: dark ? '#fff' : '#141a33' }} />
+              {/* Portal-blue throughout — by direct request ("use
+                  portal consistent blue colours ... follow portal
+                  theme design and colour template"), replacing an
+                  unrelated red/amber/green traffic-light scheme that
+                  matched nothing else in the app. Still a real
+                  gradient, not a flat color: opacity of the same
+                  corporate-hero blue (0,95,184) rises with score, so
+                  a track that needs attention still reads as visually
+                  lighter/weaker than one that's doing well. */}
               <Bar dataKey="score" radius={[0, 4, 4, 0]}>
-                {data.tracks.filter((t) => t.avg_quiz_score_pct !== null).map((t, i) => (
-                  <Cell key={i} fill={(t.avg_quiz_score_pct ?? 0) >= 70 ? '#22c55e' : (t.avg_quiz_score_pct ?? 0) >= 50 ? '#f59e0b' : '#ef4444'} />
-                ))}
+                {data.tracks.filter((t) => t.avg_quiz_score_pct !== null).map((t, i) => {
+                  const pct = t.avg_quiz_score_pct ?? 0;
+                  const alpha = pct >= 85 ? 1 : pct >= 70 ? 0.8 : pct >= 50 ? 0.55 : 0.32;
+                  return <Cell key={i} fill={`rgba(0, 95, 184, ${alpha})`} />;
+                })}
               </Bar>
             </BarChart>
           </ResponsiveContainer>

@@ -107,10 +107,28 @@ async def check_manual_trade_risk(
     if reward_risk_ratio < limits.min_rr_ratio:
         return RiskCheckResult(False, f"Reward:risk of {reward_risk_ratio:.2f} is below your {limits.min_rr_ratio:.2f} minimum.")
 
-    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    # Naive UTC, not datetime.now(timezone.utc) — Trade.created_at is a
+    # plain DateTime column (no timezone=True), storing naive UTC via
+    # its own default=datetime.utcnow. Comparing it against a
+    # timezone-aware value here made asyncpg reject the query outright
+    # ("can't subtract offset-naive and offset-aware datetimes") —
+    # confirmed directly against production logs and a live synthetic
+    # order, not just by inspection: every manual order past the R:R
+    # check 500'd on this exact line.
+    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    # CANCELLED/ERROR excluded — a more serious sibling of the same bug
+    # reported against the dashboard's own "Today's Trades" count ("if
+    # a trade order is cancelled - why is it still showing up ... as a
+    # pending or executed order"): counting them here didn't just
+    # mis-display a number, it could genuinely lock a trader out of
+    # placing any more REAL trades for the rest of the day after
+    # cancelling a few orders earlier — a cancelled/errored order was
+    # never an actual trade taken, so it shouldn't count against this
+    # cap any more than it should count toward the dashboard's total.
     today_count = (await db.execute(
         select(func.count(Trade.id)).where(
             Trade.user_id == user_id, Trade.strategy_type == "manual", Trade.created_at >= today_start,
+            Trade.status.notin_([TradeStatus.CANCELLED, TradeStatus.ERROR]),
         )
     )).scalar() or 0
     if today_count >= limits.max_daily_trades:

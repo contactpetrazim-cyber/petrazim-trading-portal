@@ -142,13 +142,26 @@ async def build_leaderboard(db: AsyncSession, top_n: int = 5) -> Optional[str]:
     return "🏆 <b>This Week's Leaderboard</b>\n\n" + "\n".join(lines)
 
 
-async def _send_to_all_channels(text: str) -> None:
+async def _send_to_all_channels(text: str) -> tuple[List[str], List[str]]:
+    """Returns (channels_sent, channels_failed) — channel.value strings.
+    Deliberately NOT swallowed into a bare None the way this used to work:
+    a caller that only checks 'did build_daily_tip return content?' before
+    reporting success would call this a success even if EVERY channel's
+    send_to_chat failed (e.g. a missing bot token), which is exactly the
+    silent-failure shape that made 'the daily broadcast isn't working' hard
+    to tell apart from 'it's working' just from the cron endpoint's 200 OK —
+    see send_daily_broadcast's own docstring-equivalent note below."""
+    sent: List[str] = []
+    failed: List[str] = []
     for channel in (TelegramChannel.INDIVIDUAL, TelegramChannel.CORPORATE):
         try:
             service = TelegramService(channel)
             await service.send_to_chat(CHANNEL_USERNAME[channel], text)
+            sent.append(channel.value)
         except RuntimeError as e:
+            failed.append(channel.value)
             logger.warning("community_broadcast.skipped_channel", channel=channel.value, reason=str(e))
+    return sent, failed
 
 
 async def send_daily_broadcast(db: AsyncSession) -> dict:
@@ -157,13 +170,27 @@ async def send_daily_broadcast(db: AsyncSession) -> dict:
     parts = [p for p in (tip, leaderboard) if p]
     if not parts:
         return {"sent": False, "reason": "No lesson content or leaderboard data yet."}
-    await _send_to_all_channels("\n\n———\n\n".join(parts))
-    return {"sent": True, "included_tip": tip is not None, "included_leaderboard": leaderboard is not None}
+    channels_sent, channels_failed = await _send_to_all_channels("\n\n———\n\n".join(parts))
+    if not channels_sent:
+        # Real content existed and every channel send failed — this is a
+        # send failure, not a success, even though there's no exception to
+        # propagate (per-channel sends fail soft by design). Logged at
+        # error, not warning, so it's easy to grep for in Render logs.
+        logger.error("community_broadcast.daily_tip_totally_failed", channels_failed=channels_failed)
+    return {
+        "sent": bool(channels_sent),
+        "included_tip": tip is not None,
+        "included_leaderboard": leaderboard is not None,
+        "channels_sent": channels_sent,
+        "channels_failed": channels_failed,
+    }
 
 
 async def send_weekly_quiz() -> dict:
     week_index = date.today().isocalendar()[1] % len(CURATED_QUIZ_QUESTIONS)
     q = CURATED_QUIZ_QUESTIONS[week_index]
+    channels_sent: List[str] = []
+    channels_failed: List[str] = []
     for channel in (TelegramChannel.INDIVIDUAL, TelegramChannel.CORPORATE):
         try:
             service = TelegramService(channel)
@@ -171,6 +198,16 @@ async def send_weekly_quiz() -> dict:
                 CHANNEL_USERNAME[channel], q["question"], q["options"],
                 q["correct_option_id"], q["explanation"],
             )
+            channels_sent.append(channel.value)
         except RuntimeError as e:
+            channels_failed.append(channel.value)
             logger.warning("community_broadcast.quiz_skipped_channel", channel=channel.value, reason=str(e))
-    return {"sent": True, "question": q["question"], "source": q["source"]}
+    if not channels_sent:
+        logger.error("community_broadcast.weekly_quiz_totally_failed", channels_failed=channels_failed)
+    return {
+        "sent": bool(channels_sent),
+        "question": q["question"],
+        "source": q["source"],
+        "channels_sent": channels_sent,
+        "channels_failed": channels_failed,
+    }

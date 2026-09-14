@@ -28,11 +28,11 @@ import { PetrazimLogo } from './PetrazimLogo';
 export function CardLogoBand({ dark = false }: { dark?: boolean }) {
   return (
     <div
-      className={`-mx-8 -mt-8 mb-6 py-5 flex justify-center bg-white rounded-t-3xl ${
+      className={`-mx-8 -mt-8 mb-6 min-w-0 overflow-hidden py-5 flex justify-center bg-white rounded-t-3xl ${
         dark ? 'border-b border-corporate-border-dark' : ''
       }`}
     >
-      <PetrazimLogo height={56} />
+      <PetrazimLogo height={56} className="px-3" />
     </div>
   );
 }

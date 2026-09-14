@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react';
-import { UserPlus, Trash2, X } from 'lucide-react';
+import { UserPlus, Trash2, X, Users } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
+import { FoldedCard } from './FoldedCard';
+import { apiFetch } from './AccessExpiredGate';
+import { formatApiError } from '../lib/apiError';
 
 /**
  * RosterPanel — invite/assign/detach Traders. Mounted on
@@ -45,7 +48,7 @@ export function RosterPanel({ dark = false }: { dark?: boolean }) {
   async function loadRoster() {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/roster`, {
+      const res = await apiFetch(`${API_BASE}/roster`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) setRoster(await res.json());
@@ -59,14 +62,14 @@ export function RosterPanel({ dark = false }: { dark?: boolean }) {
   async function submitInvite() {
     setError(null);
     try {
-      const res = await fetch(`${API_BASE}/roster/invite`, {
+      const res = await apiFetch(`${API_BASE}/roster/invite`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ email: inviteEmail, full_name: inviteName }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error(body.detail || 'Invite failed');
+        throw new Error(formatApiError(body.detail, 'Invite failed'));
       }
       const data = await res.json();
       setInviteResult(data);
@@ -77,7 +80,7 @@ export function RosterPanel({ dark = false }: { dark?: boolean }) {
   }
 
   async function detach(traderId: string) {
-    await fetch(`${API_BASE}/roster/assign/${traderId}`, {
+    await apiFetch(`${API_BASE}/roster/assign/${traderId}`, {
       method: 'DELETE',
       headers: { Authorization: `Bearer ${token}` },
     });
@@ -93,9 +96,16 @@ export function RosterPanel({ dark = false }: { dark?: boolean }) {
   }
 
   return (
-    <div className={`rounded-2xl border p-5 ${dark ? 'bg-corporate-surface-dark border-corporate-border-dark' : 'bg-white border-corporate-bg'}`}>
-      <div className="flex items-center justify-between mb-4">
-        <h3 className={`font-semibold ${dark ? 'text-white' : 'text-corporate-text-on-bg'}`}>Roster</h3>
+    // Folds/unfolds on click, closed by default — by direct request
+    // ("make all the cards in the portal fold with one click and
+    // unfold with another ... i dont want permanently open cards").
+    <FoldedCard
+      title="Roster"
+      summary={roster.length > 0 ? `${roster.length} trader${roster.length === 1 ? '' : 's'}` : 'No traders on your roster yet'}
+      icon={<Users size={18} />}
+      dark={dark}
+    >
+      <div className="flex justify-end mb-3">
         <button
           onClick={() => setInviteOpen(true)}
           className="flex items-center gap-1.5 text-xs font-medium text-white bg-corporate-hero px-3 py-1.5 rounded-lg"
@@ -173,6 +183,6 @@ export function RosterPanel({ dark = false }: { dark?: boolean }) {
           </div>
         </div>
       )}
-    </div>
+    </FoldedCard>
   );
 }
