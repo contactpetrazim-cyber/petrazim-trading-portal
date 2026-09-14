@@ -56,6 +56,7 @@ from app.config import get_settings
 from app.database import AsyncSessionLocal
 from app.models.trade import ExitType, Trade, TradeDirection, TradeLog, TradeStatus
 from app.services.live_price import get_crypto_price
+from app.services.manual_trading import compute_r_multiple
 
 logger = structlog.get_logger()
 settings = get_settings()
@@ -185,6 +186,7 @@ class PositionMonitor:
         trade.exit_price = exit_price
         trade.exit_timestamp = datetime.now(timezone.utc)
         trade.exit_type = exit_type
+        trade.r_multiple = compute_r_multiple(trade.entry_price, exit_price, trade.stop_loss, trade.direction)
 
         db.add(TradeLog(
             trade_id=trade.trade_id, event_type=event,
