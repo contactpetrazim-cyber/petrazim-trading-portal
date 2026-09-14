@@ -537,14 +537,30 @@ export function ManualTradingPage() {
   // below rather than one being chart-only.
   const [openPositionTrade, setOpenPositionTrade] = useState<Trade | null>(null);
   const [pendingOrderTrade, setPendingOrderTrade] = useState<Trade | null>(null);
+  // Surfaced in NoPositionCard's empty state — by direct bug report,
+  // with video: "the position Goto button from EURUSD does not deploy
+  // auto to the correct chart with position trade orders (BTCUSD)
+  // chart ... it remains on the EURUSD chart instead." Goto Chart on
+  // an empty symbol was always only ever "reopen this same chart" —
+  // correct, since there's nothing else to link to — the real gap was
+  // never telling the trader an order exists on a DIFFERENT symbol at
+  // all. `pending` below is now fetched WITHOUT a symbol filter (was
+  // scoped to `symbol.trade`) specifically so this can check it too,
+  // without a second network round-trip.
+  const [otherOpenTrade, setOtherOpenTrade] = useState<Trade | null>(null);
   const loadOpenPosition = useCallback(() => {
     return Promise.all([
       tradesApi.getActiveTrades(),
-      tradesApi.getTrades({ status: 'pending', symbol: symbol.trade }),
+      tradesApi.getTrades({ status: 'pending' }),
     ]).then(([active, pending]) => {
       setOpenPositionTrade(active.find((t) => t.symbol === symbol.trade && t.entry_price != null) ?? null);
-      setPendingOrderTrade(pending.find((t) => t.entry_price != null) ?? null);
-    }).catch(() => { setOpenPositionTrade(null); setPendingOrderTrade(null); });
+      setPendingOrderTrade(pending.find((t) => t.symbol === symbol.trade && t.entry_price != null) ?? null);
+      setOtherOpenTrade(
+        active.find((t) => t.symbol !== symbol.trade && t.entry_price != null)
+        ?? pending.find((t) => t.symbol !== symbol.trade && t.entry_price != null)
+        ?? null,
+      );
+    }).catch(() => { setOpenPositionTrade(null); setPendingOrderTrade(null); setOtherOpenTrade(null); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [symbol.trade]);
   useEffect(() => {
@@ -764,6 +780,7 @@ export function ManualTradingPage() {
             pairsPanel={<PairsPanel selected={quickSymbol} onSelect={(p) => setSelectedTv(p.tv)} dark={dark} />}
             position={chartPosition}
             onPositionChanged={loadOpenPosition}
+            otherOpenTrade={otherOpenTrade}
 
           />
 
