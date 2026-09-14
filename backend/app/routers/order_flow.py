@@ -366,7 +366,6 @@ class KlinesResponse(BaseModel):
     candles: List[KlineBar]
 
 
-@router.get("/klines", response_model=KlinesResponse)
 async def _coingecko_klines_fallback(symbol: str) -> Optional[List[KlineBar]]:
     """Binance's own geofence can 451 even through the Fixie proxy pair
     (the proxy's own exit IP can itself be in a region Binance
@@ -394,10 +393,11 @@ async def _coingecko_klines_fallback(symbol: str) -> Optional[List[KlineBar]]:
     if not coingecko_id:
         return None
     try:
-        resp = await httpx.AsyncClient(timeout=8.0).get(
-            f"https://api.coingecko.com/api/v3/coins/{coingecko_id}/ohlc",
-            params={"vs_currency": "usd", "days": 7},
-        )
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            resp = await client.get(
+                f"https://api.coingecko.com/api/v3/coins/{coingecko_id}/ohlc",
+                params={"vs_currency": "usd", "days": 7},
+            )
         if resp.status_code != 200:
             return None
         raw = resp.json()
@@ -409,6 +409,7 @@ async def _coingecko_klines_fallback(symbol: str) -> Optional[List[KlineBar]]:
     ]
 
 
+@router.get("/klines", response_model=KlinesResponse)
 async def get_klines(
     symbol: str = "BTCUSDT", interval: str = "4h", limit: int = 60,
     user: User = Depends(get_current_user),
