@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { X, Loader2, RotateCcw, Sun, Moon, Palette, Target } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { X, Loader2, RotateCcw, Sun, Moon, Palette, Target, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Maximize2 } from 'lucide-react';
 import { CandleChart, type Candle, type ChartLine } from './CandleChart';
 import { formatSignedMoney, type ChartPosition } from './TradingViewChart';
 import { PositionManager } from './PositionManager';
@@ -124,10 +124,18 @@ const COLOR_PRESETS: { label: string; up: string; down: string }[] = [
  * plumbing — this modal never caches its own separate copy of the
  * trade's SL/TP.
  *
- * A genuinely full-featured chart (real drawing tools, zoom/pan,
- * indicators) needs TradingView's paid/licensed Charting Library — see
- * this component's own tracking note for that upgrade path; this stays
- * the fallback if that license isn't approved.
+ * Zoom (fewer/more candles visible) and pan (scroll back through
+ * history, up to the POOL_SIZE-candle fetch) are real, button-driven
+ * controls — see the toolbar row above the chart pane — by direct
+ * request ("add feature to resize or move the chart or scroll ...
+ * increase or decrease scale ... zoom in or out"). Deliberately +/-/
+ * ‹/› buttons rather than pinch/drag gesture physics: this modal is
+ * used identically on touch and desktop, and buttons behave
+ * identically on both with no gesture-library dependency. A genuinely
+ * full-featured chart (real drawing tools, click-drag pan, live
+ * indicators) still needs TradingView's paid/licensed Charting
+ * Library — see this component's own tracking note for that upgrade
+ * path; this stays the fallback if that license isn't approved.
  *
  * HONEST SCOPE: the real candle data comes from order_flow.py's
  * `/klines` proxy, which only covers Binance's own small, explicit
@@ -181,10 +189,149 @@ export function PositionOnChartModal({
   onChanged?: () => void;
 }) {
   const [interval, setInterval] = useState<KlineInterval>(mapTvIntervalToKlines(initialInterval));
-  const [candles, setCandles] = useState<Candle[] | null>(null);
+  // The full fetched pool — up to POOL_SIZE candles, most-recent last
+  // (order_flow.py's /klines already returns oldest-to-newest). `zoom`/
+  // `pan` below slice a WINDOW out of this pool; nothing here refetches
+  // on zoom/pan, only on a real symbol/interval/retry change.
+  const [allCandles, setAllCandles] = useState<Candle[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [retryTick, setRetryTick] = useState(0);
   const [positionOpen, setPositionOpen] = useState(false);
+
+  // Resize/scroll/zoom — by direct request ("add feature to resize or
+  // move the chart or scroll to the left or down or increase or
+  // decrease scale ... or zoom in or out"). `visibleCount` is how many
+  // candles are shown at once (zoom level — fewer = zoomed in, more =
+  // zoomed out); `panOffset` is how many candles back from the most
+  // recent one the visible window's right edge sits (0 = live edge,
+  // larger = further back in history). Started as plain +/-/‹/›
+  // buttons only; by further direct follow-up ("keep the tap/click
+  // buttons ... work on [the hands-on feel] additional[ly]") real
+  // click-drag (mouse) / touch-drag (finger) panning and two-finger
+  // pinch-to-zoom now sit ALONGSIDE the buttons — see the pointer
+  // handlers below and their own attachment point near the chart pane
+  // — neither replaces the other; whichever's more convenient works.
+  const POOL_SIZE = 300;
+  const DEFAULT_VISIBLE = 60;
+  const MIN_VISIBLE = 15;
+  const [visibleCount, setVisibleCount] = useState(DEFAULT_VISIBLE);
+  const [panOffset, setPanOffset] = useState(0);
+  const maxPanOffset = Math.max(0, (allCandles?.length ?? 0) - visibleCount);
+  const candles = useMemo(() => {
+    if (!allCandles) return null;
+    const end = Math.max(0, allCandles.length - panOffset);
+    const start = Math.max(0, end - visibleCount);
+    return allCandles.slice(start, end);
+  }, [allCandles, visibleCount, panOffset]);
+  function zoomIn() { setVisibleCount((v) => Math.max(MIN_VISIBLE, Math.round(v * 0.7))); }
+  function zoomOut() { setVisibleCount((v) => Math.min(allCandles?.length ?? POOL_SIZE, Math.round(v * 1.4))); }
+  function panOlder() { setPanOffset((p) => Math.min(maxPanOffset, p + Math.max(1, Math.round(visibleCount * 0.5)))); }
+  function panNewer() { setPanOffset((p) => Math.max(0, p - Math.max(1, Math.round(visibleCount * 0.5)))); }
+  function resetView() { setVisibleCount(DEFAULT_VISIBLE); setPanOffset(0); }
+
+  // Click-drag / touch-drag pan + two-finger pinch-zoom, attached to
+  // the chart pane below via ref (native listeners, not React's
+  // onWheel/onTouch* — React attaches those as passive at the root for
+  // scroll performance, which silently blocks preventDefault() on
+  // exactly the wheel/touch events this needs to intercept). Pointer
+  // Events (not separate mouse/touch handlers) so one code path covers
+  // mouse-drag and single-finger touch-drag identically; a second
+  // simultaneous pointer switches the SAME gesture to pinch. Refs, not
+  // state, for the moment-to-moment pointer bookkeeping — this fires
+  // on every pixel of movement, and only the derived visibleCount/
+  // panOffset actually need to be React state (they're what's drawn).
+  const chartPaneRef = useRef<HTMLDivElement>(null);
+  // Always holds the LATEST visibleCount/panOffset — the gesture
+  // effect below intentionally does not re-run when these change (see
+  // its own comment on why), so a new gesture starting after an
+  // earlier one already moved the view would otherwise read stale
+  // values baked in when the effect last (re-)attached, instead of
+  // where the view actually is now.
+  const viewRef = useRef({ visibleCount, panOffset });
+  useEffect(() => { viewRef.current = { visibleCount, panOffset }; }, [visibleCount, panOffset]);
+  useEffect(() => {
+    const el = chartPaneRef.current;
+    if (!el || !allCandles) return;
+
+    const pointers = new Map<number, { x: number; y: number }>();
+    let gesture: { mode: 'pan' | 'pinch'; visibleCount: number; panOffset: number; x?: number; dist?: number } | null = null;
+
+    function clampPan(offset: number, visible: number) {
+      return Math.max(0, Math.min(offset, Math.max(0, (allCandles?.length ?? 0) - visible)));
+    }
+
+    function onPointerDown(e: PointerEvent) {
+      el!.setPointerCapture(e.pointerId);
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      const { visibleCount: vc, panOffset: po } = viewRef.current;
+      if (pointers.size === 1) {
+        gesture = { mode: 'pan', visibleCount: vc, panOffset: po, x: e.clientX };
+      } else if (pointers.size === 2) {
+        const [a, b] = Array.from(pointers.values());
+        gesture = { mode: 'pinch', visibleCount: vc, panOffset: po, dist: Math.hypot(a.x - b.x, a.y - b.y) };
+      }
+    }
+    function onPointerMove(e: PointerEvent) {
+      if (!pointers.has(e.pointerId) || !gesture || !allCandles) return;
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (gesture.mode === 'pan' && pointers.size === 1) {
+        const rect = el!.getBoundingClientRect();
+        const pxPerCandle = rect.width / gesture.visibleCount;
+        const deltaCandles = Math.round((e.clientX - gesture.x!) / pxPerCandle);
+        // Dragging left reveals newer data (content slides left under
+        // your finger, same feel as scrolling any horizontal list);
+        // dragging right reveals older data.
+        setPanOffset(clampPan(gesture.panOffset - deltaCandles, gesture.visibleCount));
+      } else if (gesture.mode === 'pinch' && pointers.size === 2) {
+        const [a, b] = Array.from(pointers.values());
+        const dist = Math.max(1, Math.hypot(a.x - b.x, a.y - b.y));
+        const nextVisible = Math.max(MIN_VISIBLE, Math.min(allCandles.length, Math.round(gesture.visibleCount * (gesture.dist! / dist))));
+        setVisibleCount(nextVisible);
+        setPanOffset((p) => clampPan(p, nextVisible));
+      }
+    }
+    function onPointerUp(e: PointerEvent) {
+      pointers.delete(e.pointerId);
+      if (pointers.size === 0) {
+        gesture = null;
+      } else if (pointers.size === 1 && gesture) {
+        // Lifted one finger mid-pinch — re-baseline as a fresh pan
+        // from here rather than jumping using stale pinch state.
+        const [remaining] = Array.from(pointers.values());
+        gesture = { mode: 'pan', visibleCount: viewRef.current.visibleCount, panOffset: viewRef.current.panOffset, x: remaining.x };
+      }
+    }
+    function onWheel(e: WheelEvent) {
+      if (!allCandles) return;
+      e.preventDefault();
+      setVisibleCount((v) => (e.deltaY < 0 ? Math.max(MIN_VISIBLE, Math.round(v * 0.85)) : Math.min(allCandles.length, Math.round(v * 1.18))));
+    }
+
+    el.addEventListener('pointerdown', onPointerDown);
+    el.addEventListener('pointermove', onPointerMove);
+    el.addEventListener('pointerup', onPointerUp);
+    el.addEventListener('pointercancel', onPointerUp);
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => {
+      el.removeEventListener('pointerdown', onPointerDown);
+      el.removeEventListener('pointermove', onPointerMove);
+      el.removeEventListener('pointerup', onPointerUp);
+      el.removeEventListener('pointercancel', onPointerUp);
+      el.removeEventListener('wheel', onWheel);
+    };
+    // Deliberately depends on `allCandles` ONLY, not `visibleCount`/
+    // `panOffset`/`candles` — those change on every single pan/zoom
+    // step (including mid-drag, via the setPanOffset calls above), and
+    // re-running this effect tears down + re-attaches the listeners,
+    // which would reset `pointers`/`gesture` to empty and silently
+    // freeze whatever drag was already in progress. `allCandles` only
+    // changes on a real refetch (symbol/interval/retry), which is
+    // exactly when a fresh listener attachment (clean gesture state)
+    // is actually wanted. `visibleCount`/`panOffset` are read fresh at
+    // gesture START (pointerdown) via closure, so correctness mid-drag
+    // never depended on them being deps here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allCandles]);
 
   // Local-only theme/color overrides. Theme defaults to light always
   // (by direct instruction), independent of whatever the calling chart
@@ -209,12 +356,18 @@ export function PositionOnChartModal({
 
   useEffect(() => {
     let cancelled = false;
-    setCandles(null);
+    setAllCandles(null);
     setError(null);
-    orderFlowApi.getKlines(symbol, interval, 100)
+    // A real, moving pan/zoom window (not the old bug-fix "widget got
+    // stuck on one symbol" story) — the whole POOL_SIZE fetches once
+    // per symbol/interval/retry, then zoomIn/zoomOut/panOlder/panNewer
+    // above just re-slice it client-side with zero extra requests.
+    setVisibleCount(DEFAULT_VISIBLE);
+    setPanOffset(0);
+    orderFlowApi.getKlines(symbol, interval, POOL_SIZE)
       .then((res) => {
         if (cancelled) return;
-        setCandles(res.candles.map((c) => ({ time: c.time_ms, open: c.open, high: c.high, low: c.low, close: c.close })));
+        setAllCandles(res.candles.map((c) => ({ time: c.time_ms, open: c.open, high: c.high, low: c.low, close: c.close })));
       })
       .catch((err) => {
         if (cancelled) return;
@@ -355,7 +508,40 @@ export function PositionOnChartModal({
           <PositionManager trade={trade} dark={localDark} onChanged={onChanged} />
         </div>
       )}
-      <div className={`flex-1 min-h-0 rounded-lg ${paneCls} p-3 overflow-auto`}>
+      {/* Zoom/pan toolbar — by direct request ("add feature to resize
+          or move the chart or scroll to the left or down or increase
+          or decrease scale ... or zoom in or out"). Own row rather
+          than crowding into the already-busy header above. Pan Older
+          disables once panOffset hits maxPanOffset (the edge of the
+          POOL_SIZE-candle fetch — nothing further back is loaded);
+          Pan Newer disables at panOffset 0 (already at the live edge,
+          same place Reset returns to). */}
+      {allCandles && (
+        <div className={`flex items-center gap-1 mb-2 rounded-lg p-1 w-fit ${toggleWrapCls}`}>
+          <button onClick={zoomOut} disabled={visibleCount >= allCandles.length} aria-label="Zoom out (see more candles)" title="Zoom out" className={`p-1.5 rounded-md disabled:opacity-30 ${chromeMutedCls}`}>
+            <ZoomOut size={14} />
+          </button>
+          <button onClick={zoomIn} disabled={visibleCount <= MIN_VISIBLE} aria-label="Zoom in (see fewer, wider candles)" title="Zoom in" className={`p-1.5 rounded-md disabled:opacity-30 ${chromeMutedCls}`}>
+            <ZoomIn size={14} />
+          </button>
+          <span className={`w-px self-stretch mx-0.5 ${localDark ? 'bg-white/10' : 'bg-black/10'}`} />
+          <button onClick={panOlder} disabled={panOffset >= maxPanOffset} aria-label="Scroll left (older candles)" title="Scroll left" className={`p-1.5 rounded-md disabled:opacity-30 ${chromeMutedCls}`}>
+            <ChevronLeft size={14} />
+          </button>
+          <button onClick={panNewer} disabled={panOffset === 0} aria-label="Scroll right (newer candles)" title="Scroll right" className={`p-1.5 rounded-md disabled:opacity-30 ${chromeMutedCls}`}>
+            <ChevronRight size={14} />
+          </button>
+          <span className={`w-px self-stretch mx-0.5 ${localDark ? 'bg-white/10' : 'bg-black/10'}`} />
+          <button onClick={resetView} disabled={visibleCount === DEFAULT_VISIBLE && panOffset === 0} aria-label="Reset zoom and scroll" title="Reset to the live view" className={`flex items-center gap-1 px-2 py-1.5 rounded-md text-[11px] font-medium disabled:opacity-30 ${chromeMutedCls}`}>
+            <Maximize2 size={12} /> Reset
+          </button>
+        </div>
+      )}
+      {/* overflow-hidden (was overflow-auto — CandleChart always fills
+          `height` exactly, nothing to scroll) + touchAction: 'none' so
+          the browser's own native touch-scroll/pinch-zoom never fights
+          the pointer handlers above for the same gesture. */}
+      <div ref={chartPaneRef} className={`flex-1 min-h-0 rounded-lg ${paneCls} p-3 overflow-hidden`} style={{ touchAction: 'none', cursor: candles ? 'grab' : undefined }}>
         {error ? (
           <div className={`h-full flex flex-col items-center justify-center text-center gap-3 text-sm px-6 ${localDark ? 'text-white/70' : 'text-gray-500'}`}>
             <span>{error}</span>
