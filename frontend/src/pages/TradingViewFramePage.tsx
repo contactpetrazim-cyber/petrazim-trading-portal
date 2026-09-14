@@ -109,10 +109,12 @@ export function TradingViewFramePage() {
   const [openPositionTrade, setOpenPositionTrade] = useState<Trade | null>(null);
   const [pendingOrderTrade, setPendingOrderTrade] = useState<Trade | null>(null);
   // Same "you have an order elsewhere" hint ChartPanel/ManualTradingPage
-  // now surface — see NoPositionCard's own docstring for the bug
-  // report this fixes ("Goto button from EURUSD does not deploy auto
-  // to the correct chart with position trade orders (BTCUSD)").
-  const [otherOpenTrade, setOtherOpenTrade] = useState<Trade | null>(null);
+  // now surface, one row per other symbol (not just the first found) —
+  // see NoPositionCard's own docstring for the bug report this fixes
+  // ("Goto button from EURUSD does not deploy auto to the correct
+  // chart with position trade orders (BTCUSD)") and why a list rather
+  // than a dropdown.
+  const [otherOpenTrades, setOtherOpenTrades] = useState<Trade[]>([]);
   const [positionOpen, setPositionOpen] = useState(false);
   const [onChartOpen, setOnChartOpen] = useState(false);
   const loadOpenPosition = useCallback(() => {
@@ -122,12 +124,11 @@ export function TradingViewFramePage() {
     ]).then(([active, pending]) => {
       setOpenPositionTrade(active.find((t) => t.symbol === symbol.tradeSymbol && t.entry_price != null) ?? null);
       setPendingOrderTrade(pending.find((t) => t.symbol === symbol.tradeSymbol && t.entry_price != null) ?? null);
-      setOtherOpenTrade(
-        active.find((t) => t.symbol !== symbol.tradeSymbol && t.entry_price != null)
-        ?? pending.find((t) => t.symbol !== symbol.tradeSymbol && t.entry_price != null)
-        ?? null,
-      );
-    }).catch(() => { setOpenPositionTrade(null); setPendingOrderTrade(null); setOtherOpenTrade(null); });
+      const bySymbol = new Map<string, Trade>();
+      active.filter((t) => t.symbol !== symbol.tradeSymbol && t.entry_price != null).forEach((t) => bySymbol.set(t.symbol, t));
+      pending.filter((t) => t.symbol !== symbol.tradeSymbol && t.entry_price != null).forEach((t) => { if (!bySymbol.has(t.symbol)) bySymbol.set(t.symbol, t); });
+      setOtherOpenTrades(Array.from(bySymbol.values()));
+    }).catch(() => { setOpenPositionTrade(null); setPendingOrderTrade(null); setOtherOpenTrades([]); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [symbol.tradeSymbol, token]);
   useEffect(() => {
@@ -341,7 +342,7 @@ export function TradingViewFramePage() {
           <div className="px-2 mb-2">
             {position
               ? <PositionManager trade={position} dark={frameDark} onChanged={loadOpenPosition} />
-              : <NoPositionCard symbolTv={symbol.value} dark={frameDark} otherTrade={otherOpenTrade} />}
+              : <NoPositionCard dark={frameDark} otherTrades={otherOpenTrades} />}
           </div>
         )}
 

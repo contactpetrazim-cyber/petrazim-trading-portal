@@ -547,7 +547,18 @@ export function ManualTradingPage() {
   // all. `pending` below is now fetched WITHOUT a symbol filter (was
   // scoped to `symbol.trade`) specifically so this can check it too,
   // without a second network round-trip.
-  const [otherOpenTrade, setOtherOpenTrade] = useState<Trade | null>(null);
+  //
+  // Every OTHER symbol you have a trade on, one row each in
+  // NoPositionCard — not just the first found — by direct follow-up
+  // question ("how will it handle multiple orders from different
+  // pairs ... list the Goto button for each pair, or a drop-down");
+  // see NoPositionCard's own docstring for why a list. Deduped to one
+  // Trade per symbol, preferring an active position over a pending
+  // order on that same other symbol (active checked first below, only
+  // added if that symbol isn't already in the map) — matches
+  // `chartPosition`'s own active-over-pending priority for THIS
+  // symbol just above.
+  const [otherOpenTrades, setOtherOpenTrades] = useState<Trade[]>([]);
   const loadOpenPosition = useCallback(() => {
     return Promise.all([
       tradesApi.getActiveTrades(),
@@ -555,12 +566,11 @@ export function ManualTradingPage() {
     ]).then(([active, pending]) => {
       setOpenPositionTrade(active.find((t) => t.symbol === symbol.trade && t.entry_price != null) ?? null);
       setPendingOrderTrade(pending.find((t) => t.symbol === symbol.trade && t.entry_price != null) ?? null);
-      setOtherOpenTrade(
-        active.find((t) => t.symbol !== symbol.trade && t.entry_price != null)
-        ?? pending.find((t) => t.symbol !== symbol.trade && t.entry_price != null)
-        ?? null,
-      );
-    }).catch(() => { setOpenPositionTrade(null); setPendingOrderTrade(null); setOtherOpenTrade(null); });
+      const bySymbol = new Map<string, Trade>();
+      active.filter((t) => t.symbol !== symbol.trade && t.entry_price != null).forEach((t) => bySymbol.set(t.symbol, t));
+      pending.filter((t) => t.symbol !== symbol.trade && t.entry_price != null).forEach((t) => { if (!bySymbol.has(t.symbol)) bySymbol.set(t.symbol, t); });
+      setOtherOpenTrades(Array.from(bySymbol.values()));
+    }).catch(() => { setOpenPositionTrade(null); setPendingOrderTrade(null); setOtherOpenTrades([]); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [symbol.trade]);
   useEffect(() => {
@@ -780,7 +790,7 @@ export function ManualTradingPage() {
             pairsPanel={<PairsPanel selected={quickSymbol} onSelect={(p) => setSelectedTv(p.tv)} dark={dark} />}
             position={chartPosition}
             onPositionChanged={loadOpenPosition}
-            otherOpenTrade={otherOpenTrade}
+            otherOpenTrades={otherOpenTrades}
 
           />
 
