@@ -63,7 +63,17 @@ const COLOR_PRESETS: { label: string; up: string; down: string }[] = [
   { label: 'Classic', up: '#22c55e', down: '#ef4444' },
   { label: 'TradingView', up: '#26a69a', down: '#ef5350' },
   { label: 'Binance', up: '#f0b90b', down: '#1e2329' },
-  { label: 'Monochrome', up: '#e5e7eb', down: '#4b5563' },
+  // Was up: '#e5e7eb' (Tailwind gray-200) — nearly white, so on the
+  // light chart pane (the default theme — see this modal's own
+  // "default is light chart" note above) an up candle's body all but
+  // vanished into the background, by direct bug report ("the up
+  // candles are not visible ... optimise to make the up candles more
+  // visible"). gray-400 keeps the same grayscale "no real color"
+  // identity monochrome is meant to have, just dark enough to read as
+  // an actual candle against a light pane; down stays a real dark
+  // slate rather than near-black so it doesn't collapse into the
+  // dark-theme pane the same way.
+  { label: 'Monochrome', up: '#94a3b8', down: '#334155' },
 ];
 
 /**
