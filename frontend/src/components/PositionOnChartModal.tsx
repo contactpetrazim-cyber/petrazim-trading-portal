@@ -4,6 +4,9 @@ import { CandleChart, type Candle, type ChartLine } from './CandleChart';
 import { formatSignedMoney, type ChartPosition } from './TradingViewChart';
 import { orderFlowApi } from '../services/api';
 import { formatApiError } from '../lib/apiError';
+import { useQuickPrice } from '../hooks/useQuickPrice';
+
+const LIVE_PRICE_REFRESH_MS = 15_000;
 
 const KLINE_INTERVALS: { label: string; value: '15m' | '1h' | '4h' | '1d' }[] = [
   { label: '15m', value: '15m' },
@@ -90,6 +93,19 @@ export function PositionOnChartModal({
   const [error, setError] = useState<string | null>(null);
   const [retryTick, setRetryTick] = useState(0);
 
+  // Live "where is price right now" line — the candles above only
+  // update on the next full refetch, so without this the chart can
+  // sit visibly stale (last candle's close) even while the real
+  // market has moved on. Reuses the same quick-price lookup the order
+  // ticket itself uses, not a second implementation.
+  const { price: livePrice, refresh: refreshLivePrice } = useQuickPrice(symbol);
+  useEffect(() => {
+    refreshLivePrice({ silent: true });
+    const t = window.setInterval(() => refreshLivePrice({ silent: true }), LIVE_PRICE_REFRESH_MS);
+    return () => window.clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [symbol]);
+
   useEffect(() => {
     let cancelled = false;
     setCandles(null);
@@ -117,6 +133,10 @@ export function PositionOnChartModal({
     ...(position.takeProfit1 != null ? [{ price: position.takeProfit1, color: '#26A69A', dashed: true, label: `TP1 ${position.takeProfit1}` }] : []),
     ...(position.takeProfit2 != null ? [{ price: position.takeProfit2, color: '#26A69A', dashed: true, label: `TP2 ${position.takeProfit2}` }] : []),
     ...(position.takeProfit3 != null ? [{ price: position.takeProfit3, color: '#26A69A', dashed: true, label: `TP3 ${position.takeProfit3}` }] : []),
+    // Solid (not dashed) and a distinct amber, so it's unmistakably
+    // "where price is right this second" versus the dashed reference
+    // levels above — refreshes every 15s while this stays open.
+    ...(livePrice != null ? [{ price: livePrice, color: '#f59e0b', dashed: false, label: `Live ${livePrice}` }] : []),
   ];
 
   const overlayCls = dark ? 'bg-black/90' : 'bg-white/95';
