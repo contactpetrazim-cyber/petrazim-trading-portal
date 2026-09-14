@@ -662,63 +662,12 @@ class ExecutionEngine:
             }
         return result
 
-    async def close_trade(self, trade_id: str, exit_price: float, exit_type: str) -> Dict:
-        """Close an active trade."""
-        for trade in self.active_trades:
-            if trade["trade_id"] == trade_id:
-                trade["status"] = "closed"
-                trade["exit_price"] = exit_price
-                trade["exit_type"] = exit_type
-                trade["exit_timestamp"] = datetime.utcnow()
-
-                if trade["direction"] == "long":
-                    pnl = (exit_price - trade["entry_price"]) * trade["lot_size"]
-                else:
-                    pnl = (trade["entry_price"] - exit_price) * trade["lot_size"]
-
-                trade["realized_pnl"] = pnl
-                sl_dist = abs(trade["entry_price"] - trade["stop_loss"])
-                if sl_dist > 0:
-                    trade["r_multiple"] = pnl / (sl_dist * trade["lot_size"])
-
-                self.active_trades.remove(trade)
-                return {"success": True, "trade_id": trade_id, "pnl": pnl, "r_multiple": trade.get("r_multiple", 0)}
-        return {"success": False, "message": "Active trade not found"}
-
-    async def update_trailing_stop(self, trade_id: str, new_sl: float) -> Dict:
-        """Update stop loss for trailing stop."""
-        for trade in self.active_trades:
-            if trade["trade_id"] == trade_id:
-                old_sl = trade["stop_loss"]
-                trade["stop_loss"] = new_sl
-                trade["sl_updates"] = trade.get("sl_updates", []) + [{
-                    "old": old_sl, "new": new_sl, "timestamp": datetime.utcnow().isoformat()
-                }]
-                return {"success": True, "trade_id": trade_id, "new_sl": new_sl}
-        return {"success": False, "message": "Trade not found"}
-
-    def get_batch_allocation(self, signals: List[BotSignal], batch_size: int = 5) -> List[Dict]:
-        """Batch allocation engine."""
-        if not signals:
-            return []
-        if len(signals) > batch_size:
-            signals = sorted(signals, key=lambda x: x.confidence, reverse=True)[:batch_size]
-
-        allocations = []
-        total_confidence = sum(s.confidence for s in signals)
-
-        for signal in signals:
-            weight = signal.confidence / total_confidence if total_confidence > 0 else 1.0 / len(signals)
-            allocations.append({
-                "bot_id": signal.bot_id,
-                "symbol": signal.symbol,
-                "direction": signal.direction,
-                "confidence": signal.confidence,
-                "allocation_weight": round(weight, 2),
-                "recommended_risk": round(signal.risk_percent * weight, 2),
-                "lot_size": signal.lot_size,
-                "entry": signal.entry_price,
-                "sl": signal.stop_loss,
-                "tp": signal.take_profit
-            })
-        return allocations
+    # close_trade, update_trailing_stop, and get_batch_allocation were
+    # removed here (dead code, zero callers anywhere in the backend —
+    # confirmed via a full-codebase grep for each call before removal).
+    # Real trade closes go through routers/manual_trading.py's
+    # partial_close/cancel_order and services/position_monitor.py's
+    # _close/_partial_close instead, which is also where
+    # compute_r_multiple() actually lives now — this class's own
+    # close_trade had a second, parallel (and unused) r_multiple
+    # formula that never matched it.
