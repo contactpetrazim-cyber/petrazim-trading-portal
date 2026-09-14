@@ -96,6 +96,31 @@ class Settings(BaseSettings):
     MEXC_BACKUP_PROXY_URL: str = ""
     MT5_PROXY_URL: str = ""
 
+    # Backend-to-backend order-execution failover — by direct request
+    # ("can orders... be broadcast using both fixie and VM IP... so
+    # exchanges still get the instructions from my VM IP"). NOT a
+    # broadcast (see routers/internal.py's own docstring on why
+    # sending one real order down two independent paths at once is a
+    # real duplicate-fill risk, not just inelegant) — a genuine
+    # failover: Render only calls the VM after its OWN attempt has
+    # already failed at the transport level (a broken Fixie proxy),
+    # so at most one backend ever actually sends the order. Both left
+    # blank by default — the relay path is fully inert (a 404, see
+    # routers/internal.py) until BOTH are set on BOTH backends, so
+    # this ships safe with zero behavior change for anyone who hasn't
+    # opted in yet.
+    #   VM_API_URL — the OTHER backend's own base URL (Render sets
+    #   this to the VM's address; the VM sets it to Render's, so
+    #   either direction could in principle relay to the other,
+    #   though Render->VM is the only one that actually matters today
+    #   since Render is where Fixie is failing).
+    #   INTERNAL_RELAY_SECRET — a shared secret (generate your own
+    #   random string, set the SAME value on both backends) checked
+    #   via the X-Internal-Secret header — this is backend-to-backend
+    #   auth, deliberately separate from the normal user JWT scheme.
+    VM_API_URL: str = ""
+    INTERNAL_RELAY_SECRET: str = ""
+
     # Cross-exchange price sanity guard — see broker_integrations.py /
     # execution_engine.py docstrings. A signal's entry price (often
     # computed against whichever exchange fed the bot's candles) is
