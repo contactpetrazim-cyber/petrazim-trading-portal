@@ -264,9 +264,9 @@ export function ChartPanel({
         </div>
         {onChartOpen && position && (
           <PositionOnChartModal
-            position={tradeToChartPosition(position)} symbol={position.symbol}
-            dark={chartDark} bullColor={colors.upColor} bearColor={colors.downColor} initialInterval={interval}
-            onClose={() => setOnChartOpen(false)}
+            position={tradeToChartPosition(position)} trade={position} symbol={position.symbol}
+            bullColor={colors.upColor} bearColor={colors.downColor} initialInterval={interval}
+            onClose={() => setOnChartOpen(false)} onChanged={onPositionChanged}
           />
         )}
       </div>
@@ -283,9 +283,9 @@ export function ChartPanel({
       </div>
       {onChartOpen && position && (
         <PositionOnChartModal
-          position={tradeToChartPosition(position)} symbol={position.symbol}
-          dark={chartDark} bullColor={colors.upColor} bearColor={colors.downColor} initialInterval={interval}
-          onClose={() => setOnChartOpen(false)}
+          position={tradeToChartPosition(position)} trade={position} symbol={position.symbol}
+          bullColor={colors.upColor} bearColor={colors.downColor} initialInterval={interval}
+          onClose={() => setOnChartOpen(false)} onChanged={onPositionChanged}
         />
       )}
     </div>
