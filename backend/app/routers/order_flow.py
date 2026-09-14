@@ -353,7 +353,7 @@ async def get_footprint_chart(
 # have a "correct" answer.
 # ---------------------------------------------------------------------------
 
-ALLOWED_INTERVALS = ["15m", "1h", "4h", "1d"]
+ALLOWED_INTERVALS = ["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w"]
 
 
 class KlineBar(BaseModel):

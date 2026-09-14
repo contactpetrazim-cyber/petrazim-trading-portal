@@ -282,7 +282,11 @@ export function ChartPanel({
         <TradingViewChart symbol={symbol} interval={interval} theme={chartTheme} candleColors={colors} chartStyle={chartStyle} />
       </div>
       {onChartOpen && position && (
-        <PositionOnChartModal position={tradeToChartPosition(position)} symbol={position.symbol} onClose={() => setOnChartOpen(false)} />
+        <PositionOnChartModal
+          position={tradeToChartPosition(position)} symbol={position.symbol}
+          dark={chartDark} bullColor={colors.upColor} bearColor={colors.downColor} initialInterval={interval}
+          onClose={() => setOnChartOpen(false)}
+        />
       )}
     </div>
   );
