@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom';
 import { Bot, Hand, LayoutDashboard, ListChecks, Settings2, Shield } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
 import { FoldedCard } from '../components/FoldedCard';
-import { ChartPanel } from '../components/ChartPanel';
+import { ChartWithPairs } from '../components/ChartWithPairs';
 import { useThemeStore } from '../hooks/useTheme';
 
 /**
@@ -30,7 +30,7 @@ export function TradePage() {
       <PageHeader title="Trade" subtitle="Your live signal panel, trade approvals, bot configuration, and manual trading." />
 
       <FoldedCard title="Chart" summary="A live TradingView chart, right here" icon={<LayoutDashboard size={19} />} dark={dark} defaultOpen>
-        <ChartPanel symbol="BINANCE:BTCUSDT" height={440} tradeSymbol="BTCUSDT" dark={dark} />
+        <ChartWithPairs height={440} dark={dark} />
         <Link to="/tradingview" className={`text-xs font-medium mt-2 inline-block ${dark ? 'text-white/50' : 'text-corporate-hero'}`}>
           Open the full Trading Frame (more symbols, My Workspace, drawing tools) →
         </Link>
