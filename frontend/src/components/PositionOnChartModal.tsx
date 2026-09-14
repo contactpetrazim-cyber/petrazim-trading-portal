@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { X, Loader2, RotateCcw, Sun, Moon, Palette, Target } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { X, Loader2, RotateCcw, Sun, Moon, Palette, Target, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Maximize2 } from 'lucide-react';
 import { CandleChart, type Candle, type ChartLine } from './CandleChart';
 import { formatSignedMoney, type ChartPosition } from './TradingViewChart';
 import { PositionManager } from './PositionManager';
@@ -124,10 +124,18 @@ const COLOR_PRESETS: { label: string; up: string; down: string }[] = [
  * plumbing — this modal never caches its own separate copy of the
  * trade's SL/TP.
  *
- * A genuinely full-featured chart (real drawing tools, zoom/pan,
- * indicators) needs TradingView's paid/licensed Charting Library — see
- * this component's own tracking note for that upgrade path; this stays
- * the fallback if that license isn't approved.
+ * Zoom (fewer/more candles visible) and pan (scroll back through
+ * history, up to the POOL_SIZE-candle fetch) are real, button-driven
+ * controls — see the toolbar row above the chart pane — by direct
+ * request ("add feature to resize or move the chart or scroll ...
+ * increase or decrease scale ... zoom in or out"). Deliberately +/-/
+ * ‹/› buttons rather than pinch/drag gesture physics: this modal is
+ * used identically on touch and desktop, and buttons behave
+ * identically on both with no gesture-library dependency. A genuinely
+ * full-featured chart (real drawing tools, click-drag pan, live
+ * indicators) still needs TradingView's paid/licensed Charting
+ * Library — see this component's own tracking note for that upgrade
+ * path; this stays the fallback if that license isn't approved.
  *
  * HONEST SCOPE: the real candle data comes from order_flow.py's
  * `/klines` proxy, which only covers Binance's own small, explicit
@@ -181,10 +189,45 @@ export function PositionOnChartModal({
   onChanged?: () => void;
 }) {
   const [interval, setInterval] = useState<KlineInterval>(mapTvIntervalToKlines(initialInterval));
-  const [candles, setCandles] = useState<Candle[] | null>(null);
+  // The full fetched pool — up to POOL_SIZE candles, most-recent last
+  // (order_flow.py's /klines already returns oldest-to-newest). `zoom`/
+  // `pan` below slice a WINDOW out of this pool; nothing here refetches
+  // on zoom/pan, only on a real symbol/interval/retry change.
+  const [allCandles, setAllCandles] = useState<Candle[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [retryTick, setRetryTick] = useState(0);
   const [positionOpen, setPositionOpen] = useState(false);
+
+  // Resize/scroll/zoom — by direct request ("add feature to resize or
+  // move the chart or scroll to the left or down or increase or
+  // decrease scale ... or zoom in or out"). `visibleCount` is how many
+  // candles are shown at once (zoom level — fewer = zoomed in, more =
+  // zoomed out); `panOffset` is how many candles back from the most
+  // recent one the visible window's right edge sits (0 = live edge,
+  // larger = further back in history). Deliberately plain +/-/‹/›
+  // buttons rather than pinch/drag gesture physics: this modal is used
+  // identically on touch and desktop (see every screenshot in this
+  // session), and buttons behave identically on both with far less
+  // code and no gesture-library dependency, at the cost of not being
+  // able to grab-and-drag the chart directly — a real trade-off, not
+  // a lesser version of the same feature.
+  const POOL_SIZE = 300;
+  const DEFAULT_VISIBLE = 60;
+  const MIN_VISIBLE = 15;
+  const [visibleCount, setVisibleCount] = useState(DEFAULT_VISIBLE);
+  const [panOffset, setPanOffset] = useState(0);
+  const maxPanOffset = Math.max(0, (allCandles?.length ?? 0) - visibleCount);
+  const candles = useMemo(() => {
+    if (!allCandles) return null;
+    const end = Math.max(0, allCandles.length - panOffset);
+    const start = Math.max(0, end - visibleCount);
+    return allCandles.slice(start, end);
+  }, [allCandles, visibleCount, panOffset]);
+  function zoomIn() { setVisibleCount((v) => Math.max(MIN_VISIBLE, Math.round(v * 0.7))); }
+  function zoomOut() { setVisibleCount((v) => Math.min(allCandles?.length ?? POOL_SIZE, Math.round(v * 1.4))); }
+  function panOlder() { setPanOffset((p) => Math.min(maxPanOffset, p + Math.max(1, Math.round(visibleCount * 0.5)))); }
+  function panNewer() { setPanOffset((p) => Math.max(0, p - Math.max(1, Math.round(visibleCount * 0.5)))); }
+  function resetView() { setVisibleCount(DEFAULT_VISIBLE); setPanOffset(0); }
 
   // Local-only theme/color overrides. Theme defaults to light always
   // (by direct instruction), independent of whatever the calling chart
@@ -209,12 +252,18 @@ export function PositionOnChartModal({
 
   useEffect(() => {
     let cancelled = false;
-    setCandles(null);
+    setAllCandles(null);
     setError(null);
-    orderFlowApi.getKlines(symbol, interval, 100)
+    // A real, moving pan/zoom window (not the old bug-fix "widget got
+    // stuck on one symbol" story) — the whole POOL_SIZE fetches once
+    // per symbol/interval/retry, then zoomIn/zoomOut/panOlder/panNewer
+    // above just re-slice it client-side with zero extra requests.
+    setVisibleCount(DEFAULT_VISIBLE);
+    setPanOffset(0);
+    orderFlowApi.getKlines(symbol, interval, POOL_SIZE)
       .then((res) => {
         if (cancelled) return;
-        setCandles(res.candles.map((c) => ({ time: c.time_ms, open: c.open, high: c.high, low: c.low, close: c.close })));
+        setAllCandles(res.candles.map((c) => ({ time: c.time_ms, open: c.open, high: c.high, low: c.low, close: c.close })));
       })
       .catch((err) => {
         if (cancelled) return;
@@ -353,6 +402,35 @@ export function PositionOnChartModal({
       {positionOpen && trade && (
         <div className="mb-3">
           <PositionManager trade={trade} dark={localDark} onChanged={onChanged} />
+        </div>
+      )}
+      {/* Zoom/pan toolbar — by direct request ("add feature to resize
+          or move the chart or scroll to the left or down or increase
+          or decrease scale ... or zoom in or out"). Own row rather
+          than crowding into the already-busy header above. Pan Older
+          disables once panOffset hits maxPanOffset (the edge of the
+          POOL_SIZE-candle fetch — nothing further back is loaded);
+          Pan Newer disables at panOffset 0 (already at the live edge,
+          same place Reset returns to). */}
+      {allCandles && (
+        <div className={`flex items-center gap-1 mb-2 rounded-lg p-1 w-fit ${toggleWrapCls}`}>
+          <button onClick={zoomOut} disabled={visibleCount >= allCandles.length} aria-label="Zoom out (see more candles)" title="Zoom out" className={`p-1.5 rounded-md disabled:opacity-30 ${chromeMutedCls}`}>
+            <ZoomOut size={14} />
+          </button>
+          <button onClick={zoomIn} disabled={visibleCount <= MIN_VISIBLE} aria-label="Zoom in (see fewer, wider candles)" title="Zoom in" className={`p-1.5 rounded-md disabled:opacity-30 ${chromeMutedCls}`}>
+            <ZoomIn size={14} />
+          </button>
+          <span className={`w-px self-stretch mx-0.5 ${localDark ? 'bg-white/10' : 'bg-black/10'}`} />
+          <button onClick={panOlder} disabled={panOffset >= maxPanOffset} aria-label="Scroll left (older candles)" title="Scroll left" className={`p-1.5 rounded-md disabled:opacity-30 ${chromeMutedCls}`}>
+            <ChevronLeft size={14} />
+          </button>
+          <button onClick={panNewer} disabled={panOffset === 0} aria-label="Scroll right (newer candles)" title="Scroll right" className={`p-1.5 rounded-md disabled:opacity-30 ${chromeMutedCls}`}>
+            <ChevronRight size={14} />
+          </button>
+          <span className={`w-px self-stretch mx-0.5 ${localDark ? 'bg-white/10' : 'bg-black/10'}`} />
+          <button onClick={resetView} disabled={visibleCount === DEFAULT_VISIBLE && panOffset === 0} aria-label="Reset zoom and scroll" title="Reset to the live view" className={`flex items-center gap-1 px-2 py-1.5 rounded-md text-[11px] font-medium disabled:opacity-30 ${chromeMutedCls}`}>
+            <Maximize2 size={12} /> Reset
+          </button>
         </div>
       )}
       <div className={`flex-1 min-h-0 rounded-lg ${paneCls} p-3 overflow-auto`}>
