@@ -5,7 +5,7 @@ import { TradingViewChart } from '../components/TradingViewChart';
 import { CandleColorPicker } from '../components/CandleColorPicker';
 import { PositionManager } from '../components/PositionManager';
 import { PositionOnChartModal } from '../components/PositionOnChartModal';
-import { tradeToChartPosition } from '../components/ChartPanel';
+import { tradeToChartPosition, NoPositionCard } from '../components/ChartPanel';
 import { useEffectiveChartColors } from '../hooks/useCandleColors';
 import { OpenInTradingView } from '../components/OpenInTradingView';
 import { PetrazimLogo } from '../components/PetrazimLogo';
@@ -265,11 +265,15 @@ export function TradingViewFramePage() {
               </button>
             )}
 
-            {mode !== 'external' && position && (
+            {/* Permanent — by direct request ("make 'Position' and 'On
+                Chart' a permanent feature on all charts ... you can
+                always click on it to review order position"), not
+                conditional on `position` any more. */}
+            {mode !== 'external' && (
               <button
                 onClick={() => setPositionOpen((o) => !o)}
-                aria-label={positionOpen ? 'Hide position management' : 'Manage this position'}
-                title={positionOpen ? 'Hide position management' : 'Edit SL/TP, partial close or cancel this order'}
+                aria-label={positionOpen ? 'Hide position management' : 'Review or manage this position'}
+                title={position ? 'Edit SL/TP, partial close or cancel this order' : 'No open or pending order on this symbol yet'}
                 className={`p-1.5 rounded-md flex items-center gap-1.5 text-xs font-medium ${
                   positionOpen ? 'bg-blue-600 text-white' : frameDark ? 'bg-white/5 text-white/60 hover:text-white' : 'bg-black/5 text-[#141a33]/60 hover:text-[#141a33]'
                 }`}
@@ -277,11 +281,11 @@ export function TradingViewFramePage() {
                 <Target size={13} /> Position
               </button>
             )}
-            {mode !== 'external' && position && (
+            {mode !== 'external' && (
               <button
                 onClick={() => setOnChartOpen(true)}
                 aria-label="Show Entry/SL/TP drawn on a real chart"
-                title="Open a chart with Entry/SL/TP actually drawn on it"
+                title={position ? 'Open a chart with Entry/SL/TP actually drawn on it' : 'Open a chart for this symbol'}
                 className={`p-1.5 rounded-md flex items-center gap-1.5 text-xs font-medium ${frameDark ? 'bg-white/5 text-white/60 hover:text-white' : 'bg-black/5 text-[#141a33]/60 hover:text-[#141a33]'}`}
               >
                 <LineChart size={13} /> On Chart
@@ -323,9 +327,11 @@ export function TradingViewFramePage() {
           </div>
         )}
 
-        {positionOpen && position && (
+        {positionOpen && (
           <div className="px-2 mb-2">
-            <PositionManager trade={position} dark={frameDark} onChanged={loadOpenPosition} />
+            {position
+              ? <PositionManager trade={position} dark={frameDark} onChanged={loadOpenPosition} />
+              : <NoPositionCard symbolTv={symbol.value} dark={frameDark} />}
           </div>
         )}
 
@@ -418,9 +424,9 @@ export function TradingViewFramePage() {
         </div>
       </div>
 
-      {onChartOpen && position && (
+      {onChartOpen && (
         <PositionOnChartModal
-          position={tradeToChartPosition(position)} trade={position} symbol={position.symbol}
+          position={position ? tradeToChartPosition(position) : undefined} trade={position} symbol={position?.symbol ?? symbol.tradeSymbol}
           bullColor={colors.upColor} bearColor={colors.downColor} initialInterval={interval.value}
           onClose={() => setOnChartOpen(false)} onChanged={loadOpenPosition}
         />
