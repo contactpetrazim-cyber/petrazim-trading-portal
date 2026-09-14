@@ -93,13 +93,23 @@ export function PositionManager({ trade, dark = false, onChanged }: { trade: Tra
   // earlier attempt at this exact restyle was pushed to its branch
   // after that PR had already been merged, so it never actually
   // shipped (see this repo's PR #76 vs its own head commit).
+  //
+  // Labeled "Position Chart" (was "Goto Chart") specifically here —
+  // by direct follow-up request ("update Goto Chart to 'Position
+  // Chart' to indicate we want the chart with the position order ...
+  // adapt for Goto embedded within the position management card"):
+  // this is PositionManager itself, always resolved from a real
+  // trade, so the label can say exactly what it does. NoPositionCard's
+  // own "Goto Chart" (no trade to point at — see that component's own
+  // docstring) is deliberately untouched; calling an empty state
+  // "Position Chart" would claim a position that isn't there.
   const gotoChartLink = (
     <Link
       to={`/trade/manual?tv=${encodeURIComponent(chartPair.tv)}`}
       target="_blank" rel="noopener noreferrer"
       className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-corporate-hero hover:opacity-90"
     >
-      <LineChart size={13} /> Goto Chart ({chartPair.tv})
+      <LineChart size={13} /> Position Chart ({chartPair.tv})
     </Link>
   );
 
