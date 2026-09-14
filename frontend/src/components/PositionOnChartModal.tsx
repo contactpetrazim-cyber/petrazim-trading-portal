@@ -143,7 +143,12 @@ export function PositionOnChartModal({
   onClose,
   onChanged,
 }: {
-  position: ChartPosition;
+  /** Omit entirely to open "On Chart" with no open/pending order on
+   * this symbol — by direct request ("make 'Position' and 'On Chart'
+   * a permanent feature on all charts ... you can always click on it
+   * to review order position"): candles still render, just with no
+   * Entry/SL/TP lines (only the live-price line, if any). */
+  position?: ChartPosition;
   /** The full Trade row — needed only to power the "Position" toggle's
    * real edit/cancel/partial-close card. Omit on a caller that has no
    * such record to hand (or pass the same one `position` was derived
@@ -215,16 +220,16 @@ export function PositionOnChartModal({
     return () => { cancelled = true; };
   }, [symbol, interval, retryTick]);
 
-  const dirLabel = position.direction === 'long' ? 'LONG' : 'SHORT';
-  const pnlLabel = position.pending
+  const dirLabel = position?.direction === 'long' ? 'LONG' : 'SHORT';
+  const pnlLabel = position?.pending
     ? 'Pending'
-    : position.unrealizedPnl != null ? `P/L ${formatSignedMoney(position.unrealizedPnl)}` : '';
+    : position?.unrealizedPnl != null ? `P/L ${formatSignedMoney(position.unrealizedPnl)}` : '';
   const lines: ChartLine[] = [
-    { price: position.entryPrice, color: '#2962FF', dashed: true, label: `Entry ${dirLabel} ${position.entryPrice}${pnlLabel ? ` (${pnlLabel})` : ''}` },
-    ...(position.stopLoss != null ? [{ price: position.stopLoss, color: '#EF5350', dashed: true, label: `SL ${position.stopLoss}` }] : []),
-    ...(position.takeProfit1 != null ? [{ price: position.takeProfit1, color: '#26A69A', dashed: true, label: `TP1 ${position.takeProfit1}` }] : []),
-    ...(position.takeProfit2 != null ? [{ price: position.takeProfit2, color: '#26A69A', dashed: true, label: `TP2 ${position.takeProfit2}` }] : []),
-    ...(position.takeProfit3 != null ? [{ price: position.takeProfit3, color: '#26A69A', dashed: true, label: `TP3 ${position.takeProfit3}` }] : []),
+    ...(position ? [{ price: position.entryPrice, color: '#2962FF', dashed: true, label: `Entry ${dirLabel} ${position.entryPrice}${pnlLabel ? ` (${pnlLabel})` : ''}` }] : []),
+    ...(position?.stopLoss != null ? [{ price: position.stopLoss, color: '#EF5350', dashed: true, label: `SL ${position.stopLoss}` }] : []),
+    ...(position?.takeProfit1 != null ? [{ price: position.takeProfit1, color: '#26A69A', dashed: true, label: `TP1 ${position.takeProfit1}` }] : []),
+    ...(position?.takeProfit2 != null ? [{ price: position.takeProfit2, color: '#26A69A', dashed: true, label: `TP2 ${position.takeProfit2}` }] : []),
+    ...(position?.takeProfit3 != null ? [{ price: position.takeProfit3, color: '#26A69A', dashed: true, label: `TP3 ${position.takeProfit3}` }] : []),
     // Solid (not dashed) and a distinct amber, so it's unmistakably
     // "where price is right this second" versus the dashed reference
     // levels above — refreshes every 15s while this stays open.
@@ -243,7 +248,9 @@ export function PositionOnChartModal({
   return (
     <div className={`fixed inset-0 z-[210] ${overlayCls} p-4 flex flex-col`}>
       <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
-        <span className={`text-sm font-semibold ${chromeTextCls}`}>{symbol} — price references on chart</span>
+        <span className={`text-sm font-semibold ${chromeTextCls}`}>
+          {symbol} — {position ? 'price references on chart' : 'no open or pending order on this symbol'}
+        </span>
         <div className="flex items-center gap-2 flex-wrap">
           <div className="inline-flex items-center gap-1 rounded-full p-1">
             {KLINE_INTERVALS.map((i) => (
