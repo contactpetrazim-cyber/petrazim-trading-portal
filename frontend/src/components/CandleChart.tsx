@@ -34,68 +34,54 @@ export interface ChartLine {
   dashed?: boolean;
 }
 
-/**
- * CandleChart — a real, hand-rolled SVG candlestick renderer with
- * annotation overlays (zones, point markers, horizontal lines). Built
- * because the app's only existing chart surface (TradingViewChart) is
- * a free TradingView iframe embed that explicitly can't be annotated
- * (see that component's own docstring) — teaching diagrams, "identify
- * the concept" games, and "what happens next" games all need to draw
- * on TOP of a chart, which needs a chart this app actually owns pixel
- * access to.
- *
- * Deliberately simple (no zoom/pan/crosshair) — this renders a fixed
- * window of candles for teaching purposes, not a live trading chart
- * (ChartPanel/TradingViewChart remain what a trader actually trades
- * off of).
- *
- * TEXT: every label lives in an HTML overlay `<div>` on top of the
- * SVG, not as SVG `<text>` — by direct bug report, with screenshot
- * ("make the text clear neat and very readable and visible"): the
- * candles/lines/zones intentionally use a fake 100-unit-wide viewBox
- * stretched to the real container width via `preserveAspectRatio=
- * "none"` (so the chart fills whatever width it's given responsively)
- * — that's fine for rects and lines, but it means the SVG's horizontal
- * and vertical scale factors differ hugely (e.g. ~17x wide vs. 1x
- * tall on a full-width modal), and `<text>` glyphs get stretched by
- * that exact same mismatched transform, turning every label into
- * warped, barely-legible text — which is exactly what the screenshot
- * showed. HTML text sitting in a plain, uniformly-scaled `<div>`
- * overlay (positioned by percentage, which maps correctly regardless
- * of the SVG's own internal distortion) never has this problem, reads
- * with normal font rendering, and gets a small background pill added
- * for contrast against busy candles/wicks underneath — the "neat and
- * very readable" half of the same request.
- */
-export function CandleChart({
-  candles,
-  zones = [],
-  markers = [],
-  lines = [],
-  height = 260,
-  dark = false,
-  bullColor = '#22c55e',
-  bearColor = '#ef4444',
-}: {
-  candles: Candle[];
-  zones?: ChartZone[];
-  markers?: ChartMarker[];
-  lines?: ChartLine[];
-  height?: number;
-  dark?: boolean;
-  bullColor?: string;
-  bearColor?: string;
-}) {
-  if (candles.length === 0) return null;
+/** A computed line (moving average, etc.) — one point per entry in the
+ * `candles` array passed to CandleChart (same index), `null` where
+ * there isn't enough history to compute a value yet (e.g. the first
+ * 19 candles of an SMA(20) window) — that candle is simply skipped,
+ * leaving a real gap rather than a fabricated/flat value. */
+export interface OverlaySeries {
+  points: (number | null)[];
+  color: string;
+  label?: string;
+}
 
-  const width = 100; // viewBox units — scales responsively via the wrapping svg width=100%
-  const padLeft = 8;
-  const padRight = 2;
-  const padTop = 8;
-  const padBottom = 8;
-  const plotWidth = width - padLeft - padRight;
-  const plotHeight = height - padTop - padBottom;
+/** A single drawn trend-line segment — by direct request ("add drawing
+ * tools ... to this chart"). Endpoints are `{index, price}` pairs
+ * where `index` is relative to the SAME `candles` array CandleChart
+ * was given (i.e. already the currently-visible window) — the CALLER
+ * (PositionOnChartModal) is responsible for re-deriving these each
+ * render from whatever stable, pan/zoom-independent anchor it keeps
+ * the actual drawing data in; CandleChart itself just draws whatever
+ * segments it's handed against its own current candles/price range,
+ * the same way `lines`/`zones`/`markers` already work. */
+export interface DrawnSegment {
+  id: string;
+  index1: number;
+  price1: number;
+  index2: number;
+  price2: number;
+  color?: string;
+}
 
+/** The fixed viewBox layout CandleChart's coordinate math uses —
+ * exported so a caller doing its OWN pixel math on top of this chart
+ * (crosshair readout, drawing a new segment while dragging) uses the
+ * exact same numbers rather than a second, hand-copied set that could
+ * quietly drift out of sync. */
+export const CHART_LAYOUT = { width: 100, padLeft: 8, padRight: 2, padTop: 8, padBottom: 8 } as const;
+
+/** The same price-range computation CandleChart uses internally to
+ * decide its y-axis — exported so a caller can convert its own pixel
+ * positions to real prices (the crosshair readout, a drawing's price
+ * while dragging) using the IDENTICAL range CandleChart is actually
+ * drawing against, not an approximation that could visibly disagree
+ * with where the candles/lines actually render. */
+export function computeChartRange(
+  candles: Candle[],
+  zones: ChartZone[] = [],
+  lines: ChartLine[] = [],
+  markers: ChartMarker[] = [],
+): { yTop: number; yBottom: number } {
   const allPrices = [
     ...candles.flatMap((c) => [c.high, c.low]),
     ...zones.flatMap((z) => [z.priceTop, z.priceBottom]),
@@ -106,8 +92,80 @@ export function CandleChart({
   const priceMin = Math.min(...allPrices);
   const priceRange = Math.max(priceMax - priceMin, 1e-9);
   const priceMargin = priceRange * 0.08;
-  const yTop = priceMax + priceMargin;
-  const yBottom = priceMin - priceMargin;
+  return { yTop: priceMax + priceMargin, yBottom: priceMin - priceMargin };
+}
+
+/**
+ * CandleChart — a real, hand-rolled SVG candlestick renderer with
+ * annotation overlays (zones, point markers, horizontal lines, now
+ * also computed overlay series and drawn trend-line segments). Built
+ * because the app's only existing chart surface (TradingViewChart) is
+ * a free TradingView iframe embed that explicitly can't be annotated
+ * (see that component's own docstring) — teaching diagrams, "identify
+ * the concept" games, and "what happens next" games all need to draw
+ * on TOP of a chart, which needs a chart this app actually owns pixel
+ * access to.
+ *
+ * Deliberately simple (no zoom/pan/crosshair of its OWN — PositionOn
+ * ChartModal owns those, built on top of this component rather than
+ * inside it, using the exported CHART_LAYOUT/computeChartRange above)
+ * — this renders a fixed window of candles for teaching purposes, not
+ * a live trading chart (ChartPanel/TradingViewChart remain what a
+ * trader actually trades off of).
+ *
+ * TEXT: every label lives in an HTML overlay `<div>` on top of the
+ * SVG, not as SVG `<text>` — by direct bug report, with screenshot
+ * ("make the text clear neat and very readable and visible"): the
+ * candles/lines/zones intentionally use a fake 100-unit-wide viewBox
+ * stretched to the real container width via `preserveAspectRatio=
+ * "none"` (so the chart fills whatever width it's given responsively)
+ * — that's fine for rects and lines (and, for the same reason, fine
+ * for the drawn trend-line segments below — a stretched STRAIGHT LINE
+ * is still a straight line, just a different angle, exactly how every
+ * real charting tool's trend lines already look on a squished time
+ * axis; only GLYPH shapes distort unreadably under this scaling).
+ * `<text>` glyphs get stretched by that exact same mismatched
+ * transform, turning every label into warped, barely-legible text —
+ * which is exactly what the screenshot showed. HTML text sitting in a
+ * plain, uniformly-scaled `<div>` overlay (positioned by percentage,
+ * which maps correctly regardless of the SVG's own internal
+ * distortion) never has this problem, reads with normal font
+ * rendering, and gets a small background pill added for contrast
+ * against busy candles/wicks underneath — the "neat and very
+ * readable" half of the same request.
+ */
+export function CandleChart({
+  candles,
+  zones = [],
+  markers = [],
+  lines = [],
+  overlaySeries = [],
+  drawings = [],
+  height = 260,
+  dark = false,
+  bullColor = '#22c55e',
+  bearColor = '#ef4444',
+}: {
+  candles: Candle[];
+  zones?: ChartZone[];
+  markers?: ChartMarker[];
+  lines?: ChartLine[];
+  /** Computed lines (moving averages, etc.) — see OverlaySeries. */
+  overlaySeries?: OverlaySeries[];
+  /** User-drawn trend-line segments — see DrawnSegment. */
+  drawings?: DrawnSegment[];
+  height?: number;
+  dark?: boolean;
+  bullColor?: string;
+  bearColor?: string;
+}) {
+  if (candles.length === 0) return null;
+
+  const { width, padLeft, padRight, padTop } = CHART_LAYOUT;
+  const plotWidth = width - padLeft - padRight;
+  const plotHeight = height - padTop - CHART_LAYOUT.padBottom;
+
+  const { yTop, yBottom } = computeChartRange(candles, zones, lines, markers);
   const yRange = yTop - yBottom;
 
   const slotWidth = plotWidth / candles.length;
@@ -189,6 +247,39 @@ export function CandleChart({
             </g>
           );
         })}
+
+        {/* Computed overlay series (moving averages, etc.) — a
+            connected polyline per series, real gaps where a point is
+            null rather than bridging over missing history. */}
+        {overlaySeries.map((s, si) => {
+          const segments: string[] = [];
+          let current: string[] = [];
+          s.points.forEach((p, i) => {
+            if (p == null) {
+              if (current.length > 1) segments.push(current.join(' '));
+              current = [];
+              return;
+            }
+            current.push(`${x(i)},${y(p)}`);
+          });
+          if (current.length > 1) segments.push(current.join(' '));
+          return (
+            <g key={`series-${si}`}>
+              {segments.map((pts, pi) => (
+                <polyline key={pi} points={pts} fill="none" stroke={s.color} strokeWidth={0.35} />
+              ))}
+            </g>
+          );
+        })}
+
+        {/* User-drawn trend-line segments */}
+        {drawings.map((d) => (
+          <line
+            key={d.id}
+            x1={x(d.index1)} y1={y(d.price1)} x2={x(d.index2)} y2={y(d.price2)}
+            stroke={d.color ?? '#2563eb'} strokeWidth={0.4} strokeLinecap="round"
+          />
+        ))}
 
         {/* Point markers (dots only — labels live in the HTML overlay below) */}
         {markers.map((m, i) => (
