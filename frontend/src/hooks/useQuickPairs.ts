@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
+import { INSTRUMENT_CATALOGUE } from '../config/instrumentCatalogue';
 
 /**
  * useQuickPairs — the ONE shared list of chart quick-links ("Pairs")
@@ -90,6 +91,33 @@ export const useQuickPairsStore = create<QuickPairsState>()(
     },
   ),
 );
+
+/**
+ * Builds a QuickPair straight from a Trade's own exchange-format
+ * `symbol` (e.g. "BTCUSDT") — for the "Goto Chart" link on an order
+ * management card (PositionManager), by direct request. A `Trade`
+ * record doesn't carry which exchange it was routed to (neither the
+ * frontend `Trade` type nor the backend model has an `exchange`
+ * field — manual orders in particular have no such link at all), so
+ * this can't always be exact: it looks the symbol up in the same
+ * INSTRUMENT_CATALOGUE the search panel uses (an exact `symbol` match
+ * there IS a real, chart-verified `EXCHANGE:TICKER`), and only when
+ * that lookup misses does it fall back to `BINANCE:<symbol>` — this
+ * app's own default/primary crypto feed (see DEFAULT_QUICK_PAIRS
+ * above), which is right for the common case and at least loads a
+ * real chart for the rest rather than guessing wrong silently.
+ */
+export function pairFromTradeSymbol(tradeSymbol: string): QuickPair {
+  const clean = tradeSymbol.trim().toUpperCase();
+  const match = INSTRUMENT_CATALOGUE.find((i) => i.symbol.toUpperCase() === clean);
+  const exch = match?.exchange ?? 'BINANCE';
+  const desc = match?.description || '';
+  return {
+    label: desc && desc.length <= 16 ? desc : clean,
+    trade: clean,
+    tv: `${exch}:${clean}`,
+  };
+}
 
 /** Builds a QuickPair from any search result (catalogue or backend). */
 export function pairFromResult(

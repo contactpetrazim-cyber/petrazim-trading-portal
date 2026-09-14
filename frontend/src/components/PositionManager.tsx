@@ -1,10 +1,12 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
-import { Pencil, X, Check, Scissors, AlertCircle, Ban } from 'lucide-react';
+import { Pencil, X, Check, Scissors, AlertCircle, Ban, LineChart } from 'lucide-react';
 import { Trade } from '../types';
 import { tradesApi } from '../services/api';
 import { useQuickPrice } from '../hooks/useQuickPrice';
 import { formatApiError } from '../lib/apiError';
+import { pairFromTradeSymbol } from '../hooks/useQuickPairs';
 
 /**
  * PositionManager — "view and edit the statistics of this trade ...
@@ -69,6 +71,14 @@ export function PositionManager({ trade, dark = false, onChanged }: { trade: Tra
   const rMultiple = riskDistance && riskDistance > 0
     ? ((impliedPrice - entry) * (isLong ? 1 : -1)) / riskDistance
     : null;
+  // "Goto Chart" — by direct request ("add a link that triggers the
+  // correct chart pair from the correct exchange embedded in each
+  // order management card"). See pairFromTradeSymbol's own docstring
+  // for why the exchange is a best-effort catalogue lookup rather
+  // than always exact. Opens in a new tab so managing a trade here
+  // (e.g. on the Trade Management list) never loses your place —
+  // same reasoning as PracticeDrillsPage's own chart/diagram link.
+  const chartPair = pairFromTradeSymbol(trade.symbol);
 
   function startEditingTargets() {
     setEntryDraft(trade.entry_price != null ? String(trade.entry_price) : '');
@@ -220,6 +230,14 @@ export function PositionManager({ trade, dark = false, onChanged }: { trade: Tra
           </div>
         )}
       </div>
+
+      <Link
+        to={`/trade/manual?tv=${encodeURIComponent(chartPair.tv)}`}
+        target="_blank" rel="noopener noreferrer"
+        className={`inline-flex items-center gap-1 text-xs font-medium ${dark ? 'text-white/50 hover:text-white' : 'text-corporate-hero hover:underline'}`}
+      >
+        <LineChart size={12} /> Goto Chart ({chartPair.tv})
+      </Link>
 
       {message && (
         <div className={`flex items-start gap-1.5 text-xs px-3 py-2 rounded-lg ${message.ok ? (dark ? 'bg-emerald-500/10 text-emerald-400' : 'bg-emerald-50 text-emerald-600') : (dark ? 'bg-red-500/10 text-red-400' : 'bg-red-50 text-red-600')}`}>
