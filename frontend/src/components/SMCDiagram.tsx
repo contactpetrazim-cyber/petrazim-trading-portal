@@ -141,6 +141,39 @@ const DIAGRAMS: Record<string, DiagramConfig> = {
     caption:
       'Two swing highs at nearly the same price form "equal highs" — a liquidity pool, since every trader who sold at either high has a stop resting just above both. Price often runs above BOTH (candle 7) to collect that liquidity before reversing, exactly like a single-level sweep but with two levels stacked.',
   },
+  'wyckoff-cycle': {
+    title: 'The Wyckoff Market Cycle',
+    candles: [
+      // Accumulation — a range after a decline
+      { open: 100, high: 102, low: 98, close: 101 },
+      { open: 101, high: 103, low: 99, close: 100 },
+      { open: 100, high: 102, low: 97, close: 101 },
+      { open: 101, high: 103, low: 98, close: 100 },
+      // Markup — breaks out and trends up
+      { open: 100, high: 105, low: 99, close: 104 },
+      { open: 104, high: 109, low: 103, close: 108 },
+      { open: 108, high: 113, low: 107, close: 112 },
+      { open: 112, high: 117, low: 111, close: 116 },
+      // Distribution — a range again, this time near the highs
+      { open: 116, high: 118, low: 113, close: 115 },
+      { open: 115, high: 118, low: 112, close: 116 },
+      { open: 116, high: 119, low: 113, close: 115 },
+      { open: 115, high: 118, low: 112, close: 114 },
+      // Markdown — breaks down and trends down
+      { open: 114, high: 115, low: 109, close: 110 },
+      { open: 110, high: 111, low: 105, close: 106 },
+      { open: 106, high: 107, low: 101, close: 102 },
+      { open: 102, high: 103, low: 97, close: 98 },
+    ],
+    zones: [
+      { fromIndex: 0, toIndex: 3, priceTop: 103, priceBottom: 97, color: '#3b82f6', label: 'Accumulation' },
+      { fromIndex: 4, toIndex: 7, priceTop: 117, priceBottom: 99, color: '#22c55e', label: 'Markup' },
+      { fromIndex: 8, toIndex: 11, priceTop: 119, priceBottom: 112, color: '#ef4444', label: 'Distribution' },
+      { fromIndex: 12, toIndex: 15, priceTop: 115, priceBottom: 97, color: '#f97316', label: 'Markdown' },
+    ],
+    caption:
+      'All four Wyckoff phases in sequence on one chart: smart money quietly builds a position while price ranges after a decline (Accumulation), the breakout trends up as demand takes control (Markup), smart money sells into strength while price ranges again near the highs (Distribution), then the breakdown trends down as supply takes control (Markdown) — and the cycle repeats.',
+  },
 };
 
 export type SMCDiagramKey = keyof typeof DIAGRAMS;

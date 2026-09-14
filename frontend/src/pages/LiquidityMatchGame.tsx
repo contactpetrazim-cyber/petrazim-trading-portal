@@ -1,6 +1,7 @@
 import { Waves } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
 import { MatchingGameEngine, type MatchPair } from '../components/MatchingGameEngine';
+import { SMCDiagram } from '../components/SMCDiagram';
 import { useThemeStore } from '../hooks/useTheme';
 
 const ACCENT = '#0ea5e9';
@@ -29,6 +30,15 @@ export function LiquidityMatchGame() {
         gameId="liquidity-match" title="Liquidity Match" icon={<Waves size={16} />} accent={ACCENT}
         pairs={PAIRS} baseXp={15} backHref="/practise/game" dark={dark}
       />
+
+      {/* Reference diagrams below the matching game — 4 of the 6 terms
+          (buy/sell-side liquidity, equal highs, sweep) are directly
+          pictured by these two existing schematics; "inducement" and
+          "liquidity pool" are covered by their own definitions. */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-6">
+        <SMCDiagram concept="liquidity-sweep" dark={dark} />
+        <SMCDiagram concept="equal-highs-lows" dark={dark} />
+      </div>
     </div>
   );
 }

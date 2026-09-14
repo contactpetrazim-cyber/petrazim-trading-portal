@@ -1,10 +1,15 @@
 import { ShieldAlert } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
 import { TriageGameEngine, type TriageScenario } from '../components/TriageGameEngine';
+import { CandleChart } from '../components/CandleChart';
 import { useThemeStore } from '../hooks/useTheme';
 
 const ACCENT = '#f59e0b';
 
+// Only scenarios 2 and 3 describe an actual price/chart picture —
+// scenarios 1, 4, and 5 are account-level risk math (a loss limit, a
+// correlated-exposure count, headroom remaining) with no price shape
+// to draw, so they're left as text, per "chart... as appropriate."
 const SCENARIOS: TriageScenario[] = [
   {
     id: '1',
@@ -27,6 +32,24 @@ const SCENARIOS: TriageScenario[] = [
       { label: 'Stop using stop losses on this setup type', correct: false },
     ],
     whatYoudDoDifferently: 'A stop getting hit right before a reversal is normal variance, not proof the stop was wrong — widening stops or chasing the loss both increase risk based on one outcome, not a real pattern.',
+    chart: (dark) => (
+      <CandleChart
+        dark={dark} height={160}
+        candles={[
+          { open: 100, high: 102, low: 98, close: 101 },
+          { open: 101, high: 103, low: 99, close: 100 },
+          { open: 100, high: 101, low: 96, close: 97 },
+          { open: 97, high: 98, low: 93, close: 94 },
+          { open: 94, high: 99, low: 93, close: 98 },
+          { open: 98, high: 103, low: 97, close: 102 },
+        ]}
+        lines={[{ price: 96, label: 'stop loss', color: '#ef4444', dashed: true }]}
+        markers={[
+          { index: 3, price: 93, label: 'stopped out', color: '#ef4444', side: 'below' },
+          { index: 5, price: 103, label: 'reverses back up', color: '#22c55e', side: 'above' },
+        ]}
+      />
+    ),
   },
   {
     id: '3',
@@ -38,6 +61,20 @@ const SCENARIOS: TriageScenario[] = [
       { label: 'Hold with no plan and see what happens', correct: false },
     ],
     whatYoudDoDifferently: 'A known resistance level approaching is exactly when a pre-planned exit (partial or trail) protects the gain you already have — adding size or removing the stop both increase exposure right where it\'s least justified.',
+    chart: (dark) => (
+      <CandleChart
+        dark={dark} height={160}
+        candles={[
+          { open: 100, high: 102, low: 99, close: 101 },
+          { open: 101, high: 104, low: 100, close: 103 },
+          { open: 103, high: 106, low: 102, close: 105 },
+          { open: 105, high: 108, low: 104, close: 107 },
+          { open: 107, high: 110, low: 106, close: 109 },
+        ]}
+        lines={[{ price: 110, label: 'resistance', color: '#ef4444', dashed: true }]}
+        markers={[{ index: 0, price: 99, label: 'entry', color: '#6b7280', side: 'below' }]}
+      />
+    ),
   },
   {
     id: '4',

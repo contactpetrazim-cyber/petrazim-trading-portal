@@ -1,10 +1,20 @@
 import { Target } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
 import { TriageGameEngine, type TriageScenario } from '../components/TriageGameEngine';
+import { CandleChart } from '../components/CandleChart';
+import { SMC_DIAGRAM_DATA } from '../components/SMCDiagram';
+import { TimeframePanels } from '../components/TimeframePanels';
 import { useThemeStore } from '../hooks/useTheme';
 
 const ACCENT = '#0891b2';
 
+// Scenarios 1/2/3/5 each describe exactly one of the concepts already
+// illustrated in SMCDiagram.tsx (sweep, FVG, premium/discount, order
+// block) — reusing that same candle/zone/marker data here rather than
+// authoring a second, possibly-inconsistent version of the same
+// pattern. Deliberately rendered as a bare CandleChart (no caption, no
+// concept-name title) so the chart restates what the prompt already
+// describes without stating which answer is correct.
 const SCENARIOS: TriageScenario[] = [
   {
     id: '1',
@@ -14,6 +24,10 @@ const SCENARIOS: TriageScenario[] = [
       { label: 'A confirmed breakdown — continue lower', correct: false },
     ],
     whatYoudDoDifferently: 'A wick through a level that closes back above it is a stop-hunt, not a breakdown — the close is what confirms direction, not the wick.',
+    chart: (dark) => {
+      const d = SMC_DIAGRAM_DATA['liquidity-sweep'];
+      return <CandleChart candles={d.candles} lines={d.lines} markers={d.markers} dark={dark} height={160} />;
+    },
   },
   {
     id: '2',
@@ -23,6 +37,10 @@ const SCENARIOS: TriageScenario[] = [
       { label: 'No — gaps only matter on daily charts', correct: false },
     ],
     whatYoudDoDifferently: 'A Fair Value Gap is a real structural imbalance on any timeframe where volume/orders were thin — it isn\'t exclusive to higher timeframes.',
+    chart: (dark) => {
+      const d = SMC_DIAGRAM_DATA['fair-value-gap'];
+      return <CandleChart candles={d.candles} zones={d.zones} dark={dark} height={160} />;
+    },
   },
   {
     id: '3',
@@ -32,6 +50,10 @@ const SCENARIOS: TriageScenario[] = [
       { label: 'Buy the breakout — premium means momentum is building up', correct: false },
     ],
     whatYoudDoDifferently: 'Premium/discount tells you where price is "expensive" relative to the range — premium favors looking for shorts, not chasing longs into it.',
+    chart: (dark) => {
+      const d = SMC_DIAGRAM_DATA['premium-discount'];
+      return <CandleChart candles={d.candles} zones={d.zones} lines={d.lines} dark={dark} height={160} />;
+    },
   },
   {
     id: '4',
@@ -41,6 +63,27 @@ const SCENARIOS: TriageScenario[] = [
       { label: 'Take it full size — the 15M setup is clean', correct: false },
     ],
     whatYoudDoDifferently: 'A clean lower-timeframe setup against the higher-timeframe trend is a lower-probability counter-trend trade — multi-timeframe alignment matters more than any single chart looking clean.',
+    chart: (dark) => (
+      <TimeframePanels
+        dark={dark}
+        height={100}
+        panels={[
+          { label: '4H / 1D — lower highs', candles: [
+            { open: 114, high: 115, low: 110, close: 111 },
+            { open: 111, high: 113, low: 108, close: 109 },
+            { open: 109, high: 111, low: 105, close: 106 },
+            { open: 106, high: 108, low: 102, close: 103 },
+            { open: 103, high: 105, low: 99, close: 100 },
+          ] },
+          { label: '15M — clean bullish structure', candles: [
+            { open: 100, high: 102, low: 98, close: 101 },
+            { open: 101, high: 104, low: 100, close: 103 },
+            { open: 103, high: 106, low: 102, close: 105 },
+            { open: 105, high: 108, low: 104, close: 107 },
+          ] },
+        ]}
+      />
+    ),
   },
   {
     id: '5',
@@ -50,6 +93,10 @@ const SCENARIOS: TriageScenario[] = [
       { label: 'No — order blocks expire after a few days', correct: false },
     ],
     whatYoudDoDifferently: 'An order block stays valid until it\'s actually mitigated (price trades through it), not on a fixed time expiry — age alone doesn\'t invalidate it.',
+    chart: (dark) => {
+      const d = SMC_DIAGRAM_DATA['order-block'];
+      return <CandleChart candles={d.candles} zones={d.zones} markers={d.markers} dark={dark} height={160} />;
+    },
   },
 ];
 
