@@ -28,6 +28,7 @@ from app.database import get_db
 from app.models.access import AccessCode, CodeType, UserAccess
 from app.models.broadcast_log import BroadcastLog
 from app.models.facilitator import BookingStatus, MeetingBooking
+from app.services.proxy_health import get_status as get_proxy_health_status
 from app.models.user import ROLE_BADGE_COLOR, User, UserRole, UserStatus
 from app.models.roster import RosterAssignment
 
@@ -190,6 +191,31 @@ async def change_role(
                                  badge_color=ROLE_BADGE_COLOR[target.role])
         await guard.finalize(response)
         return response
+
+
+class ProxyHealthResponse(BaseModel):
+    alert_active: bool
+    failures_in_last_5_min: int
+    threshold: int
+    last_error: Optional[str]
+
+
+@router.get("/proxy-health", response_model=ProxyHealthResponse)
+async def proxy_health(
+    _admin: User = Depends(require_role(UserRole.ADMIN, UserRole.SUPER_ADMIN)),
+):
+    """Early warning for the Binance proxy (Fixie today) breaking down
+    — by direct request ("proactive Fixie quota monitoring"). See
+    services/proxy_health.py's own module docstring for why this is a
+    live failure-rate tracker rather than a Fixie-quota-API poll (no
+    such public API is documented). `alert_active` flips true once 5+
+    transport-level proxy failures land within 5 minutes — the same
+    shape the real "407 Proxy Authentication Required" incident had —
+    and clears itself the moment a call succeeds again, so this is
+    always the CURRENT state, not a stuck-forever flag from one old
+    blip."""
+    status = get_proxy_health_status()
+    return ProxyHealthResponse(**status)
 
 
 class PlatformOverviewResponse(BaseModel):

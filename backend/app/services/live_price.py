@@ -27,6 +27,7 @@ import structlog
 
 from app.config import get_settings
 from app.services.broker_integrations import _FAILOVER_EXCEPTIONS, _send_with_failover
+from app.services.proxy_health import record_proxy_failure, record_proxy_success
 
 logger = structlog.get_logger()
 
@@ -52,11 +53,14 @@ async def get_crypto_price(symbol: str) -> Optional[float]:
     try:
         resp = await _send_with_failover(_binance_client, _binance_backup_client, "get", "/ticker/price", params={"symbol": clean})
         if resp.status_code == 200:
+            record_proxy_success()
             return float(resp.json()["price"])
         logger.warning("live_price_binance_non_200", symbol=clean, status=resp.status_code)
     except _FAILOVER_EXCEPTIONS as e:
+        record_proxy_failure("live_price", str(e))
         logger.warning("live_price_binance_failed", symbol=clean, error=str(e))
     except httpx.HTTPError as e:
+        record_proxy_failure("live_price", str(e))
         logger.warning("live_price_binance_failed", symbol=clean, error=str(e))
 
     coingecko_id = COINGECKO_IDS.get(clean)

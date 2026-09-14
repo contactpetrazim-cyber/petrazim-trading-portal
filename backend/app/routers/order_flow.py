@@ -60,6 +60,7 @@ from app.core.auth import get_current_user
 from app.models.user import User
 from app.services.broker_integrations import _FAILOVER_EXCEPTIONS, _send_with_failover
 from app.services.live_price import COINGECKO_IDS
+from app.services.proxy_health import record_proxy_failure, record_proxy_success
 
 router = APIRouter(prefix="/order-flow", tags=["order-flow"])
 
@@ -127,11 +128,14 @@ async def _binance_get(path: str, params: dict) -> httpx.Response:
     try:
         resp = await _send_with_failover(_client, _backup_client, "get", path, params=params)
     except _FAILOVER_EXCEPTIONS as e:
+        record_proxy_failure("order_flow", str(e))
         raise HTTPException(status_code=502, detail=f"Could not reach Binance market data: {e}")
     except httpx.RequestError as e:
+        record_proxy_failure("order_flow", str(e))
         raise HTTPException(status_code=502, detail=f"Could not reach Binance market data: {e}")
     if resp.status_code != 200:
         raise HTTPException(status_code=502, detail=f"Binance returned {resp.status_code} for {path}")
+    record_proxy_success()
     return resp
 
 
