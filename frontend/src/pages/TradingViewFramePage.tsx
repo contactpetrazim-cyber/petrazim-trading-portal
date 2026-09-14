@@ -419,7 +419,11 @@ export function TradingViewFramePage() {
       </div>
 
       {onChartOpen && position && (
-        <PositionOnChartModal position={tradeToChartPosition(position)} symbol={position.symbol} onClose={() => setOnChartOpen(false)} />
+        <PositionOnChartModal
+          position={tradeToChartPosition(position)} symbol={position.symbol}
+          dark={frameDark} bullColor={colors.upColor} bearColor={colors.downColor} initialInterval={interval.value}
+          onClose={() => setOnChartOpen(false)}
+        />
       )}
 
       <div className="w-full max-w-6xl mt-6">
