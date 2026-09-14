@@ -63,17 +63,21 @@ const COLOR_PRESETS: { label: string; up: string; down: string }[] = [
   { label: 'Classic', up: '#22c55e', down: '#ef4444' },
   { label: 'TradingView', up: '#26a69a', down: '#ef5350' },
   { label: 'Binance', up: '#f0b90b', down: '#1e2329' },
-  // Was up: '#e5e7eb' (Tailwind gray-200) — nearly white, so on the
-  // light chart pane (the default theme — see this modal's own
-  // "default is light chart" note above) an up candle's body all but
-  // vanished into the background, by direct bug report ("the up
-  // candles are not visible ... optimise to make the up candles more
-  // visible"). gray-400 keeps the same grayscale "no real color"
-  // identity monochrome is meant to have, just dark enough to read as
-  // an actual candle against a light pane; down stays a real dark
-  // slate rather than near-black so it doesn't collapse into the
-  // dark-theme pane the same way.
-  { label: 'Monochrome', up: '#94a3b8', down: '#334155' },
+  // Standard Monochrome keeps its original, purest grayscale pairing —
+  // by direct follow-up request ("add another monochrome selection
+  // that is different from standard ... so there will be two
+  // monochrome selections: Standard / Optimised for on chart"), after
+  // an earlier attempt just overwrote these values outright (by
+  // direct bug report: "the up candles are not visible"). That fix is
+  // real, it just belongs as a SECOND, separate choice rather than
+  // replacing this one — some traders may genuinely want the subtler
+  // standard look and accept the lower up-candle contrast.
+  { label: 'Monochrome (Standard)', up: '#e5e7eb', down: '#4b5563' },
+  // The same grayscale identity, just dark enough on the up side to
+  // actually read as a candle against the chart's light pane (gray-400
+  // instead of near-white gray-200); down moves to slate-700 to keep
+  // clear contrast between the two.
+  { label: 'Monochrome (Optimised)', up: '#94a3b8', down: '#334155' },
 ];
 
 /**
@@ -309,8 +313,10 @@ export function PositionOnChartModal({
             >
               <Palette size={13} /> Colors
             </button>
+            {/* w-72 (was w-60) — the two Monochrome labels now need the
+                extra room so they don't wrap awkwardly. */}
             {colorPickerOpen && (
-              <div className={`absolute right-0 top-full mt-2 z-10 w-60 rounded-xl border p-3 space-y-2.5 shadow-lg ${popoverCls}`}>
+              <div className={`absolute right-0 top-full mt-2 z-10 w-72 rounded-xl border p-3 space-y-2.5 shadow-lg ${popoverCls}`}>
                 <div className="grid grid-cols-2 gap-1.5">
                   {COLOR_PRESETS.map((p) => (
                     <button
