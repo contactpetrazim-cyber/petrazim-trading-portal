@@ -24,6 +24,12 @@ export interface Trade {
   exit_price?: number | null;
   exit_type?: string | null;
   exit_timestamp?: string | null;
+  /** Which exchange this trade actually filled on (or would have,
+   * for a paper/test trade) — "binance", "bybit", "bingx", "mexc",
+   * "tradelocker", "metatrader". Null for a trade placed before this
+   * field was surfaced by the API, or the rare symbol the backend's
+   * own routing heuristic couldn't match to any broker. */
+  broker_name?: string | null;
 }
 
 export interface BotConfig {

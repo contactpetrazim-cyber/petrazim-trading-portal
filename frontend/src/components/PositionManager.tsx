@@ -73,12 +73,27 @@ export function PositionManager({ trade, dark = false, onChanged }: { trade: Tra
     : null;
   // "Goto Chart" — by direct request ("add a link that triggers the
   // correct chart pair from the correct exchange embedded in each
-  // order management card"). See pairFromTradeSymbol's own docstring
-  // for why the exchange is a best-effort catalogue lookup rather
-  // than always exact. Opens in a new tab so managing a trade here
-  // (e.g. on the Trade Management list) never loses your place —
-  // same reasoning as PracticeDrillsPage's own chart/diagram link.
-  const chartPair = pairFromTradeSymbol(trade.symbol);
+  // order management card"). Exact whenever trade.broker_name is set
+  // (every trade going forward — see the Exchange stat cell below);
+  // falls back to a best-effort catalogue guess otherwise — see
+  // pairFromTradeSymbol's own docstring. Opens in a new tab so
+  // managing a trade here (e.g. on the Trade Management list) never
+  // loses your place — same reasoning as PracticeDrillsPage's own
+  // chart/diagram link.
+  const chartPair = pairFromTradeSymbol(trade.symbol, trade.broker_name);
+  // By direct follow-up request ("relocate the Goto Chart link to the
+  // bottom right ... same line with cancel this order") — shared JSX
+  // so both bottom-row layouts (pending -> Cancel; open -> Partial/
+  // full exit) place it identically rather than drifting apart.
+  const gotoChartLink = (
+    <Link
+      to={`/trade/manual?tv=${encodeURIComponent(chartPair.tv)}`}
+      target="_blank" rel="noopener noreferrer"
+      className={`inline-flex items-center gap-1 text-xs font-medium ${dark ? 'text-white/50 hover:text-white' : 'text-corporate-hero hover:underline'}`}
+    >
+      <LineChart size={12} /> Goto Chart ({chartPair.tv})
+    </Link>
+  );
 
   function startEditingTargets() {
     setEntryDraft(trade.entry_price != null ? String(trade.entry_price) : '');
@@ -221,6 +236,18 @@ export function PositionManager({ trade, dark = false, onChanged }: { trade: Tra
           <div className={labelCls}>Size</div>
           <div className={statCls}>{trade.lot_size} {trade.symbol}</div>
         </div>
+        {/* Exchange — by direct request ("add exchange record for all
+            trades paper or live ... a trade record in this app doesn't
+            actually store which exchange it was placed on"). The
+            record itself already existed (Trade.broker_name, set at
+            execution time for every trade — paper included, since only
+            the final send-to-broker step is simulated for those) — it
+            just never reached the API or a client until now (see
+            TradeResponse.broker_name / types/index.ts's own comment). */}
+        <div>
+          <div className={labelCls}>Exchange</div>
+          <div className={statCls}>{trade.broker_name ? trade.broker_name.toUpperCase() : '—'}</div>
+        </div>
         {!isPending && (
           <div>
             <div className={labelCls}>R-multiple</div>
@@ -230,14 +257,6 @@ export function PositionManager({ trade, dark = false, onChanged }: { trade: Tra
           </div>
         )}
       </div>
-
-      <Link
-        to={`/trade/manual?tv=${encodeURIComponent(chartPair.tv)}`}
-        target="_blank" rel="noopener noreferrer"
-        className={`inline-flex items-center gap-1 text-xs font-medium ${dark ? 'text-white/50 hover:text-white' : 'text-corporate-hero hover:underline'}`}
-      >
-        <LineChart size={12} /> Goto Chart ({chartPair.tv})
-      </Link>
 
       {message && (
         <div className={`flex items-start gap-1.5 text-xs px-3 py-2 rounded-lg ${message.ok ? (dark ? 'bg-emerald-500/10 text-emerald-400' : 'bg-emerald-50 text-emerald-600') : (dark ? 'bg-red-500/10 text-red-400' : 'bg-red-50 text-red-600')}`}>
@@ -313,23 +332,27 @@ export function PositionManager({ trade, dark = false, onChanged }: { trade: Tra
           the same action its row-level Cancel button already offers,
           just also reachable from this dashboard. */}
       {isPending ? (
-        <div>
+        <div className="flex items-center justify-between gap-2 flex-wrap">
           <button
             onClick={cancelPendingOrder} disabled={cancelling}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-500/15 text-red-500 hover:bg-red-500/25 disabled:opacity-50"
           >
             <Ban size={13} /> {cancelling ? 'Cancelling…' : 'Cancel this order'}
           </button>
+          {gotoChartLink}
         </div>
       ) : (
       <div>
         {!closingOpen ? (
-          <button
-            onClick={startClosing}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-500/15 text-amber-500 hover:bg-amber-500/25"
-          >
-            <Scissors size={13} /> Partial / full exit
-          </button>
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <button
+              onClick={startClosing}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-500/15 text-amber-500 hover:bg-amber-500/25"
+            >
+              <Scissors size={13} /> Partial / full exit
+            </button>
+            {gotoChartLink}
+          </div>
         ) : (
           <div className={`rounded-lg border p-3 space-y-2 ${dark ? 'border-corporate-border-dark' : 'border-gray-200'}`}>
             <div className="grid grid-cols-2 gap-2">
