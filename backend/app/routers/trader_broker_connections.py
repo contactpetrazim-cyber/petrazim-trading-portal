@@ -40,7 +40,7 @@ from app.models.bot import BotConfig
 from app.models.trader_broker_connection import ConnectionMode, ConnectionStatus, SubscriptionCopyMode, TraderBotSubscription, TraderBrokerConnection
 from app.models.user import User, UserRole
 from app.services.trader_broker_connections import EXCHANGE_META, encrypt_secret, test_connection
-from app.services.outbound_ip_detector import get_effective_outbound_ips, get_effective_outbound_ips_with_source, refresh_and_persist, set_manual_outbound_ips
+from app.services.outbound_ip_detector import get_effective_outbound_ips_with_source, refresh_and_persist, set_manual_outbound_ips
 
 router = APIRouter(prefix="/exchange-connections", tags=["trader-broker-connections"])
 admin_router = APIRouter(prefix="/admin/exchange-connections", tags=["trader-broker-connections-admin"])
@@ -61,7 +61,15 @@ class ExchangeInfo(BaseModel):
 
 class ExchangeMetaResponse(BaseModel):
     exchanges: List[ExchangeInfo]
-    outbound_ips: str  # empty until PLATFORM_OUTBOUND_IPS is set — see that setting's own comment
+    # Two SEPARATE, labeled IPs — by direct request ("Let it show the
+    # two IP / VM / Fixie") — since this platform's real topology has
+    # exchange traffic going out via the VM (primary) or Fixie
+    # (backup); a trader should whitelist BOTH on their own exchange
+    # key so their trades keep working through either path. See
+    # outbound_ip_detector.py's own module docstring for the full
+    # "why two, not one" explanation.
+    outbound_ip_vm: str
+    outbound_ip_fixie: str
 
 
 @router.get("/exchanges", response_model=ExchangeMetaResponse)
@@ -69,13 +77,11 @@ async def list_exchanges(db: AsyncSession = Depends(get_db), _user: User = Depen
     """What a trader needs to enter, and the real IP(s) to whitelist,
     for every exchange this platform can connect a trader's own account
     to — drives the connect form. Any authenticated user can read this
-    (no secrets in it). outbound_ips is an admin's explicit manual
-    override when set, else the last value the background
-    OutboundIpDetector auto-discovered (see that module) — never empty
-    once that detector has run at least once."""
+    (no secrets in it)."""
+    ips = await get_effective_outbound_ips_with_source(db)
     return ExchangeMetaResponse(
         exchanges=[ExchangeInfo(exchange=k, **v) for k, v in EXCHANGE_META.items()],
-        outbound_ips=await get_effective_outbound_ips(db),
+        outbound_ip_vm=ips["vm"], outbound_ip_fixie=ips["fixie"],
     )
 
 
@@ -380,35 +386,48 @@ ADMIN_ROLES = (UserRole.ADMIN, UserRole.SUPER_ADMIN)
 
 
 class OutboundIpsResponse(BaseModel):
-    outbound_ips: str
-    source: str  # "manual_override" | "auto_detected"
+    outbound_ip_vm: str
+    outbound_ip_fixie: str
+    vm_source: str  # "manual" | "auto"
+    fixie_source: str  # "manual" | "auto"
+
+
+def _outbound_response(ips: dict) -> OutboundIpsResponse:
+    return OutboundIpsResponse(
+        outbound_ip_vm=ips["vm"], outbound_ip_fixie=ips["fixie"],
+        vm_source=ips["vm_source"], fixie_source=ips["fixie_source"],
+    )
 
 
 @admin_router.get("/outbound-ips", response_model=OutboundIpsResponse)
 async def admin_get_outbound_ips(db: AsyncSession = Depends(get_db), _admin: User = Depends(require_role(*ADMIN_ROLES))):
-    """The value every trader's onboarding page currently shows —
-    read-only, no live network probe (see get_effective_outbound_ips)."""
-    ips, source = await get_effective_outbound_ips_with_source(db)
-    return OutboundIpsResponse(outbound_ips=ips, source=source)
+    """The two values every trader's onboarding page currently shows —
+    read-only, no live network probe (see get_effective_outbound_ips_with_source)."""
+    return _outbound_response(await get_effective_outbound_ips_with_source(db))
 
 
 @admin_router.post("/outbound-ips/refresh", response_model=OutboundIpsResponse)
 async def admin_refresh_outbound_ips(db: AsyncSession = Depends(get_db), _admin: User = Depends(require_role(*ADMIN_ROLES))):
     """Runs the real probe right now instead of waiting for
     OutboundIpDetector's own background interval — e.g. right after
-    provisioning a new Fixie pool, to confirm the new IP(s) before
-    telling a trader to whitelist them. Persists the result (shared
+    provisioning a new Fixie pool, to confirm the new IP before
+    telling a trader to whitelist it. Persists the result (merged
     across both backends, see outbound_ip_detector.py) regardless of
     whether a manual override is currently winning display-wise, so
     clearing that override later falls back to a fresh, not stale,
-    auto-detected value."""
+    auto-detected value. Only this backend's OWN side of the topology
+    is refreshed by this one call — e.g. calling it on the VM refreshes
+    the "vm" category but can't discover Fixie's IP (the VM has no
+    Fixie proxy configured); the OTHER backend's own background loop
+    (or a refresh triggered while IT'S the one answering) is what fills
+    in the other category."""
     await refresh_and_persist(db)
-    ips, source = await get_effective_outbound_ips_with_source(db)
-    return OutboundIpsResponse(outbound_ips=ips, source=source)
+    return _outbound_response(await get_effective_outbound_ips_with_source(db))
 
 
 class SetManualOutboundIpsRequest(BaseModel):
-    outbound_ips: str  # empty string clears the override
+    outbound_ip_vm: Optional[str] = None
+    outbound_ip_fixie: Optional[str] = None
 
 
 @admin_router.patch("/outbound-ips", response_model=OutboundIpsResponse)
@@ -421,11 +440,11 @@ async def admin_set_outbound_ips(
     the shared database (see set_manual_outbound_ips) so it takes
     effect for every trader's onboarding page immediately, on both
     backends (Render + this VM), with no env var edit or redeploy.
-    Submitting an empty string clears it, falling back to the
-    PLATFORM_OUTBOUND_IPS env var (if set) or the auto-detected value."""
-    await set_manual_outbound_ips(db, req.outbound_ips)
-    ips, source = await get_effective_outbound_ips_with_source(db)
-    return OutboundIpsResponse(outbound_ips=ips, source=source)
+    Each field is independent — omit one to leave that category
+    untouched, or submit an empty string to clear just that one back
+    to its auto-detected value."""
+    await set_manual_outbound_ips(db, req.outbound_ip_vm, req.outbound_ip_fixie)
+    return _outbound_response(await get_effective_outbound_ips_with_source(db))
 
 
 @admin_router.get("", response_model=List[ConnectionResponse])

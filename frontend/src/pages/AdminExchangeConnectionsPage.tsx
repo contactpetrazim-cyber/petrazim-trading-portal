@@ -24,9 +24,12 @@ export function AdminExchangeConnectionsPage() {
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
-  const [outboundIps, setOutboundIps] = useState('');
-  const [outboundSource, setOutboundSource] = useState<'manual_override' | 'auto_detected' | ''>('');
-  const [ipDraft, setIpDraft] = useState('');
+  const [outboundVm, setOutboundVm] = useState('');
+  const [outboundFixie, setOutboundFixie] = useState('');
+  const [vmSource, setVmSource] = useState<'manual' | 'auto' | ''>('');
+  const [fixieSource, setFixieSource] = useState<'manual' | 'auto' | ''>('');
+  const [vmDraft, setVmDraft] = useState('');
+  const [fixieDraft, setFixieDraft] = useState('');
   const [ipBusy, setIpBusy] = useState(false);
 
   async function load() {
@@ -38,9 +41,12 @@ export function AdminExchangeConnectionsPage() {
         adminExchangeConnectionsApi.getOutboundIps(),
       ]);
       setConnections(conns);
-      setOutboundIps(ips.outbound_ips);
-      setOutboundSource(ips.source as 'manual_override' | 'auto_detected');
-      setIpDraft(ips.outbound_ips);
+      setOutboundVm(ips.outbound_ip_vm);
+      setOutboundFixie(ips.outbound_ip_fixie);
+      setVmSource(ips.vm_source);
+      setFixieSource(ips.fixie_source);
+      setVmDraft(ips.outbound_ip_vm);
+      setFixieDraft(ips.outbound_ip_fixie);
     } catch {
       setError('Could not load exchange connections.');
     } finally {
@@ -53,20 +59,25 @@ export function AdminExchangeConnectionsPage() {
     setIpBusy(true);
     try {
       const result = await adminExchangeConnectionsApi.refreshOutboundIps();
-      setOutboundIps(result.outbound_ips);
-      setOutboundSource(result.source as 'manual_override' | 'auto_detected');
-      setIpDraft(result.outbound_ips);
+      setOutboundVm(result.outbound_ip_vm);
+      setOutboundFixie(result.outbound_ip_fixie);
+      setVmSource(result.vm_source);
+      setFixieSource(result.fixie_source);
+      setVmDraft(result.outbound_ip_vm);
+      setFixieDraft(result.outbound_ip_fixie);
     } finally {
       setIpBusy(false);
     }
   }
 
-  async function saveIpOverride() {
+  async function saveIpOverrides() {
     setIpBusy(true);
     try {
-      const result = await adminExchangeConnectionsApi.setOutboundIps(ipDraft);
-      setOutboundIps(result.outbound_ips);
-      setOutboundSource(result.source as 'manual_override' | 'auto_detected');
+      const result = await adminExchangeConnectionsApi.setOutboundIps({ outbound_ip_vm: vmDraft, outbound_ip_fixie: fixieDraft });
+      setOutboundVm(result.outbound_ip_vm);
+      setOutboundFixie(result.outbound_ip_fixie);
+      setVmSource(result.vm_source);
+      setFixieSource(result.fixie_source);
     } finally {
       setIpBusy(false);
     }
@@ -114,23 +125,41 @@ export function AdminExchangeConnectionsPage() {
       {error && <div className="rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm px-3 py-2">{error}</div>}
 
       <FoldedCard
-        title="Outbound IP(s)"
-        summary={outboundIps ? `${outboundIps} (${outboundSource === 'manual_override' ? 'manual' : 'auto-detected'})` : 'Not detected yet'}
+        title="Outbound IPs"
+        summary={`VM: ${outboundVm || '—'} · Fixie: ${outboundFixie || '—'}`}
         icon={<Globe size={18} />} dark={dark} defaultOpen
       >
-        <div className="space-y-2 py-2">
+        <div className="space-y-3 py-2">
           <p className={`text-xs ${dark ? 'text-white/60' : 'text-gray-500'}`}>
-            What every trader's "Connect Your Exchange" page tells them to whitelist. A background engine auto-detects this
-            (probes each configured Fixie proxy pool, every 6 hours) and keeps it in sync across both backends — no redeploy
-            needed. Typing a value below and saving overrides the auto-detected one immediately; clear it to go back to auto-detection.
+            What every trader's "Connect Your Exchange" page tells them to whitelist — TWO separate IPs, since this platform
+            automatically fails over between them: the VM (primary — exchange traffic is proxied through it) and Fixie
+            (backup, used only if the VM's proxy is unreachable). A background engine auto-detects both every 6 hours and
+            keeps them in sync across both backends — no redeploy needed. Typing a value below and saving overrides the
+            auto-detected one for that field immediately; clear it to go back to auto-detection.
           </p>
+          <div className="grid sm:grid-cols-2 gap-3">
+            <div>
+              <label className={`text-xs font-semibold ${dark ? 'text-white/60' : 'text-gray-500'}`}>
+                VM (primary) {vmSource && <span className="opacity-60 font-normal">— {vmSource}</span>}
+              </label>
+              <input
+                value={vmDraft} onChange={(e) => setVmDraft(e.target.value)} placeholder="e.g. 51.x.x.x"
+                className={`w-full mt-1 border rounded-lg px-2.5 py-1.5 text-sm font-mono ${dark ? 'bg-smc-dark border-smc-border text-white' : 'bg-white border-corporate-bg text-corporate-text-on-bg'}`}
+              />
+            </div>
+            <div>
+              <label className={`text-xs font-semibold ${dark ? 'text-white/60' : 'text-gray-500'}`}>
+                Fixie (backup) {fixieSource && <span className="opacity-60 font-normal">— {fixieSource}</span>}
+              </label>
+              <input
+                value={fixieDraft} onChange={(e) => setFixieDraft(e.target.value)} placeholder="e.g. 52.x.x.x, 54.x.x.x"
+                className={`w-full mt-1 border rounded-lg px-2.5 py-1.5 text-sm font-mono ${dark ? 'bg-smc-dark border-smc-border text-white' : 'bg-white border-corporate-bg text-corporate-text-on-bg'}`}
+              />
+            </div>
+          </div>
           <div className="flex flex-wrap gap-2 items-center">
-            <input
-              value={ipDraft} onChange={(e) => setIpDraft(e.target.value)} placeholder="e.g. 52.x.x.x, 54.x.x.x"
-              className={`flex-1 min-w-[220px] border rounded-lg px-2.5 py-1.5 text-sm font-mono ${dark ? 'bg-smc-dark border-smc-border text-white' : 'bg-white border-corporate-bg text-corporate-text-on-bg'}`}
-            />
-            <button onClick={saveIpOverride} disabled={ipBusy} className="text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-blue-600 text-white disabled:opacity-50">
-              Save override
+            <button onClick={saveIpOverrides} disabled={ipBusy} className="text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-blue-600 text-white disabled:opacity-50">
+              Save overrides
             </button>
             <button onClick={refreshIps} disabled={ipBusy} className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1.5 rounded-lg border disabled:opacity-50">
               <RefreshCw size={12} className={ipBusy ? 'animate-spin' : ''} /> Detect now
