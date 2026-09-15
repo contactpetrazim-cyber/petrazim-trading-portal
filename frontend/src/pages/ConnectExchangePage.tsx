@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Link2, Plus, RefreshCw, Trash2, CheckCircle2, XCircle, Clock, Ban, Bot } from 'lucide-react';
+import { Link2, Plus, RefreshCw, Trash2, CheckCircle2, XCircle, Clock, Ban, Bot, Percent } from 'lucide-react';
 import { FoldedCard } from '../components/FoldedCard';
-import { exchangeConnectionsApi } from '../services/api';
-import { ExchangeInfo, TraderBrokerConnection, AvailableBot, TraderBotSubscription } from '../types';
+import { exchangeConnectionsApi, feesApi } from '../services/api';
+import { ExchangeInfo, TraderBrokerConnection, AvailableBot, TraderBotSubscription, MyFeesResponse } from '../types';
 import { useThemeStore } from '../hooks/useTheme';
 
 /**
@@ -48,6 +48,7 @@ export function ConnectExchangePage() {
   const [connections, setConnections] = useState<TraderBrokerConnection[]>([]);
   const [bots, setBots] = useState<AvailableBot[]>([]);
   const [subscriptions, setSubscriptions] = useState<TraderBotSubscription[]>([]);
+  const [fees, setFees] = useState<MyFeesResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -64,11 +65,12 @@ export function ConnectExchangePage() {
     setLoading(true);
     setError(null);
     try {
-      const [meta, conns, availableBots, subs] = await Promise.all([
+      const [meta, conns, availableBots, subs, myFees] = await Promise.all([
         exchangeConnectionsApi.listExchanges(),
         exchangeConnectionsApi.list(),
         exchangeConnectionsApi.availableBots(),
         exchangeConnectionsApi.mySubscriptions(),
+        feesApi.myLedger(),
       ]);
       setExchanges(meta.exchanges);
       setOutboundIpVm(meta.outbound_ip_vm);
@@ -76,6 +78,7 @@ export function ConnectExchangePage() {
       setConnections(conns);
       setBots(availableBots);
       setSubscriptions(subs);
+      setFees(myFees);
     } catch {
       setError('Could not load your exchange connections.');
     } finally {
@@ -207,6 +210,45 @@ export function ConnectExchangePage() {
         <div className="rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-sm px-3 py-2">
           Your admin hasn't published this platform's outbound IP(s) yet — ask them for it before restricting your exchange key by IP (you can still connect without an IP restriction, though it's not recommended).
         </div>
+      )}
+
+      {fees && (
+        <FoldedCard
+          title="Performance Fees"
+          summary={fees.enabled ? `${fees.fee_percent}% of profit on bot-copied trades${fees.total_owed > 0 ? ` · $${fees.total_owed.toFixed(2)} owed` : ''}` : 'Free — no fee currently charged'}
+          icon={<Percent size={18} />} dark={dark}
+        >
+          <div className="space-y-2 py-2 text-sm">
+            {fees.enabled ? (
+              <>
+                <p>
+                  A {fees.fee_percent}% fee applies to the PROFIT on any trade a bot copies onto your own account (never on a loss, and never on a manual trade you place yourself).
+                </p>
+                {fees.total_owed > 0 && (
+                  <p className="font-semibold">
+                    You currently owe ${fees.total_owed.toFixed(2)}. Pay via
+                    {fees.crypto_address && <> crypto (<span className="font-mono">{fees.crypto_address}</span>{fees.crypto_network ? `, ${fees.crypto_network}` : ''})</>}
+                    {fees.crypto_address && fees.paystack_account_number && ' or '}
+                    {fees.paystack_account_number && <> bank transfer ({fees.paystack_account_name}, {fees.paystack_bank_name} {fees.paystack_account_number})</>}
+                    , then let your admin know.
+                  </p>
+                )}
+                {fees.entries.length > 0 && (
+                  <div className="pt-2 space-y-1">
+                    {fees.entries.slice(0, 10).map((e) => (
+                      <div key={e.id} className="flex justify-between text-xs opacity-70">
+                        <span>{e.trade_id}</span>
+                        <span>${e.fee_amount.toFixed(2)} — {e.status}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            ) : (
+              <p className="opacity-70">Bot-copied trades on your account are free right now — no performance fee is being charged.</p>
+            )}
+          </div>
+        </FoldedCard>
       )}
 
       <FoldedCard title="Your Connections" summary={`${connections.length} connected account${connections.length === 1 ? '' : 's'}`} icon={<Link2 size={18} />} dark={dark} defaultOpen>

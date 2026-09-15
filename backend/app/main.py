@@ -35,6 +35,7 @@ from app.routers.manual_trading import router as manual_trading_router
 from app.routers.coach import router as coach_router
 from app.routers.internal import router as internal_router
 from app.routers.trader_broker_connections import router as trader_broker_connections_router, admin_router as trader_broker_connections_admin_router
+from app.routers.fees import router as fees_router, admin_router as fees_admin_router
 from app.database import engine, Base
 from app.db.session import engine as legacy_engine, Base as LegacyBase
 from app.services.execution_engine import ExecutionEngine
@@ -245,6 +246,8 @@ app.include_router(coach_router)
 app.include_router(internal_router)
 app.include_router(trader_broker_connections_router)
 app.include_router(trader_broker_connections_admin_router)
+app.include_router(fees_router)
+app.include_router(fees_admin_router)
 
 # Phase-1 analytics engines — routers ship without their own prefix
 app.include_router(monte_carlo_router, prefix="/api/monte-carlo", tags=["monte-carlo"])
