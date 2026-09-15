@@ -13,6 +13,13 @@ interface StatCardProps {
    * existing call sites that pass the surrounding page's dark/light
    * state don't need to change. */
   dark?: boolean;
+  /** Extra content under the trend row — used for Today's Trades' own
+   * breakdown pills (Pending/Executed/Cancelled/Won/Loss/Break-Even),
+   * by direct request ("can you provide more clarity ... Pending
+   * trades Vs Executed Trades Vs Canceled Vs Loss Vs Won Vs
+   * BreakEven"), rather than a second card duplicating this one's
+   * title/icon. */
+  children?: React.ReactNode;
 }
 
 /**
@@ -32,7 +39,7 @@ interface StatCardProps {
  * make black text unreadable, so the fix has to be the card's own
  * background, not just the text color.
  */
-export function StatCard({ title, value, subtitle, trend, trendValue, icon, color = 'blue' }: StatCardProps) {
+export function StatCard({ title, value, subtitle, trend, trendValue, icon, color = 'blue', children }: StatCardProps) {
   const colorMap: Record<string, string> = {
     blue: 'bg-blue-50 border-blue-200',
     green: 'bg-emerald-50 border-emerald-200',
@@ -68,6 +75,7 @@ export function StatCard({ title, value, subtitle, trend, trendValue, icon, colo
           <span className="text-gray-900">{trendValue}</span>
         </div>
       )}
+      {children}
     </div>
   );
 }

@@ -211,6 +211,38 @@ class BotMetricsUpdate(BaseModel):
 # DASHBOARD / ANALYTICS SCHEMAS
 # =============================================================================
 
+class TodayTradeBreakdown(BaseModel):
+    """Today's trades split into the buckets a trader actually thinks
+    in — by direct request ("can you provide more clarity / Pending
+    trades Vs Executed Trades Vs Canceled Vs Loss Vs Won Vs
+    BreakEven"), after DashboardStats' own single total_trades_today/
+    win_rate_today pair got flagged as too coarse (that pair still
+    reflects only REAL trades — pending/executed/closed, cancelled and
+    errored excluded, per the earlier "cancelled order inflating the
+    count" fix — `cancelled` here is shown separately, deliberately not
+    folded back into the headline total)."""
+    pending: int
+    executed: int  # filled and still open (ACTIVE) — distinct from a still-resting PENDING order
+    cancelled: int
+    won: int
+    loss: int
+    breakeven: int
+
+class TradeBreakdown(TodayTradeBreakdown):
+    """The same Pending/Executed/Cancelled/Won/Loss/Break-even buckets
+    as TodayTradeBreakdown, widened to any of Today/Week/Month — by
+    direct request ("can we include Today, Week, Month toggle in the
+    dashboard ... instead of just Today"). A separate schema (and
+    separate /dashboard/trade-breakdown endpoint) rather than widening
+    DashboardStats.today_breakdown itself, so that field's existing
+    shape and every consumer of it (the headline stat card) is
+    untouched — this is the data source for the new toggle only."""
+    period: str  # "today" | "week" | "month"
+    total: int
+    win_rate: float
+    pnl: float
+
+
 class DashboardStats(BaseModel):
     total_trades_today: int
     active_trades: int
@@ -219,6 +251,7 @@ class DashboardStats(BaseModel):
     win_rate_today: float
     current_drawdown: float
     active_bots: int
+    today_breakdown: TodayTradeBreakdown
 
 class PerformanceSummary(BaseModel):
     period: str

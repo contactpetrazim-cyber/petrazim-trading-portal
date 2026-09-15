@@ -1,6 +1,6 @@
 
 import axios from 'axios';
-import { Trade, BotConfig, BotPerformance, BotMetricsUpdate, DashboardStats, SignalPreview, PerformanceSummary, ExchangeMetaResponse, TraderBrokerConnection, AvailableBot, TraderBotSubscription, OutboundIpsResponse, FeeSettings, FeeLedgerEntry, MyFeesResponse } from '../types';
+import { Trade, BotConfig, BotPerformance, BotMetricsUpdate, DashboardStats, SignalPreview, PerformanceSummary, TradeBreakdown, TradeBreakdownPeriod, ExchangeMetaResponse, TraderBrokerConnection, AvailableBot, TraderBotSubscription, OutboundIpsResponse, FeeSettings, FeeLedgerEntry, MyFeesResponse } from '../types';
 import { useAuthStore } from '../hooks/useAuth';
 import { triggerAccessExpired } from '../components/AccessExpiredGate';
 import { handleUnauthorized } from '../lib/authGuard';
@@ -69,6 +69,8 @@ api.interceptors.response.use(
 
 export const dashboardApi = {
   getStats: () => api.get<DashboardStats>('/dashboard/stats').then(r => r.data),
+  getTradeBreakdown: (period: TradeBreakdownPeriod = 'today') =>
+    api.get<TradeBreakdown>(`/dashboard/trade-breakdown?period=${period}`).then(r => r.data),
   getPerformance: (period = '7d') => api.get<PerformanceSummary[]>(`/dashboard/performance?period=${period}`).then(r => r.data),
   getEquityCurve: (days = 30) => api.get(`/dashboard/equity-curve?days=${days}`).then(r => r.data),
   getSignalPreview: () => api.get<SignalPreview[]>('/dashboard/signals/preview').then(r => r.data),
