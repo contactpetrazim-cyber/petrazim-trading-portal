@@ -119,27 +119,46 @@ async def paystack_webhook(request: Request):
             select(Payment).where(Payment.provider_reference == reference)
         )).scalar_one_or_none()
 
-        if payment is None:
+        if payment is not None:
+            if payment.status == PaymentStatus.SUCCEEDED:
+                return {"ok": True, "already_processed": True}
+
+            payment.status = PaymentStatus.SUCCEEDED
+            access = await _grant_access_for_payment(payment)
+            db.add(access)
+            await db.commit()
+
+            seats_generated = None
+            if payment.seat_count and payment.seat_count > 1:
+                from app.services.corporate_codes import build_access_code_rows, generate_seat_codes
+
+                batch = generate_seat_codes(
+                    issued_by_user_id=str(payment.user_id), tier=payment.tier_purchased,
+                    seat_count=payment.seat_count,
+                )
+                rows = build_access_code_rows(batch, payment.tier_purchased)
+                db.add_all(rows)
+                await db.commit()
+                seats_generated = len(rows)
+
+            return {"ok": True, "access_granted": True, "seats_generated": seats_generated}
+
+        # Not an Academy checkout — Paystack has one webhook URL per
+        # merchant account, so a fee-settlement checkout (routers/fees.py's
+        # own start_fee_checkout) fires the exact same event here. Same
+        # settle_fee_payment call the Test-mode completion endpoint uses,
+        # so there's one real path from "payment confirmed" to "fee
+        # balance cleared" regardless of which gateway confirmed it.
+        from app.models.fee_payment import FeePayment, FeePaymentStatus
+        from app.services.performance_fees import settle_fee_payment
+
+        fee_payment = (await db.execute(
+            select(FeePayment).where(FeePayment.provider_reference == reference)
+        )).scalar_one_or_none()
+        if fee_payment is None:
             raise HTTPException(status_code=404, detail="No matching payment record for this reference")
-        if payment.status == PaymentStatus.SUCCEEDED:
+        if fee_payment.status == FeePaymentStatus.SUCCEEDED:
             return {"ok": True, "already_processed": True}
 
-        payment.status = PaymentStatus.SUCCEEDED
-        access = await _grant_access_for_payment(payment)
-        db.add(access)
-        await db.commit()
-
-        seats_generated = None
-        if payment.seat_count and payment.seat_count > 1:
-            from app.services.corporate_codes import build_access_code_rows, generate_seat_codes
-
-            batch = generate_seat_codes(
-                issued_by_user_id=str(payment.user_id), tier=payment.tier_purchased,
-                seat_count=payment.seat_count,
-            )
-            rows = build_access_code_rows(batch, payment.tier_purchased)
-            db.add_all(rows)
-            await db.commit()
-            seats_generated = len(rows)
-
-    return {"ok": True, "access_granted": True, "seats_generated": seats_generated}
+        await settle_fee_payment(db, fee_payment)
+        return {"ok": True, "fees_settled": True}

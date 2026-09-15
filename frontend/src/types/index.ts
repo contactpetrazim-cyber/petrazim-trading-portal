@@ -203,6 +203,7 @@ export interface FeeSettings {
   paystack_bank_name: string | null;
   paystack_bank_code: string | null;
   notes: string | null;
+  settlement_currency: string;
   updated_at: string;
 }
 
@@ -232,6 +233,24 @@ export interface MyFeesResponse {
   paystack_account_name: string | null;
   paystack_account_number: string | null;
   paystack_bank_name: string | null;
+  settlement_currency: string;
   total_owed: number;
   entries: FeeLedgerEntry[];
+}
+
+// Trading fee payment gate — "pays for previous day fees before
+// access to a new day," by direct request. See backend/app/core/fee_gate.py.
+export interface FeeGateStatus {
+  gated: boolean;
+  owed_from_previous_days: number;
+  total_owed: number;
+  currency: string;
+}
+
+export interface FeeCheckoutSession {
+  checkout_url: string;
+  reference: string;
+  provider: string;
+  amount: number;
+  currency: string;
 }
