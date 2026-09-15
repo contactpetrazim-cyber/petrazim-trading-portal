@@ -1,30 +1,29 @@
 """
 Performance Fee Settings — a platform-wide Fee/Free toggle and, when
-on, a percentage the platform takes off the PROFIT (never the loss)
-of a subscriber's copy trade — by direct request ("introduce a fee
-base or a share of the profit - on a success basis... Create a fee vs
-free toggle... include in Admin portal... include the form for Admin
-to enter Account to receive the benefit... Crypto address and/or bank
-account - Paystack?").
+on, a percentage the platform takes off the PROFIT (never the loss) of
+either a subscriber's bot-copied trade, a trader's own manual trade,
+or both (two independent toggles — see `enabled`/`manual_trade_fee_enabled`
+below) — by direct request ("introduce a fee base or a share of the
+profit - on a success basis... Create a fee vs free toggle... include
+in Admin portal... include the form for Admin to enter Account to
+receive the benefit... Crypto address and/or bank account - Paystack?",
+and the follow-up: "add a fee system to manual trades also for using
+the platform... can be toggled on or off in the admin portal").
 
-Honest scope: this is a FEE CALCULATION + DISCLOSURE system, not an
-automatic payment-collection one. This platform never holds a
-trader's exchange funds (their API key explicitly has withdrawals
-DISABLED, by this same onboarding flow's own instructions — see
-services/trader_broker_connections.py's EXCHANGE_META), so there is no
-way to actually deduct a fee from their exchange balance
-automatically. What this genuinely does: every time a subscriber's
-copy trade closes at a profit, the exact fee owed is computed and
+This platform never holds a trader's exchange funds (their API key
+explicitly has withdrawals DISABLED, by this same onboarding flow's
+own instructions — see services/trader_broker_connections.py's
+EXCHANGE_META), so there is no way to deduct a fee from their exchange
+balance automatically. What this genuinely does: every time an
+eligible trade closes at a profit, the exact fee owed is computed and
 recorded (services/performance_fees.py's own apply_performance_fee) —
-visible to both the trader (what they owe) and the admin (who owes
-what, and where to collect it, via the payout fields below). Actually
-COLLECTING it — a crypto transfer the trader sends, or a Paystack
-charge/transfer an admin initiates outside this app — happens outside
-this codebase; an admin marks a ledger entry PAID once that's
-confirmed (routers/fees.py's own admin_mark_paid), the same honest
-"real record, not a fake automated payment" pattern as this app's
-other stubbed-provider features (see services/email.py's own
-docstring for the same shape of honesty).
+visible to both the trader (what they owe, and a real "Pay now with
+Paystack" button — routers/fees.py's own start_fee_checkout, core/fee_gate.py)
+and the admin (who owes what, via the ledger below). A trader can also
+settle outside Paystack (a crypto transfer, or a bank transfer an
+admin confirms) — an admin marks a ledger entry PAID once that's
+confirmed (routers/fees.py's own admin_mark_paid) regardless of how it
+was actually paid.
 """
 
 from __future__ import annotations
@@ -57,10 +56,25 @@ class PlatformFeeSettings(Base):
 
     id = Column(String(10), primary_key=True, default="singleton")
 
+    # Governs a SUBSCRIBER'S bot-copied trade only (Trade.subscription_id
+    # set) — the original "fee vs free toggle" request.
     enabled = Column(Boolean, nullable=False, default=False)
-    # Percent of PROFIT (only ever applied when a copy trade's own
-    # realized P&L on that close is positive — see
-    # apply_performance_fee's own "success basis" comment).
+    # A SEPARATE toggle for a trader's own manual trade (Trade.strategy_type
+    # == "manual") — by direct follow-up request ("add a fee system to
+    # manual trades also for using the platform... can be toggled on or
+    # off in the admin portal"). Independent from `enabled` on purpose:
+    # an Admin may want to charge one, both, or neither — e.g. free bot
+    # subscriptions to encourage copy-trading uptake, while still
+    # charging platform usage on manual trades, or vice versa. Both
+    # toggles share the SAME fee_percent/payout fields below — one fee
+    # rate and one payout destination platform-wide, just two
+    # independent "which trades does this apply to" switches. See
+    # services/performance_fees.py's own apply_performance_fee for how
+    # the two are evaluated.
+    manual_trade_fee_enabled = Column(Boolean, nullable=False, default=False)
+    # Percent of PROFIT (only ever applied when a trade's own realized
+    # P&L on that close is positive, and never on a Paper/Test trade —
+    # see apply_performance_fee's own "success basis" comment).
     fee_percent = Column(Float, nullable=False, default=0.0)
 
     payout_method = Column(Enum(PayoutMethod), nullable=False, default=PayoutMethod.CRYPTO)

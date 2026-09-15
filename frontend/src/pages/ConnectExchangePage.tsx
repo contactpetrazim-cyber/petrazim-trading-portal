@@ -233,14 +233,25 @@ export function ConnectExchangePage() {
       {fees && (
         <FoldedCard
           title="Performance Fees"
-          summary={fees.enabled ? `${fees.fee_percent}% of profit on bot-copied trades${fees.total_owed > 0 ? ` · ${fees.settlement_currency} ${fees.total_owed.toFixed(2)} owed` : ''}` : 'Free — no fee currently charged'}
+          summary={
+            (fees.enabled || fees.manual_trade_fee_enabled)
+              ? `${fees.fee_percent}% of profit${fees.total_owed > 0 ? ` · ${fees.settlement_currency} ${fees.total_owed.toFixed(2)} owed` : ''}`
+              : 'Free — no fee currently charged'
+          }
           icon={<Percent size={18} />} dark={dark}
         >
           <div className="space-y-2 py-2 text-sm">
-            {fees.enabled ? (
+            {(fees.enabled || fees.manual_trade_fee_enabled) ? (
               <>
                 <p>
-                  A {fees.fee_percent}% fee applies to the PROFIT on any trade a bot copies onto your own account (never on a loss, and never on a manual trade you place yourself).
+                  A {fees.fee_percent}% fee applies to the PROFIT (never a loss, never a Paper/Test
+                  trade) on{' '}
+                  {fees.enabled && fees.manual_trade_fee_enabled
+                    ? 'any trade a bot copies onto your own account AND any manual trade you place yourself'
+                    : fees.enabled
+                      ? 'any trade a bot copies onto your own account (not on a manual trade you place yourself)'
+                      : 'any manual trade you place yourself (not on a bot-copied trade)'}
+                  .
                 </p>
                 {fees.total_owed > 0 && (
                   <div className={`rounded-xl p-3 border ${dark ? 'bg-amber-400/10 border-amber-400/20' : 'bg-amber-50 border-amber-200'}`}>
@@ -275,7 +286,7 @@ export function ConnectExchangePage() {
                 )}
               </>
             ) : (
-              <p className="opacity-70">Bot-copied trades on your account are free right now — no performance fee is being charged.</p>
+              <p className="opacity-70">Trading on your account is free right now — no performance fee is being charged, on bot-copied or manual trades.</p>
             )}
           </div>
         </FoldedCard>

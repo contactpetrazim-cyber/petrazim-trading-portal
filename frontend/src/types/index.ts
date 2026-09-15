@@ -194,6 +194,7 @@ export type PayoutMethod = 'crypto' | 'paystack' | 'both';
 
 export interface FeeSettings {
   enabled: boolean;
+  manual_trade_fee_enabled: boolean;
   fee_percent: number;
   payout_method: PayoutMethod;
   crypto_address: string | null;
@@ -226,6 +227,7 @@ export interface FeeLedgerEntry {
 
 export interface MyFeesResponse {
   enabled: boolean;
+  manual_trade_fee_enabled: boolean;
   fee_percent: number;
   payout_method: PayoutMethod;
   crypto_address: string | null;

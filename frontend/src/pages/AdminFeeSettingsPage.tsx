@@ -54,7 +54,8 @@ export function AdminFeeSettingsPage() {
     setSaving(true);
     try {
       const s = await adminFeesApi.updateSettings({
-        enabled: draft.enabled, fee_percent: draft.fee_percent, payout_method: draft.payout_method,
+        enabled: draft.enabled, manual_trade_fee_enabled: draft.manual_trade_fee_enabled,
+        fee_percent: draft.fee_percent, payout_method: draft.payout_method,
         crypto_address: draft.crypto_address ?? undefined, crypto_network: draft.crypto_network ?? undefined,
         paystack_account_name: draft.paystack_account_name ?? undefined, paystack_account_number: draft.paystack_account_number ?? undefined,
         paystack_bank_name: draft.paystack_bank_name ?? undefined, paystack_bank_code: draft.paystack_bank_code ?? undefined,
@@ -107,22 +108,32 @@ export function AdminFeeSettingsPage() {
           <Percent size={20} /> Performance Fees
         </h1>
         <p className={`text-sm mt-1 ${dark ? 'text-white/60' : 'text-gray-500'}`}>
-          A share of the PROFIT on a subscriber's bot-copied trades only — never on a manual trade, never on a loss.
-          This calculates and records what's owed; it doesn't collect payment automatically.
+          A share of the PROFIT on a subscriber's bot-copied trades and/or a trader's own manual trades —
+          two independent toggles below, never on a loss, never on a Paper/Test trade.
+          This calculates and records what's owed; a trader can settle it with a real Paystack payment
+          right from their own Connect Exchange page, or an admin can mark it paid another way.
         </p>
       </div>
 
       {error && <div className="rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm px-3 py-2">{error}</div>}
 
-      <FoldedCard title="Fee Settings" summary={loading ? 'Loading…' : (settings?.enabled ? `On — ${settings.fee_percent}%` : 'Off — free')} icon={<Percent size={18} />} dark={dark} defaultOpen>
+      <FoldedCard
+        title="Fee Settings"
+        summary={loading ? 'Loading…' : [
+          settings?.enabled ? `Copy-trades ${settings.fee_percent}%` : null,
+          settings?.manual_trade_fee_enabled ? `Manual trades ${settings.fee_percent}%` : null,
+        ].filter(Boolean).join(' · ') || 'Off — free'}
+        icon={<Percent size={18} />} dark={dark} defaultOpen
+      >
         {loading ? <p className="text-sm opacity-60 py-2">Loading…</p> : (
           <div className="space-y-4 py-2">
             <p className={`text-xs leading-relaxed ${dark ? 'text-white/50' : 'text-gray-500'}`}>
-              This controls whether — and how much — the platform takes as a fee on a subscriber's
-              bot-copied trades. It only ever applies to a copy trade that closes at a PROFIT (never a
-              loss, and never a trader's own manual trade). This page only calculates and records what's
-              owed — see the Fee Ledger card below to mark an entry paid once a real transfer happens
-              outside this app.
+              This controls whether — and how much — the platform takes as a fee, on either or both of a
+              subscriber's bot-copied trades and a trader's own manual trades (two separate toggles right
+              below, sharing the same percentage and payout destination). It only ever applies to a trade
+              that closes at a PROFIT — never a loss, and never a Paper/Test trade. This page calculates
+              and records what's owed — see the Fee Ledger card below to mark an entry paid once a real
+              transfer happens outside this app, or let the trader pay it directly via Paystack.
             </p>
 
             <label className="flex items-start gap-2 text-sm font-medium cursor-pointer">
@@ -130,7 +141,17 @@ export function AdminFeeSettingsPage() {
               <span>
                 Charge a performance fee on profitable copy-trades
                 <span className={`block font-normal ${helpCls} mt-0`}>
-                  When off, bot-copied trades are free — no fee is ever calculated or shown to traders, regardless of the percentage below.
+                  A subscriber's own bot-copied trade only (never a trader's own manual trade — see the toggle below for that). When off, copy-trades are free regardless of the percentage below.
+                </span>
+              </span>
+            </label>
+
+            <label className="flex items-start gap-2 text-sm font-medium cursor-pointer">
+              <input type="checkbox" className="mt-0.5" checked={!!draft.manual_trade_fee_enabled} onChange={(e) => setDraft((d) => ({ ...d, manual_trade_fee_enabled: e.target.checked }))} />
+              <span>
+                Charge a performance fee on manual trades too
+                <span className={`block font-normal ${helpCls} mt-0`}>
+                  A trader's own trade placed directly through Manual Trading — a separate "platform usage" fee, independent of the copy-trade toggle above. Same percentage, same profit-only rule, never on a Paper/Test trade.
                 </span>
               </span>
             </label>
@@ -141,8 +162,9 @@ export function AdminFeeSettingsPage() {
                 <input type="number" min={0} max={100} step={0.5} className={inputCls}
                   value={draft.fee_percent ?? 0} onChange={(e) => setDraft((d) => ({ ...d, fee_percent: parseFloat(e.target.value) || 0 }))} />
                 <p className={helpCls}>
-                  E.g. 10 = the platform takes 10% of ONLY the profit on each winning copy-trade close.
-                  A losing close never owes anything, at any percentage.
+                  E.g. 10 = the platform takes 10% of ONLY the profit on each eligible winning close
+                  (copy-trade and/or manual, per the toggles above). A losing close never owes anything,
+                  at any percentage.
                 </p>
               </div>
               <div>

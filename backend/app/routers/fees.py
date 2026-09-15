@@ -59,6 +59,7 @@ async def _get_payments_mode(db: AsyncSession) -> Literal["test", "live"]:
 
 class FeeSettingsResponse(BaseModel):
     enabled: bool
+    manual_trade_fee_enabled: bool
     fee_percent: float
     payout_method: str
     crypto_address: Optional[str]
@@ -74,7 +75,8 @@ class FeeSettingsResponse(BaseModel):
 
 def _settings_response(s: PlatformFeeSettings) -> FeeSettingsResponse:
     return FeeSettingsResponse(
-        enabled=s.enabled, fee_percent=s.fee_percent, payout_method=s.payout_method.value,
+        enabled=s.enabled, manual_trade_fee_enabled=s.manual_trade_fee_enabled,
+        fee_percent=s.fee_percent, payout_method=s.payout_method.value,
         crypto_address=s.crypto_address, crypto_network=s.crypto_network,
         paystack_account_name=s.paystack_account_name, paystack_account_number=s.paystack_account_number,
         paystack_bank_name=s.paystack_bank_name, paystack_bank_code=s.paystack_bank_code,
@@ -89,6 +91,7 @@ async def admin_get_fee_settings(db: AsyncSession = Depends(get_db), _admin: Use
 
 class UpdateFeeSettingsRequest(BaseModel):
     enabled: Optional[bool] = None
+    manual_trade_fee_enabled: Optional[bool] = None
     fee_percent: Optional[float] = None
     payout_method: Optional[Literal["crypto", "paystack", "both"]] = None
     crypto_address: Optional[str] = None
@@ -113,6 +116,8 @@ async def admin_update_fee_settings(
     s = await get_fee_settings(db)
     if req.enabled is not None:
         s.enabled = req.enabled
+    if req.manual_trade_fee_enabled is not None:
+        s.manual_trade_fee_enabled = req.manual_trade_fee_enabled
     if req.fee_percent is not None:
         if not (0 <= req.fee_percent <= 100):
             raise HTTPException(status_code=422, detail="fee_percent must be between 0 and 100.")
@@ -235,6 +240,7 @@ async def admin_waive(
 
 class MyFeesResponse(BaseModel):
     enabled: bool
+    manual_trade_fee_enabled: bool
     fee_percent: float
     payout_method: str
     crypto_address: Optional[str]
@@ -251,14 +257,16 @@ class MyFeesResponse(BaseModel):
 async def my_fee_ledger(db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
     """What THIS trader owes and where to pay it — the payout fields
     are shown here even when there's nothing owed yet, so a trader
-    considering Auto copy mode can see the terms up front."""
+    considering Auto copy mode (or placing a manual trade, if
+    manual_trade_fee_enabled) can see the terms up front."""
     settings_row = await get_fee_settings(db)
     rows = (await db.execute(
         select(PerformanceFeeLedgerEntry).where(PerformanceFeeLedgerEntry.user_id == user.id).order_by(PerformanceFeeLedgerEntry.created_at.desc())
     )).scalars().all()
     total_owed_amount = round(sum(e.fee_amount for e in rows if e.status == FeeLedgerStatus.OWED), 2)
     return MyFeesResponse(
-        enabled=settings_row.enabled, fee_percent=settings_row.fee_percent, payout_method=settings_row.payout_method.value,
+        enabled=settings_row.enabled, manual_trade_fee_enabled=settings_row.manual_trade_fee_enabled,
+        fee_percent=settings_row.fee_percent, payout_method=settings_row.payout_method.value,
         crypto_address=settings_row.crypto_address, crypto_network=settings_row.crypto_network,
         paystack_account_name=settings_row.paystack_account_name, paystack_account_number=settings_row.paystack_account_number,
         paystack_bank_name=settings_row.paystack_bank_name, settlement_currency=settings_row.settlement_currency,

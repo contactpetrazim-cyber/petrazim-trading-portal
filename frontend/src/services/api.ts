@@ -257,7 +257,7 @@ export const adminExchangeConnectionsApi = {
 export const adminFeesApi = {
   getSettings: () => api.get<FeeSettings>('/admin/fees/settings').then(r => r.data),
   updateSettings: (body: Partial<{
-    enabled: boolean; fee_percent: number; payout_method: string;
+    enabled: boolean; manual_trade_fee_enabled: boolean; fee_percent: number; payout_method: string;
     crypto_address: string; crypto_network: string;
     paystack_account_name: string; paystack_account_number: string; paystack_bank_name: string; paystack_bank_code: string;
     notes: string; settlement_currency: string;
