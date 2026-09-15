@@ -42,7 +42,7 @@ export function RosterPanel({ dark = false }: { dark?: boolean }) {
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteName, setInviteName] = useState('');
-  const [inviteResult, setInviteResult] = useState<{ email: string; temporary_password: string } | null>(null);
+  const [inviteResult, setInviteResult] = useState<{ email: string; temporary_password: string; email_sent: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function loadRoster() {
@@ -169,12 +169,16 @@ export function RosterPanel({ dark = false }: { dark?: boolean }) {
             ) : (
               <div>
                 <p className={`text-sm mb-3 ${dark ? 'text-white/60' : 'text-gray-600'}`}>
-                  Trader account created for <b>{inviteResult.email}</b>. Share this one-time password —
-                  it won't be shown again:
+                  Trader account created for <b>{inviteResult.email}</b>.{' '}
+                  {inviteResult.email_sent
+                    ? 'A welcome email with their login and a step-by-step setup guide was sent to them.'
+                    : "No email provider is configured yet, so nothing was emailed — share this one-time password with them yourself:"}
                 </p>
-                <div className={`rounded-lg p-3 font-mono text-sm text-center mb-4 ${dark ? 'bg-corporate-nav-dark text-white' : 'bg-corporate-bg'}`}>
-                  {inviteResult.temporary_password}
-                </div>
+                {!inviteResult.email_sent && (
+                  <div className={`rounded-lg p-3 font-mono text-sm text-center mb-4 ${dark ? 'bg-corporate-nav-dark text-white' : 'bg-corporate-bg'}`}>
+                    {inviteResult.temporary_password}
+                  </div>
+                )}
                 <button onClick={closeInvite} className="w-full bg-corporate-hero text-white font-medium py-2.5 rounded-lg text-sm">
                   Done
                 </button>

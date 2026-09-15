@@ -49,6 +49,56 @@ def build_cycle_confirmation_email(trainee_name: str, sessions: List[ScheduledSe
     return subject, "\n".join(lines)
 
 
+def build_trader_invite_email(
+    trader_name: str, email: str, temporary_password: str, login_url: str,
+) -> Tuple[str, str]:
+    """The invite a new Trader gets from routers/roster.py's own
+    POST /roster/invite — by direct request ("summarise step by step
+    and integrate into the email or invite that goes to the new user
+    or trader"). Steps 2+ mirror ConnectExchangePage.tsx's own current
+    state exactly: "Add Exchange" now lives inside the Settings
+    slide-over (SettingsPanel.tsx), not its own sidebar entry — keep
+    this in sync if that page moves again. Login credentials appear
+    FIRST, same "the thing they actually need, ahead of everything
+    else" ordering as the facilitator confirmation emails above put
+    their join link first."""
+    subject = f"You're invited to Petrazim — your trading account is ready, {trader_name}"
+
+    lines = [
+        f"LOG IN: {login_url}",
+        f"Email: {email}",
+        f"Temporary password: {temporary_password}",
+        "",
+        f"Hi {trader_name},",
+        "",
+        "You've been added to the Petrazim trading portal. Here's how to get set up:",
+        "",
+        "1. Log in with the link and temporary password above, and set your own "
+        "password from Settings once you're in.",
+        "",
+        "2. (Optional) Connect your own exchange account, so trades you place — or "
+        "a bot you subscribe to — execute on YOUR account instead of a shared pool. "
+        "Open the gear/Settings icon and choose \"Add Exchange.\"",
+        "",
+        "3. Pick your exchange (BingX, Binance, Bybit, MEXC, TradeLocker, or MT4/5 "
+        "via MetaApi) and fill in the connect form. You'll need an API key/secret "
+        "from that exchange, scoped to trading only with WITHDRAWALS DISABLED — "
+        "never your exchange password itself. The form shows this platform's real "
+        "outbound IP to whitelist on that key.",
+        "",
+        "4. Click \"Test connection\" — a real, harmless check (reads your balance) "
+        "to confirm the key works before it's relied on.",
+        "",
+        "5. Choose Manual, Bot, or Both for how that connection may be used, and "
+        "optionally subscribe one of our bots with Auto (executes immediately) or "
+        "Manual (you approve each trade yourself) copy mode.",
+        "",
+        "That's the whole setup — a few minutes, entirely self-service. Reach out to "
+        "whoever invited you if you have any questions.",
+    ]
+    return subject, "\n".join(lines)
+
+
 def build_standalone_confirmation_email(trainee_name: str, session: ScheduledSession) -> Tuple[str, str]:
     subject = f"Your {session.module_name} session is confirmed"
     body = "\n".join([

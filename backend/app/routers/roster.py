@@ -29,6 +29,13 @@ from app.models.user import User, UserRole, UserStatus
 from app.models.bot import BotConfig
 from app.models.trade import Trade, TradeStatus
 from app.services.roster_access import user_can_manage_trader
+from app.services.email import build_trader_invite_email, send_email
+from app.config import get_settings
+
+import structlog
+
+logger = structlog.get_logger()
+settings = get_settings()
 
 router = APIRouter(prefix="/roster", tags=["roster"])
 
@@ -44,6 +51,12 @@ class InviteTraineeResponse(BaseModel):
     user_id: str
     email: str
     temporary_password: str
+    # False whenever no email provider is configured yet (see
+    # services/email.py's own send_email) — the invite itself always
+    # still succeeds either way; temporary_password is returned above
+    # so the inviting Manager can hand it over directly (Slack, in
+    # person, etc.) when it is.
+    email_sent: bool
 
 
 @router.post("/invite", response_model=InviteTraineeResponse)
@@ -74,7 +87,26 @@ async def invite_trainee(
     await db.commit()
     await db.refresh(trader)
 
-    return InviteTraineeResponse(user_id=str(trader.id), email=trader.email, temporary_password=temp_password)
+    # Best-effort — an invite must always succeed even when no email
+    # provider is configured yet (send_email's own honest
+    # NotImplementedError/RuntimeError in that case) or the provider
+    # call itself fails for any other reason. temporary_password is
+    # always returned in the response either way, so the inviting
+    # Manager can hand it over directly when the email doesn't go out.
+    email_sent = False
+    try:
+        subject, body = build_trader_invite_email(
+            trader_name=trader.full_name, email=trader.email,
+            temporary_password=temp_password, login_url=f"{settings.FRONTEND_URL.rstrip('/')}/login",
+        )
+        send_email(trader.email, subject, body)
+        email_sent = True
+    except Exception as e:
+        logger.warning("trader_invite_email_not_sent", trader_email=trader.email, error=str(e))
+
+    return InviteTraineeResponse(
+        user_id=str(trader.id), email=trader.email, temporary_password=temp_password, email_sent=email_sent,
+    )
 
 
 class AssignTraderRequest(BaseModel):
