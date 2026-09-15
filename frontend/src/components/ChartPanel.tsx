@@ -67,11 +67,23 @@ export function NoPositionCard({ dark, otherTrades }: { dark: boolean; otherTrad
   const btnCls = 'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-corporate-hero hover:opacity-90 shrink-0';
   return (
     <div className={cardCls}>
-      <div className="text-sm">No open or pending order on this symbol right now.</div>
+      {/* "No open or pending order on this symbol right now" was
+          removed here — by direct request, it's redundant: if there
+          WAS one on this symbol, PositionManager renders instead of
+          this card at all, so stating that fact added nothing. The
+          rows below (if any) already say exactly where a trader's
+          real order is. Only the genuinely-nothing-anywhere case still
+          gets a line, so the card is never just a blank box. */}
+      {(!otherTrades || otherTrades.length === 0) && (
+        <div className="text-sm">No open trades anywhere right now.</div>
+      )}
       {otherTrades?.map((t, i) => {
         const pair = pairFromTradeSymbol(t.symbol, t.broker_name);
         return (
-          <div key={t.trade_id} className={`${rowCls} ${i === 0 ? `pt-2.5 border-t ${dark ? 'border-white/10' : 'border-gray-100'}` : ''}`}>
+          // No top border on the first row anymore — it used to
+          // separate this list from the redundant "no order on this
+          // symbol" line right above, which is gone now.
+          <div key={t.trade_id} className={`${rowCls} ${i > 0 ? `pt-2.5 border-t ${dark ? 'border-white/10' : 'border-gray-100'}` : ''}`}>
             <span className="text-sm">You have {t.status === 'pending' ? 'a pending order' : 'an open position'} on {t.symbol} instead.</span>
             {/* "Position Chart" — matches PositionManager's own label
                 for this exact same idea (the chart where a real order
