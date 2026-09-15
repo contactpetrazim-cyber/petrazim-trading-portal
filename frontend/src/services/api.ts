@@ -1,6 +1,6 @@
 
 import axios from 'axios';
-import { Trade, BotConfig, BotPerformance, BotMetricsUpdate, DashboardStats, SignalPreview, PerformanceSummary, ExchangeMetaResponse, TraderBrokerConnection, AvailableBot, TraderBotSubscription } from '../types';
+import { Trade, BotConfig, BotPerformance, BotMetricsUpdate, DashboardStats, SignalPreview, PerformanceSummary, ExchangeMetaResponse, TraderBrokerConnection, AvailableBot, TraderBotSubscription, OutboundIpsResponse } from '../types';
 import { useAuthStore } from '../hooks/useAuth';
 import { triggerAccessExpired } from '../components/AccessExpiredGate';
 import { handleUnauthorized } from '../lib/authGuard';
@@ -235,10 +235,10 @@ export const adminExchangeConnectionsApi = {
   suspend: (id: string, suspended: boolean) =>
     api.patch<TraderBrokerConnection>(`/admin/exchange-connections/${id}/suspend`, { suspended }).then(r => r.data),
   remove: (id: string) => api.delete(`/admin/exchange-connections/${id}`).then(r => r.data),
-  getOutboundIps: () => api.get<{ outbound_ips: string; source: string }>('/admin/exchange-connections/outbound-ips').then(r => r.data),
-  refreshOutboundIps: () => api.post<{ outbound_ips: string; source: string }>('/admin/exchange-connections/outbound-ips/refresh').then(r => r.data),
-  setOutboundIps: (outboundIps: string) =>
-    api.patch<{ outbound_ips: string; source: string }>('/admin/exchange-connections/outbound-ips', { outbound_ips: outboundIps }).then(r => r.data),
+  getOutboundIps: () => api.get<OutboundIpsResponse>('/admin/exchange-connections/outbound-ips').then(r => r.data),
+  refreshOutboundIps: () => api.post<OutboundIpsResponse>('/admin/exchange-connections/outbound-ips/refresh').then(r => r.data),
+  setOutboundIps: (body: { outbound_ip_vm?: string; outbound_ip_fixie?: string }) =>
+    api.patch<OutboundIpsResponse>('/admin/exchange-connections/outbound-ips', body).then(r => r.data),
 };
 
 export const webhookApi = {

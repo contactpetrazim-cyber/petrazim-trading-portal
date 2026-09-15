@@ -43,7 +43,8 @@ export function ConnectExchangePage() {
   const dark = portalThemes.trader === 'dark';
 
   const [exchanges, setExchanges] = useState<ExchangeInfo[]>([]);
-  const [outboundIps, setOutboundIps] = useState('');
+  const [outboundIpVm, setOutboundIpVm] = useState('');
+  const [outboundIpFixie, setOutboundIpFixie] = useState('');
   const [connections, setConnections] = useState<TraderBrokerConnection[]>([]);
   const [bots, setBots] = useState<AvailableBot[]>([]);
   const [subscriptions, setSubscriptions] = useState<TraderBotSubscription[]>([]);
@@ -70,7 +71,8 @@ export function ConnectExchangePage() {
         exchangeConnectionsApi.mySubscriptions(),
       ]);
       setExchanges(meta.exchanges);
-      setOutboundIps(meta.outbound_ips);
+      setOutboundIpVm(meta.outbound_ip_vm);
+      setOutboundIpFixie(meta.outbound_ip_fixie);
       setConnections(conns);
       setBots(availableBots);
       setSubscriptions(subs);
@@ -194,13 +196,16 @@ export function ConnectExchangePage() {
 
       {error && <div className="rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm px-3 py-2">{error}</div>}
 
-      {outboundIps ? (
-        <div className="rounded-lg bg-blue-50 border border-blue-200 text-blue-800 text-sm px-3 py-2">
-          Whitelist this outbound IP on your exchange API key: <span className="font-mono font-semibold">{outboundIps}</span>
+      {(outboundIpVm || outboundIpFixie) ? (
+        <div className="rounded-lg bg-blue-50 border border-blue-200 text-blue-800 text-sm px-3 py-2 space-y-1">
+          <p className="font-semibold">Whitelist BOTH of these outbound IPs on your exchange API key:</p>
+          {outboundIpVm && <p>Primary (VM): <span className="font-mono font-semibold">{outboundIpVm}</span></p>}
+          {outboundIpFixie && <p>Backup (Fixie): <span className="font-mono font-semibold">{outboundIpFixie}</span></p>}
+          <p className="text-xs opacity-70">This platform automatically fails over between the two — whitelisting only one risks your trades silently not executing if that path is ever down.</p>
         </div>
       ) : (
         <div className="rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-sm px-3 py-2">
-          Your admin hasn't published this platform's outbound IP yet — ask them for it before restricting your exchange key by IP (you can still connect without an IP restriction, though it's not recommended).
+          Your admin hasn't published this platform's outbound IP(s) yet — ask them for it before restricting your exchange key by IP (you can still connect without an IP restriction, though it's not recommended).
         </div>
       )}
 

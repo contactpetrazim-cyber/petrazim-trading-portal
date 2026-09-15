@@ -125,7 +125,18 @@ export interface ExchangeInfo {
 
 export interface ExchangeMetaResponse {
   exchanges: ExchangeInfo[];
-  outbound_ips: string;
+  // Two separate, labeled IPs (not one merged list) — this platform's
+  // real topology routes exchange traffic via the VM (primary) or
+  // Fixie (backup); a trader should whitelist BOTH.
+  outbound_ip_vm: string;
+  outbound_ip_fixie: string;
+}
+
+export interface OutboundIpsResponse {
+  outbound_ip_vm: string;
+  outbound_ip_fixie: string;
+  vm_source: 'manual' | 'auto';
+  fixie_source: 'manual' | 'auto';
 }
 
 export interface TraderBrokerConnection {
