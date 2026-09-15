@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { ShieldAlert, Users, Link2, Percent } from 'lucide-react';
+import { ShieldAlert, Users, Link2, Percent, ArrowRight } from 'lucide-react';
 import { FoldedCard } from '../components/FoldedCard';
 import { RoleBadge } from '../components/RoleBadge';
 import { RosterPanel } from '../components/RosterPanel';
@@ -49,6 +49,39 @@ interface UserRow {
  * Admin the full, unscoped view (every roster, every trader), the
  * same principle used everywhere else access is role-gated.
  */
+
+/** AdminLinkCard — a navigate-away link styled exactly like FoldedCard
+ * (the site's real card template: rounded-2xl border, icon in a tinted
+ * circular chip, title + summary), but without the expand/collapse
+ * behavior a plain link-out has no use for — a trailing arrow instead
+ * of FoldedCard's chevron makes that "this navigates, it doesn't
+ * unfold" distinction visible too. By direct request ("put these in
+ * separate cards ... follow portal design template"): Trader Exchange
+ * Connections and Performance Fees were previously a flat, hand-rolled
+ * `flex` row that didn't match any other card on this page. */
+function AdminLinkCard({
+  to, icon, title, summary, dark,
+}: { to: string; icon: ReactNode; title: string; summary: string; dark: boolean }) {
+  return (
+    <Link
+      to={to}
+      className={`flex items-center gap-3 p-5 rounded-2xl border transition-shadow ${
+        dark
+          ? 'bg-corporate-surface-dark border-corporate-border-dark hover:bg-smc-card/80'
+          : 'bg-white border-[#dcdce8] hover:shadow-[0_8px_30px_rgba(15,45,110,0.08)]'
+      }`}
+    >
+      <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 bg-corporate-hero/10 text-corporate-hero">
+        {icon}
+      </span>
+      <div className="flex-1 min-w-0">
+        <div className={`font-semibold ${dark ? 'text-white' : 'text-corporate-text-on-bg'}`}>{title}</div>
+        <div className={`text-xs mt-0.5 ${dark ? 'text-white/40' : 'text-[#7c839c]'}`}>{summary}</div>
+      </div>
+      <ArrowRight size={18} className={`shrink-0 ${dark ? 'text-white/30' : 'text-[#9aa0b8]'}`} />
+    </Link>
+  );
+}
 export function AdminConsolePage() {
   const { user, token } = useAuth();
   const { portalThemes } = useThemeStore();
@@ -173,37 +206,26 @@ export function AdminConsolePage() {
         <PlatformOverviewPanel dark={dark} />
       </div>
 
-      {/* Trader exchange-onboarding management — by direct request
-          ("Put the onboarding controls and management in the admin
-          portal - the connection of the portal to their exchanges").
-          A link out to its own page rather than the full table inlined
-          here, same "keep this console scannable" pattern the rest of
-          this page already follows. */}
-      <Link
-        to="/admin/exchange-connections"
-        className={`mb-4 flex items-center justify-between rounded-xl border p-4 ${dark ? 'bg-smc-card border-smc-border hover:bg-smc-card/80' : 'bg-white border-corporate-bg hover:bg-gray-50'}`}
-      >
-        <div className="flex items-center gap-2">
-          <Link2 size={16} className={dark ? 'text-blue-400' : 'text-blue-600'} />
-          <span className={`text-sm font-medium ${dark ? 'text-gray-200' : 'text-corporate-text-on-bg'}`}>Trader Exchange Connections</span>
-        </div>
-        <span className={`text-xs ${dark ? 'text-gray-500' : 'text-gray-400'}`}>Manage every trader's connected exchange account →</span>
-      </Link>
-
-      {/* The Fee/Free toggle, percentage, and payout destination for
-          subscriber copy-trades — by direct request ("introduce a fee
-          base or a share of the profit ... Create a fee vs free
-          toggle ... include in Admin portal"). */}
-      <Link
-        to="/admin/fees"
-        className={`mb-4 flex items-center justify-between rounded-xl border p-4 ${dark ? 'bg-smc-card border-smc-border hover:bg-smc-card/80' : 'bg-white border-corporate-bg hover:bg-gray-50'}`}
-      >
-        <div className="flex items-center gap-2">
-          <Percent size={16} className={dark ? 'text-blue-400' : 'text-blue-600'} />
-          <span className={`text-sm font-medium ${dark ? 'text-gray-200' : 'text-corporate-text-on-bg'}`}>Performance Fees</span>
-        </div>
-        <span className={`text-xs ${dark ? 'text-gray-500' : 'text-gray-400'}`}>Fee toggle, percentage, payout destination, and the owed/paid ledger →</span>
-      </Link>
+      {/* Trader exchange-onboarding management and the performance-fee
+          system — by direct request ("Put the onboarding controls and
+          management in the admin portal", "introduce a fee base ...
+          Create a fee vs free toggle ... include in Admin portal").
+          Two separate AdminLinkCards (see that component's own
+          docstring), not one merged block — by direct follow-up
+          request ("put these in separate cards ... follow portal
+          design template"). */}
+      <div className="space-y-3 mb-4">
+        <AdminLinkCard
+          to="/admin/exchange-connections" icon={<Link2 size={18} />} dark={dark}
+          title="Trader Exchange Connections"
+          summary="Manage every trader's connected exchange account"
+        />
+        <AdminLinkCard
+          to="/admin/fees" icon={<Percent size={18} />} dark={dark}
+          title="Performance Fees"
+          summary="Fee toggle, percentage, payout destination, and the owed/paid ledger"
+        />
+      </div>
 
       {isSuperAdmin && (
         <div className={`border rounded-xl p-6 mb-4 ${dark ? 'bg-smc-card border-smc-border' : 'bg-white border-corporate-bg'}`}>
