@@ -244,15 +244,33 @@ class VolumeProfileRow(BaseModel):
 
 class FootprintChartResponse(BaseModel):
     symbol: str
+    interval: str
     tick_size: float
     candles: List[FootprintCandle]
     volume_profile: List[VolumeProfileRow]   # high-to-low, same grid as candles' rows
     poc_price: float                          # the volume_profile row with the most volume
 
 
+# Real, fixed candle durations — by direct report ("Is there a time
+# frame control for the Footprint Chart... If so please fix and add"):
+# there wasn't one. This endpoint used to split whatever time span the
+# fetched trades happened to cover into `num_candles` EQUAL pieces
+# (`span // num_candles`) — a width with no relationship to any real
+# duration, couldn't be chosen by the trader, and silently changed
+# candle-to-candle depending on how fast the market happened to be
+# trading. Capped at 1h (not the klines endpoint's full 1d/1w range):
+# this data source is Binance's most-recent-1000-trades feed, not a
+# historical range query, so a longer interval on a liquid pair like
+# BTCUSDT can genuinely span very few real candles from that window —
+# honest, not fabricated to fill a fixed count either way.
+FOOTPRINT_INTERVAL_MS = {
+    "1m": 60_000, "5m": 5 * 60_000, "15m": 15 * 60_000, "30m": 30 * 60_000, "1h": 3_600_000,
+}
+
+
 @router.get("/footprint-chart", response_model=FootprintChartResponse)
 async def get_footprint_chart(
-    symbol: str = "BTCUSDT", trade_limit: int = 1000, num_candles: int = 15, target_rows: int = 40,
+    symbol: str = "BTCUSDT", interval: str = "1m", trade_limit: int = 1000, num_candles: int = 15, target_rows: int = 40,
     user: User = Depends(get_current_user),
 ):
     """Real bid/ask volume clusters per price level per candle — the
@@ -263,8 +281,14 @@ async def get_footprint_chart(
     share the identical price grid and line up visually; a calmer
     candle naturally gets fewer rows and a volatile one gets more,
     exactly like a real footprint chart — this isn't a fixed row count
-    forced onto every candle."""
+    forced onto every candle. `interval` is a REAL, calendar-aligned
+    candle duration (same convention as the klines endpoint below, so a
+    5m footprint candle lines up with a real 5m candlestick elsewhere)
+    — see FOOTPRINT_INTERVAL_MS's own comment for why it's capped at 1h."""
     symbol = _validate_symbol(symbol)
+    if interval not in FOOTPRINT_INTERVAL_MS:
+        raise HTTPException(status_code=400, detail=f"interval must be one of {list(FOOTPRINT_INTERVAL_MS)}")
+    interval_ms = FOOTPRINT_INTERVAL_MS[interval]
     trade_limit = max(50, min(trade_limit, 1000))
     num_candles = max(3, min(num_candles, 30))
     target_rows = max(10, min(target_rows, 80))
@@ -282,19 +306,20 @@ async def get_footprint_chart(
     def row_index(price: float) -> int:
         return int((price - session_low) // tick)
 
-    times = [t["time"] for t in raw]
-    t_min, t_max = min(times), max(times)
-    span = max(1, t_max - t_min)
-    candle_ms = max(1, span // num_candles)
+    def candle_start(ts: int) -> int:
+        return (ts // interval_ms) * interval_ms
 
     candle_trades: Dict[int, list] = defaultdict(list)
     for t in raw:
-        idx = min(num_candles - 1, (t["time"] - t_min) // candle_ms)
-        candle_trades[idx].append(t)
+        candle_trades[candle_start(t["time"])].append(t)
+
+    # Only the most recent `num_candles` real candles this trade data
+    # actually spans — never stretched or compressed to hit that count.
+    starts = sorted(candle_trades.keys())[-num_candles:]
 
     candles: List[FootprintCandle] = []
-    for idx in sorted(candle_trades.keys()):
-        trs = sorted(candle_trades[idx], key=lambda t: t["time"])
+    for start in starts:
+        trs = sorted(candle_trades[start], key=lambda t: t["time"])
         c_prices = [float(t["price"]) for t in trs]
         c_high, c_low = max(c_prices), min(c_prices)
 
@@ -321,7 +346,7 @@ async def get_footprint_chart(
         total_bid = sum(rw.bid_volume for rw in rows)
         total_ask = sum(rw.ask_volume for rw in rows)
         candles.append(FootprintCandle(
-            time_ms=t_min + idx * candle_ms, open=c_prices[0], high=c_high, low=c_low, close=c_prices[-1],
+            time_ms=start, open=c_prices[0], high=c_high, low=c_low, close=c_prices[-1],
             delta=round(total_ask - total_bid, 6), total_volume=round(total_ask + total_bid, 6),
             trade_count=len(trs), rows=rows,
         ))
@@ -337,7 +362,7 @@ async def get_footprint_chart(
     poc_price = round(session_low + poc_row * tick, 8)
 
     return FootprintChartResponse(
-        symbol=symbol, tick_size=round(tick, 8), candles=candles,
+        symbol=symbol, interval=interval, tick_size=round(tick, 8), candles=candles,
         volume_profile=volume_profile, poc_price=poc_price,
     )
 

@@ -15,13 +15,24 @@ interface FootprintCandleData {
 }
 interface VolumeProfileRow { row_price: number; volume: number }
 interface FootprintChart {
-  symbol: string; tick_size: number; candles: FootprintCandleData[];
+  symbol: string; interval: string; tick_size: number; candles: FootprintCandleData[];
   volume_profile: VolumeProfileRow[]; poc_price: number;
 }
 
 const TRADES_POLL_MS = 4000;
 const DEPTH_POLL_MS = 5000;
 const CHART_POLL_MS = 15000;
+
+// Real candle durations the footprint chart can be built at — by
+// direct report ("Is there a time frame control for the Footprint
+// Chart... If so please fix and add"): there wasn't one at all, every
+// candle's width was an arbitrary equal split of whatever time the
+// fetched trades happened to span. Capped at 1h, not the full 1d/1w a
+// real candlestick chart offers — see backend/app/routers/order_flow.py's
+// own FOOTPRINT_INTERVAL_MS comment for why: this is built from
+// Binance's most-recent-1000-trades feed, not a historical range
+// query, so a longer interval can genuinely span very few real candles.
+const FOOTPRINT_INTERVALS = ['1m', '5m', '15m', '30m', '1h'] as const;
 
 /**
  * OrderFlowChartTool — a REAL order-flow chart, not a simulation.
@@ -67,6 +78,7 @@ export function OrderFlowChartTool({
   const [trades, setTrades] = useState<TradePrint[] | null>(null);
   const [depth, setDepth] = useState<Depth | null>(null);
   const [chart, setChart] = useState<FootprintChart | null>(null);
+  const [chartInterval, setChartInterval] = useState<typeof FOOTPRINT_INTERVALS[number]>('1m');
   const [error, setError] = useState<string | null>(null);
 
   const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
@@ -126,7 +138,7 @@ export function OrderFlowChartTool({
     if (!token) return;
     let cancelled = false;
     const load = () => {
-      apiFetch(`${API_URL}/order-flow/footprint-chart?symbol=${symbol}&trade_limit=1000&num_candles=15&target_rows=40`, { headers })
+      apiFetch(`${API_URL}/order-flow/footprint-chart?symbol=${symbol}&interval=${chartInterval}&trade_limit=1000&num_candles=15&target_rows=40`, { headers })
         .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
         .then((d) => { if (!cancelled) { setChart(d); setError(null); } })
         .catch(() => !cancelled && setError('Could not load live order flow data right now.'));
@@ -134,7 +146,7 @@ export function OrderFlowChartTool({
     load();
     const id = setInterval(load, CHART_POLL_MS);
     return () => { cancelled = true; clearInterval(id); };
-  }, [token, symbol]);
+  }, [token, symbol, chartInterval]);
 
   const cardCls = `rounded-2xl p-5 border ${dark ? 'bg-corporate-surface-dark border-corporate-border-dark' : 'bg-white border-corporate-bg'}`;
   const titleCls = `text-xs font-semibold uppercase tracking-wide mb-4 ${dark ? 'text-white/40' : 'text-gray-400'}`;
@@ -223,13 +235,36 @@ export function OrderFlowChartTool({
 
       {/* Footprint chart + volume profile — the "volume clusters" view */}
       <div className={`${cardCls} mt-4`}>
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
           <div className={titleCls} style={{ marginBottom: 0 }}>Footprint Chart — Bid × Ask Volume Clusters</div>
-          {chart && (
-            <span className={`text-xs ${mutedCls}`}>
-              Tick size ≈ {chart.tick_size.toPrecision(3)} · POC {chart.poc_price.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-            </span>
-          )}
+          <div className="flex items-center gap-3 flex-wrap">
+            {/* Real candle timeframe — by direct report ("Is there a
+                time frame control... please fix and add"). Each candle
+                used to be an arbitrary equal split of whatever the
+                fetched trades happened to span; this now picks a real,
+                calendar-aligned duration (see FOOTPRINT_INTERVALS'
+                own comment). */}
+            <div className={`flex items-center gap-1 rounded-lg p-1 ${dark ? 'bg-white/5' : 'bg-black/5'}`}>
+              {FOOTPRINT_INTERVALS.map((iv) => (
+                <button
+                  key={iv}
+                  onClick={() => setChartInterval(iv)}
+                  className={`px-2 py-1 rounded-md text-xs font-semibold transition-colors ${
+                    chartInterval === iv
+                      ? dark ? 'bg-white/20 text-white' : 'bg-white text-corporate-text-on-bg shadow-sm'
+                      : dark ? 'text-white/40 hover:text-white/70' : 'text-gray-400 hover:text-gray-600'
+                  }`}
+                >
+                  {iv}
+                </button>
+              ))}
+            </div>
+            {chart && (
+              <span className={`text-xs ${mutedCls}`}>
+                Tick size ≈ {chart.tick_size.toPrecision(3)} · POC {chart.poc_price.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+              </span>
+            )}
+          </div>
         </div>
 
         {chart === null ? (
