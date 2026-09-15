@@ -144,8 +144,22 @@ export function PositionManager({ trade, dark = false, onChanged }: { trade: Tra
         setEditingTargets(false);
         return;
       }
-      await tradesApi.modifyTargets(trade.trade_id, body);
-      setMessage({ ok: true, text: 'Targets updated.' });
+      const result = await tradesApi.modifyTargets(trade.trade_id, body);
+      // broker_synced is only ever set for an ACTIVE, real (non-test)
+      // trade whose SL/TP1 actually changed — see modify_targets' own
+      // docstring in manual_trading.py for exactly when a real broker
+      // sync is attempted at all (PENDING orders, paper/test trades,
+      // and TP2/TP3-only edits never touch a broker, by design, so
+      // `broker_synced` stays null for those and this just shows the
+      // plain "Targets updated." message). false means we DID try and
+      // the real exchange order wasn't actually moved — by direct bug
+      // report, this used to silently claim success either way even
+      // though only OUR OWN record was ever touched.
+      if (result?.broker_synced === false) {
+        setMessage({ ok: false, text: result.broker_message || "Your own record was updated, but your broker's real order wasn't." });
+      } else {
+        setMessage({ ok: true, text: 'Targets updated.' });
+      }
       setEditingTargets(false);
       onChanged?.();
     } catch (err: any) {
