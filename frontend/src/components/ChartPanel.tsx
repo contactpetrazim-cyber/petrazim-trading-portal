@@ -86,6 +86,31 @@ export function NoPositionCard({ dark, otherTrades }: { dark: boolean; otherTrad
   );
 }
 
+/** What the folded "Position" card shows for the brief window between
+ * opening it and the caller's FIRST position poll actually resolving —
+ * by direct bug report: "I observed a time lag after position is
+ * clicked before the blue button shows — You have a pending order on
+ * BTCUSDT instead." The real cause wasn't the poll itself being slow
+ * so much as `position`/`otherOpenTrades` having no way to say "still
+ * checking" — before that first poll resolved they looked identical to
+ * "confirmed you have nothing," so NoPositionCard rendered that
+ * confident-but-wrong empty state for a moment, then visibly flipped
+ * to the real answer once data arrived. This neutral state removes
+ * that flip: it never claims "no order" until the caller's own poll
+ * has actually returned once.
+ */
+export function PositionLoadingCard({ dark }: { dark: boolean }) {
+  const cardCls = `rounded-xl border p-4 ${dark ? 'bg-corporate-surface-dark border-corporate-border-dark text-white/50' : 'bg-white border-gray-200 text-gray-400'}`;
+  return (
+    <div className={cardCls}>
+      <div className="text-sm flex items-center gap-2">
+        <span className="inline-block w-3 h-3 rounded-full border-2 border-current border-t-transparent animate-spin" />
+        Checking your open positions…
+      </div>
+    </div>
+  );
+}
+
 /**
  * ChartPanel — the one reusable chart embed every page uses (Trade,
  * Learn/Practise/Explore area pages, Insights, Tools, the Trader
@@ -126,6 +151,7 @@ export function ChartPanel({
   position,
   onPositionChanged,
   otherOpenTrades,
+  positionLoading,
 
 }: {
   symbol: string;
@@ -199,6 +225,13 @@ export function ChartPanel({
    * doesn't track this (the empty state then just doesn't mention it,
    * same as before). */
   otherOpenTrades?: Trade[];
+  /** True only until the caller's OWN position poll has resolved for
+   * the very first time — see PositionLoadingCard's own docstring for
+   * the lag this fixes. Omit if the caller doesn't track this; the
+   * card then falls back to its previous behavior (position/
+   * otherOpenTrades treated as already-known, even on the very first
+   * render). */
+  positionLoading?: boolean;
 
 }) {
   const navigate = useNavigate();
@@ -340,9 +373,11 @@ export function ChartPanel({
         {pairsOpen && pairsPanel}
         {positionOpen && (
           <div className="mb-2">
-            {position
-              ? <PositionManager trade={position} dark onChanged={onPositionChanged} />
-              : <NoPositionCard dark otherTrades={otherOpenTrades} />}
+            {positionLoading && !position
+              ? <PositionLoadingCard dark />
+              : position
+                ? <PositionManager trade={position} dark onChanged={onPositionChanged} />
+                : <NoPositionCard dark otherTrades={otherOpenTrades} />}
           </div>
         )}
         <div className="flex-1 min-h-0 rounded-lg overflow-hidden">
@@ -366,9 +401,11 @@ export function ChartPanel({
       {pairsOpen && pairsPanel}
       {positionOpen && (
         <div className="mb-2">
-          {position
-            ? <PositionManager trade={position} dark={containerDark} onChanged={onPositionChanged} />
-            : <NoPositionCard dark={containerDark} otherTrades={otherOpenTrades} />}
+          {positionLoading && !position
+            ? <PositionLoadingCard dark={containerDark} />
+            : position
+              ? <PositionManager trade={position} dark={containerDark} onChanged={onPositionChanged} />
+              : <NoPositionCard dark={containerDark} otherTrades={otherOpenTrades} />}
         </div>
       )}
       <div className={`rounded-lg overflow-hidden ${chartDark ? '' : 'border border-gray-200'}`} style={{ height }}>

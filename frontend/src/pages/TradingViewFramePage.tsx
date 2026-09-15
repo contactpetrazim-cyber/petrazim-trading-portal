@@ -5,7 +5,7 @@ import { TradingViewChart } from '../components/TradingViewChart';
 import { CandleColorPicker } from '../components/CandleColorPicker';
 import { PositionManager } from '../components/PositionManager';
 import { PositionOnChartModal } from '../components/PositionOnChartModal';
-import { tradeToChartPosition, NoPositionCard } from '../components/ChartPanel';
+import { tradeToChartPosition, NoPositionCard, PositionLoadingCard } from '../components/ChartPanel';
 import { useEffectiveChartColors } from '../hooks/useCandleColors';
 import { OpenInTradingView } from '../components/OpenInTradingView';
 import { PetrazimLogo } from '../components/PetrazimLogo';
@@ -115,6 +115,13 @@ export function TradingViewFramePage() {
   // chart with position trade orders (BTCUSD)") and why a list rather
   // than a dropdown.
   const [otherOpenTrades, setOtherOpenTrades] = useState<Trade[]>([]);
+  // True only until this FIRST poll resolves — by direct bug report
+  // ("a time lag after position is clicked before the blue button
+  // shows — You have a pending order on BTCUSDT instead"). Before that
+  // first poll resolved, position/otherOpenTrades were indistinguishable
+  // from "confirmed empty," so the panel below rendered a confident
+  // "no order" that then visibly flipped once the real answer arrived.
+  const [positionLoading, setPositionLoading] = useState(true);
   const [positionOpen, setPositionOpen] = useState(false);
   const [onChartOpen, setOnChartOpen] = useState(false);
   const loadOpenPosition = useCallback(() => {
@@ -128,7 +135,8 @@ export function TradingViewFramePage() {
       active.filter((t) => t.symbol !== symbol.tradeSymbol && t.entry_price != null).forEach((t) => bySymbol.set(t.symbol, t));
       pending.filter((t) => t.symbol !== symbol.tradeSymbol && t.entry_price != null).forEach((t) => { if (!bySymbol.has(t.symbol)) bySymbol.set(t.symbol, t); });
       setOtherOpenTrades(Array.from(bySymbol.values()));
-    }).catch(() => { setOpenPositionTrade(null); setPendingOrderTrade(null); setOtherOpenTrades([]); });
+    }).catch(() => { setOpenPositionTrade(null); setPendingOrderTrade(null); setOtherOpenTrades([]); })
+      .finally(() => setPositionLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [symbol.tradeSymbol, token]);
   useEffect(() => {
@@ -340,9 +348,11 @@ export function TradingViewFramePage() {
 
         {positionOpen && (
           <div className="px-2 mb-2">
-            {position
-              ? <PositionManager trade={position} dark={frameDark} onChanged={loadOpenPosition} />
-              : <NoPositionCard dark={frameDark} otherTrades={otherOpenTrades} />}
+            {positionLoading && !position
+              ? <PositionLoadingCard dark={frameDark} />
+              : position
+                ? <PositionManager trade={position} dark={frameDark} onChanged={loadOpenPosition} />
+                : <NoPositionCard dark={frameDark} otherTrades={otherOpenTrades} />}
           </div>
         )}
 
