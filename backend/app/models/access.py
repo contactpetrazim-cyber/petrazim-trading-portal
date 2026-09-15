@@ -103,7 +103,15 @@ ACCESS_TIER_CATALOGUE = {
         "label": "Essential", "duration_hours": 24 * 3,
         "individual_ngn": 150000, "individual_usd": None,
         "corporate_ngn_per_seat": 100000, "corporate_flat_fee_ngn": 200000, "corporate_min_seats": 20,
-        "features": ["All 10 pillars, 23 stages each", "Ask Coach, Recap and Listen across every module", "Certification included"],
+        # Was "All 10 pillars, 23 stages each" — a fixed 10x23 shape
+        # this catalogue never actually had. The real curriculum
+        # (app/scripts/seed_curriculum.py) is 13 core/psychology/
+        # advanced tracks (80 stages) plus 5 bot-mastery tracks, each
+        # with its own stage count — not a uniform grid. Described
+        # structurally here rather than with a stage count, so this
+        # copy doesn't go stale (or misleading) the next time a track
+        # is added or a stage count changes.
+        "features": ["The full curriculum — every core, psychology, order-flow and bot-mastery track", "Ask Coach, Recap and Listen across every module", "Certification included"],
     },
     AccessTier.PROFESSIONAL: {
         "label": "Professional", "duration_hours": 24 * 7,

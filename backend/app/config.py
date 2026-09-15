@@ -96,6 +96,55 @@ class Settings(BaseSettings):
     MEXC_BACKUP_PROXY_URL: str = ""
     MT5_PROXY_URL: str = ""
 
+    # The literal outbound IP(s) a TRADER needs to whitelist on their
+    # own exchange account to connect it to this platform (see
+    # services/trader_broker_connections.py's own "Connect Your
+    # Exchange" onboarding flow) — comma-separated if there's more than
+    # one (e.g. the Fixie ventoux + criterium pools' real IPs, the same
+    # two pools already whitelisted on every one of this platform's OWN
+    # exchange keys above). Deliberately not hardcoded here: a Fixie (or
+    # any proxy provider) IP is assigned per-account and this app has no
+    # way to verify it hasn't changed — set this once you have the real,
+    # current value(s) so the onboarding page shows a real IP instead of
+    # a placeholder telling the trader to ask their admin.
+    PLATFORM_OUTBOUND_IPS: str = ""
+
+    # Auto-detection engine for the value above (services/
+    # outbound_ip_detector.py) — by direct follow-up request ("can we
+    # work an engine that auto do this" instead of hand-typing
+    # PLATFORM_OUTBOUND_IPS). On by default: the probe is a handful of
+    # free, no-auth IP-echo calls, not an exchange API call, so it
+    # costs nothing to leave running. Long interval since Fixie's
+    # assigned IPs essentially never change — this is a slow safety
+    # net, not a polling loop.
+    OUTBOUND_IP_DETECTOR_ENABLED: bool = True
+    OUTBOUND_IP_DETECTOR_INTERVAL_SECONDS: int = 21600  # 6 hours
+
+    # Backend-to-backend order-execution failover — by direct request
+    # ("can orders... be broadcast using both fixie and VM IP... so
+    # exchanges still get the instructions from my VM IP"). NOT a
+    # broadcast (see routers/internal.py's own docstring on why
+    # sending one real order down two independent paths at once is a
+    # real duplicate-fill risk, not just inelegant) — a genuine
+    # failover: Render only calls the VM after its OWN attempt has
+    # already failed at the transport level (a broken Fixie proxy),
+    # so at most one backend ever actually sends the order. Both left
+    # blank by default — the relay path is fully inert (a 404, see
+    # routers/internal.py) until BOTH are set on BOTH backends, so
+    # this ships safe with zero behavior change for anyone who hasn't
+    # opted in yet.
+    #   VM_API_URL — the OTHER backend's own base URL (Render sets
+    #   this to the VM's address; the VM sets it to Render's, so
+    #   either direction could in principle relay to the other,
+    #   though Render->VM is the only one that actually matters today
+    #   since Render is where Fixie is failing).
+    #   INTERNAL_RELAY_SECRET — a shared secret (generate your own
+    #   random string, set the SAME value on both backends) checked
+    #   via the X-Internal-Secret header — this is backend-to-backend
+    #   auth, deliberately separate from the normal user JWT scheme.
+    VM_API_URL: str = ""
+    INTERNAL_RELAY_SECRET: str = ""
+
     # Cross-exchange price sanity guard — see broker_integrations.py /
     # execution_engine.py docstrings. A signal's entry price (often
     # computed against whichever exchange fed the bot's candles) is

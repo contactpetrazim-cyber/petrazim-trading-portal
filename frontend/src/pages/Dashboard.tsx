@@ -5,7 +5,7 @@ import { StatCard } from '../components/StatCard';
 import { TodayTradeBreakdownPills } from '../components/TodayTradeBreakdownPills';
 import { TradeRow } from '../components/TradeRow';
 import { FoldedCard } from '../components/FoldedCard';
-import { ChartPanel } from '../components/ChartPanel';
+import { ChartWithPairs } from '../components/ChartWithPairs';
 import { useAppStore } from '../hooks/useStore';
 import { useThemeStore } from '../hooks/useTheme';
 import { HERO_GRADIENT } from '../config/theme';
@@ -220,7 +220,7 @@ export function DashboardPage() {
         title="Chart" summary="A live TradingView chart, right on your dashboard"
         icon={<LineChartIcon size={19} />} dark={dark} defaultOpen
       >
-        <ChartPanel symbol="BINANCE:BTCUSDT" height={420} tradeSymbol="BTCUSDT" dark={dark} />
+        <ChartWithPairs height={420} dark={dark} />
         <Link to="/tradingview" className={`text-xs font-medium mt-2 inline-block ${dark ? 'text-white/50' : 'text-corporate-hero'}`}>
           Open My Workspace (saved views, drawing tools) →
         </Link>

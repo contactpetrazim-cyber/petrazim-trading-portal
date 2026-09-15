@@ -33,11 +33,15 @@ from app.routers.tools import router as tools_router
 from app.routers.community_broadcast import router as community_broadcast_router
 from app.routers.manual_trading import router as manual_trading_router
 from app.routers.coach import router as coach_router
+from app.routers.internal import router as internal_router
+from app.routers.trader_broker_connections import router as trader_broker_connections_router, admin_router as trader_broker_connections_admin_router
 from app.database import engine, Base
 from app.db.session import engine as legacy_engine, Base as LegacyBase
 from app.services.execution_engine import ExecutionEngine
 from app.services.market_scanner import MarketScanner
 from app.services.position_monitor import PositionMonitor
+from app.services.pending_order_monitor import PendingOrderMonitor
+from app.services.outbound_ip_detector import OutboundIpDetector
 
 settings = get_settings()
 logger = structlog.get_logger()
@@ -158,9 +162,27 @@ async def lifespan(app: FastAPI):
     # own module docstring for why this is Test-mode-only and safe to
     # run on by default, unlike the market scanner above).
     position_monitor = None
+    pending_order_monitor = None
     if settings.POSITION_MONITOR_ENABLED:
         position_monitor = PositionMonitor()
         position_monitor.start()
+        # Same flag/interval as PositionMonitor above — this is the
+        # other half of the same "watch live prices for paper trades"
+        # feature (fills a still-PENDING LIMIT/STOP order once price
+        # reaches its trigger, rather than the old — and buggy —
+        # instant-fill-at-submission behavior). See its own module
+        # docstring for the bug report that led to it.
+        pending_order_monitor = PendingOrderMonitor()
+        pending_order_monitor.start()
+
+    # Auto-detects and persists this platform's real outbound IP(s) —
+    # see outbound_ip_detector.py's own module docstring. On by
+    # default; harmless to run (free IP-echo calls, no exchange API
+    # involved).
+    outbound_ip_detector = None
+    if settings.OUTBOUND_IP_DETECTOR_ENABLED:
+        outbound_ip_detector = OutboundIpDetector()
+        outbound_ip_detector.start()
 
     yield
 
@@ -168,6 +190,10 @@ async def lifespan(app: FastAPI):
         await scanner.stop()
     if position_monitor is not None:
         await position_monitor.stop()
+    if pending_order_monitor is not None:
+        await pending_order_monitor.stop()
+    if outbound_ip_detector is not None:
+        await outbound_ip_detector.stop()
 
     logger.info("app_shutdown")
     await engine.dispose()
@@ -216,6 +242,9 @@ app.include_router(tools_router)
 app.include_router(community_broadcast_router)
 app.include_router(manual_trading_router)
 app.include_router(coach_router)
+app.include_router(internal_router)
+app.include_router(trader_broker_connections_router)
+app.include_router(trader_broker_connections_admin_router)
 
 # Phase-1 analytics engines — routers ship without their own prefix
 app.include_router(monte_carlo_router, prefix="/api/monte-carlo", tags=["monte-carlo"])

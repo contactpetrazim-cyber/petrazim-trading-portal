@@ -59,6 +59,8 @@ from app.config import get_settings
 from app.core.auth import get_current_user
 from app.models.user import User
 from app.services.broker_integrations import _FAILOVER_EXCEPTIONS, _send_with_failover
+from app.services.live_price import COINGECKO_IDS
+from app.services.proxy_health import record_proxy_failure, record_proxy_success
 
 router = APIRouter(prefix="/order-flow", tags=["order-flow"])
 
@@ -126,11 +128,14 @@ async def _binance_get(path: str, params: dict) -> httpx.Response:
     try:
         resp = await _send_with_failover(_client, _backup_client, "get", path, params=params)
     except _FAILOVER_EXCEPTIONS as e:
+        record_proxy_failure("order_flow", str(e))
         raise HTTPException(status_code=502, detail=f"Could not reach Binance market data: {e}")
     except httpx.RequestError as e:
+        record_proxy_failure("order_flow", str(e))
         raise HTTPException(status_code=502, detail=f"Could not reach Binance market data: {e}")
     if resp.status_code != 200:
         raise HTTPException(status_code=502, detail=f"Binance returned {resp.status_code} for {path}")
+    record_proxy_success()
     return resp
 
 
@@ -348,7 +353,7 @@ async def get_footprint_chart(
 # have a "correct" answer.
 # ---------------------------------------------------------------------------
 
-ALLOWED_INTERVALS = ["15m", "1h", "4h", "1d"]
+ALLOWED_INTERVALS = ["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w"]
 
 
 class KlineBar(BaseModel):
@@ -365,6 +370,84 @@ class KlinesResponse(BaseModel):
     candles: List[KlineBar]
 
 
+# Render's own production logs (checked directly, not guessed) show
+# this fallback firing constantly now — NOT because of Binance's 451
+# geofence any more, but because BOTH Fixie proxies are themselves
+# failing with "407 Proxy Authentication Required" (stale/misconfigured
+# proxy credentials — an infrastructure setting, not something fixable
+# from this code; check BINANCE_PROXY_URL/BINANCE_BACKUP_PROXY_URL on
+# Render). With Binance unreachable on every call, this fallback was
+# getting hit far more often than the "occasional 451" it was built
+# for, at real risk of tripping CoinGecko's own free-tier rate limit
+# for a shared Render IP (their OHLC endpoint doesn't 451 like Binance
+# does, it just quietly 429s once you're over the limit — which
+# `resp.status_code != 200` below reports the exact same way as any
+# other failure: `None`, invisibly re-raising the ORIGINAL Binance
+# error to the caller). A short in-memory cache keyed by symbol cuts
+# the actual CoinGecko call volume down to roughly one every 3 minutes
+# per symbol regardless of how many trainees/games request it, which
+# is the real fix for the rate-limit risk — a real Binance outage was
+# never going to be this frequent.
+_coingecko_cache: Dict[str, tuple] = {}  # symbol -> (fetched_at_monotonic, candles)
+_COINGECKO_CACHE_TTL_SECONDS = 180
+
+
+async def _coingecko_klines_fallback(symbol: str) -> Optional[List[KlineBar]]:
+    """Binance's own geofence can 451 even through the Fixie proxy pair
+    (the proxy's own exit IP can itself be in a region Binance
+    restricts — the same class of failure order_flow.py's own module
+    doc already documents for the browser-direct case, just one hop
+    further out) — by direct bug report ("Binance returned 451 for
+    /klines"), the first real caller of this endpoint since it was
+    written (nothing in the frontend called /klines until
+    PositionOnChartModal.tsx). Falls back to CoinGecko's free public
+    OHLC endpoint, which only exists for 4 of the 6 ALLOWED_SYMBOLS
+    (see COINGECKO_IDS in services/live_price.py — the same honest
+    coverage gap get_crypto_price already lives with).
+
+    HONEST APPROXIMATION: CoinGecko's OHLC endpoint takes a `days`
+    window, not our own `interval` — it doesn't offer a matching 15m/
+    1h/4h/1d selector at all, just whatever granularity its own `days`
+    value implies (1 day of history -> 30m candles, 2-30 days -> 4h
+    candles, 31+ days -> 4-day candles, per CoinGecko's own docs).
+    `days=7` (-> 4h candles) is used as a single reasonable general-
+    purpose reference resolution regardless of what interval was
+    requested — this is ONLY reached when Binance is unreachable, as a
+    "some real reference chart is better than none" fallback, not a
+    silent promise that the requested interval was honored."""
+    coingecko_id = COINGECKO_IDS.get(symbol)
+    if not coingecko_id:
+        return None
+
+    cached = _coingecko_cache.get(symbol)
+    if cached is not None and (time.monotonic() - cached[0]) < _COINGECKO_CACHE_TTL_SECONDS:
+        return cached[1]
+
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            resp = await client.get(
+                f"https://api.coingecko.com/api/v3/coins/{coingecko_id}/ohlc",
+                params={"vs_currency": "usd", "days": 7},
+            )
+        if resp.status_code != 200:
+            return None
+        # A rate-limited or otherwise degraded response can still come
+        # back with a 200 but non-JSON/unexpected-shaped body (a
+        # gateway's own error page, for instance) — this used to
+        # propagate as an unhandled 500 instead of the honest "no
+        # fallback available, surface the original error" every other
+        # failure path here already gives.
+        candles = [
+            KlineBar(time_ms=int(row[0]), open=float(row[1]), high=float(row[2]), low=float(row[3]), close=float(row[4]))
+            for row in resp.json()
+        ]
+    except (httpx.RequestError, ValueError, TypeError, KeyError, IndexError):
+        return None
+
+    _coingecko_cache[symbol] = (time.monotonic(), candles)
+    return candles
+
+
 @router.get("/klines", response_model=KlinesResponse)
 async def get_klines(
     symbol: str = "BTCUSDT", interval: str = "4h", limit: int = 60,
@@ -374,15 +457,18 @@ async def get_klines(
     if interval not in ALLOWED_INTERVALS:
         raise HTTPException(status_code=400, detail=f"interval must be one of {ALLOWED_INTERVALS}")
     limit = max(10, min(limit, 500))
-    resp = await _binance_get("/klines", {"symbol": symbol, "interval": interval, "limit": limit})
-    raw = resp.json()
-    return KlinesResponse(
-        symbol=symbol, interval=interval,
-        candles=[
+    try:
+        resp = await _binance_get("/klines", {"symbol": symbol, "interval": interval, "limit": limit})
+        candles = [
             KlineBar(time_ms=int(row[0]), open=float(row[1]), high=float(row[2]), low=float(row[3]), close=float(row[4]))
-            for row in raw
-        ],
-    )
+            for row in resp.json()
+        ]
+    except HTTPException:
+        fallback = await _coingecko_klines_fallback(symbol)
+        if fallback is None:
+            raise
+        candles = fallback[-limit:]
+    return KlinesResponse(symbol=symbol, interval=interval, candles=candles)
 
 
 # ---------------------------------------------------------------------------

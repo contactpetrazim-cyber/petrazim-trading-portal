@@ -1,10 +1,12 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
-import { Pencil, X, Check, Scissors, AlertCircle, Ban } from 'lucide-react';
+import { Pencil, X, Check, Scissors, AlertCircle, Ban, LineChart } from 'lucide-react';
 import { Trade } from '../types';
 import { tradesApi } from '../services/api';
 import { useQuickPrice } from '../hooks/useQuickPrice';
 import { formatApiError } from '../lib/apiError';
+import { pairFromTradeSymbol } from '../hooks/useQuickPairs';
 
 /**
  * PositionManager — "view and edit the statistics of this trade ...
@@ -69,6 +71,47 @@ export function PositionManager({ trade, dark = false, onChanged }: { trade: Tra
   const rMultiple = riskDistance && riskDistance > 0
     ? ((impliedPrice - entry) * (isLong ? 1 : -1)) / riskDistance
     : null;
+  // "Goto Chart" — by direct request ("add a link that triggers the
+  // correct chart pair from the correct exchange embedded in each
+  // order management card"). Exact whenever trade.broker_name is set
+  // (every trade going forward — see the Exchange stat cell below);
+  // falls back to a best-effort catalogue guess otherwise — see
+  // pairFromTradeSymbol's own docstring. Opens in a new tab so
+  // managing a trade here (e.g. on the Trade Management list) never
+  // loses your place — same reasoning as PracticeDrillsPage's own
+  // chart/diagram link.
+  const chartPair = pairFromTradeSymbol(trade.symbol, trade.broker_name);
+  // By direct follow-up request ("relocate the Goto Chart link to the
+  // bottom right ... same line with cancel this order") — shared JSX
+  // so both bottom-row layouts (pending -> Cancel; open -> Partial/
+  // full exit) place it identically rather than drifting apart.
+  // Standard solid-blue primary button — same bg-corporate-hero style
+  // ChartPanel's own "Trade" button (and NoPositionCard's own Goto
+  // Chart) use — by direct follow-up request ("update link of goto
+  // chart to standard blue button right of cancel order"): was still
+  // a plain text link here, confirmed live via screenshot — an
+  // earlier attempt at this exact restyle was pushed to its branch
+  // after that PR had already been merged, so it never actually
+  // shipped (see this repo's PR #76 vs its own head commit).
+  //
+  // Labeled "Position Chart" (was "Goto Chart") specifically here —
+  // by direct follow-up request ("update Goto Chart to 'Position
+  // Chart' to indicate we want the chart with the position order ...
+  // adapt for Goto embedded within the position management card"):
+  // this is PositionManager itself, always resolved from a real
+  // trade, so the label can say exactly what it does. NoPositionCard's
+  // own "Goto Chart" (no trade to point at — see that component's own
+  // docstring) is deliberately untouched; calling an empty state
+  // "Position Chart" would claim a position that isn't there.
+  const gotoChartLink = (
+    <Link
+      to={`/trade/manual?tv=${encodeURIComponent(chartPair.tv)}`}
+      target="_blank" rel="noopener noreferrer"
+      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-corporate-hero hover:opacity-90"
+    >
+      <LineChart size={13} /> Position Chart ({chartPair.tv})
+    </Link>
+  );
 
   function startEditingTargets() {
     setEntryDraft(trade.entry_price != null ? String(trade.entry_price) : '');
@@ -101,8 +144,22 @@ export function PositionManager({ trade, dark = false, onChanged }: { trade: Tra
         setEditingTargets(false);
         return;
       }
-      await tradesApi.modifyTargets(trade.trade_id, body);
-      setMessage({ ok: true, text: 'Targets updated.' });
+      const result = await tradesApi.modifyTargets(trade.trade_id, body);
+      // broker_synced is only ever set for an ACTIVE, real (non-test)
+      // trade whose SL/TP1 actually changed — see modify_targets' own
+      // docstring in manual_trading.py for exactly when a real broker
+      // sync is attempted at all (PENDING orders, paper/test trades,
+      // and TP2/TP3-only edits never touch a broker, by design, so
+      // `broker_synced` stays null for those and this just shows the
+      // plain "Targets updated." message). false means we DID try and
+      // the real exchange order wasn't actually moved — by direct bug
+      // report, this used to silently claim success either way even
+      // though only OUR OWN record was ever touched.
+      if (result?.broker_synced === false) {
+        setMessage({ ok: false, text: result.broker_message || "Your own record was updated, but your broker's real order wasn't." });
+      } else {
+        setMessage({ ok: true, text: 'Targets updated.' });
+      }
       setEditingTargets(false);
       onChanged?.();
     } catch (err: any) {
@@ -211,6 +268,18 @@ export function PositionManager({ trade, dark = false, onChanged }: { trade: Tra
           <div className={labelCls}>Size</div>
           <div className={statCls}>{trade.lot_size} {trade.symbol}</div>
         </div>
+        {/* Exchange — by direct request ("add exchange record for all
+            trades paper or live ... a trade record in this app doesn't
+            actually store which exchange it was placed on"). The
+            record itself already existed (Trade.broker_name, set at
+            execution time for every trade — paper included, since only
+            the final send-to-broker step is simulated for those) — it
+            just never reached the API or a client until now (see
+            TradeResponse.broker_name / types/index.ts's own comment). */}
+        <div>
+          <div className={labelCls}>Exchange</div>
+          <div className={statCls}>{trade.broker_name ? trade.broker_name.toUpperCase() : '—'}</div>
+        </div>
         {!isPending && (
           <div>
             <div className={labelCls}>R-multiple</div>
@@ -295,23 +364,27 @@ export function PositionManager({ trade, dark = false, onChanged }: { trade: Tra
           the same action its row-level Cancel button already offers,
           just also reachable from this dashboard. */}
       {isPending ? (
-        <div>
+        <div className="flex items-center justify-between gap-2 flex-wrap">
           <button
             onClick={cancelPendingOrder} disabled={cancelling}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-500/15 text-red-500 hover:bg-red-500/25 disabled:opacity-50"
           >
             <Ban size={13} /> {cancelling ? 'Cancelling…' : 'Cancel this order'}
           </button>
+          {gotoChartLink}
         </div>
       ) : (
       <div>
         {!closingOpen ? (
-          <button
-            onClick={startClosing}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-500/15 text-amber-500 hover:bg-amber-500/25"
-          >
-            <Scissors size={13} /> Partial / full exit
-          </button>
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <button
+              onClick={startClosing}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-500/15 text-amber-500 hover:bg-amber-500/25"
+            >
+              <Scissors size={13} /> Partial / full exit
+            </button>
+            {gotoChartLink}
+          </div>
         ) : (
           <div className={`rounded-lg border p-3 space-y-2 ${dark ? 'border-corporate-border-dark' : 'border-gray-200'}`}>
             <div className="grid grid-cols-2 gap-2">

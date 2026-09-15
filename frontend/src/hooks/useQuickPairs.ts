@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
+import { INSTRUMENT_CATALOGUE } from '../config/instrumentCatalogue';
 
 /**
  * useQuickPairs — the ONE shared list of chart quick-links ("Pairs")
@@ -90,6 +91,46 @@ export const useQuickPairsStore = create<QuickPairsState>()(
     },
   ),
 );
+
+// Maps Trade.broker_name (execution_engine.py's own lowercase broker
+// ids — see _determine_broker) to the matching TradingView exchange
+// prefix — same 4 crypto brokers PairsPanel's own ORDER_BROKERS tags
+// order results with. tradelocker/metatrader (forex/MT5) have no
+// single TradingView exchange equivalent, so a trade on either falls
+// through to the INSTRUMENT_CATALOGUE guess below instead of guessing
+// wrong here.
+const BROKER_TV_EXCHANGE: Record<string, string> = {
+  binance: 'BINANCE', bybit: 'BYBIT', bingx: 'BINGX', mexc: 'MEXC',
+};
+
+/**
+ * Builds a QuickPair straight from a Trade's own exchange-format
+ * `symbol` (e.g. "BTCUSDT") — for the "Goto Chart" link on an order
+ * management card (PositionManager), by direct request. Now that
+ * Trade.broker_name is surfaced by the API (see TradeResponse — it
+ * was always recorded at execution time, just never returned to a
+ * client before, by direct follow-up request: "exchange record is
+ * important"), a real recorded broker maps straight to its
+ * TradingView exchange via BROKER_TV_EXCHANGE and is always exact.
+ * `brokerName` stays optional and falls back to the same
+ * INSTRUMENT_CATALOGUE-lookup guess as before — this app's own
+ * default/primary crypto feed (see DEFAULT_QUICK_PAIRS above) — for a
+ * trade with no broker recorded (placed before this field existed) or
+ * one on tradelocker/metatrader, which BROKER_TV_EXCHANGE doesn't
+ * cover.
+ */
+export function pairFromTradeSymbol(tradeSymbol: string, brokerName?: string | null): QuickPair {
+  const clean = tradeSymbol.trim().toUpperCase();
+  const brokerExch = brokerName ? BROKER_TV_EXCHANGE[brokerName.trim().toLowerCase()] : undefined;
+  const match = INSTRUMENT_CATALOGUE.find((i) => i.symbol.toUpperCase() === clean);
+  const exch = brokerExch ?? match?.exchange ?? 'BINANCE';
+  const desc = match?.description || '';
+  return {
+    label: desc && desc.length <= 16 ? desc : clean,
+    trade: clean,
+    tv: `${exch}:${clean}`,
+  };
+}
 
 /** Builds a QuickPair from any search result (catalogue or backend). */
 export function pairFromResult(

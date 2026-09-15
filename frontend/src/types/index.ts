@@ -24,6 +24,12 @@ export interface Trade {
   exit_price?: number | null;
   exit_type?: string | null;
   exit_timestamp?: string | null;
+  /** Which exchange this trade actually filled on (or would have,
+   * for a paper/test trade) — "binance", "bybit", "bingx", "mexc",
+   * "tradelocker", "metatrader". Null for a trade placed before this
+   * field was surfaced by the API, or the rare symbol the backend's
+   * own routing heuristic couldn't match to any broker. */
+  broker_name?: string | null;
 }
 
 export interface BotConfig {
@@ -123,4 +129,52 @@ export interface PerformanceSummary {
   average_r_multiple: number;
   max_drawdown_pct: number;
   net_pnl: number;
+}
+
+// Trader Exchange Connections — a trader's own exchange account,
+// connected so trades genuinely execute there (manually, via a
+// subscribed bot, or both). See backend/app/routers/trader_broker_connections.py
+// for the full flow this mirrors.
+export interface ExchangeInfo {
+  exchange: string;
+  label: string;
+  fields: string[];
+  instructions: string;
+}
+
+export interface ExchangeMetaResponse {
+  exchanges: ExchangeInfo[];
+  outbound_ips: string;
+}
+
+export interface TraderBrokerConnection {
+  id: string;
+  exchange: string;
+  label: string | null;
+  mode: 'manual' | 'bot' | 'both';
+  status: 'pending' | 'verified' | 'failed' | 'suspended';
+  is_active: boolean;
+  api_key_preview: string;
+  last_verified_at: string | null;
+  last_error: string | null;
+  created_at: string;
+  trader_email?: string | null;
+  trader_name?: string | null;
+}
+
+export interface AvailableBot {
+  bot_id: string;
+  bot_name: string;
+  bot_type: string;
+}
+
+export type SubscriptionCopyMode = 'auto' | 'manual';
+
+export interface TraderBotSubscription {
+  id: string;
+  bot_id: string;
+  connection_id: string;
+  is_active: boolean;
+  risk_per_trade: number | null;
+  copy_mode: SubscriptionCopyMode;
 }

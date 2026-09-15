@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { Maximize2, Minimize2, Sun, Moon, TrendingUp, X, Zap, Receipt, CandlestickChart, Target, LineChart } from 'lucide-react';
 import { TradingViewChart, type ChartPosition } from './TradingViewChart';
 import { CandleColorPicker } from './CandleColorPicker';
@@ -7,13 +7,14 @@ import { PositionManager } from './PositionManager';
 import { PositionOnChartModal } from './PositionOnChartModal';
 import { useEffectiveChartColors } from '../hooks/useCandleColors';
 import { useQuickPrice } from '../hooks/useQuickPrice';
+import { pairFromTradeSymbol } from '../hooks/useQuickPairs';
 import type { Trade } from '../types';
 
 /** ChartPosition is the lightweight subset PositionOnChartModal draws
  * as lines — derived from the caller's raw Trade rather than asked of
  * the caller directly, so ChartPanel only needs ONE prop (`position`)
  * to power both the management card and the on-chart view. */
-function tradeToChartPosition(trade: Trade): ChartPosition {
+export function tradeToChartPosition(trade: Trade): ChartPosition {
   return {
     direction: trade.direction,
     entryPrice: trade.entry_price as number,
@@ -24,6 +25,65 @@ function tradeToChartPosition(trade: Trade): ChartPosition {
     unrealizedPnl: trade.unrealized_pnl,
     pending: trade.status === 'pending',
   };
+}
+
+/** What the folded "Position" card shows when Position/On Chart are
+ * open but there's no open or pending order on this symbol right now
+ * — by direct request ("make 'Position' and 'On Chart' a permanent
+ * feature on all charts ... you can always click on it to review
+ * order position"): the toggle buttons no longer hide just because
+ * `position` is null, so there needs to be an honest empty state
+ * instead of nothing rather than a button here (the "no order" line
+ * used to carry its own Goto Chart pointing at `symbolTv` — removed by
+ * direct follow-up request, "it's redundant since we are already on
+ * that chart": true, this card only ever shows on the chart you're
+ * already viewing, so a button back to it did nothing useful).
+ *
+ * `otherTrades` — by direct bug report, with video: a trader viewing
+ * EUR/USD with an actual open BTCUSDT order expected clicking through
+ * here to jump to that BTCUSDT order, and had no way to ("the
+ * position Goto button from EURUSD does not deploy auto to the
+ * correct chart with position trade orders (BTCUSD) chart ... it
+ * remains on the EURUSD chart"). One row per OTHER symbol you have an
+ * order on (deduped — at most one row per symbol, the caller prefers
+ * an active position over a same-symbol pending order, same priority
+ * `chartPosition` uses elsewhere), each with its own correctly-
+ * resolved "Goto Chart" straight to that symbol.
+ *
+ * Listed as stacked rows rather than a dropdown — by direct follow-up
+ * question ("how will it handle multiple orders from different pairs
+ * ... list the Goto button for each pair, or a drop-down"): a trader
+ * realistically holds a handful of concurrent positions at once, not
+ * dozens, so a scannable list costs one glance and zero extra clicks,
+ * where a dropdown would add an open-then-select step for something
+ * this short. Matches this app's own existing convention for "several
+ * symbols at once" too — PairsPanel already shows saved pairs as a
+ * row of pills rather than a picker. Revisit as a dropdown only if
+ * real usage shows people routinely holding many concurrent positions
+ * at once, which nothing today's usage suggests. */
+export function NoPositionCard({ dark, otherTrades }: { dark: boolean; otherTrades?: Trade[] }) {
+  const cardCls = `rounded-xl border p-4 space-y-2.5 ${dark ? 'bg-corporate-surface-dark border-corporate-border-dark text-white/60' : 'bg-white border-gray-200 text-gray-500'}`;
+  const rowCls = 'flex items-center justify-between gap-3 flex-wrap';
+  const btnCls = 'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-corporate-hero hover:opacity-90 shrink-0';
+  return (
+    <div className={cardCls}>
+      <div className="text-sm">No open or pending order on this symbol right now.</div>
+      {otherTrades?.map((t, i) => {
+        const pair = pairFromTradeSymbol(t.symbol, t.broker_name);
+        return (
+          <div key={t.trade_id} className={`${rowCls} ${i === 0 ? `pt-2.5 border-t ${dark ? 'border-white/10' : 'border-gray-100'}` : ''}`}>
+            <span className="text-sm">You have {t.status === 'pending' ? 'a pending order' : 'an open position'} on {t.symbol} instead.</span>
+            {/* "Position Chart" — matches PositionManager's own label
+                for this exact same idea (the chart where a real order
+                actually is), by direct follow-up request. */}
+            <Link to={`/trade/manual?tv=${encodeURIComponent(pair.tv)}`} target="_blank" rel="noopener noreferrer" className={btnCls}>
+              <LineChart size={13} /> Position Chart ({pair.tv})
+            </Link>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 /**
@@ -65,6 +125,7 @@ export function ChartPanel({
   pairsPanel,
   position,
   onPositionChanged,
+  otherOpenTrades,
 
 }: {
   symbol: string;
@@ -112,8 +173,15 @@ export function ChartPanel({
    * same trade's Entry/SL/TP as real lines on this app's own
    * CandleChart (see PositionOnChartModal.tsx for why that's a
    * separate chart rather than something drawn on the embedded
-   * TradingView widget). Omit `position` entirely on pages with no
-   * concept of an open position (Learn, Dashboard). */
+   * TradingView widget).
+   *
+   * Position/On Chart are permanent, always-visible buttons — by
+   * further direct request ("make 'Position' and 'On Chart' a
+   * permanent feature on all charts ... you can always click on it to
+   * review order position") — not conditional on `position` being set;
+   * `null`/omitted just means NoPositionCard's honest empty state
+   * shows instead of PositionManager when opened, still with its own
+   * Goto Chart button. */
   position?: Trade | null;
   /** Called after an edit/cancel/partial-close inside the folded
    * Position card succeeds, so the caller can re-poll and pass a fresh
@@ -121,10 +189,27 @@ export function ChartPanel({
    * `onChanged`. Optional: omitting it just means the card won't
    * reflect a change until the caller's own poll next runs. */
   onPositionChanged?: () => void;
+  /** Every other open/pending trade the caller already knows about, on
+   * a DIFFERENT symbol than this chart's own `position` — one per
+   * distinct symbol (the caller dedupes). Surfaced in NoPositionCard's
+   * empty state as one row each so a trader isn't left thinking they
+   * have nothing on anywhere just because this particular symbol is
+   * quiet. See NoPositionCard's own docstring for the bug report this
+   * fixes and why a list rather than a dropdown. Omit if the caller
+   * doesn't track this (the empty state then just doesn't mention it,
+   * same as before). */
+  otherOpenTrades?: Trade[];
 
 }) {
   const navigate = useNavigate();
   const effectiveSpecsSymbol = specsSymbol ?? tradeSymbol;
+  // Plain exchange-format ticker (e.g. "BTCUSDT", never tv-prefixed)
+  // for PositionOnChartModal's own `symbol` prop when there's no open
+  // position to take it from — order_flow.py's /klines needs exactly
+  // this bare format. NOT used for Goto Chart links: those use this
+  // component's own top-level `symbol` prop directly (already the
+  // real, exact EXCHANGE:TICKER on screen — no guessing needed).
+  const resolvedTradeSymbol = position?.symbol ?? effectiveSpecsSymbol;
   const { colors, chartStyle, applyLocal, applyGlobal, resetLocal, resetGlobal } = useEffectiveChartColors();
   const { busy: quickPriceBusy, refresh: refreshQuickPrice } = useQuickPrice(effectiveSpecsSymbol || symbol);
 
@@ -199,28 +284,24 @@ export function ChartPanel({
             <Receipt size={13} /> Order
           </button>
         )}
-        {position && (
-          <button
-            onClick={() => setPositionOpen((o) => !o)}
-            aria-label={positionOpen ? 'Hide position management' : 'Manage this position'}
-            title={positionOpen ? 'Hide position management' : 'Edit SL/TP, partial close or cancel this order'}
-            className={`p-1.5 rounded-md flex items-center gap-1.5 text-xs font-medium ${
-              positionOpen ? 'bg-blue-600 text-white' : containerDark ? 'text-white/50 hover:text-white/80 bg-white/5' : 'text-gray-500 hover:text-gray-700 bg-black/5'
-            }`}
-          >
-            <Target size={13} /> Position
-          </button>
-        )}
-        {position && (
-          <button
-            onClick={() => setOnChartOpen(true)}
-            aria-label="Show Entry/SL/TP drawn on a real chart"
-            title="Open a chart with Entry/SL/TP actually drawn on it"
-            className={`p-1.5 rounded-md flex items-center gap-1.5 text-xs font-medium ${containerDark ? 'text-white/50 hover:text-white/80 bg-white/5' : 'text-gray-500 hover:text-gray-700 bg-black/5'}`}
-          >
-            <LineChart size={13} /> On Chart
-          </button>
-        )}
+        <button
+          onClick={() => setPositionOpen((o) => !o)}
+          aria-label={positionOpen ? 'Hide position management' : 'Review or manage this position'}
+          title={position ? 'Edit SL/TP, partial close or cancel this order' : 'No open or pending order on this symbol yet'}
+          className={`p-1.5 rounded-md flex items-center gap-1.5 text-xs font-medium ${
+            positionOpen ? 'bg-blue-600 text-white' : containerDark ? 'text-white/50 hover:text-white/80 bg-white/5' : 'text-gray-500 hover:text-gray-700 bg-black/5'
+          }`}
+        >
+          <Target size={13} /> Position
+        </button>
+        <button
+          onClick={() => setOnChartOpen(true)}
+          aria-label="Show Entry/SL/TP drawn on a real chart"
+          title={position ? 'Open a chart with Entry/SL/TP actually drawn on it' : 'Open a chart for this symbol'}
+          className={`p-1.5 rounded-md flex items-center gap-1.5 text-xs font-medium ${containerDark ? 'text-white/50 hover:text-white/80 bg-white/5' : 'text-gray-500 hover:text-gray-700 bg-black/5'}`}
+        >
+          <LineChart size={13} /> On Chart
+        </button>
         <CandleColorPicker
           dark={containerDark}
           colors={colors} chartStyle={chartStyle}
@@ -257,13 +338,23 @@ export function ChartPanel({
         </div>
         {toolbar}
         {pairsOpen && pairsPanel}
-        {positionOpen && position && <div className="mb-2"><PositionManager trade={position} dark onChanged={onPositionChanged} /></div>}
+        {positionOpen && (
+          <div className="mb-2">
+            {position
+              ? <PositionManager trade={position} dark onChanged={onPositionChanged} />
+              : <NoPositionCard dark otherTrades={otherOpenTrades} />}
+          </div>
+        )}
         <div className="flex-1 min-h-0 rounded-lg overflow-hidden">
 
           <TradingViewChart symbol={symbol} interval={interval} theme={chartTheme} candleColors={colors} chartStyle={chartStyle} />
         </div>
-        {onChartOpen && position && (
-          <PositionOnChartModal position={tradeToChartPosition(position)} symbol={position.symbol} onClose={() => setOnChartOpen(false)} />
+        {onChartOpen && resolvedTradeSymbol && (
+          <PositionOnChartModal
+            position={position ? tradeToChartPosition(position) : undefined} trade={position} symbol={resolvedTradeSymbol}
+            bullColor={colors.upColor} bearColor={colors.downColor} initialInterval={interval}
+            onClose={() => setOnChartOpen(false)} onChanged={onPositionChanged}
+          />
         )}
       </div>
     );
@@ -273,12 +364,22 @@ export function ChartPanel({
     <div>
       {toolbar}
       {pairsOpen && pairsPanel}
-      {positionOpen && position && <div className="mb-2"><PositionManager trade={position} dark={containerDark} onChanged={onPositionChanged} /></div>}
+      {positionOpen && (
+        <div className="mb-2">
+          {position
+            ? <PositionManager trade={position} dark={containerDark} onChanged={onPositionChanged} />
+            : <NoPositionCard dark={containerDark} otherTrades={otherOpenTrades} />}
+        </div>
+      )}
       <div className={`rounded-lg overflow-hidden ${chartDark ? '' : 'border border-gray-200'}`} style={{ height }}>
         <TradingViewChart symbol={symbol} interval={interval} theme={chartTheme} candleColors={colors} chartStyle={chartStyle} />
       </div>
-      {onChartOpen && position && (
-        <PositionOnChartModal position={tradeToChartPosition(position)} symbol={position.symbol} onClose={() => setOnChartOpen(false)} />
+      {onChartOpen && resolvedTradeSymbol && (
+        <PositionOnChartModal
+          position={position ? tradeToChartPosition(position) : undefined} trade={position} symbol={resolvedTradeSymbol}
+          bullColor={colors.upColor} bearColor={colors.downColor} initialInterval={interval}
+          onClose={() => setOnChartOpen(false)} onChanged={onPositionChanged}
+        />
       )}
     </div>
   );

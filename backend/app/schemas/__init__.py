@@ -67,6 +67,16 @@ class TradeResponse(BaseModel):
     exit_price: Optional[float] = None
     exit_type: Optional[str] = None
     exit_timestamp: Optional[datetime] = None
+    # The Trade row already records which exchange actually filled (or
+    # would have filled, for a paper/test trade — _determine_broker
+    # runs unconditionally in execution_engine.py, only the final
+    # send-to-broker step is skipped for paper) this specific order —
+    # see Trade.broker_name's own "Broker details" comment. It was
+    # never surfaced here, so no client could ever show or use it, by
+    # direct request ("exchange record is important ... a trade record
+    # in this app doesn't actually store which exchange it was placed
+    # on" — the DB column already existed, it just never left the API).
+    broker_name: Optional[str] = None
 
     class Config:
         from_attributes = True

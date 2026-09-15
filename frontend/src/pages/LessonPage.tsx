@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, ArrowRight, ChevronLeft, ChevronRight, Dumbbell, SkipForward, LogOut, CheckSquare, Square, Lock } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
 import { ListenButton } from '../components/ListenButton';
@@ -201,6 +201,18 @@ function buildPages(blocks: Block[]): Page[] {
   return pages.filter((p) => p.blocks.length > 0);
 }
 
+// Which page (if any) actually renders a `[VISUAL: ...]` or
+// `See diagram: ...` block — used to land a "Review the reference
+// chart/diagram" link straight on that page instead of page 1, by
+// direct bug report ("the diagram links don't actually lead to the
+// diagrams"): those links only ever pointed at the lesson as a whole,
+// and the diagram itself usually lives a few pages in (under "Core
+// Teaching"), so opening the link looked like it went nowhere near
+// the diagram until you clicked Next a few times.
+function pageHasDiagram(blocks: Block[]): boolean {
+  return blocks.some((b) => b.type === 'p' && (VISUAL_PLACEHOLDER_RE.test(b.text) || SEE_DIAGRAM_RE.test(b.text)));
+}
+
 /** Plain readable text for one page's own blocks only — used to feed
  * ListenButton, by direct bug report ("listen mode should be on
  * current page and not from the learning begining"): it was always
@@ -373,8 +385,18 @@ function LessonReader({
     return raw ? parseMiniQuiz(raw) : [];
   }, [lesson.content_body]);
 
-  const [pageIndex, setPageIndex] = useState(0);
-  useEffect(() => setPageIndex(0), [lesson.id]);
+  // `?jump=diagram` (set by PracticeDrillsPage's "Review the reference
+  // chart/diagram" link) opens straight on the page holding the
+  // lesson's diagram instead of always page 1 — see pageHasDiagram's
+  // docstring for the bug this fixes. Falls back to page 1 for a
+  // lesson with no diagram at all, or when opened any other way.
+  const [searchParams] = useSearchParams();
+  const diagramPageIndex = useMemo(() => pages.findIndex((p) => pageHasDiagram(p.blocks)), [pages]);
+  const jumpToDiagram = searchParams.get('jump') === 'diagram' && diagramPageIndex !== -1;
+  const initialPageIndex = jumpToDiagram ? diagramPageIndex : 0;
+
+  const [pageIndex, setPageIndex] = useState(initialPageIndex);
+  useEffect(() => setPageIndex(initialPageIndex), [lesson.id]);
 
   // Per-substage "I understand" acknowledgement — by direct request
   // ("Add the toggle and 'I understand' for every substage and it is a

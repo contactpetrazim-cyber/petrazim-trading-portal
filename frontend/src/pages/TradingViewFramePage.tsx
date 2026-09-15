@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Sun, Moon, Save, Trash2, FolderOpen, X, TrendingUp, CandlestickChart } from 'lucide-react';
-import { TradingViewChart, type ChartPosition } from '../components/TradingViewChart';
+import { Sun, Moon, Save, Trash2, FolderOpen, X, TrendingUp, CandlestickChart, Target, LineChart } from 'lucide-react';
+import { TradingViewChart } from '../components/TradingViewChart';
 import { CandleColorPicker } from '../components/CandleColorPicker';
+import { PositionManager } from '../components/PositionManager';
+import { PositionOnChartModal } from '../components/PositionOnChartModal';
+import { tradeToChartPosition, NoPositionCard } from '../components/ChartPanel';
 import { useEffectiveChartColors } from '../hooks/useCandleColors';
 import { OpenInTradingView } from '../components/OpenInTradingView';
 import { PetrazimLogo } from '../components/PetrazimLogo';
@@ -12,6 +15,7 @@ import { useQuickPairsStore } from '../hooks/useQuickPairs';
 import { useAuth } from '../hooks/useAuth';
 import { apiFetch } from '../components/AccessExpiredGate';
 import { tradesApi } from '../services/api';
+import type { Trade } from '../types';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -90,25 +94,41 @@ export function TradingViewFramePage() {
     ? { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
     : { 'Content-Type': 'application/json' };
 
-  // Entry/SL/TP overlay for whatever open position or pending order
-  // the trader already has on the symbol currently shown — by direct
-  // bug report ("Executed or pending trades on the chart" not
-  // showing), same gap ManualTradingPage.tsx's own chart already had
-  // fixed: this "Free Chart"/"My Workspace" page renders
-  // TradingViewChart directly rather than through ChartPanel, so it
-  // never got the `position` prop wired in at all. Same polling shape
-  // as ManualTradingPage.tsx (active trades take priority over a
-  // pending order on the same symbol).
-  const [openPositionTrade, setOpenPositionTrade] = useState<import('../types').Trade | null>(null);
-  const [pendingOrderTrade, setPendingOrderTrade] = useState<import('../types').Trade | null>(null);
+  // Position management + on-chart view for whatever open position or
+  // pending order the trader already has on the symbol currently
+  // shown — by direct request ("can this be done on my workspace
+  // charts too ... make the position chart markers show on my
+  // workstation charts"). Same pattern ChartPanel.tsx uses (folded
+  // "Position"/"On Chart" toggles, PositionManager for real edit/
+  // cancel/partial-close, PositionOnChartModal for real lines drawn on
+  // this app's own CandleChart) — this page renders TradingViewChart
+  // directly rather than through ChartPanel, so it needs its own copy
+  // of the same toggles. Same polling shape as ManualTradingPage.tsx
+  // (an open position takes priority over a pending order on the same
+  // symbol).
+  const [openPositionTrade, setOpenPositionTrade] = useState<Trade | null>(null);
+  const [pendingOrderTrade, setPendingOrderTrade] = useState<Trade | null>(null);
+  // Same "you have an order elsewhere" hint ChartPanel/ManualTradingPage
+  // now surface, one row per other symbol (not just the first found) —
+  // see NoPositionCard's own docstring for the bug report this fixes
+  // ("Goto button from EURUSD does not deploy auto to the correct
+  // chart with position trade orders (BTCUSD)") and why a list rather
+  // than a dropdown.
+  const [otherOpenTrades, setOtherOpenTrades] = useState<Trade[]>([]);
+  const [positionOpen, setPositionOpen] = useState(false);
+  const [onChartOpen, setOnChartOpen] = useState(false);
   const loadOpenPosition = useCallback(() => {
     return Promise.all([
       tradesApi.getActiveTrades(),
-      tradesApi.getTrades({ status: 'pending', symbol: symbol.tradeSymbol }),
+      tradesApi.getTrades({ status: 'pending' }),
     ]).then(([active, pending]) => {
       setOpenPositionTrade(active.find((t) => t.symbol === symbol.tradeSymbol && t.entry_price != null) ?? null);
-      setPendingOrderTrade(pending.find((t) => t.entry_price != null) ?? null);
-    }).catch(() => { setOpenPositionTrade(null); setPendingOrderTrade(null); });
+      setPendingOrderTrade(pending.find((t) => t.symbol === symbol.tradeSymbol && t.entry_price != null) ?? null);
+      const bySymbol = new Map<string, Trade>();
+      active.filter((t) => t.symbol !== symbol.tradeSymbol && t.entry_price != null).forEach((t) => bySymbol.set(t.symbol, t));
+      pending.filter((t) => t.symbol !== symbol.tradeSymbol && t.entry_price != null).forEach((t) => { if (!bySymbol.has(t.symbol)) bySymbol.set(t.symbol, t); });
+      setOtherOpenTrades(Array.from(bySymbol.values()));
+    }).catch(() => { setOpenPositionTrade(null); setPendingOrderTrade(null); setOtherOpenTrades([]); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [symbol.tradeSymbol, token]);
   useEffect(() => {
@@ -118,23 +138,7 @@ export function TradingViewFramePage() {
     return () => clearInterval(t);
   }, [loadOpenPosition, token]);
 
-  const chartPosition: ChartPosition | null = openPositionTrade ? {
-    direction: openPositionTrade.direction,
-    entryPrice: openPositionTrade.entry_price as number,
-    stopLoss: openPositionTrade.stop_loss,
-    takeProfit1: openPositionTrade.take_profit,
-    takeProfit2: openPositionTrade.take_profit_2,
-    takeProfit3: openPositionTrade.take_profit_3,
-    unrealizedPnl: openPositionTrade.unrealized_pnl,
-  } : pendingOrderTrade ? {
-    direction: pendingOrderTrade.direction,
-    entryPrice: pendingOrderTrade.entry_price as number,
-    stopLoss: pendingOrderTrade.stop_loss,
-    takeProfit1: pendingOrderTrade.take_profit,
-    takeProfit2: pendingOrderTrade.take_profit_2,
-    takeProfit3: pendingOrderTrade.take_profit_3,
-    pending: true,
-  } : null;
+  const position: Trade | null = openPositionTrade ?? pendingOrderTrade;
 
   async function loadLayouts() {
     if (!token) return;
@@ -272,6 +276,33 @@ export function TradingViewFramePage() {
               </button>
             )}
 
+            {/* Permanent — by direct request ("make 'Position' and 'On
+                Chart' a permanent feature on all charts ... you can
+                always click on it to review order position"), not
+                conditional on `position` any more. */}
+            {mode !== 'external' && (
+              <button
+                onClick={() => setPositionOpen((o) => !o)}
+                aria-label={positionOpen ? 'Hide position management' : 'Review or manage this position'}
+                title={position ? 'Edit SL/TP, partial close or cancel this order' : 'No open or pending order on this symbol yet'}
+                className={`p-1.5 rounded-md flex items-center gap-1.5 text-xs font-medium ${
+                  positionOpen ? 'bg-blue-600 text-white' : frameDark ? 'bg-white/5 text-white/60 hover:text-white' : 'bg-black/5 text-[#141a33]/60 hover:text-[#141a33]'
+                }`}
+              >
+                <Target size={13} /> Position
+              </button>
+            )}
+            {mode !== 'external' && (
+              <button
+                onClick={() => setOnChartOpen(true)}
+                aria-label="Show Entry/SL/TP drawn on a real chart"
+                title={position ? 'Open a chart with Entry/SL/TP actually drawn on it' : 'Open a chart for this symbol'}
+                className={`p-1.5 rounded-md flex items-center gap-1.5 text-xs font-medium ${frameDark ? 'bg-white/5 text-white/60 hover:text-white' : 'bg-black/5 text-[#141a33]/60 hover:text-[#141a33]'}`}
+              >
+                <LineChart size={13} /> On Chart
+              </button>
+            )}
+
             {mode !== 'external' && (
               <button
                 onClick={() => navigate(`/trade/manual?symbol=${encodeURIComponent(symbol.tradeSymbol)}`)}
@@ -307,13 +338,20 @@ export function TradingViewFramePage() {
           </div>
         )}
 
+        {positionOpen && (
+          <div className="px-2 mb-2">
+            {position
+              ? <PositionManager trade={position} dark={frameDark} onChanged={loadOpenPosition} />
+              : <NoPositionCard dark={frameDark} otherTrades={otherOpenTrades} />}
+          </div>
+        )}
 
         <div
           className={`relative rounded-xl overflow-hidden ${frameDark ? 'bg-black' : 'bg-white border border-[#e0e2ec]'}`}
           style={{ aspectRatio: '16/9' }}
         >
           {(mode === 'widget' || mode === 'workspace') && (
-            <TradingViewChart symbol={symbol.value} interval={interval.value} theme={frameTheme} candleColors={colors} chartStyle={chartStyle} position={chartPosition} />
+            <TradingViewChart symbol={symbol.value} interval={interval.value} theme={frameTheme} candleColors={colors} chartStyle={chartStyle} />
           )}
 
           {mode === 'workspace' && savedViewsOpen && (
@@ -396,6 +434,14 @@ export function TradingViewFramePage() {
           <div className={`w-32 h-1.5 rounded-full ${frameDark ? 'bg-white/10' : 'bg-black/10'}`} />
         </div>
       </div>
+
+      {onChartOpen && (
+        <PositionOnChartModal
+          position={position ? tradeToChartPosition(position) : undefined} trade={position} symbol={position?.symbol ?? symbol.tradeSymbol}
+          bullColor={colors.upColor} bearColor={colors.downColor} initialInterval={interval.value}
+          onClose={() => setOnChartOpen(false)} onChanged={loadOpenPosition}
+        />
+      )}
 
       <div className="w-full max-w-6xl mt-6">
         <FoldedCard title="Why three modes instead of one embedded TradingView?" summary="Worth reading once">

@@ -38,7 +38,7 @@ from app.models.trade import EntryType, ExitType, ManualTradingSettings, Trade, 
 from app.models.user import User
 from app.services.execution_engine import ExecutionEngine
 from app.services.live_price import get_crypto_price
-from app.services.manual_trading import check_manual_trade_risk, compute_lot_size, effective_limits, get_master_paper_enforced
+from app.services.manual_trading import check_manual_trade_risk, compute_lot_size, compute_r_multiple, effective_limits, get_master_paper_enforced
 
 router = APIRouter(prefix="/manual-trading", tags=["manual-trading"])
 logger = structlog.get_logger()
@@ -310,6 +310,34 @@ async def place_manual_order(
         db.add(trade)
         await db.commit()
 
+        # A paper LIMIT/STOP order stays genuinely PENDING here — no
+        # broker call at all, on purpose. Real bug report: this used to
+        # fall through to the exact same instant-fill path a paper
+        # MARKET order takes (see _paper_place_order's own docstring on
+        # why paper mode historically instant-filled everything), which
+        # meant the "Pending — not filled yet" label was only ever true
+        # for the length of one HTTP request — and if THAT request got
+        # interrupted (a Render cold-start, a network hiccup on the
+        # price-deviation guard's live ticker fetch below), the row was
+        # left stuck at PENDING forever with nothing ever revisiting it.
+        # It also meant the trigger price itself was never actually
+        # checked against live price at all — an order could "fill" the
+        # instant it was submitted regardless of where price actually
+        # was. pending_order_monitor.py is what now genuinely fills
+        # this the moment live price reaches the trigger — see its own
+        # module docstring for the full story. Paper MARKET orders are
+        # unaffected (still fill instantly below, correctly, since a
+        # market order has nothing to wait for) and so is a real LIVE
+        # order of any type (a real broker has its own real order book
+        # to rest a resting order on).
+        if paper and req.order_type in ("limit", "stop"):
+            response = ManualOrderResponse(
+                trade_id=trade_id, status="pending", is_test=is_test, lot_size=lot_size, risk_percent=risk_percent,
+                message="Order placed — Paper Trading will fill it automatically once live price reaches your trigger price.",
+            )
+            await guard.finalize(response)
+            return response
+
         # Both Test and a real Live order run through the exact same real
         # broker-selection + price-deviation-guard pipeline
         # (execution_engine.py::_execute_broker_order) — `paper` only
@@ -327,6 +355,14 @@ async def place_manual_order(
             # stop-market entry on every broker, not a limit order standing
             # in for one.
             "entry_type": req.order_type,
+            # Lets _get_broker_client route this order to the TRADER's
+            # OWN connected exchange account (trader_broker_connections.py)
+            # when they have one for the resolved broker, instead of
+            # always falling through to this platform's shared global
+            # key — see that method's own updated docstring for the
+            # full priority chain (bot credential > trader connection >
+            # global key).
+            "user_id": user.id,
         }, db, paper=paper)
 
         if result.get("success"):
@@ -374,7 +410,21 @@ async def partial_close(
     price-feed/worker process to detect a target being hit and fire
     automatically. `lot_size` on the Trade row is treated as the
     CURRENT remaining size (mutated down on each partial close, not
-    the original) — closing 100% at any point fully closes the trade."""
+    the original) — closing 100% at any point fully closes the trade.
+
+    Real bug fixed here: for a LIVE (non-paper) trade this used to only
+    ever mutate OUR OWN record — the real position at the broker was
+    never actually reduced, so the trader's real exchange exposure
+    stayed exactly as large as before while our own UI/DB claimed part
+    of it was closed. Now genuinely sends a reduce-only close for the
+    closed portion to the real broker FIRST (execution_engine.py's own
+    close_broker_position, added alongside this fix) — the local size/
+    PnL mutation below only happens once that real broker leg succeeds
+    (or never happens at all for a paper trade, which has no real
+    position to reduce). A broker-side failure is surfaced as an error
+    rather than silently recorded as done, so our record never drifts
+    ahead of what's actually true at the exchange.
+    """
     row = (await db.execute(
         select(Trade).where(Trade.trade_id == trade_id, Trade.user_id == user.id)
     )).scalar_one_or_none()
@@ -388,6 +438,18 @@ async def partial_close(
         await _raise_if_access_expired(db, user)
 
     closed_size = row.lot_size * (req.percent / 100)
+
+    if not row.is_test:
+        close_result = await _engine.close_broker_position(
+            row.broker_name, row.symbol, row.direction.value, row.bot_id, db,
+            paper=row.is_test, quantity=closed_size, user_id=row.user_id,
+        )
+        if not close_result.get("success"):
+            raise HTTPException(
+                status_code=502,
+                detail=close_result.get("message") or close_result.get("error") or "Broker did not confirm the close — your real position is unchanged.",
+            )
+
     direction_sign = 1 if row.direction == TradeDirection.LONG else -1
     pnl_this_close = direction_sign * (req.exit_price - row.entry_price) * closed_size
 
@@ -399,6 +461,10 @@ async def partial_close(
         row.exit_timestamp = datetime.now(timezone.utc)
         row.exit_type = ExitType.MANUAL
         row.lot_size = 0.0
+        # See compute_r_multiple's own docstring — this was never set
+        # anywhere before, silently zeroing out average_r everywhere
+        # it's read.
+        row.r_multiple = compute_r_multiple(row.entry_price, req.exit_price, row.stop_loss, row.direction)
     await db.commit()
 
     return PartialCloseResponse(
@@ -483,7 +549,7 @@ async def cancel_order(
         if row.broker_order_id and row.broker_name:
             cancel_result = await _engine.cancel_broker_order(
                 row.broker_name, row.broker_order_id, row.symbol, row.bot_id, db,
-                is_stop=row.entry_type == EntryType.STOP, paper=row.is_test,
+                is_stop=row.entry_type == EntryType.STOP, paper=row.is_test, user_id=row.user_id,
             )
             cancelled_at_broker = bool(cancel_result.get("success"))
             if not cancelled_at_broker:
@@ -510,7 +576,7 @@ async def cancel_order(
     ):
         cancel_result = await _engine.cancel_broker_order(
             row.broker_name, row.broker_order_id, row.symbol, row.bot_id, db,
-            is_stop=row.entry_type == EntryType.STOP, paper=row.is_test,
+            is_stop=row.entry_type == EntryType.STOP, paper=row.is_test, user_id=row.user_id,
         )
         if cancel_result.get("success"):
             row.status = TradeStatus.CANCELLED
@@ -533,6 +599,31 @@ async def cancel_order(
             detail="No live price available for this symbol — pass exit_price to close it at a specific price.",
         )
 
+    # Real bug fixed here: reaching this point — a MARKET-entered live
+    # trade (skips the LIMIT/STOP branch above entirely), or a LIMIT/
+    # STOP one whose broker cancel just failed above because it was
+    # already filled — used to close ONLY our own DB record. The real
+    # exchange position stayed open, live-risked, indefinitely, with
+    # our own UI/DB confidently reporting it CLOSED. Now genuinely
+    # sends a full reduce-only close to the real broker FIRST
+    # (execution_engine.py's own close_broker_position, checked before
+    # any local mutation below) whenever we have a broker on file for
+    # this trade; only a row with NO broker_name at all (never actually
+    # routed to a real exchange — an old/malformed record, not a real
+    # live position anywhere) skips straight to a local-only close,
+    # since there is nothing real to act on. A broker that IS on file
+    # but fails to confirm the close blocks this from silently marking
+    # the position closed.
+    if not row.is_test and row.broker_name:
+        close_result = await _engine.close_broker_position(
+            row.broker_name, row.symbol, row.direction.value, row.bot_id, db, paper=row.is_test, user_id=row.user_id,
+        )
+        if not close_result.get("success"):
+            raise HTTPException(
+                status_code=502,
+                detail=close_result.get("message") or close_result.get("error") or "Broker did not confirm the close — your real position is unchanged.",
+            )
+
     closed_size = row.lot_size
     direction_sign = 1 if row.direction == TradeDirection.LONG else -1
     pnl_this_close = direction_sign * (exit_price - row.entry_price) * closed_size
@@ -548,6 +639,7 @@ async def cancel_order(
     row.status = TradeStatus.CLOSED
     row.exit_price = exit_price
     row.exit_timestamp = datetime.now(timezone.utc)
+    row.r_multiple = compute_r_multiple(row.entry_price, exit_price, row.stop_loss, row.direction)
     row.exit_type = ExitType.MANUAL
     await db.commit()
 
@@ -581,6 +673,14 @@ class ModifyTargetsResponse(BaseModel):
     take_profit: Optional[float]
     take_profit_2: Optional[float]
     take_profit_3: Optional[float]
+    # None when there was nothing broker-relevant to sync (a still-
+    # PENDING order, a paper/test trade, or a request that only touched
+    # take_profit_2/3 — see this endpoint's own docstring for why those
+    # two have no broker-side equivalent). True/False once a real sync
+    # was actually attempted, so the frontend can tell the trader
+    # whether their real exchange order was actually moved.
+    broker_synced: Optional[bool] = None
+    broker_message: Optional[str] = None
 
 
 @router.patch("/{trade_id}/modify-targets", response_model=ModifyTargetsResponse)
@@ -601,16 +701,38 @@ async def modify_targets(
     target) before it does, same as amending a resting limit order at
     a real exchange.
 
-    Honest scope: this updates OUR OWN record of the trade's targets,
-    the same thing partial-close already treats as trader-managed
-    rather than broker-enforced (see that endpoint's own docstring —
-    there's no price-feed worker in this app that watches for a target
-    being hit). For a LIVE trade at a real broker, that broker's own
-    resting stop/limit order is not modified by this call; the trader
-    still needs to adjust it at the broker directly if one was placed
-    there. Fixing that fully means adding a modify-order call to every
-    broker integration this app has — a separate, larger piece of
-    work, not something to silently pretend already happens here.
+    Broker sync (stop_loss and take_profit/TP1 only, ACTIVE trades
+    only): now genuinely attempted for real — this used to update ONLY
+    our own record regardless of trading mode, silently leaving a real
+    broker's own resting stop/TP order at its old price while our UI
+    confidently showed the new one. execution_engine.py's own
+    update_broker_stop_loss_take_profit is real, currently, for Bybit,
+    Binance and MetaApi/MT4-5 (see each broker's own
+    update_stop_loss_take_profit in broker_integrations.py); BingX/MEXC/
+    TradeLocker don't have one implemented yet, so that call honestly
+    reports `not_supported` for those rather than pretending it synced.
+    Either way, the LOCAL record below is always updated regardless of
+    whether the broker sync succeeded — a trader's own risk-management
+    log (and their intent for it) is real even when the broker leg
+    can't confirm it, and modify_targets never had a business meaning
+    of "this trade's real broker order must exist" the way opening or
+    closing one does. `broker_synced`/`broker_message` on the response
+    tell the caller which actually happened, so the frontend can show
+    the trader plainly when their broker wasn't touched instead of
+    implying it was. take_profit_2/take_profit_3 are never sent to a
+    broker at all — every broker integration this app has only ever
+    accepts ONE take-profit per position/order (see each one's own
+    place_order); TP2/TP3 are, and remain, purely this app's own
+    multi-target bookkeeping (partial_close/position_monitor.py), not
+    something any of these exchanges has a slot for.
+
+    A still-PENDING order's entry/SL/TP live only in our own DB until
+    it actually fills — a resting broker order's own trigger/SL/TP
+    would need a genuine order-AMEND call (different from a position's
+    SL/TP, and not implemented by any broker integration here either),
+    so no broker sync is attempted for a PENDING trade; only ACTIVE
+    (already-filled, a real position genuinely sitting at the broker)
+    ones attempt one.
     """
     row = (await db.execute(
         select(Trade).where(Trade.trade_id == trade_id, Trade.user_id == user.id)
@@ -636,6 +758,7 @@ async def modify_targets(
     ]
     if row.status == TradeStatus.PENDING:
         fields.append(("entry_price", "entry_update", req.entry_price))
+    sl_changed = tp1_changed = False
     for field, event_type, new_value in fields:
         if new_value is None:
             continue
@@ -648,11 +771,28 @@ async def modify_targets(
             price_at_event=new_value,
         ))
         setattr(row, field, new_value)
+        if field == "stop_loss":
+            sl_changed = True
+        elif field == "take_profit_1":
+            tp1_changed = True
     await db.commit()
+
+    broker_synced: Optional[bool] = None
+    broker_message: Optional[str] = None
+    if row.status == TradeStatus.ACTIVE and not row.is_test and (sl_changed or tp1_changed):
+        sync_result = await _engine.update_broker_stop_loss_take_profit(
+            row.broker_name, row.symbol, row.direction.value, row.bot_id, db, paper=row.is_test,
+            stop_loss=row.stop_loss if sl_changed else None,
+            take_profit=row.take_profit_1 if tp1_changed else None,
+            user_id=row.user_id,
+        )
+        broker_synced = bool(sync_result.get("success"))
+        broker_message = sync_result.get("message") or sync_result.get("error")
 
     return ModifyTargetsResponse(
         trade_id=trade_id, status=row.status.value, entry_price=row.entry_price, stop_loss=row.stop_loss,
         take_profit=row.take_profit_1, take_profit_2=row.take_profit_2, take_profit_3=row.take_profit_3,
+        broker_synced=broker_synced, broker_message=broker_message,
     )
 
 

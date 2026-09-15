@@ -1,6 +1,7 @@
 import { BookMarked } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
 import { SequenceGameEngine, type SequenceItem } from '../components/SequenceGameEngine';
+import { SMCDiagram } from '../components/SMCDiagram';
 import { useThemeStore } from '../hooks/useTheme';
 
 const ACCENT = '#a855f7';
@@ -28,6 +29,14 @@ export function WyckoffPhaseSorterGame() {
         gameId="wyckoff-phase-sorter" title="Wyckoff Phase Sorter" icon={<BookMarked size={16} />} accent={ACCENT}
         correctOrder={ORDER} baseXp={15} backHref="/practise/game" dark={dark}
       />
+
+      {/* Below the game, not above — this labels the correct order,
+          which would spoil the tap-to-order challenge if seen first.
+          Placed here as the "check your understanding after" reference
+          the reveal ("what happens next" style games) also use. */}
+      <div className="mt-6">
+        <SMCDiagram concept="wyckoff-cycle" dark={dark} />
+      </div>
     </div>
   );
 }

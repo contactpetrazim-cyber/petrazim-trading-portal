@@ -124,7 +124,21 @@ class MonteCarloEngine:
             raise ValueError("No trades available for the given filter")
 
         wins = [r for r in trades if r > 0]
-        losses = [r for r in trades if r <= 0]
+        # Strictly < 0, not <= 0 — found during a critical review of
+        # trading calculations: a breakeven trade (r == 0) is neither a
+        # win nor a loss (the app's own dashboard breakdown already
+        # treats it as its own third bucket, TodayTradeBreakdown's
+        # `breakeven`). Folding it into `losses` here understated
+        # avg_loss_r (a stack of 0s pulls the average toward zero,
+        # making "your average losing trade" look smaller than it
+        # really is) and inflated max_loss_streak (a losing streak
+        # should mean consecutive real losses, not breakevens).
+        # win_rate and expectancy_r are unaffected — win_rate was
+        # already wins-over-ALL-trades (breakeven correctly counts
+        # against it either way), and expectancy_r averages every
+        # trade's r_multiple directly, where a real 0.0 already
+        # contributes exactly nothing regardless of which list it's in.
+        losses = [r for r in trades if r < 0]
 
         return TradeMetrics(
             n_trades=len(trades),
@@ -134,7 +148,7 @@ class MonteCarloEngine:
             expectancy_r=round(statistics.mean(trades), 3),
             std_dev_r=round(statistics.pstdev(trades), 3) if len(trades) > 1 else 0.0,
             max_win_streak=self._max_streak(trades, lambda r: r > 0),
-            max_loss_streak=self._max_streak(trades, lambda r: r <= 0),
+            max_loss_streak=self._max_streak(trades, lambda r: r < 0),
         )
 
     @staticmethod

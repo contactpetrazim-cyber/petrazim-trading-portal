@@ -12,7 +12,7 @@ import { formatApiError } from '../lib/apiError';
 import { LoadingIndicator } from '../components/LoadingIndicator';
 import { tradesApi, botsApi } from '../services/api';
 import { PairsPanel } from '../components/PairsPanel';
-import { useQuickPairsStore } from '../hooks/useQuickPairs';
+import { useQuickPairsStore, pairFromResult } from '../hooks/useQuickPairs';
 import type { Trade } from '../types';
 
 
@@ -168,16 +168,41 @@ export function ManualTradingPage() {
 
   const preselect = params.get('symbol');
   const preselectPrice = params.get('price');
+  // `?tv=EXCHANGE:TICKER` — set by PositionManager's "Goto Chart" link
+  // — names the exact chart to open directly, by direct request ("add
+  // a link that triggers the correct chart pair from the correct
+  // exchange"). Takes priority over `?symbol=` (which only matches an
+  // ALREADY-saved quick-link and silently falls back to the default
+  // pair otherwise — not good enough for a deep link that must land on
+  // the right chart even the first time a symbol is ever opened here).
+  const preselectTv = params.get('tv');
+  // Build the QuickPair straight from the trusted `?tv=` string itself
+  // (split on ':') rather than re-deriving the exchange from the bare
+  // ticker — PositionManager already resolved the right exchange via
+  // pairFromTradeSymbol before putting it in the URL; re-resolving it
+  // here a second time could disagree with that and defeat the whole
+  // point of passing an exact `tv`.
+  const preselectPair = (() => {
+    if (!preselectTv) return null;
+    const [exch, ...rest] = preselectTv.split(':');
+    const ticker = rest.join(':');
+    if (!exch || !ticker) return null;
+    return pairFromResult({ symbol: ticker, exchange: exch });
+  })();
   // Pairs now live in the ONE shared quick-links store (useQuickPairs),
   // so a pair added here shows up on every other chart in the app and
   // vice-versa — by direct request. The old per-page list, the
   // exchange-prefix guesswork and this page's own copy of the search
   // panel are all gone; PairsPanel owns that surface for every chart.
-  const { pairs } = useQuickPairsStore();
+  const { pairs, addPair } = useQuickPairsStore();
+  useEffect(() => {
+    if (preselectPair && !pairs.some((p) => p.tv === preselectPair.tv)) addPair(preselectPair);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preselectPair?.tv]);
   const [selectedTv, setSelectedTv] = useState<string>(
-    () => pairs.find((p) => p.trade === preselect)?.tv ?? pairs[0]?.tv,
+    () => preselectPair?.tv ?? pairs.find((p) => p.trade === preselect)?.tv ?? pairs[0]?.tv,
   );
-  const quickSymbol = pairs.find((p) => p.tv === selectedTv) ?? pairs[0];
+  const quickSymbol = pairs.find((p) => p.tv === selectedTv) ?? preselectPair ?? pairs[0];
 
   const symbol = { label: quickSymbol.label, trade: quickSymbol.trade, tv: quickSymbol.tv };
 
@@ -512,14 +537,40 @@ export function ManualTradingPage() {
   // below rather than one being chart-only.
   const [openPositionTrade, setOpenPositionTrade] = useState<Trade | null>(null);
   const [pendingOrderTrade, setPendingOrderTrade] = useState<Trade | null>(null);
+  // Surfaced in NoPositionCard's empty state — by direct bug report,
+  // with video: "the position Goto button from EURUSD does not deploy
+  // auto to the correct chart with position trade orders (BTCUSD)
+  // chart ... it remains on the EURUSD chart instead." Goto Chart on
+  // an empty symbol was always only ever "reopen this same chart" —
+  // correct, since there's nothing else to link to — the real gap was
+  // never telling the trader an order exists on a DIFFERENT symbol at
+  // all. `pending` below is now fetched WITHOUT a symbol filter (was
+  // scoped to `symbol.trade`) specifically so this can check it too,
+  // without a second network round-trip.
+  //
+  // Every OTHER symbol you have a trade on, one row each in
+  // NoPositionCard — not just the first found — by direct follow-up
+  // question ("how will it handle multiple orders from different
+  // pairs ... list the Goto button for each pair, or a drop-down");
+  // see NoPositionCard's own docstring for why a list. Deduped to one
+  // Trade per symbol, preferring an active position over a pending
+  // order on that same other symbol (active checked first below, only
+  // added if that symbol isn't already in the map) — matches
+  // `chartPosition`'s own active-over-pending priority for THIS
+  // symbol just above.
+  const [otherOpenTrades, setOtherOpenTrades] = useState<Trade[]>([]);
   const loadOpenPosition = useCallback(() => {
     return Promise.all([
       tradesApi.getActiveTrades(),
-      tradesApi.getTrades({ status: 'pending', symbol: symbol.trade }),
+      tradesApi.getTrades({ status: 'pending' }),
     ]).then(([active, pending]) => {
       setOpenPositionTrade(active.find((t) => t.symbol === symbol.trade && t.entry_price != null) ?? null);
-      setPendingOrderTrade(pending.find((t) => t.entry_price != null) ?? null);
-    }).catch(() => { setOpenPositionTrade(null); setPendingOrderTrade(null); });
+      setPendingOrderTrade(pending.find((t) => t.symbol === symbol.trade && t.entry_price != null) ?? null);
+      const bySymbol = new Map<string, Trade>();
+      active.filter((t) => t.symbol !== symbol.trade && t.entry_price != null).forEach((t) => bySymbol.set(t.symbol, t));
+      pending.filter((t) => t.symbol !== symbol.trade && t.entry_price != null).forEach((t) => { if (!bySymbol.has(t.symbol)) bySymbol.set(t.symbol, t); });
+      setOtherOpenTrades(Array.from(bySymbol.values()));
+    }).catch(() => { setOpenPositionTrade(null); setPendingOrderTrade(null); setOtherOpenTrades([]); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [symbol.trade]);
   useEffect(() => {
@@ -739,6 +790,7 @@ export function ManualTradingPage() {
             pairsPanel={<PairsPanel selected={quickSymbol} onSelect={(p) => setSelectedTv(p.tv)} dark={dark} />}
             position={chartPosition}
             onPositionChanged={loadOpenPosition}
+            otherOpenTrades={otherOpenTrades}
 
           />
 
