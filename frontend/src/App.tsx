@@ -18,6 +18,8 @@ const LoginPage = lazy(() => import('./pages/LoginPage').then((module) => ({ def
 const ManagerConsolePage = lazy(() => import('./pages/ManagerConsolePage').then((module) => ({ default: module.ManagerConsolePage })));
 const PartnerConsolePage = lazy(() => import('./pages/PartnerConsolePage').then((module) => ({ default: module.PartnerConsolePage })));
 const AdminConsolePage = lazy(() => import('./pages/AdminConsolePage').then((module) => ({ default: module.AdminConsolePage })));
+const ConnectExchangePage = lazy(() => import('./pages/ConnectExchangePage').then((module) => ({ default: module.ConnectExchangePage })));
+const AdminExchangeConnectionsPage = lazy(() => import('./pages/AdminExchangeConnectionsPage').then((module) => ({ default: module.AdminExchangeConnectionsPage })));
 const OnboardingPage = lazy(() => import('./pages/OnboardingPage').then((module) => ({ default: module.OnboardingPage })));
 const TradingViewFramePage = lazy(() => import('./pages/TradingViewFramePage').then((module) => ({ default: module.TradingViewFramePage })));
 const ChartPage = lazy(() => import('./pages/ChartPage').then((module) => ({ default: module.ChartPage })));
@@ -200,6 +202,16 @@ function App() {
         <Route path="/settings" element={
           <ProtectedRoute allowedRoles={TRADER_CONSOLE_ROLES}>
             <Layout><BotsPage /></Layout>
+          </ProtectedRoute>
+        } />
+        <Route path="/exchange-connections" element={
+          <ProtectedRoute allowedRoles={TRADER_CONSOLE_ROLES}>
+            <Layout><ConnectExchangePage /></Layout>
+          </ProtectedRoute>
+        } />
+        <Route path="/admin/exchange-connections" element={
+          <ProtectedRoute allowedRoles={['admin', 'super_admin']}>
+            <CorporateLayout portal="admin"><AdminExchangeConnectionsPage /></CorporateLayout>
           </ProtectedRoute>
         } />
 

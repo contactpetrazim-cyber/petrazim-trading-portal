@@ -362,23 +362,37 @@ class ExecutionEngine:
             self.pending_trades.remove(trade)
             return {"success": True, "message": "Trade rejected", "trade_id": trade_id}
 
-    async def _get_broker_client(self, broker: str, bot_id: Optional[str], db: Optional[AsyncSession], paper: bool = False):
+    async def _get_broker_client(
+        self, broker: str, bot_id: Optional[str], db: Optional[AsyncSession], paper: bool = False,
+        user_id=None,
+    ):
         """
         `paper=True` (the manual-trading Paper Trading toggle — see
         __init__'s self.paper_brokers) always wins outright and skips
-        the per-bot-credential lookup entirely: a paper fill needs no
-        real credentials of any kind, and a bot/user's real per-broker
-        key is exactly the thing paper mode exists to avoid touching.
+        every credential lookup entirely: a paper fill needs no real
+        credentials of any kind, and a bot/trader's real per-broker key
+        is exactly the thing paper mode exists to avoid touching.
 
-        Otherwise, a bot-specific credential (see broker_credentials.py,
-        one of your 4-6 sub-accounts per exchange) wins when one exists;
-        falls back to the single global-key client for that exchange
-        (self.brokers, from BINANCE_API_KEY etc.) so a bot with no
-        credential row of its own keeps working exactly as before.
-        Returns None if neither exists (-> the OTHER, pre-existing
-        "paper" meaning in _determine_broker/_execute_broker_order below:
-        no broker could be determined at all, unrelated to the Paper
-        Trading toggle).
+        Otherwise, priority is:
+          1. A bot-specific credential (broker_credentials.py, one of
+             your 4-6 internal sub-accounts per exchange) — unchanged,
+             still wins first, since that's this platform's OWN money
+             on its OWN sub-account for that specific bot.
+          2. A TRADER's own connected exchange account
+             (trader_broker_connections.py) for `user_id`, when one
+             exists — this is the actual point of "trade manually and
+             using our bots on their accounts": a trader's manual order
+             (or a bot signal they've subscribed to copy) should
+             execute on THEIR OWN exchange, not this platform's pooled
+             one, whenever they've connected one for it.
+          3. The single global-key client for that exchange (self.brokers,
+             from BINANCE_API_KEY etc.) — unchanged fallback for a bot/
+             trader with no credential of their own, exactly as before
+             this feature existed.
+        Returns None if none of the three exist (-> the OTHER, pre-
+        existing "paper" meaning in _determine_broker/_execute_broker_order
+        below: no broker could be determined at all, unrelated to the
+        Paper Trading toggle).
         """
         if paper:
             return self.paper_brokers.get(broker)
@@ -389,12 +403,25 @@ class ExecutionEngine:
                     return credential_client
             except Exception as e:
                 logger.error("per_bot_credential_lookup_failed", bot_id=bot_id, broker=broker, error=str(e))
+        if db is not None and user_id is not None:
+            try:
+                # Local imports — same reason as _persist_trade's own
+                # local model imports: avoids a circular import at
+                # module load (trader_broker_connections.py doesn't
+                # import this file, but keeps this dependency scoped to
+                # only where it's actually used).
+                from app.services.trader_broker_connections import build_client_from_connection, get_connection
+                connection = await get_connection(db, user_id, broker)
+                if connection is not None:
+                    return build_client_from_connection(connection)
+            except Exception as e:
+                logger.error("trader_connection_lookup_failed", user_id=str(user_id), broker=broker, error=str(e))
         return self.brokers.get(broker)
 
     async def cancel_broker_order(
         self, broker: Optional[str], order_id: Optional[str], symbol: str,
         bot_id: Optional[str], db: Optional[AsyncSession] = None, is_stop: bool = False,
-        paper: bool = False,
+        paper: bool = False, user_id=None,
     ) -> Dict:
         """
         Cancel a still-open order at the broker that actually accepted
@@ -415,7 +442,7 @@ class ExecutionEngine:
         """
         if not broker or not order_id:
             return {"success": False, "error": "missing_broker_reference", "message": "No broker order reference stored for this trade — nothing to cancel at a broker."}
-        client = await self._get_broker_client(broker, bot_id, db, paper=paper)
+        client = await self._get_broker_client(broker, bot_id, db, paper=paper, user_id=user_id)
         if client is None or not hasattr(client, "cancel_order"):
             return {"success": False, "error": "no_broker_client", "message": f"No {broker} client configured to cancel this order."}
         try:
@@ -427,6 +454,7 @@ class ExecutionEngine:
     async def close_broker_position(
         self, broker: Optional[str], symbol: str, side: str, bot_id: Optional[str],
         db: Optional[AsyncSession] = None, paper: bool = False, quantity: Optional[float] = None,
+        user_id=None,
     ) -> Dict:
         """
         Send a genuine reduce-only close (full, or partial when
@@ -454,7 +482,7 @@ class ExecutionEngine:
             return {"success": True, "order_id": f"PAPER-CLOSE-{symbol}", "status": "FILLED", "paper": True}
         if not broker:
             return {"success": False, "error": "missing_broker_reference", "message": "No broker recorded for this trade — nothing to close at a broker."}
-        client = await self._get_broker_client(broker, bot_id, db, paper=paper)
+        client = await self._get_broker_client(broker, bot_id, db, paper=paper, user_id=user_id)
         if client is None or not hasattr(client, "close_position"):
             return {"success": False, "error": "no_broker_client", "message": f"No {broker} client configured to close this position."}
         try:
@@ -467,6 +495,7 @@ class ExecutionEngine:
         self, broker: Optional[str], symbol: str, side: str, bot_id: Optional[str],
         db: Optional[AsyncSession] = None, paper: bool = False,
         stop_loss: Optional[float] = None, take_profit: Optional[float] = None,
+        user_id=None,
     ) -> Dict:
         """
         Move this position's REAL stop-loss/take-profit at the broker —
@@ -487,7 +516,7 @@ class ExecutionEngine:
             return {"success": True, "paper": True}
         if not broker:
             return {"success": False, "error": "missing_broker_reference", "message": "No broker recorded for this trade — nothing to update at a broker."}
-        client = await self._get_broker_client(broker, bot_id, db, paper=paper)
+        client = await self._get_broker_client(broker, bot_id, db, paper=paper, user_id=user_id)
         if client is None or not hasattr(client, "update_stop_loss_take_profit"):
             return {
                 "success": False, "error": "not_supported",
@@ -515,7 +544,9 @@ class ExecutionEngine:
         backends each configured with the other's VM_API_URL could
         ping-pong a single failing order back and forth forever."""
         broker = self._determine_broker(trade["symbol"], trade.get("preferred_broker"))
-        client = await self._get_broker_client(broker, trade.get("bot_id"), db, paper=paper) if broker != "paper" else None
+        client = await self._get_broker_client(
+            broker, trade.get("bot_id"), db, paper=paper, user_id=trade.get("user_id"),
+        ) if broker != "paper" else None
 
         try:
             if client is not None:
