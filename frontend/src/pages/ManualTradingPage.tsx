@@ -559,6 +559,12 @@ export function ManualTradingPage() {
   // `chartPosition`'s own active-over-pending priority for THIS
   // symbol just above.
   const [otherOpenTrades, setOtherOpenTrades] = useState<Trade[]>([]);
+  // True only until this FIRST poll resolves — by direct bug report
+  // ("a time lag after position is clicked before the blue button
+  // shows"). See ChartPanel's own PositionLoadingCard docstring for
+  // why this needs to be its own flag rather than inferred from
+  // position/otherOpenTrades being empty.
+  const [positionLoading, setPositionLoading] = useState(true);
   const loadOpenPosition = useCallback(() => {
     return Promise.all([
       tradesApi.getActiveTrades(),
@@ -570,7 +576,8 @@ export function ManualTradingPage() {
       active.filter((t) => t.symbol !== symbol.trade && t.entry_price != null).forEach((t) => bySymbol.set(t.symbol, t));
       pending.filter((t) => t.symbol !== symbol.trade && t.entry_price != null).forEach((t) => { if (!bySymbol.has(t.symbol)) bySymbol.set(t.symbol, t); });
       setOtherOpenTrades(Array.from(bySymbol.values()));
-    }).catch(() => { setOpenPositionTrade(null); setPendingOrderTrade(null); setOtherOpenTrades([]); });
+    }).catch(() => { setOpenPositionTrade(null); setPendingOrderTrade(null); setOtherOpenTrades([]); })
+      .finally(() => setPositionLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [symbol.trade]);
   useEffect(() => {
@@ -791,7 +798,7 @@ export function ManualTradingPage() {
             position={chartPosition}
             onPositionChanged={loadOpenPosition}
             otherOpenTrades={otherOpenTrades}
-
+            positionLoading={positionLoading}
           />
 
           {/* "View and edit the statistics of this trade ... exchange

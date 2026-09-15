@@ -1,10 +1,13 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowLeft, X } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
 import { ChartPanel } from '../components/ChartPanel';
 import { OrderFlowChartTool } from './OrderFlowChartTool';
 import { useThemeStore } from '../hooks/useTheme';
+import { useAuth } from '../hooks/useAuth';
+import { tradesApi } from '../services/api';
+import type { Trade } from '../types';
 
 /**
  * OrderFlowFullPage — the Order Flow Chart, maximized to its own page
@@ -30,6 +33,42 @@ export function OrderFlowFullPage() {
   const { theme } = useThemeStore();
   const dark = theme === 'dark';
   const [symbol, setSymbol] = useState('BTCUSDT');
+  const { token } = useAuth();
+
+  // This page's own ChartPanel had NO position/otherOpenTrades wiring
+  // at all — the "Position" button always rendered the empty state
+  // regardless of what a trader actually held, by direct bug report
+  // ("on chart in the tools ... a time lag after position is clicked
+  // before the blue button shows — You have a pending order on
+  // BTCUSDT instead"). Same polling shape as ManualTradingPage.tsx/
+  // TradingViewFramePage.tsx — an open position takes priority over a
+  // pending order on the same symbol, one row per OTHER symbol.
+  const [openPositionTrade, setOpenPositionTrade] = useState<Trade | null>(null);
+  const [pendingOrderTrade, setPendingOrderTrade] = useState<Trade | null>(null);
+  const [otherOpenTrades, setOtherOpenTrades] = useState<Trade[]>([]);
+  const [positionLoading, setPositionLoading] = useState(true);
+  const loadOpenPosition = useCallback(() => {
+    return Promise.all([
+      tradesApi.getActiveTrades(),
+      tradesApi.getTrades({ status: 'pending' }),
+    ]).then(([active, pending]) => {
+      setOpenPositionTrade(active.find((t) => t.symbol === symbol && t.entry_price != null) ?? null);
+      setPendingOrderTrade(pending.find((t) => t.symbol === symbol && t.entry_price != null) ?? null);
+      const bySymbol = new Map<string, Trade>();
+      active.filter((t) => t.symbol !== symbol && t.entry_price != null).forEach((t) => bySymbol.set(t.symbol, t));
+      pending.filter((t) => t.symbol !== symbol && t.entry_price != null).forEach((t) => { if (!bySymbol.has(t.symbol)) bySymbol.set(t.symbol, t); });
+      setOtherOpenTrades(Array.from(bySymbol.values()));
+    }).catch(() => { setOpenPositionTrade(null); setPendingOrderTrade(null); setOtherOpenTrades([]); })
+      .finally(() => setPositionLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [symbol, token]);
+  useEffect(() => {
+    if (!token) return;
+    loadOpenPosition();
+    const t = setInterval(loadOpenPosition, 8000);
+    return () => clearInterval(t);
+  }, [loadOpenPosition, token]);
+  const position: Trade | null = openPositionTrade ?? pendingOrderTrade;
 
   return (
     <div>
@@ -57,6 +96,10 @@ export function OrderFlowFullPage() {
           tradeSymbol={symbol}
           dark={dark}
           height={420}
+          position={position}
+          onPositionChanged={loadOpenPosition}
+          otherOpenTrades={otherOpenTrades}
+          positionLoading={positionLoading}
         />
       </div>
 

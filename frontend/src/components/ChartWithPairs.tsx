@@ -81,6 +81,15 @@ export function ChartWithPairs({
   const [openPositionTrade, setOpenPositionTrade] = useState<Trade | null>(null);
   const [pendingOrderTrade, setPendingOrderTrade] = useState<Trade | null>(null);
   const [otherOpenTrades, setOtherOpenTrades] = useState<Trade[]>([]);
+  // True only until this FIRST poll resolves — by direct bug report
+  // ("a time lag after position is clicked before the blue button
+  // shows"). Since this component is what most chart pages in the app
+  // actually render through, this was the single biggest source of
+  // that lag: position/otherOpenTrades had no way to say "still
+  // checking" apart from "confirmed empty" on every page listed in
+  // this component's own docstring. See ChartPanel's own
+  // PositionLoadingCard for the fix this feeds.
+  const [positionLoading, setPositionLoading] = useState(true);
   const loadOpenPosition = useCallback(() => {
     return Promise.all([
       tradesApi.getActiveTrades(),
@@ -92,7 +101,8 @@ export function ChartWithPairs({
       active.filter((t) => t.symbol !== selected.trade && t.entry_price != null).forEach((t) => bySymbol.set(t.symbol, t));
       pending.filter((t) => t.symbol !== selected.trade && t.entry_price != null).forEach((t) => { if (!bySymbol.has(t.symbol)) bySymbol.set(t.symbol, t); });
       setOtherOpenTrades(Array.from(bySymbol.values()));
-    }).catch(() => { setOpenPositionTrade(null); setPendingOrderTrade(null); setOtherOpenTrades([]); });
+    }).catch(() => { setOpenPositionTrade(null); setPendingOrderTrade(null); setOtherOpenTrades([]); })
+      .finally(() => setPositionLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected.trade, token]);
   useEffect(() => {
@@ -117,6 +127,7 @@ export function ChartWithPairs({
       position={chartPosition}
       onPositionChanged={loadOpenPosition}
       otherOpenTrades={otherOpenTrades}
+      positionLoading={positionLoading}
     />
   );
 }

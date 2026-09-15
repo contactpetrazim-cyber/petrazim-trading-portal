@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 import { StatCard } from '../components/StatCard';
+import { TodayTradeBreakdownPills } from '../components/TodayTradeBreakdownPills';
 import { TradeRow } from '../components/TradeRow';
 import { FoldedCard } from '../components/FoldedCard';
 import { ChartWithPairs } from '../components/ChartWithPairs';
@@ -168,7 +169,9 @@ export function PremiumDashboardPage() {
       )}
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
-        <StatCard title="Today's Trades" value={stats?.total_trades_today ?? 0} subtitle={`${stats?.win_rate_today ?? 0}% win rate`} icon={<Activity size={20} />} color="blue" />
+        <StatCard title="Today's Trades" value={stats?.total_trades_today ?? 0} subtitle={`${stats?.win_rate_today ?? 0}% win rate`} icon={<Activity size={20} />} color="blue">
+          {stats?.today_breakdown && <TodayTradeBreakdownPills breakdown={stats.today_breakdown} />}
+        </StatCard>
         <StatCard title="Daily P&L" value={`$${stats?.daily_pnl?.toFixed(2) ?? '0.00'}`} subtitle="Net realized profit" icon={<DollarSign size={20} />} color={(stats?.daily_pnl ?? 0) >= 0 ? 'green' : 'red'} />
         <StatCard title="Daily Drawdown" value={`$${stats?.current_drawdown?.toFixed(2) ?? '0.00'}`} subtitle="Decline from today's high" icon={<TrendingDown size={20} />} color={(stats?.current_drawdown ?? 0) > 0 ? 'amber' : 'blue'} />
         <StatCard title="Active Trades" value={stats?.active_trades ?? 0} subtitle="Currently in market" icon={<Target size={20} />} color="purple" />

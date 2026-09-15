@@ -272,7 +272,7 @@ function FootprintGrid({ chart, dark, mutedCls }: { chart: FootprintChart; dark:
   const priceColWidth = 84;
   const vpColWidth = 90;
   const candleColWidth = 108;
-  const rowHeight = 20;
+  const rowHeight = 22;
 
   return (
     <div className="overflow-x-auto">
@@ -314,13 +314,34 @@ function FootprintGrid({ chart, dark, mutedCls }: { chart: FootprintChart; dark:
               return <div key={`c${ci}-${ri}`} style={{ gridRow: ri + 1, gridColumn: ci + 3 }} />;
             }
             const netAsk = cell.ask_volume - cell.bid_volume;
-            const intensity = Math.min(1, Math.abs(netAsk) / maxCellVolume) * 0.7 + 0.08;
+            // Was 0.08–0.78 — a near-zero-delta cell (the majority of
+            // real cells) landed under 0.15 alpha, which read as
+            // barely-there off-white/off-pink on a light background
+            // and was effectively invisible. Raised the floor so every
+            // cell with ANY volume is clearly tinted, and the ceiling
+            // so a strong imbalance reads as a genuinely saturated
+            // color, not a pastel.
+            const intensity = Math.min(1, Math.abs(netAsk) / maxCellVolume) * 0.55 + 0.3;
             const bg = netAsk >= 0 ? `rgba(16,185,129,${intensity})` : `rgba(239,68,68,${intensity})`;
             return (
               <div
                 key={`c${ci}-${ri}`}
-                className="text-[9px] font-mono flex items-center justify-center"
-                style={{ gridRow: ri + 1, gridColumn: ci + 3, background: bg }}
+                className="text-[10px] font-mono font-bold flex items-center justify-center border border-black/5"
+                style={{
+                  gridRow: ri + 1, gridColumn: ci + 3, background: bg,
+                  // Explicit, theme-aware, high-contrast text rather than
+                  // inherited color — the previous version had no color
+                  // set at all, so it silently inherited a near-white
+                  // shade that vanished against these pale backgrounds.
+                  // The halo (text-shadow, opposite of the text color)
+                  // keeps every digit readable across the whole
+                  // intensity range, from a faint tint up to a fully
+                  // saturated cell.
+                  color: dark ? '#f8fafc' : '#0f172a',
+                  textShadow: dark
+                    ? '0 0 3px rgba(0,0,0,0.85), 0 0 1px rgba(0,0,0,0.9)'
+                    : '0 0 3px rgba(255,255,255,0.9), 0 0 1px rgba(255,255,255,0.95)',
+                }}
                 title={`bid ${cell.bid_volume} × ask ${cell.ask_volume}`}
               >
                 {cell.bid_volume.toFixed(2)}×{cell.ask_volume.toFixed(2)}
