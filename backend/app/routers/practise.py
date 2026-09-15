@@ -68,6 +68,17 @@ def _extract_section(content_body: Optional[str], section_name: str) -> str:
     return m.group(1).strip() if m else ""
 
 
+# Matches either authored diagram-marker syntax used across the
+# curriculum (see frontend/src/pages/LessonPage.tsx's own
+# VISUAL_PLACEHOLDER_RE / SEE_DIAGRAM_RE, which this mirrors): the
+# Honest Gap Orientation track's own `[VISUAL: key — description]`
+# bracket format, or every other track's `See diagram: \`file.svg\` —
+# description`. Used below to decide whether a lesson actually HAS a
+# diagram to review at all before the drills page offers a "Review the
+# reference chart/diagram" link to it.
+_HAS_DIAGRAM_RE = re.compile(r"\[VISUAL:\s*[a-z0-9-]+|See diagram:\s*`[^`]+\.svg`", re.IGNORECASE)
+
+
 def _extract_q1(mini_quiz_block: str) -> tuple[str, str]:
     """Every authored Mini Quiz section follows the same shape:
     'Q1 (...): ...\\nAnswer: ...\\n\\nQ2 (...): ...'. Pulls just Q1 out
@@ -96,6 +107,16 @@ class DrillItem(BaseModel):
     prompt: str
     attempts: int
     correct_attempts: int
+    # By direct bug report, with a video: "Review the reference chart/
+    # diagram" was showing on EVERY drill and opening the trainee's own
+    # lesson — correctly, per that link's own design — but a lesson
+    # like Honest Gap Orientation's "What Honest Gap Is (and Isn't)"
+    # has NO diagram marker in it at all (it's a foundational,
+    # non-technical lesson), so the link landed on page 1 of the right
+    # lesson with nothing to find, reading as "this goes to the wrong
+    # place." The real fix is upstream of the link itself: only offer
+    # it when the lesson genuinely has a diagram to jump to.
+    has_diagram: bool
 
 
 class DrillTrackGroup(BaseModel):
@@ -138,6 +159,7 @@ async def list_drills(db: AsyncSession = Depends(get_db), user: User = Depends(r
             drills.append(DrillItem(
                 lesson_id=str(l.id), lesson_title=l.title, prompt=prompt,
                 attempts=a["attempts"], correct_attempts=a["correct"],
+                has_diagram=bool(_HAS_DIAGRAM_RE.search(l.content_body or "")),
             ))
         if drills:
             out.append(DrillTrackGroup(track_id=str(t.id), track_title=t.title, drills=drills))

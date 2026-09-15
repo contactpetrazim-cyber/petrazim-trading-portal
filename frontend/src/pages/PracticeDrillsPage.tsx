@@ -17,6 +17,7 @@ interface Drill {
   prompt: string;
   attempts: number;
   correct_attempts: number;
+  has_diagram: boolean;
 }
 interface TrackGroup {
   track_id: string;
@@ -171,20 +172,31 @@ export function PracticeDrillsPage() {
                       visual specifically, since the lesson is the
                       right target either way. `?jump=diagram` (read by
                       LessonPage) opens straight on the page that
-                      actually renders the diagram instead of page 1 —
-                      by further bug report ("the diagram links don't
-                      actually lead to the diagrams"), since a lesson's
-                      visual is usually a few pages in, under Core
-                      Teaching. Opens in a new tab (target="_blank") so
-                      answering the drill doesn't mean losing your
-                      place to go check. */}
-                  <a
-                    href={`/learn/tracks/${g.track_id}/lessons/${d.lesson_id}?jump=diagram`}
-                    target="_blank" rel="noopener noreferrer"
-                    className={`inline-flex items-center gap-1 text-xs font-medium mb-3 ${dark ? 'text-white/50 hover:text-white' : 'text-corporate-hero hover:underline'}`}
-                  >
-                    <BookOpen size={12} /> Review the reference chart/diagram
-                  </a>
+                      actually renders the diagram instead of page 1.
+
+                      `d.has_diagram` gates this — by direct bug report,
+                      with a video: the link used to show unconditionally
+                      and open the lesson at page 1 even when that lesson
+                      has NO diagram anywhere in it (e.g. Honest Gap
+                      Orientation's own foundational, non-technical
+                      lessons), which read as "this leads to the wrong
+                      place" rather than what it actually was — a real
+                      link to the right lesson with nothing to jump to.
+                      Only offering it when the lesson genuinely has a
+                      diagram means every remaining instance of this link
+                      now leads to an actual chart/diagram, not just the
+                      right lesson in general. Opens in a new tab
+                      (target="_blank") so answering the drill doesn't
+                      mean losing your place to go check. */}
+                  {d.has_diagram && (
+                    <a
+                      href={`/learn/tracks/${g.track_id}/lessons/${d.lesson_id}?jump=diagram`}
+                      target="_blank" rel="noopener noreferrer"
+                      className={`inline-flex items-center gap-1 text-xs font-medium mb-3 ${dark ? 'text-white/50 hover:text-white' : 'text-corporate-hero hover:underline'}`}
+                    >
+                      <BookOpen size={12} /> Review the reference chart/diagram
+                    </a>
+                  )}
                   <div className="flex items-center gap-2">
                     <button
                       disabled={busy === d.lesson_id}
