@@ -193,25 +193,50 @@ export function OrderFlowChartTool({
             <p className={`text-sm ${mutedCls}`}>Loading order book…</p>
           ) : (
             <div className="text-xs space-y-2">
-              <div>
-                <div className={`font-semibold mb-1 ${mutedCls}`}>Asks</div>
-                {[...depth.asks].reverse().map((a, i) => (
-                  <div key={i} className="flex justify-between py-0.5">
-                    <span className="text-red-500 font-mono">{a.price.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-                    <span className={mutedCls}>{a.qty.toFixed(4)}</span>
-                  </div>
-                ))}
-              </div>
-              <div className={`border-t my-1 ${dark ? 'border-white/10' : 'border-gray-100'}`} />
-              <div>
-                <div className={`font-semibold mb-1 ${mutedCls}`}>Bids</div>
-                {depth.bids.map((b, i) => (
-                  <div key={i} className="flex justify-between py-0.5">
-                    <span className="text-emerald-500 font-mono">{b.price.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-                    <span className={mutedCls}>{b.qty.toFixed(4)}</span>
-                  </div>
-                ))}
-              </div>
+              {(() => {
+                // Was plain text rows with no visual depth at all — by
+                // direct report ("is the display rendering well and are
+                // the depth chart well visible... Fix - show the
+                // graphical representation"). A real DOM ladder always
+                // shows each level's size as a horizontal bar, not just
+                // a number, so relative liquidity is visible at a
+                // glance rather than requiring you to read and compare
+                // every qty column by eye. One shared max across both
+                // sides (not each side its own) so a bar's width is
+                // directly comparable between an ask row and a bid row.
+                const maxQty = Math.max(1e-9, ...depth.asks.map((a) => a.qty), ...depth.bids.map((b) => b.qty));
+                return (
+                  <>
+                    <div>
+                      <div className={`font-semibold mb-1 ${mutedCls}`}>Asks</div>
+                      {[...depth.asks].reverse().map((a, i) => (
+                        <div key={i} className="relative flex justify-between py-0.5 px-1 overflow-hidden rounded">
+                          <div
+                            className="absolute inset-y-0 right-0 bg-red-500/15"
+                            style={{ width: `${(a.qty / maxQty) * 100}%` }}
+                          />
+                          <span className="relative text-red-500 font-mono">{a.price.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                          <span className={`relative ${mutedCls}`}>{a.qty.toFixed(4)}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className={`border-t my-1 ${dark ? 'border-white/10' : 'border-gray-100'}`} />
+                    <div>
+                      <div className={`font-semibold mb-1 ${mutedCls}`}>Bids</div>
+                      {depth.bids.map((b, i) => (
+                        <div key={i} className="relative flex justify-between py-0.5 px-1 overflow-hidden rounded">
+                          <div
+                            className="absolute inset-y-0 right-0 bg-emerald-500/15"
+                            style={{ width: `${(b.qty / maxQty) * 100}%` }}
+                          />
+                          <span className="relative text-emerald-500 font-mono">{b.price.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                          <span className={`relative ${mutedCls}`}>{b.qty.toFixed(4)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                );
+              })()}
             </div>
           )}
           <div className={`text-xs mt-3 ${mutedCls}`}>
