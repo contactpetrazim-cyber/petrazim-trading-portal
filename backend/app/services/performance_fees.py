@@ -39,25 +39,49 @@ async def get_fee_settings(db: AsyncSession) -> PlatformFeeSettings:
 
 async def apply_performance_fee(db: AsyncSession, trade: Trade, pnl_this_close: float) -> Optional[PerformanceFeeLedgerEntry]:
     """Called right after a Trade row's realized P&L for ONE close (a
-    full close or one partial-close slice) is finalized — see the
-    three real call sites: webhook_processor.py's own close-alert
-    handler, and manual_trading.py's own partial_close/cancel_order.
-    Only ever creates a ledger entry when ALL of these hold:
-      - trade.subscription_id is set (a subscriber's own bot-copied
-        trade — see that column's own comment; never a platform trade
-        or a trader's own manual one),
-      - fees are currently enabled in PlatformFeeSettings,
+    full close or one partial-close slice) is finalized — see the real
+    call sites: webhook_processor.py's own close-alert handler, and
+    manual_trading.py's own partial_close/cancel_order.
+
+    A trade is fee-ELIGIBLE if either:
+      - trade.subscription_id is set — a subscriber's own bot-copied
+        trade (see that column's own comment), gated by
+        PlatformFeeSettings.enabled, or
+      - trade.strategy_type == "manual" — a trader's own manual trade
+        (set exactly once, in routers/manual_trading.py's own
+        place_manual_order), gated by its own separate
+        PlatformFeeSettings.manual_trade_fee_enabled — by direct
+        follow-up request ("add a fee system to manual trades also for
+        using the platform... can be toggled on or off in the admin
+        portal"). The platform's own bot trade (neither of the above —
+        no subscription_id, strategy_type is whatever the signal
+        named it) is NEVER eligible: the platform doesn't charge
+        itself.
+    Beyond eligibility, a ledger entry is only ever created when ALL of
+    these also hold:
+      - trade.is_test is NOT True — a Paper/Test trade risks no real
+        money, so it never owes a fee regardless of either toggle,
+      - the relevant toggle above is actually on,
       - `pnl_this_close` is POSITIVE — "on a success basis" from the
         original request: a losing close owes nothing, ever, no matter
         how large the loss.
     Returns None (no-op) whenever any of those don't hold — safe to
     call unconditionally from every close site rather than each one
-    re-checking the same three conditions itself."""
-    if trade.subscription_id is None or pnl_this_close <= 0:
+    re-checking these conditions itself."""
+    if trade.is_test or pnl_this_close <= 0:
+        return None
+
+    is_copy_trade = trade.subscription_id is not None
+    is_manual_trade = trade.strategy_type == "manual"
+    if not is_copy_trade and not is_manual_trade:
         return None
 
     settings_row = await get_fee_settings(db)
-    if not settings_row.enabled or settings_row.fee_percent <= 0:
+    if is_copy_trade and not settings_row.enabled:
+        return None
+    if is_manual_trade and not settings_row.manual_trade_fee_enabled:
+        return None
+    if settings_row.fee_percent <= 0:
         return None
 
     fee_amount = round(pnl_this_close * settings_row.fee_percent / 100.0, 2)
