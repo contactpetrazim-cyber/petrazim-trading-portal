@@ -197,6 +197,19 @@ class ExecutionEngine:
                 self.daily_trade_count += 1
                 if db is not None:
                     await self._update_trade_after_execution(db, trade_data["trade_id"], result)
+            elif db is not None:
+                # Real bug fixed here, found during a trade-execution
+                # audit: a fully-autonomous bot's Trade row is inserted
+                # by _persist_trade above BEFORE this broker call runs,
+                # at its column default of PENDING — nothing here ever
+                # updated it on a FAILED execution, so a rejected/failed
+                # autonomous order was left stuck at PENDING forever,
+                # indistinguishable from a still-resting order, with no
+                # record anywhere that it had actually failed.
+                # manual_trading.py's own place_manual_order already
+                # marks ERROR on this exact failure case; this is that
+                # same handling for the autonomous-bot path.
+                await self._mark_trade_error(db, trade_data["trade_id"], result)
             return result
 
     async def _persist_trade(self, db: AsyncSession, trade_data: Dict) -> None:
@@ -241,6 +254,18 @@ class ExecutionEngine:
         )
         db.add(trade)
         await db.commit()
+
+    async def _mark_trade_error(self, db: AsyncSession, trade_id: str, result: Dict) -> None:
+        """Counterpart to _update_trade_after_execution for the failure
+        case — see process_signal's own comment on why this exists."""
+        from sqlalchemy import select
+        from app.models.trade import Trade, TradeStatus
+
+        row = (await db.execute(select(Trade).where(Trade.trade_id == trade_id))).scalar_one_or_none()
+        if row:
+            row.status = TradeStatus.ERROR
+            await db.commit()
+            logger.error("autonomous_trade_execution_failed", trade_id=trade_id, error=result.get("error") or result.get("message"))
 
     async def _update_trade_after_execution(self, db: AsyncSession, trade_id: str, result: Dict) -> None:
         from sqlalchemy import select
@@ -295,6 +320,13 @@ class ExecutionEngine:
                     await db.commit()
                     self.daily_trade_count += 1
                     return {"success": True, "message": "Trade approved and executed", "trade_id": trade_id}
+                # Same bug/fix as process_signal's own autonomous path
+                # right above: a rejected/failed execution here used to
+                # leave the row stuck at PENDING forever with nothing
+                # ever marking it as the failure it actually was.
+                row.status = TradeStatus.ERROR
+                row.approval_notes = notes
+                await db.commit()
                 return {"success": False, "message": f"Approval granted but execution failed: {result.get('error')}"}
             else:
                 row.status = TradeStatus.CANCELLED
