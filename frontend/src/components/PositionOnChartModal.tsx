@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { X, Loader2, RotateCcw, Sun, Moon, Palette, Target, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Maximize2, Crosshair, TrendingUp, PenLine, Eraser } from 'lucide-react';
+import { X, Loader2, RotateCcw, Sun, Moon, Palette, Target, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Maximize2, Crosshair, TrendingUp, PenLine, Square, Eraser } from 'lucide-react';
 import { CandleChart, CHART_LAYOUT, computeChartRange, type Candle, type ChartLine, type OverlaySeries, type DrawnSegment } from './CandleChart';
 import { formatSignedMoney, type ChartPosition } from './TradingViewChart';
 import { PositionManager } from './PositionManager';
@@ -131,13 +131,15 @@ const COLOR_PRESETS: { label: string; up: string; down: string }[] = [
  * zoom in or out", then "keep the tap/click buttons ... work on
  * [the hands-on feel] additional[ly]"). By further direct request
  * ("add drawing tools and other standard charting tools"), a
- * crosshair + OHLC readout, SMA(20)/SMA(50) overlays, and straight
- * trend-line drawing (persisted per symbol in localStorage) are real
+ * crosshair + OHLC readout, SMA(20)/SMA(50) overlays, and drawn
+ * shapes — trend lines, and (by further direct request, "include a
+ * drawing tool for boxes - the box tool") boxes, picked from their
+ * own small tool row, persisted per symbol in localStorage — are real
  * too — see the toolbar row above the chart pane and pixelToChartLive
- * below. SCOPE, stated plainly: no shape library (rectangles/
- * Fibonacci/text annotations), no per-line selection/recolor (Clear
- * removes every drawn segment on a symbol at once), no live server-
- * side indicators beyond the two SMAs computed client-side here. A
+ * below. SCOPE, stated plainly: no Fibonacci/text annotations/other
+ * shapes, no per-shape selection/recolor (Clear removes every drawn
+ * line/box on a symbol at once), no live server-side indicators
+ * beyond the two SMAs computed client-side here. A
  * genuinely full-featured chart (that full toolset, plus multi-chart
  * layouts, saved templates) still needs TradingView's paid/licensed
  * Charting Library — see this component's own tracking note for that
@@ -271,7 +273,13 @@ export function PositionOnChartModal({
   // localStorage (survives closing/reopening this modal); every
   // read/write is wrapped since storage can fail (private browsing,
   // quota) without that being a reason to break the feature.
-  const [drawMode, setDrawMode] = useState(false);
+  // `null` = not drawing (pan/pinch/wheel active as normal); 'line' or
+  // 'box' = which shape the next drag creates — by direct follow-up
+  // request ("include a drawing tool for boxes - the box tool"), a
+  // second shape alongside the original trend-line tool, picked from
+  // its own small tool row (see the toolbar below) rather than a
+  // single on/off toggle.
+  const [drawShape, setDrawShape] = useState<'line' | 'box' | null>(null);
   const [drawings, setDrawings] = useState<DrawnSegment[]>([]);
   const [inProgressDraw, setInProgressDraw] = useState<DrawnSegment | null>(null);
   const drawStorageKey = `petrazim.chartDrawings.${symbol}`;
@@ -351,11 +359,11 @@ export function PositionOnChartModal({
     function onPointerDown(e: PointerEvent) {
       el!.setPointerCapture(e.pointerId);
       pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-      if (drawMode) {
+      if (drawShape) {
         const pt = pixelToChartLive(e.clientX, e.clientY);
         if (pt) {
           const abs = liveRef.current.visibleStart + pt.visibleIndex;
-          setInProgressDraw({ id: 'preview', index1: abs, price1: pt.price, index2: abs, price2: pt.price });
+          setInProgressDraw({ id: 'preview', index1: abs, price1: pt.price, index2: abs, price2: pt.price, shape: drawShape });
         }
         return;
       }
@@ -374,7 +382,7 @@ export function PositionOnChartModal({
       const pt = pixelToChartLive(e.clientX, e.clientY);
       setHoverIndex(pt ? pt.visibleIndex : null);
 
-      if (drawMode) {
+      if (drawShape) {
         if (!pointers.has(e.pointerId)) return;
         pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
         if (pt) {
@@ -404,7 +412,7 @@ export function PositionOnChartModal({
     }
     function onPointerUp(e: PointerEvent) {
       pointers.delete(e.pointerId);
-      if (drawMode) {
+      if (drawShape) {
         if (pointers.size === 0) {
           setInProgressDraw((prev) => {
             if (prev && (prev.index1 !== prev.index2 || prev.price1 !== prev.price2)) {
@@ -427,7 +435,7 @@ export function PositionOnChartModal({
     }
     function onPointerLeave() { setHoverIndex(null); }
     function onWheel(e: WheelEvent) {
-      if (!allCandles || drawMode) return;
+      if (!allCandles || drawShape) return;
       e.preventDefault();
       setVisibleCount((v) => (e.deltaY < 0 ? Math.max(MIN_VISIBLE, Math.round(v * 0.85)) : Math.min(allCandles.length, Math.round(v * 1.18))));
     }
@@ -462,7 +470,7 @@ export function PositionOnChartModal({
     // candlesLength/yTop/yBottom) is read from liveRef at call time
     // instead.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allCandles, drawMode]);
+  }, [allCandles, drawShape]);
 
   /** Persisted drawings, converted from stable allCandles-relative
    * index to the CURRENTLY VISIBLE window's relative index — this is
@@ -712,11 +720,12 @@ export function PositionOnChartModal({
           <span className={`w-px self-stretch mx-0.5 ${localDark ? 'bg-white/10' : 'bg-black/10'}`} />
           {/* Moving average + drawing tool — by direct request ("add
               drawing tools and other standard charting tools to this
-              chart"). SCOPE, said plainly rather than overpromising:
-              SMA(20)/SMA(50) overlays and straight trend-line segments
-              only — no shape library (rectangles/Fibonacci/text), no
-              per-line selection or color picker (Clear removes every
-              drawn segment on this symbol, not one at a time). A real
+              chart", then "include a drawing tool for boxes - the box
+              tool"). SCOPE, said plainly rather than overpromising:
+              SMA(20)/SMA(50) overlays, straight trend lines, and boxes
+              only — no Fibonacci/text annotations/other shapes, no
+              per-shape selection or color picker (Clear removes every
+              drawn line/box on this symbol, not one at a time). A real
               full toolset (those, plus live indicators, multi-chart
               layouts) is what TradingView's paid Charting Library is
               for — see this component's own tracking note. */}
@@ -729,15 +738,23 @@ export function PositionOnChartModal({
             <TrendingUp size={13} /> MA
           </button>
           <button
-            onClick={() => setDrawMode((v) => !v)}
-            aria-label={drawMode ? 'Stop drawing' : 'Draw a trend line'}
-            title={drawMode ? 'Drawing — drag to add a line; click again to stop' : 'Draw a trend line'}
-            className={`flex items-center gap-1 px-2 py-1.5 rounded-md text-[11px] font-medium ${drawMode ? 'bg-corporate-hero text-white' : chromeMutedCls}`}
+            onClick={() => setDrawShape((v) => (v === 'line' ? null : 'line'))}
+            aria-label={drawShape === 'line' ? 'Stop drawing' : 'Draw a trend line'}
+            title={drawShape === 'line' ? 'Drawing a line — drag to add one; click again to stop' : 'Draw a trend line'}
+            className={`flex items-center gap-1 px-2 py-1.5 rounded-md text-[11px] font-medium ${drawShape === 'line' ? 'bg-corporate-hero text-white' : chromeMutedCls}`}
           >
-            <PenLine size={13} /> Draw
+            <PenLine size={13} /> Line
+          </button>
+          <button
+            onClick={() => setDrawShape((v) => (v === 'box' ? null : 'box'))}
+            aria-label={drawShape === 'box' ? 'Stop drawing' : 'Draw a box'}
+            title={drawShape === 'box' ? 'Drawing a box — drag to add one; click again to stop' : 'Draw a box'}
+            className={`flex items-center gap-1 px-2 py-1.5 rounded-md text-[11px] font-medium ${drawShape === 'box' ? 'bg-corporate-hero text-white' : chromeMutedCls}`}
+          >
+            <Square size={13} /> Box
           </button>
           {drawings.length > 0 && (
-            <button onClick={clearDrawings} aria-label="Clear all drawn lines" title="Clear all drawn lines" className={`p-1.5 rounded-md ${chromeMutedCls}`}>
+            <button onClick={clearDrawings} aria-label="Clear all drawn lines and boxes" title="Clear all drawn lines and boxes" className={`p-1.5 rounded-md ${chromeMutedCls}`}>
               <Eraser size={14} />
             </button>
           )}
@@ -752,7 +769,7 @@ export function PositionOnChartModal({
       <div
         ref={chartPaneRef}
         className={`relative flex-1 min-h-0 rounded-lg ${paneCls} p-3 overflow-hidden`}
-        style={{ touchAction: 'none', cursor: !candles ? undefined : drawMode ? 'crosshair' : 'grab' }}
+        style={{ touchAction: 'none', cursor: !candles ? undefined : drawShape ? 'crosshair' : 'grab' }}
       >
         {error ? (
           <div className={`h-full flex flex-col items-center justify-center text-center gap-3 text-sm px-6 ${localDark ? 'text-white/70' : 'text-gray-500'}`}>
