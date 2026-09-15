@@ -41,6 +41,7 @@ from app.services.execution_engine import ExecutionEngine
 from app.services.market_scanner import MarketScanner
 from app.services.position_monitor import PositionMonitor
 from app.services.pending_order_monitor import PendingOrderMonitor
+from app.services.outbound_ip_detector import OutboundIpDetector
 
 settings = get_settings()
 logger = structlog.get_logger()
@@ -174,6 +175,15 @@ async def lifespan(app: FastAPI):
         pending_order_monitor = PendingOrderMonitor()
         pending_order_monitor.start()
 
+    # Auto-detects and persists this platform's real outbound IP(s) —
+    # see outbound_ip_detector.py's own module docstring. On by
+    # default; harmless to run (free IP-echo calls, no exchange API
+    # involved).
+    outbound_ip_detector = None
+    if settings.OUTBOUND_IP_DETECTOR_ENABLED:
+        outbound_ip_detector = OutboundIpDetector()
+        outbound_ip_detector.start()
+
     yield
 
     if scanner is not None:
@@ -182,6 +192,8 @@ async def lifespan(app: FastAPI):
         await position_monitor.stop()
     if pending_order_monitor is not None:
         await pending_order_monitor.stop()
+    if outbound_ip_detector is not None:
+        await outbound_ip_detector.stop()
 
     logger.info("app_shutdown")
     await engine.dispose()

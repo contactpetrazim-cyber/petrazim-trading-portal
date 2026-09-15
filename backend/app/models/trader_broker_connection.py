@@ -47,6 +47,23 @@ class ConnectionStatus(enum.Enum):
     SUSPENDED = "suspended"  # admin-disabled; execution_engine.py skips a suspended connection entirely
 
 
+class SubscriptionCopyMode(enum.Enum):
+    """The "Auto Vs Manual - on Vs off toggle to operate" a trader gets
+    per bot subscription, by direct follow-up request — see
+    execution_engine.py's own _fan_out_to_subscribers for where this is
+    actually read.
+      AUTO   — a fresh signal from this bot executes on the trader's
+               connection immediately, no approval step, same as a
+               fully_autonomous platform bot.
+      MANUAL — a fresh signal drafts a PENDING, requires_approval trade
+               owned by the trader instead — it shows up on THEIR OWN
+               pending-approvals, and they approve it themselves
+               through the exact same human-in-the-loop flow a
+               platform bot signal already uses."""
+    AUTO = "auto"
+    MANUAL = "manual"
+
+
 class TraderBrokerConnection(Base):
     __tablename__ = "trader_broker_connections"
 
@@ -98,12 +115,17 @@ class TraderBotSubscription(Base):
     Honest scope: this table is the real, working subscription/consent
     record (create one, see it, remove it) — a trader's actual list of
     "which bots may trade my account" is genuinely persisted and
-    enforced wherever it's checked. Automatically fanning a live bot
-    signal out to every subscriber's own account the moment it fires is
-    a separate, larger execution-scheduling change (webhook_processor.py/
-    market_scanner.py would need to loop over subscribers, not just the
-    platform's own pooled bot account) — not wired in yet; see this
-    feature's own rollout notes for the concrete next step.
+    enforced wherever it's checked. A fresh bot signal IS now fanned
+    out to every active subscriber (execution_engine.py's own
+    process_signal calls _fan_out_to_subscribers right after persisting
+    the platform's own trade) — each subscriber gets their own separate
+    Trade row on their own connection, executed or drafted-for-approval
+    according to `copy_mode` below. A subsequent close/SL-TP-update
+    alert for the same bot+symbol needs no separate fan-out of its own:
+    webhook_processor.py's _handle_management_action already matches
+    every ACTIVE trade by (bot_id, symbol) regardless of owner, so it
+    naturally closes/updates every subscriber's copy alongside the
+    platform's own trade.
     """
     __tablename__ = "trader_bot_subscriptions"
 
@@ -114,5 +136,9 @@ class TraderBotSubscription(Base):
 
     is_active = Column(Boolean, nullable=False, default=True)
     risk_per_trade = Column(Float, nullable=True)
+    # Defaults to MANUAL — the safer default for real trader money;
+    # a trader explicitly opts into AUTO themselves (see
+    # routers/trader_broker_connections.py's own subscribe_bot).
+    copy_mode = Column(Enum(SubscriptionCopyMode), nullable=False, default=SubscriptionCopyMode.MANUAL)
 
     created_at = Column(DateTime, default=datetime.utcnow)

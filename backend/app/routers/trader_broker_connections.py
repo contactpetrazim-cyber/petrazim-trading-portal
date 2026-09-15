@@ -37,9 +37,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.auth import get_current_user, require_role
 from app.database import get_db
 from app.models.bot import BotConfig
-from app.models.trader_broker_connection import ConnectionMode, ConnectionStatus, TraderBotSubscription, TraderBrokerConnection
+from app.models.trader_broker_connection import ConnectionMode, ConnectionStatus, SubscriptionCopyMode, TraderBotSubscription, TraderBrokerConnection
 from app.models.user import User, UserRole
-from app.services.trader_broker_connections import EXCHANGE_META, encrypt_secret, platform_outbound_ips, test_connection
+from app.services.trader_broker_connections import EXCHANGE_META, encrypt_secret, test_connection
+from app.services.outbound_ip_detector import get_effective_outbound_ips, get_effective_outbound_ips_with_source, refresh_and_persist, set_manual_outbound_ips
 
 router = APIRouter(prefix="/exchange-connections", tags=["trader-broker-connections"])
 admin_router = APIRouter(prefix="/admin/exchange-connections", tags=["trader-broker-connections-admin"])
@@ -64,14 +65,17 @@ class ExchangeMetaResponse(BaseModel):
 
 
 @router.get("/exchanges", response_model=ExchangeMetaResponse)
-async def list_exchanges(_user: User = Depends(get_current_user)):
+async def list_exchanges(db: AsyncSession = Depends(get_db), _user: User = Depends(get_current_user)):
     """What a trader needs to enter, and the real IP(s) to whitelist,
     for every exchange this platform can connect a trader's own account
     to — drives the connect form. Any authenticated user can read this
-    (no secrets in it)."""
+    (no secrets in it). outbound_ips is an admin's explicit manual
+    override when set, else the last value the background
+    OutboundIpDetector auto-discovered (see that module) — never empty
+    once that detector has run at least once."""
     return ExchangeMetaResponse(
         exchanges=[ExchangeInfo(exchange=k, **v) for k, v in EXCHANGE_META.items()],
-        outbound_ips=platform_outbound_ips(),
+        outbound_ips=await get_effective_outbound_ips(db),
     )
 
 
@@ -255,6 +259,11 @@ async def list_available_bots(db: AsyncSession = Depends(get_db), _user: User = 
 class SubscribeBotRequest(BaseModel):
     bot_id: str
     risk_per_trade: Optional[float] = None
+    # Defaults to "manual" (the model's own safer default) — a trader
+    # opts into "auto" explicitly, same "safe by default, explicit
+    # opt-in for the real-money-moving behavior" pattern as a platform
+    # bot's own execution_mode.
+    copy_mode: Literal["auto", "manual"] = "manual"
 
 
 class SubscriptionResponse(BaseModel):
@@ -263,6 +272,14 @@ class SubscriptionResponse(BaseModel):
     connection_id: str
     is_active: bool
     risk_per_trade: Optional[float]
+    copy_mode: str
+
+
+def _sub_response(s: TraderBotSubscription) -> SubscriptionResponse:
+    return SubscriptionResponse(
+        id=str(s.id), bot_id=s.bot_id, connection_id=str(s.connection_id),
+        is_active=s.is_active, risk_per_trade=s.risk_per_trade, copy_mode=s.copy_mode.value,
+    )
 
 
 @router.post("/{connection_id}/bots", response_model=SubscriptionResponse)
@@ -270,6 +287,14 @@ async def subscribe_bot(
     connection_id: str, req: SubscribeBotRequest,
     db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user),
 ):
+    """A trader opting this bot's signals into copying onto
+    `connection_id` — see execution_engine.py's own
+    _fan_out_to_subscribers for where this actually gets acted on the
+    next time this bot signals. `copy_mode` is the Auto/Manual toggle:
+    "auto" executes on the trader's own connection immediately with no
+    approval step; "manual" (default) drafts a pending trade the
+    trader approves themselves, same as a human-in-the-loop platform
+    bot signal."""
     connection = await _get_own_connection(db, user, connection_id)
     if connection.mode == ConnectionMode.MANUAL:
         raise HTTPException(status_code=409, detail="This connection is set to manual-only — switch its mode to 'bot' or 'both' first.")
@@ -286,21 +311,53 @@ async def subscribe_bot(
         existing.connection_id = connection.id
         existing.is_active = True
         existing.risk_per_trade = req.risk_per_trade
+        existing.copy_mode = SubscriptionCopyMode(req.copy_mode)
         sub = existing
     else:
         sub = TraderBotSubscription(
             user_id=user.id, bot_id=req.bot_id, connection_id=connection.id, risk_per_trade=req.risk_per_trade,
+            copy_mode=SubscriptionCopyMode(req.copy_mode),
         )
         db.add(sub)
     await db.commit()
     await db.refresh(sub)
-    return SubscriptionResponse(id=str(sub.id), bot_id=sub.bot_id, connection_id=str(sub.connection_id), is_active=sub.is_active, risk_per_trade=sub.risk_per_trade)
+    return _sub_response(sub)
 
 
 @router.get("/bots", response_model=List[SubscriptionResponse])
 async def list_my_bot_subscriptions(db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
     rows = (await db.execute(select(TraderBotSubscription).where(TraderBotSubscription.user_id == user.id))).scalars().all()
-    return [SubscriptionResponse(id=str(s.id), bot_id=s.bot_id, connection_id=str(s.connection_id), is_active=s.is_active, risk_per_trade=s.risk_per_trade) for s in rows]
+    return [_sub_response(s) for s in rows]
+
+
+class UpdateSubscriptionRequest(BaseModel):
+    is_active: Optional[bool] = None
+    risk_per_trade: Optional[float] = None
+    copy_mode: Optional[Literal["auto", "manual"]] = None
+
+
+@router.patch("/bots/{subscription_id}", response_model=SubscriptionResponse)
+async def update_bot_subscription(
+    subscription_id: str, req: UpdateSubscriptionRequest,
+    db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user),
+):
+    """The on/off (is_active) and Auto/Manual (copy_mode) toggles for
+    an existing subscription, without having to re-POST the whole
+    thing (and re-pick a connection_id) just to flip one switch."""
+    row = (await db.execute(
+        select(TraderBotSubscription).where(TraderBotSubscription.id == subscription_id, TraderBotSubscription.user_id == user.id)
+    )).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Subscription not found")
+    if req.is_active is not None:
+        row.is_active = req.is_active
+    if req.risk_per_trade is not None:
+        row.risk_per_trade = req.risk_per_trade
+    if req.copy_mode is not None:
+        row.copy_mode = SubscriptionCopyMode(req.copy_mode)
+    await db.commit()
+    await db.refresh(row)
+    return _sub_response(row)
 
 
 @router.delete("/bots/{subscription_id}")
@@ -320,6 +377,55 @@ async def unsubscribe_bot(subscription_id: str, db: AsyncSession = Depends(get_d
 # =============================================================================
 
 ADMIN_ROLES = (UserRole.ADMIN, UserRole.SUPER_ADMIN)
+
+
+class OutboundIpsResponse(BaseModel):
+    outbound_ips: str
+    source: str  # "manual_override" | "auto_detected"
+
+
+@admin_router.get("/outbound-ips", response_model=OutboundIpsResponse)
+async def admin_get_outbound_ips(db: AsyncSession = Depends(get_db), _admin: User = Depends(require_role(*ADMIN_ROLES))):
+    """The value every trader's onboarding page currently shows —
+    read-only, no live network probe (see get_effective_outbound_ips)."""
+    ips, source = await get_effective_outbound_ips_with_source(db)
+    return OutboundIpsResponse(outbound_ips=ips, source=source)
+
+
+@admin_router.post("/outbound-ips/refresh", response_model=OutboundIpsResponse)
+async def admin_refresh_outbound_ips(db: AsyncSession = Depends(get_db), _admin: User = Depends(require_role(*ADMIN_ROLES))):
+    """Runs the real probe right now instead of waiting for
+    OutboundIpDetector's own background interval — e.g. right after
+    provisioning a new Fixie pool, to confirm the new IP(s) before
+    telling a trader to whitelist them. Persists the result (shared
+    across both backends, see outbound_ip_detector.py) regardless of
+    whether a manual override is currently winning display-wise, so
+    clearing that override later falls back to a fresh, not stale,
+    auto-detected value."""
+    await refresh_and_persist(db)
+    ips, source = await get_effective_outbound_ips_with_source(db)
+    return OutboundIpsResponse(outbound_ips=ips, source=source)
+
+
+class SetManualOutboundIpsRequest(BaseModel):
+    outbound_ips: str  # empty string clears the override
+
+
+@admin_router.patch("/outbound-ips", response_model=OutboundIpsResponse)
+async def admin_set_outbound_ips(
+    req: SetManualOutboundIpsRequest, db: AsyncSession = Depends(get_db), _admin: User = Depends(require_role(*ADMIN_ROLES)),
+):
+    """The "form on the site" override — by direct follow-up request
+    ("if the IP is [entered] through a form on the site ... it
+    automatically trigger[s] ... on the backend"). Saved straight to
+    the shared database (see set_manual_outbound_ips) so it takes
+    effect for every trader's onboarding page immediately, on both
+    backends (Render + this VM), with no env var edit or redeploy.
+    Submitting an empty string clears it, falling back to the
+    PLATFORM_OUTBOUND_IPS env var (if set) or the auto-detected value."""
+    await set_manual_outbound_ips(db, req.outbound_ips)
+    ips, source = await get_effective_outbound_ips_with_source(db)
+    return OutboundIpsResponse(outbound_ips=ips, source=source)
 
 
 @admin_router.get("", response_model=List[ConnectionResponse])

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link2, Ban, Trash2, CheckCircle2, XCircle, Clock } from 'lucide-react';
+import { Link2, Ban, Trash2, CheckCircle2, XCircle, Clock, Globe, RefreshCw } from 'lucide-react';
 import { FoldedCard } from '../components/FoldedCard';
 import { adminExchangeConnectionsApi } from '../services/api';
 import { TraderBrokerConnection } from '../types';
@@ -24,11 +24,23 @@ export function AdminExchangeConnectionsPage() {
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
+  const [outboundIps, setOutboundIps] = useState('');
+  const [outboundSource, setOutboundSource] = useState<'manual_override' | 'auto_detected' | ''>('');
+  const [ipDraft, setIpDraft] = useState('');
+  const [ipBusy, setIpBusy] = useState(false);
+
   async function load() {
     setLoading(true);
     setError(null);
     try {
-      setConnections(await adminExchangeConnectionsApi.list());
+      const [conns, ips] = await Promise.all([
+        adminExchangeConnectionsApi.list(),
+        adminExchangeConnectionsApi.getOutboundIps(),
+      ]);
+      setConnections(conns);
+      setOutboundIps(ips.outbound_ips);
+      setOutboundSource(ips.source as 'manual_override' | 'auto_detected');
+      setIpDraft(ips.outbound_ips);
     } catch {
       setError('Could not load exchange connections.');
     } finally {
@@ -36,6 +48,29 @@ export function AdminExchangeConnectionsPage() {
     }
   }
   useEffect(() => { load(); }, []);
+
+  async function refreshIps() {
+    setIpBusy(true);
+    try {
+      const result = await adminExchangeConnectionsApi.refreshOutboundIps();
+      setOutboundIps(result.outbound_ips);
+      setOutboundSource(result.source as 'manual_override' | 'auto_detected');
+      setIpDraft(result.outbound_ips);
+    } finally {
+      setIpBusy(false);
+    }
+  }
+
+  async function saveIpOverride() {
+    setIpBusy(true);
+    try {
+      const result = await adminExchangeConnectionsApi.setOutboundIps(ipDraft);
+      setOutboundIps(result.outbound_ips);
+      setOutboundSource(result.source as 'manual_override' | 'auto_detected');
+    } finally {
+      setIpBusy(false);
+    }
+  }
 
   async function suspend(c: TraderBrokerConnection) {
     setBusyId(c.id);
@@ -77,6 +112,32 @@ export function AdminExchangeConnectionsPage() {
       </div>
 
       {error && <div className="rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm px-3 py-2">{error}</div>}
+
+      <FoldedCard
+        title="Outbound IP(s)"
+        summary={outboundIps ? `${outboundIps} (${outboundSource === 'manual_override' ? 'manual' : 'auto-detected'})` : 'Not detected yet'}
+        icon={<Globe size={18} />} dark={dark} defaultOpen
+      >
+        <div className="space-y-2 py-2">
+          <p className={`text-xs ${dark ? 'text-white/60' : 'text-gray-500'}`}>
+            What every trader's "Connect Your Exchange" page tells them to whitelist. A background engine auto-detects this
+            (probes each configured Fixie proxy pool, every 6 hours) and keeps it in sync across both backends — no redeploy
+            needed. Typing a value below and saving overrides the auto-detected one immediately; clear it to go back to auto-detection.
+          </p>
+          <div className="flex flex-wrap gap-2 items-center">
+            <input
+              value={ipDraft} onChange={(e) => setIpDraft(e.target.value)} placeholder="e.g. 52.x.x.x, 54.x.x.x"
+              className={`flex-1 min-w-[220px] border rounded-lg px-2.5 py-1.5 text-sm font-mono ${dark ? 'bg-smc-dark border-smc-border text-white' : 'bg-white border-corporate-bg text-corporate-text-on-bg'}`}
+            />
+            <button onClick={saveIpOverride} disabled={ipBusy} className="text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-blue-600 text-white disabled:opacity-50">
+              Save override
+            </button>
+            <button onClick={refreshIps} disabled={ipBusy} className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1.5 rounded-lg border disabled:opacity-50">
+              <RefreshCw size={12} className={ipBusy ? 'animate-spin' : ''} /> Detect now
+            </button>
+          </div>
+        </div>
+      </FoldedCard>
 
       <FoldedCard title="All Connections" summary={loading ? 'Loading…' : `${connections.length} connection${connections.length === 1 ? '' : 's'}`} icon={<Link2 size={19} />} dark={dark} defaultOpen>
         {loading ? (

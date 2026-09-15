@@ -237,6 +237,7 @@ class WebhookProcessor:
                 if not row.is_test and row.broker_name:
                     close_result = await self.execution_engine.close_broker_position(
                         row.broker_name, row.symbol, row.direction.value, row.bot_id, db, paper=row.is_test,
+                        user_id=row.user_id,
                     )
                     if not close_result.get("success"):
                         failed.append(row.trade_id)
@@ -280,7 +281,7 @@ class WebhookProcessor:
                 if not row.is_test:
                     sync_result = await self.execution_engine.update_broker_stop_loss_take_profit(
                         row.broker_name, row.symbol, row.direction.value, row.bot_id, db, paper=row.is_test,
-                        stop_loss=new_sl, take_profit=new_tp,
+                        stop_loss=new_sl, take_profit=new_tp, user_id=row.user_id,
                     )
                     (synced if sync_result.get("success") else unsynced).append(row.trade_id)
             await db.commit()

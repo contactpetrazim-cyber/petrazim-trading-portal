@@ -124,6 +124,27 @@ class ExecutionEngine:
         bot_paper = bool(bot and (bot.trading_mode == TradingMode.TEST or bot.paper_trading_enabled))
         return bot_paper or await get_master_paper_enforced(db)
 
+    async def _bot_owner_user_id(self, db: Optional[AsyncSession], bot_id: str):
+        """The bot's owning trader — real bug fixed here, found during
+        the bot-side half of a trade-execution audit ("check on the bot
+        side, fix and update if not working"): _get_broker_client's own
+        trader-connection lookup (see its own docstring) only ever
+        fires when the trade dict carries a `user_id`. place_manual_order
+        sets one, but process_signal/approve_trade — the actual
+        bot-driven paths, which are most of this platform's real trade
+        volume — never did, so a trader's own connected exchange
+        account was silently never used for any autonomous or
+        human-in-the-loop bot trade, only for a manual click. Returns
+        None (falls back to the shared platform key, same as before)
+        when no db session is available or the bot has no owner."""
+        if db is None:
+            return None
+        from sqlalchemy import select as _select
+        from app.models.bot import BotConfig
+
+        bot = (await db.execute(_select(BotConfig).where(BotConfig.bot_id == bot_id))).scalar_one_or_none()
+        return bot.user_id if bot else None
+
     async def process_signal(self, signal: BotSignal, mode: str = "human_in_loop", db: Optional[AsyncSession] = None) -> Dict:
         """
         Process a bot signal into a trade action. `db` is optional (a
@@ -140,9 +161,11 @@ class ExecutionEngine:
         # captured at draft time, not re-read (and potentially having
         # since changed) at approval time.
         paper = await self._bot_paper_mode(db, signal.bot_id)
+        owner_user_id = await self._bot_owner_user_id(db, signal.bot_id)
 
         trade_data = {
             "is_test": paper,
+            "user_id": owner_user_id,
             "trade_id": f"TRD_{signal.bot_id}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}",
             "bot_id": signal.bot_id,
             "bot_name": signal.bot_name,
@@ -178,6 +201,13 @@ class ExecutionEngine:
         # rare manual webhook ever did.
         if db is not None:
             await self._persist_trade(db, trade_data)
+            # Copy this same signal onto every trader who's subscribed
+            # this bot to one of their own connected accounts — see
+            # _fan_out_to_subscribers' own docstring. Independent of
+            # THIS bot's own mode/paper status above: each subscriber's
+            # copy gets its own separate Trade row, own broker routing,
+            # and own auto/manual approval behavior.
+            await self._fan_out_to_subscribers(db, signal.bot_id, trade_data)
 
         if mode == "human_in_loop":
             self.pending_trades.append(trade_data)
@@ -214,22 +244,19 @@ class ExecutionEngine:
 
     async def _persist_trade(self, db: AsyncSession, trade_data: Dict) -> None:
         """Insert the real Trade row a drafted/executing signal produces."""
-        from sqlalchemy import select
         from app.models.trade import Trade, TradeDirection  # local import: avoids a circular import at module load
-        from app.models.bot import BotConfig
 
         # A trade has no owner of its own in the request — it's drafted
         # from a TradingView signal, not a direct user API call — so it
-        # inherits its owning bot's user_id. Left None if the bot itself
-        # has none (pre-ownership bot) or doesn't exist; see
+        # inherits its owning bot's user_id, resolved once by
+        # process_signal's own _bot_owner_user_id call (also what makes
+        # the trader-connection broker routing work for a bot trade —
+        # see that helper's docstring). Left None if the bot itself has
+        # none (pre-ownership bot) or doesn't exist; see
         # migrations/008_bot_trade_ownership.sql.
-        bot_config = (await db.execute(
-            select(BotConfig).where(BotConfig.bot_id == trade_data["bot_id"])
-        )).scalar_one_or_none()
-
         trade = Trade(
             trade_id=trade_data["trade_id"],
-            user_id=bot_config.user_id if bot_config else None,
+            user_id=trade_data.get("user_id"),
             bot_id=trade_data["bot_id"],
             bot_name=trade_data["bot_name"],
             strategy_type=trade_data["strategy_type"],
@@ -279,6 +306,112 @@ class ExecutionEngine:
             row.broker_name = result.get("broker", row.broker_name)
             await db.commit()
 
+    async def _fan_out_to_subscribers(self, db: AsyncSession, bot_id: str, trade_data: Dict) -> None:
+        """Copies a fresh bot signal onto every trader who's subscribed
+        this bot to one of their own connected exchange accounts (see
+        models/trader_broker_connection.py's TraderBotSubscription) —
+        by direct follow-up request, after the platform's own
+        onboarding-system rollout deliberately scoped this out as "a
+        separate, larger execution-scheduling change... not wired in
+        yet." Each subscriber gets their own independent Trade row (own
+        trade_id, own user_id, own broker client built directly from
+        their TraderBrokerConnection) — entirely separate from the
+        platform's own pooled-account trade this same signal already
+        produced in process_signal, above.
+
+        Per-subscription `copy_mode` (TraderBotSubscription.copy_mode)
+        is the "Auto Vs Manual - on Vs off toggle to operate":
+          AUTO   — executes immediately on the subscriber's own
+                   connection, no approval step, same as a
+                   fully_autonomous platform bot.
+          MANUAL — drafted as a PENDING, requires_approval trade owned
+                   by that trader (the default — safer for real
+                   trader money). It shows up on THEIR OWN dashboard's
+                   pending-approvals, and approve_trade (which now
+                   reads the Trade row's own user_id for broker
+                   routing too) is what actually sends it to their
+                   broker once they approve it — no separate approval
+                   endpoint needed.
+
+        Only fires for a genuinely VERIFIED, active connection with an
+        active subscription — an unverified/suspended connection is
+        skipped rather than attempting a broker call against
+        credentials that have never actually been confirmed to work.
+        Uses client_override on _execute_broker_order (see that
+        method's own docstring) rather than the normal bot-credential-
+        first priority chain, so a copy trade can NEVER silently land
+        on the platform's own per-bot sub-account money instead of the
+        subscriber's — a real risk since every copy shares the same
+        bot_id as the platform's own trade.
+
+        A subsequent close/SL-TP-update alert for this bot+symbol needs
+        no separate fan-out of its own — see webhook_processor.py's
+        own _handle_management_action, which already matches every
+        ACTIVE trade by (bot_id, symbol) regardless of owner.
+        """
+        from sqlalchemy import select
+        from app.models.trader_broker_connection import (
+            ConnectionStatus, SubscriptionCopyMode, TraderBotSubscription, TraderBrokerConnection,
+        )
+        from app.services.trader_broker_connections import build_client_from_connection
+
+        rows = (await db.execute(
+            select(TraderBotSubscription, TraderBrokerConnection)
+            .join(TraderBrokerConnection, TraderBotSubscription.connection_id == TraderBrokerConnection.id)
+            .where(
+                TraderBotSubscription.bot_id == bot_id,
+                TraderBotSubscription.is_active == True,  # noqa: E712
+                TraderBrokerConnection.is_active == True,  # noqa: E712
+                TraderBrokerConnection.status == ConnectionStatus.VERIFIED,
+            )
+        )).all()
+        if not rows:
+            return
+
+        base_risk_percent = trade_data.get("risk_percent") or 0.0
+        for idx, (sub, conn) in enumerate(rows):
+            lot_size = trade_data["lot_size"]
+            if sub.risk_per_trade and base_risk_percent:
+                # Honest, documented limitation: no per-trader account
+                # equity is known here, so this scales proportionally
+                # off the platform signal's own sizing rather than a
+                # true equity-based size — see TraderBotSubscription's
+                # own risk_per_trade field comment.
+                lot_size = trade_data["lot_size"] * (sub.risk_per_trade / base_risk_percent)
+
+            is_auto = sub.copy_mode == SubscriptionCopyMode.AUTO
+            copy_trade_data = {
+                **trade_data,
+                "trade_id": f"{trade_data['trade_id']}_SUB{idx}",
+                "user_id": sub.user_id,
+                "lot_size": round(lot_size, 8),
+                "is_test": False,  # a subscriber's own connection is always their real account
+                "preferred_broker": conn.exchange,
+                "requires_approval": not is_auto,
+            }
+            try:
+                await self._persist_trade(db, copy_trade_data)
+            except Exception as e:
+                logger.error("subscriber_copy_persist_failed", user_id=str(sub.user_id), bot_id=bot_id, error=str(e))
+                continue
+
+            if not is_auto:
+                logger.info("subscriber_copy_drafted", trade_id=copy_trade_data["trade_id"], user_id=str(sub.user_id))
+                continue
+
+            try:
+                client = build_client_from_connection(conn)
+            except Exception as e:
+                logger.error("subscriber_copy_client_build_failed", user_id=str(sub.user_id), broker=conn.exchange, error=str(e))
+                await self._mark_trade_error(db, copy_trade_data["trade_id"], {"error": str(e)})
+                continue
+
+            result = await self._execute_broker_order(copy_trade_data, db, paper=False, client_override=client)
+            if result.get("success"):
+                await self._update_trade_after_execution(db, copy_trade_data["trade_id"], result)
+            else:
+                await self._mark_trade_error(db, copy_trade_data["trade_id"], result)
+
     async def approve_trade(self, trade_id: str, approved: bool, notes: str = "", db: Optional[AsyncSession] = None) -> Dict:
         """
         Manual approval handler. Checks the real Trade table first (the
@@ -302,6 +435,13 @@ class ExecutionEngine:
                     "entry_price": row.entry_price, "stop_loss": row.stop_loss,
                     "take_profit": row.take_profit_1, "lot_size": row.lot_size,
                     "preferred_broker": row.broker_name,
+                    # Same bug/fix as process_signal's own _bot_owner_user_id
+                    # call: without this, a Human-in-the-Loop bot trade's
+                    # approval never routes to the trader's own connected
+                    # exchange account either — row.user_id was already
+                    # set at draft time by _persist_trade, so just read it
+                    # back rather than re-querying BotConfig here too.
+                    "user_id": row.user_id,
                 }
                 # row.is_test was captured at DRAFT time (process_signal's
                 # own _bot_paper_mode call, persisted by _persist_trade) —
@@ -530,6 +670,7 @@ class ExecutionEngine:
 
     async def _execute_broker_order(
         self, trade: Dict, db: Optional[AsyncSession] = None, paper: bool = False, is_relay: bool = False,
+        client_override=None,
     ) -> Dict:
         """Execute order via configured broker. `paper=True` is the
         manual-trading Paper Trading toggle: still runs the exact same
@@ -542,11 +683,49 @@ class ExecutionEngine:
         backend executing an order relayed to it (see routers/
         internal.py) — never attempt a further relay from here, or two
         backends each configured with the other's VM_API_URL could
-        ping-pong a single failing order back and forth forever."""
+        ping-pong a single failing order back and forth forever.
+
+        `client_override`, when given, is used directly instead of
+        resolving one via _get_broker_client's per-bot-credential /
+        trader-connection / global-key priority chain — used by
+        _fan_out_to_subscribers so a subscriber's copy trade ALWAYS
+        executes on the exact TraderBrokerConnection it was drafted
+        against. Without this, a subscriber's copy shares the SAME
+        bot_id as the platform's own trade, and _get_broker_client's
+        own priority order checks a per-bot credential FIRST — if that
+        bot happens to have one configured, every subscriber's copy
+        would silently execute on the platform's own sub-account money
+        instead of the subscriber's, which is exactly the kind of
+        misattributed-real-trade bug this whole feature exists to
+        avoid."""
         broker = self._determine_broker(trade["symbol"], trade.get("preferred_broker"))
-        client = await self._get_broker_client(
-            broker, trade.get("bot_id"), db, paper=paper, user_id=trade.get("user_id"),
-        ) if broker != "paper" else None
+        if client_override is not None:
+            client = client_override
+        else:
+            client = await self._get_broker_client(
+                broker, trade.get("bot_id"), db, paper=paper, user_id=trade.get("user_id"),
+            ) if broker != "paper" else None
+
+        # Real, dangerous bug fixed here, found while extending this
+        # path for trader-connection fan-out: broker == "paper" is the
+        # ONE legitimate "no broker could even be determined for this
+        # symbol" case (_determine_broker's own fallback) — that's fine
+        # to report as a harmless simulated fill. But broker being a
+        # REAL determined exchange (e.g. "bingx") with `client` still
+        # None — meaning no credentials exist for it anywhere in the
+        # priority chain — used to fall through the exact same
+        # "elif ... and client is not None" chain below into the exact
+        # same fake "Paper trade executed (no broker configured)"
+        # success message, even for a genuinely LIVE (non-paper) order.
+        # That's a false "success" on a trade that was never placed
+        # anywhere — worse than an honest failure, since nothing about
+        # the response told the caller their real money never moved.
+        if broker != "paper" and client is None:
+            return {
+                "success": False,
+                "error": "no_broker_client",
+                "message": f"No {broker} credentials configured (checked per-bot, trader-connection, and global-key) — order NOT placed.",
+            }
 
         try:
             if client is not None:

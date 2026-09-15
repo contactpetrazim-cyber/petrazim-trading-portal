@@ -109,6 +109,17 @@ class Settings(BaseSettings):
     # a placeholder telling the trader to ask their admin.
     PLATFORM_OUTBOUND_IPS: str = ""
 
+    # Auto-detection engine for the value above (services/
+    # outbound_ip_detector.py) — by direct follow-up request ("can we
+    # work an engine that auto do this" instead of hand-typing
+    # PLATFORM_OUTBOUND_IPS). On by default: the probe is a handful of
+    # free, no-auth IP-echo calls, not an exchange API call, so it
+    # costs nothing to leave running. Long interval since Fixie's
+    # assigned IPs essentially never change — this is a slow safety
+    # net, not a polling loop.
+    OUTBOUND_IP_DETECTOR_ENABLED: bool = True
+    OUTBOUND_IP_DETECTOR_INTERVAL_SECONDS: int = 21600  # 6 hours
+
     # Backend-to-backend order-execution failover — by direct request
     # ("can orders... be broadcast using both fixie and VM IP... so
     # exchanges still get the instructions from my VM IP"). NOT a

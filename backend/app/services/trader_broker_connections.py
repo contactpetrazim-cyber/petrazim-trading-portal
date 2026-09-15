@@ -84,11 +84,11 @@ EXCHANGE_META = {
 }
 
 
-def platform_outbound_ips() -> str:
-    """The literal IP(s) to tell a trader to whitelist — see
-    EXCHANGE_META's own comment on why this isn't hardcoded. Empty
-    until an admin sets PLATFORM_OUTBOUND_IPS in the environment."""
-    return getattr(settings, "PLATFORM_OUTBOUND_IPS", "") or ""
+    # The literal outbound IP(s) to tell a trader to whitelist now come
+    # from outbound_ip_detector.py's get_effective_outbound_ips() —
+    # a manual PLATFORM_OUTBOUND_IPS override when an admin has set
+    # one, else the value that module's background detector engine
+    # auto-discovers and persists. See that module's own docstring.
 
 
 async def get_connection(

@@ -223,8 +223,10 @@ export const exchangeConnectionsApi = {
   test: (id: string) => api.post<{ success: boolean; status: string; error?: string }>(`/exchange-connections/${id}/test`).then(r => r.data),
   availableBots: () => api.get<AvailableBot[]>('/exchange-connections/available-bots').then(r => r.data),
   mySubscriptions: () => api.get<TraderBotSubscription[]>('/exchange-connections/bots').then(r => r.data),
-  subscribeBot: (connectionId: string, botId: string, riskPerTrade?: number) =>
-    api.post<TraderBotSubscription>(`/exchange-connections/${connectionId}/bots`, { bot_id: botId, risk_per_trade: riskPerTrade }).then(r => r.data),
+  subscribeBot: (connectionId: string, botId: string, riskPerTrade?: number, copyMode: 'auto' | 'manual' = 'manual') =>
+    api.post<TraderBotSubscription>(`/exchange-connections/${connectionId}/bots`, { bot_id: botId, risk_per_trade: riskPerTrade, copy_mode: copyMode }).then(r => r.data),
+  updateSubscription: (subscriptionId: string, body: Partial<{ is_active: boolean; risk_per_trade: number; copy_mode: 'auto' | 'manual' }>) =>
+    api.patch<TraderBotSubscription>(`/exchange-connections/bots/${subscriptionId}`, body).then(r => r.data),
   unsubscribeBot: (subscriptionId: string) => api.delete(`/exchange-connections/bots/${subscriptionId}`).then(r => r.data),
 };
 
@@ -233,6 +235,10 @@ export const adminExchangeConnectionsApi = {
   suspend: (id: string, suspended: boolean) =>
     api.patch<TraderBrokerConnection>(`/admin/exchange-connections/${id}/suspend`, { suspended }).then(r => r.data),
   remove: (id: string) => api.delete(`/admin/exchange-connections/${id}`).then(r => r.data),
+  getOutboundIps: () => api.get<{ outbound_ips: string; source: string }>('/admin/exchange-connections/outbound-ips').then(r => r.data),
+  refreshOutboundIps: () => api.post<{ outbound_ips: string; source: string }>('/admin/exchange-connections/outbound-ips/refresh').then(r => r.data),
+  setOutboundIps: (outboundIps: string) =>
+    api.patch<{ outbound_ips: string; source: string }>('/admin/exchange-connections/outbound-ips', { outbound_ips: outboundIps }).then(r => r.data),
 };
 
 export const webhookApi = {

@@ -149,10 +149,13 @@ export interface AvailableBot {
   bot_type: string;
 }
 
+export type SubscriptionCopyMode = 'auto' | 'manual';
+
 export interface TraderBotSubscription {
   id: string;
   bot_id: string;
   connection_id: string;
   is_active: boolean;
   risk_per_trade: number | null;
+  copy_mode: SubscriptionCopyMode;
 }

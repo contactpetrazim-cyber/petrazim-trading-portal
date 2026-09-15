@@ -29,13 +29,14 @@ import { useThemeStore } from '../hooks/useTheme';
  * account — see that file's own _get_broker_client docstring for the
  * exact routing priority.
  *
- * Honest scope: a bot's signal automatically fanning out to every
- * subscriber's own account the instant it fires is NOT wired yet —
- * subscribing a bot here genuinely saves your consent/config for it
- * (and a MANUAL order you place yourself already does route through
- * your connection today), but the live auto-copy execution path is a
- * separate, larger piece of work. See TraderBotSubscription's own
- * docstring in the backend for the concrete next step.
+ * A subscribed bot's signal now genuinely fans out to this connection
+ * (see execution_engine.py's own _fan_out_to_subscribers) — the AUTO /
+ * MANUAL badge on each subscribed bot below is the "Auto Vs Manual -
+ * on Vs off toggle to operate" a trader gets per subscription: AUTO
+ * executes a fresh signal immediately with no approval step; MANUAL
+ * (the default) drafts it as a pending trade on your own account that
+ * you approve yourself, the same way a human-in-the-loop platform bot
+ * signal already works.
  */
 export function ConnectExchangePage() {
   const { portalThemes } = useThemeStore();
@@ -150,6 +151,16 @@ export function ConnectExchangePage() {
     }
   }
 
+  async function toggleCopyMode(sub: TraderBotSubscription) {
+    setBusyId(sub.id);
+    try {
+      await exchangeConnectionsApi.updateSubscription(sub.id, { copy_mode: sub.copy_mode === 'auto' ? 'manual' : 'auto' });
+      await load();
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   async function unsubscribe(subscriptionId: string) {
     setBusyId(subscriptionId);
     try {
@@ -236,6 +247,13 @@ export function ConnectExchangePage() {
                         {mySubs.map((s) => (
                           <span key={s.id} className="inline-flex items-center gap-1.5 text-[11px] font-medium px-2 py-1 rounded-full bg-purple-100 text-purple-700">
                             {bots.find((b) => b.bot_id === s.bot_id)?.bot_name || s.bot_id}
+                            <button
+                              onClick={() => toggleCopyMode(s)} disabled={busyId === s.id}
+                              title={s.copy_mode === 'auto' ? 'Executes immediately, no approval needed — click to switch to Manual' : 'You approve each copied trade yourself — click to switch to Auto'}
+                              className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full disabled:opacity-50 ${s.copy_mode === 'auto' ? 'bg-emerald-600 text-white' : 'bg-gray-300 text-gray-700'}`}
+                            >
+                              {s.copy_mode === 'auto' ? 'AUTO' : 'MANUAL'}
+                            </button>
                             <button onClick={() => unsubscribe(s.id)} disabled={busyId === s.id} className="opacity-60 hover:opacity-100">✕</button>
                           </span>
                         ))}
