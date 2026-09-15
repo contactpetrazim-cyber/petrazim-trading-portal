@@ -249,10 +249,25 @@ export interface FeeGateStatus {
   currency: string;
 }
 
+export type FeeCheckoutProvider = 'paystack' | 'ivorypay';
+
 export interface FeeCheckoutSession {
   checkout_url: string;
   reference: string;
   provider: string;
+  amount: number;
+  currency: string;
+}
+
+// Result of re-checking a still-pending checkout against the real
+// gateway — the manual complement to a webhook, and the ONLY
+// confirmation path IvoryPay actually has (no documented webhook
+// signature scheme for it in this app — see routers/fees.py's own
+// verify_fee_checkout docstring).
+export interface FeeVerifyResult {
+  reference: string;
+  provider: string;
+  status: 'pending' | 'succeeded' | 'failed';
   amount: number;
   currency: string;
 }

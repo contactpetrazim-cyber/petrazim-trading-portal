@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Wallet, CreditCard } from 'lucide-react';
+import { Wallet, CreditCard, Coins, RefreshCw } from 'lucide-react';
 import { CardLogoBand } from './CardLogoBand';
 import { useThemeStore } from '../hooks/useTheme';
 import { feesApi } from '../services/api';
+import type { FeeCheckoutProvider } from '../types';
+import { rememberPendingFeeCheckout, readPendingFeeCheckout, clearPendingFeeCheckout } from '../lib/pendingFeeCheckout';
 
 /**
  * TradingFeeGate — the Paystack payment-gate card for the performance-
@@ -40,8 +42,10 @@ export function triggerFeesOwed(detail: FeesOwedDetail) {
 
 export function TradingFeeGate({ children }: { children: React.ReactNode }) {
   const [owed, setOwed] = useState<FeesOwedDetail | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<FeeCheckoutProvider | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [verifying, setVerifying] = useState(false);
+  const [pending, setPending] = useState(readPendingFeeCheckout());
   const { theme } = useThemeStore();
   const dark = theme === 'dark';
 
@@ -50,15 +54,47 @@ export function TradingFeeGate({ children }: { children: React.ReactNode }) {
     return () => { globalSetter = null; };
   }, []);
 
-  async function handlePayNow() {
-    setBusy(true);
+  async function handlePayNow(provider: FeeCheckoutProvider) {
+    setBusy(provider);
     setError(null);
     try {
-      const session = await feesApi.checkout();
+      const session = await feesApi.checkout(provider);
+      rememberPendingFeeCheckout(session.reference, session.provider);
       window.location.href = session.checkout_url;
     } catch (err: any) {
       setError(err?.response?.data?.detail?.detail || err?.response?.data?.detail || 'Could not start checkout — try again in a moment.');
-      setBusy(false);
+      setBusy(null);
+    }
+  }
+
+  // The trader came back after paying (or gave up) — re-check that
+  // pending checkout against the real gateway. Works for both
+  // providers; it's the ONLY confirmation IvoryPay has (no webhook —
+  // see routers/fees.py's own verify_fee_checkout docstring), and a
+  // useful backup for Paystack too if its webhook secret isn't
+  // configured or hasn't landed yet.
+  async function handleVerify() {
+    if (!pending) return;
+    setVerifying(true);
+    setError(null);
+    try {
+      const result = await feesApi.verifyCheckout(pending.reference);
+      if (result.status === 'succeeded') {
+        clearPendingFeeCheckout();
+        setPending(null);
+        const status = await feesApi.gateStatus();
+        if (!status.gated) setOwed(null);
+      } else if (result.status === 'failed') {
+        clearPendingFeeCheckout();
+        setPending(null);
+        setError('That payment did not succeed — start a new one below.');
+      } else {
+        setError("Not confirmed yet — if you just paid, this can take a moment. Try again shortly.");
+      }
+    } catch (err: any) {
+      setError(err?.response?.data?.detail || 'Could not verify that payment right now — try again in a moment.');
+    } finally {
+      setVerifying(false);
     }
   }
 
@@ -85,14 +121,40 @@ export function TradingFeeGate({ children }: { children: React.ReactNode }) {
 
             {error && <div className="rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs px-3 py-2 mb-4 text-left">{error}</div>}
 
-            <button
-              onClick={handlePayNow}
-              disabled={busy}
-              className="w-full flex items-center justify-center gap-2 text-white font-semibold py-3.5 rounded-xl transition-transform hover:scale-[1.01] disabled:opacity-60"
-              style={{ background: 'linear-gradient(105deg, #003876 0%, #005FB8 50%, #00829B 100%)' }}
-            >
-              <CreditCard size={17} /> {busy ? 'Starting checkout…' : 'Pay now with Paystack'}
-            </button>
+            {pending && (
+              <div className={`rounded-xl p-3 mb-4 text-left border ${dark ? 'bg-white/5 border-white/10' : 'bg-gray-50 border-gray-200'}`}>
+                <p className={`text-xs ${dark ? 'text-white/60' : 'text-gray-600'}`}>
+                  Already paid via {pending.provider === 'ivorypay' ? 'IvoryPay' : 'Paystack'}?
+                </p>
+                <button
+                  onClick={handleVerify}
+                  disabled={verifying}
+                  className="mt-1.5 inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-gray-900 text-white disabled:opacity-50"
+                >
+                  <RefreshCw size={12} className={verifying ? 'animate-spin' : ''} /> {verifying ? 'Checking…' : 'Verify my payment'}
+                </button>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <button
+                onClick={() => handlePayNow('paystack')}
+                disabled={busy !== null}
+                className="w-full flex items-center justify-center gap-2 text-white font-semibold py-3.5 rounded-xl transition-transform hover:scale-[1.01] disabled:opacity-60"
+                style={{ background: 'linear-gradient(105deg, #003876 0%, #005FB8 50%, #00829B 100%)' }}
+              >
+                <CreditCard size={17} /> {busy === 'paystack' ? 'Starting checkout…' : 'Pay now with Paystack'}
+              </button>
+              <button
+                onClick={() => handlePayNow('ivorypay')}
+                disabled={busy !== null}
+                className={`w-full flex items-center justify-center gap-2 font-semibold py-3.5 rounded-xl border transition-colors disabled:opacity-60 ${
+                  dark ? 'border-white/15 text-white hover:bg-white/5' : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                <Coins size={17} /> {busy === 'ivorypay' ? 'Starting checkout…' : 'Pay with crypto (IvoryPay)'}
+              </button>
+            </div>
 
             <p className={`text-xs mt-4 ${dark ? 'text-white/40' : 'text-gray-400'}`}>
               Managing or closing any trade you already have open is never affected — only new trades are paused.

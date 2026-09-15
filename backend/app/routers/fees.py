@@ -308,15 +308,29 @@ class FeeCheckoutResponse(BaseModel):
     currency: str
 
 
+class FeeCheckoutRequest(BaseModel):
+    # IvoryPay added alongside Paystack as a second, crypto-native way
+    # to settle — by direct request ("ADD Ivorypay as the option for
+    # crypto payments... integrate for both bot and manual trade
+    # fees"). "Both" here needs no special handling: this one checkout
+    # endpoint already serves every OWED entry regardless of whether it
+    # came from a bot-copied trade or a manual one (apply_performance_fee
+    # writes the same PerformanceFeeLedgerEntry shape either way), so a
+    # trader picking IvoryPay settles their whole balance in one go
+    # exactly like Paystack does.
+    provider: Literal["paystack", "ivorypay"] = "paystack"
+
+
 @router.post("/checkout", response_model=FeeCheckoutResponse)
 async def start_fee_checkout(
-    request: Request, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user),
+    req: FeeCheckoutRequest, request: Request, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user),
 ):
-    """Starts a real Paystack checkout (or the Test-mode simulated one
-    — see GET/PATCH /payments/mode) for EVERY currently-OWED fee, not
-    just the previous-day amount the gate itself blocks on — paying
-    clears the whole balance in one go rather than leaving today's
-    already-accrued fee to trigger the gate again tomorrow."""
+    """Starts a real checkout (Paystack or IvoryPay — the trader's
+    choice — or the Test-mode simulated one, see GET/PATCH
+    /payments/mode) for EVERY currently-OWED fee, not just the
+    previous-day amount the gate itself blocks on — paying clears the
+    whole balance in one go rather than leaving today's already-accrued
+    fee to trigger the gate again tomorrow."""
     settings_row = await get_fee_settings(db)
     amount, covered_ids = await start_fee_checkout_snapshot(db, user.id)
     if amount <= 0:
@@ -326,7 +340,7 @@ async def start_fee_checkout(
     try:
         client = (
             TestPaymentClient(base_url=str(request.base_url), path_prefix="/fees/test-checkout")
-            if is_test else get_payment_client("paystack")
+            if is_test else get_payment_client(req.provider)
         )
         session = client.create_checkout(
             amount=amount, currency=settings_row.settlement_currency,
@@ -335,8 +349,9 @@ async def start_fee_checkout(
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
 
+    provider_label = "test" if is_test else req.provider
     payment = FeePayment(
-        user_id=user.id, provider="test" if is_test else "paystack", provider_reference=session.reference,
+        user_id=user.id, provider=provider_label, provider_reference=session.reference,
         status=FeePaymentStatus.PENDING, amount=amount, currency=settings_row.settlement_currency,
         covered_entry_ids=json.dumps(covered_ids), is_test=is_test,
     )
@@ -345,7 +360,52 @@ async def start_fee_checkout(
 
     return FeeCheckoutResponse(
         checkout_url=session.checkout_url, reference=session.reference,
-        provider="test" if is_test else "paystack", amount=amount, currency=settings_row.settlement_currency,
+        provider=provider_label, amount=amount, currency=settings_row.settlement_currency,
+    )
+
+
+class FeeVerifyResponse(BaseModel):
+    reference: str
+    provider: str
+    status: str
+    amount: float
+    currency: str
+
+
+@router.post("/checkout/{reference}/verify", response_model=FeeVerifyResponse)
+async def verify_fee_checkout(
+    reference: str, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user),
+):
+    """Manually re-checks a still-PENDING checkout against the real
+    gateway and settles it if it's actually succeeded — the honest
+    complement to the Paystack webhook (routers/payment_webhooks.py),
+    and the ONLY confirmation path IvoryPay actually has here: unlike
+    Paystack, this codebase has no documented IvoryPay webhook
+    signature scheme to verify against (see services/payments.py's own
+    IvoryPayClient docstring on the real, unresolved gaps in their
+    docs), so faking one would mean trusting an unsigned "it worked"
+    from wherever this URL got called — a real security hole. IvoryPay's
+    own verify_payment(reference) IS fully documented and real, so this
+    endpoint calls that directly instead. Scoped to the caller's own
+    payment; a webhook racing this (both can fire) is safe —
+    settle_fee_payment is idempotent."""
+    payment = (await db.execute(
+        select(FeePayment).where(FeePayment.provider_reference == reference, FeePayment.user_id == user.id)
+    )).scalar_one_or_none()
+    if payment is None:
+        raise HTTPException(status_code=404, detail="No matching fee payment for this reference")
+
+    if payment.status == FeePaymentStatus.PENDING and not payment.is_test:
+        try:
+            client = get_payment_client(payment.provider)  # type: ignore[arg-type]
+            if client.verify_payment(reference):
+                await settle_fee_payment(db, payment)
+        except (RuntimeError, NotImplementedError) as e:
+            raise HTTPException(status_code=503, detail=str(e))
+
+    return FeeVerifyResponse(
+        reference=payment.provider_reference, provider=payment.provider,
+        status=payment.status.value, amount=payment.amount, currency=payment.currency,
     )
 
 
