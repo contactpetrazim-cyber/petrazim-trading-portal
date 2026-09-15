@@ -41,7 +41,7 @@ const TRADER_NAV_ITEMS: NavItem[] = [
   // since connecting a real exchange account is a distinct enough
   // action from the site-wide light/dark/notification SettingsPanel
   // this gear icon already opens.
-  { path: '/exchange-connections', label: 'Exchange', icon: Link2 },
+  { path: '/exchange-connections', label: 'Add Exchange', icon: Link2 },
   { path: '/settings', label: 'Settings', icon: SettingsIcon },
 ];
 

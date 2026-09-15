@@ -99,6 +99,12 @@ export function SettingsPanel({
     { icon: CreditCard, label: 'Select Access and Pay', detail: 'Choose a tier or duration pass', to: '/payments' },
     { icon: GraduationCap, label: 'Ask Trading Coach', detail: 'Open Trade AI', onClick: openTradeAI },
     { icon: CalendarClock, label: 'Facilitator Sessions', detail: 'Book time with a Manager or Partner (Tier 2/3)', to: '/meetings' },
+    // Connect a real exchange account — embedded here too (by direct
+    // request, "Embed within settings icon on the site") alongside
+    // Layout.tsx's own trader-console nav entry, since the gear icon
+    // is reachable from every page while that sidebar only covers the
+    // Trader console's own five pages.
+    { icon: Link2, label: 'Add Exchange', detail: 'Connect your own exchange account for manual or bot trading', to: '/exchange-connections' },
     { icon: LayoutGrid, label: 'Switch Portal', detail: 'Trader / Fund Manager / Partner / Admin — jump to a console you have access to', onClick: openSwitchPortal },
     // "Everything included at this level" — embedded here too, by
     // direct request, so it's reachable from wherever you are in the
