@@ -100,6 +100,12 @@ export function SettingsPanel({
     { icon: GraduationCap, label: 'Ask Trading Coach', detail: 'Open Trade AI', onClick: openTradeAI },
     { icon: CalendarClock, label: 'Facilitator Sessions', detail: 'Book time with a Manager or Partner (Tier 2/3)', to: '/meetings' },
     { icon: LayoutGrid, label: 'Switch Portal', detail: 'Trader / Fund Manager / Partner / Admin — jump to a console you have access to', onClick: openSwitchPortal },
+    // Moved in here from its own top-level sidebar entry in Layout.tsx
+    // (the Trader console), by direct request ("Embed within[] settings
+    // icon on the site") — reachable from the same gear icon every
+    // portal already shares, rather than a page-specific nav item only
+    // the Trader console's own sidebar had.
+    { icon: Link2, label: 'Add Exchange', detail: 'Connect your own exchange account for manual or bot trading', to: '/exchange-connections' },
     // "Everything included at this level" — embedded here too, by
     // direct request, so it's reachable from wherever you are in the
     // app instead of only on the console dashboard it's already
