@@ -1,6 +1,6 @@
 
 import axios from 'axios';
-import { Trade, BotConfig, BotPerformance, BotMetricsUpdate, DashboardStats, SignalPreview, PerformanceSummary, TradeBreakdown, TradeBreakdownPeriod, ExchangeMetaResponse, TraderBrokerConnection, AvailableBot, TraderBotSubscription, OutboundIpsResponse, FeeSettings, FeeLedgerEntry, MyFeesResponse, FeeGateStatus, FeeCheckoutSession } from '../types';
+import { Trade, BotConfig, BotPerformance, BotMetricsUpdate, DashboardStats, SignalPreview, PerformanceSummary, TradeBreakdown, TradeBreakdownPeriod, ExchangeMetaResponse, TraderBrokerConnection, AvailableBot, TraderBotSubscription, OutboundIpsResponse, FeeSettings, FeeLedgerEntry, MyFeesResponse, FeeGateStatus, FeeCheckoutSession, FeeCheckoutProvider, FeeVerifyResult } from '../types';
 import { useAuthStore } from '../hooks/useAuth';
 import { triggerAccessExpired } from '../components/AccessExpiredGate';
 import { triggerFeesOwed } from '../components/TradingFeeGate';
@@ -272,15 +272,22 @@ export const adminFeesApi = {
 
 export const feesApi = {
   myLedger: () => api.get<MyFeesResponse>('/fees/my-ledger').then(r => r.data),
-  // The Paystack fee-settlement gate — "pays for previous day fees
-  // before access to a new day." gateStatus is what the frontend
-  // polls to show/hide the paywall proactively; checkout starts a
-  // real (or Test-mode simulated) Paystack transaction for the FULL
-  // owed balance, returning a checkout_url the caller redirects to
+  // The fee-settlement gate — "pays for previous day fees before
+  // access to a new day." gateStatus is what the frontend polls to
+  // show/hide the paywall proactively; checkout starts a real (or
+  // Test-mode simulated) transaction — Paystack (card/bank) or
+  // IvoryPay (crypto), the trader's choice — for the FULL owed
+  // balance, returning a checkout_url the caller redirects to
   // (window.location.href), same pattern as PaymentsPage's own Academy
-  // checkout.
+  // checkout. verifyCheckout re-checks a still-pending one against the
+  // real gateway — the manual complement to the webhook, and the only
+  // confirmation IvoryPay actually has here (see routers/fees.py's own
+  // verify_fee_checkout docstring for why).
   gateStatus: () => api.get<FeeGateStatus>('/fees/gate-status').then(r => r.data),
-  checkout: () => api.post<FeeCheckoutSession>('/fees/checkout').then(r => r.data),
+  checkout: (provider: FeeCheckoutProvider = 'paystack') =>
+    api.post<FeeCheckoutSession>('/fees/checkout', { provider }).then(r => r.data),
+  verifyCheckout: (reference: string) =>
+    api.post<FeeVerifyResult>(`/fees/checkout/${encodeURIComponent(reference)}/verify`).then(r => r.data),
 };
 
 export const webhookApi = {

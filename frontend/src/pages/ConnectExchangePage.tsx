@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Link2, Plus, RefreshCw, Trash2, CheckCircle2, XCircle, Clock, Ban, Bot, Percent, CreditCard } from 'lucide-react';
+import { Link2, Plus, RefreshCw, Trash2, CheckCircle2, XCircle, Clock, Ban, Bot, Percent, CreditCard, Coins } from 'lucide-react';
 import { FoldedCard } from '../components/FoldedCard';
 import { exchangeConnectionsApi, feesApi } from '../services/api';
-import { ExchangeInfo, TraderBrokerConnection, AvailableBot, TraderBotSubscription, MyFeesResponse } from '../types';
+import { ExchangeInfo, TraderBrokerConnection, AvailableBot, TraderBotSubscription, MyFeesResponse, FeeCheckoutProvider } from '../types';
 import { useThemeStore } from '../hooks/useTheme';
+import { rememberPendingFeeCheckout, readPendingFeeCheckout, clearPendingFeeCheckout } from '../lib/pendingFeeCheckout';
 
 /**
  * ConnectExchangePage — "Connect Your Exchange", the trader-facing
@@ -52,8 +53,10 @@ export function ConnectExchangePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [payBusy, setPayBusy] = useState(false);
+  const [payBusy, setPayBusy] = useState<FeeCheckoutProvider | null>(null);
   const [payError, setPayError] = useState<string | null>(null);
+  const [verifying, setVerifying] = useState(false);
+  const [pendingCheckout, setPendingCheckout] = useState(readPendingFeeCheckout());
 
   const [showForm, setShowForm] = useState(false);
   const [formExchange, setFormExchange] = useState('');
@@ -178,19 +181,50 @@ export function ConnectExchangePage() {
     }
   }
 
-  // The Paystack fee-settlement gate's own checkout — pays off the
-  // FULL owed balance in one go (see routers/fees.py's own
-  // start_fee_checkout docstring for why it's the full balance, not
-  // just the previous-day amount the gate itself blocks on).
-  async function payFees() {
-    setPayBusy(true);
+  // The fee-settlement gate's own checkout — pays off the FULL owed
+  // balance in one go (see routers/fees.py's own start_fee_checkout
+  // docstring for why it's the full balance, not just the
+  // previous-day amount the gate itself blocks on). Paystack or
+  // IvoryPay (crypto) — the trader's choice, by direct request ("ADD
+  // Ivorypay as the option for crypto payments").
+  async function payFees(provider: FeeCheckoutProvider) {
+    setPayBusy(provider);
     setPayError(null);
     try {
-      const session = await feesApi.checkout();
+      const session = await feesApi.checkout(provider);
+      rememberPendingFeeCheckout(session.reference, session.provider);
       window.location.href = session.checkout_url;
     } catch (err: any) {
       setPayError(err?.response?.data?.detail || 'Could not start checkout — try again in a moment.');
-      setPayBusy(false);
+      setPayBusy(null);
+    }
+  }
+
+  // Re-checks a still-pending checkout against the real gateway — the
+  // only confirmation IvoryPay actually has here (no webhook — see
+  // routers/fees.py's own verify_fee_checkout docstring), and a useful
+  // backup for Paystack too.
+  async function verifyFees() {
+    if (!pendingCheckout) return;
+    setVerifying(true);
+    setPayError(null);
+    try {
+      const result = await feesApi.verifyCheckout(pendingCheckout.reference);
+      if (result.status === 'succeeded') {
+        clearPendingFeeCheckout();
+        setPendingCheckout(null);
+        await load();
+      } else if (result.status === 'failed') {
+        clearPendingFeeCheckout();
+        setPendingCheckout(null);
+        setPayError('That payment did not succeed — start a new one below.');
+      } else {
+        setPayError("Not confirmed yet — if you just paid, this can take a moment. Try again shortly.");
+      }
+    } catch (err: any) {
+      setPayError(err?.response?.data?.detail || 'Could not verify that payment right now — try again in a moment.');
+    } finally {
+      setVerifying(false);
     }
   }
 
@@ -254,13 +288,34 @@ export function ConnectExchangePage() {
                       .
                     </p>
                     {payError && <p className="text-xs text-red-600 mt-2">{payError}</p>}
-                    <button
-                      onClick={payFees}
-                      disabled={payBusy}
-                      className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-blue-600 text-white disabled:opacity-50"
-                    >
-                      <CreditCard size={13} /> {payBusy ? 'Starting checkout…' : `Pay ${fees.settlement_currency} ${fees.total_owed.toFixed(2)} with Paystack`}
-                    </button>
+                    {pendingCheckout && (
+                      <div className="mt-2 flex items-center gap-2">
+                        <span className="text-xs opacity-70">Already paid via {pendingCheckout.provider === 'ivorypay' ? 'IvoryPay' : 'Paystack'}?</span>
+                        <button
+                          onClick={verifyFees}
+                          disabled={verifying}
+                          className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded-lg bg-gray-900 text-white disabled:opacity-50"
+                        >
+                          <RefreshCw size={11} className={verifying ? 'animate-spin' : ''} /> {verifying ? 'Checking…' : 'Verify now'}
+                        </button>
+                      </div>
+                    )}
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <button
+                        onClick={() => payFees('paystack')}
+                        disabled={payBusy !== null}
+                        className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-blue-600 text-white disabled:opacity-50"
+                      >
+                        <CreditCard size={13} /> {payBusy === 'paystack' ? 'Starting checkout…' : `Pay ${fees.settlement_currency} ${fees.total_owed.toFixed(2)} with Paystack`}
+                      </button>
+                      <button
+                        onClick={() => payFees('ivorypay')}
+                        disabled={payBusy !== null}
+                        className={`inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border disabled:opacity-50 ${dark ? 'border-white/20 text-white hover:bg-white/5' : 'border-gray-300 text-gray-700 hover:bg-gray-50'}`}
+                      >
+                        <Coins size={13} /> {payBusy === 'ivorypay' ? 'Starting checkout…' : 'Pay with crypto (IvoryPay)'}
+                      </button>
+                    </div>
                   </div>
                 )}
                 {fees.entries.length > 0 && (
