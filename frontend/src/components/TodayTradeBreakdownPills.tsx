@@ -54,7 +54,7 @@ export function TodayTradeBreakdownPills({ breakdown }: { breakdown: TodayTradeB
     { label: 'Cancelled', value: active.cancelled, cls: 'bg-gray-200 text-gray-600' },
     { label: 'Won', value: active.won, cls: 'bg-emerald-100 text-emerald-700' },
     { label: 'Loss', value: active.loss, cls: 'bg-red-100 text-red-700' },
-    { label: 'Break-even', value: active.breakeven, cls: 'bg-slate-100 text-slate-600' },
+    { label: 'Break-even', value: active.breakeven, cls: 'bg-gray-200 text-gray-600' },
   ] : [];
 
   return (
