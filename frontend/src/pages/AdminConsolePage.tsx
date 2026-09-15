@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { ShieldAlert, Users } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { ShieldAlert, Users, Link2 } from 'lucide-react';
 import { FoldedCard } from '../components/FoldedCard';
 import { RoleBadge } from '../components/RoleBadge';
 import { RosterPanel } from '../components/RosterPanel';
@@ -171,6 +172,23 @@ export function AdminConsolePage() {
       <div className="mb-4">
         <PlatformOverviewPanel dark={dark} />
       </div>
+
+      {/* Trader exchange-onboarding management — by direct request
+          ("Put the onboarding controls and management in the admin
+          portal - the connection of the portal to their exchanges").
+          A link out to its own page rather than the full table inlined
+          here, same "keep this console scannable" pattern the rest of
+          this page already follows. */}
+      <Link
+        to="/admin/exchange-connections"
+        className={`mb-4 flex items-center justify-between rounded-xl border p-4 ${dark ? 'bg-smc-card border-smc-border hover:bg-smc-card/80' : 'bg-white border-corporate-bg hover:bg-gray-50'}`}
+      >
+        <div className="flex items-center gap-2">
+          <Link2 size={16} className={dark ? 'text-blue-400' : 'text-blue-600'} />
+          <span className={`text-sm font-medium ${dark ? 'text-gray-200' : 'text-corporate-text-on-bg'}`}>Trader Exchange Connections</span>
+        </div>
+        <span className={`text-xs ${dark ? 'text-gray-500' : 'text-gray-400'}`}>Manage every trader's connected exchange account →</span>
+      </Link>
 
       {isSuperAdmin && (
         <div className={`border rounded-xl p-6 mb-4 ${dark ? 'bg-smc-card border-smc-border' : 'bg-white border-corporate-bg'}`}>

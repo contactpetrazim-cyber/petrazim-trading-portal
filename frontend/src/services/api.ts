@@ -1,6 +1,6 @@
 
 import axios from 'axios';
-import { Trade, BotConfig, BotPerformance, BotMetricsUpdate, DashboardStats, SignalPreview, PerformanceSummary } from '../types';
+import { Trade, BotConfig, BotPerformance, BotMetricsUpdate, DashboardStats, SignalPreview, PerformanceSummary, ExchangeMetaResponse, TraderBrokerConnection, AvailableBot, TraderBotSubscription } from '../types';
 import { useAuthStore } from '../hooks/useAuth';
 import { triggerAccessExpired } from '../components/AccessExpiredGate';
 import { handleUnauthorized } from '../lib/authGuard';
@@ -204,6 +204,35 @@ export interface TraderOverview {
 
 export const rosterApi = {
   getOverview: (traderId: string) => api.get<TraderOverview>(`/roster/${traderId}/overview`).then(r => r.data),
+};
+
+// Trader Exchange Connections — self-service "connect your own
+// exchange account" onboarding, by direct request ("create an
+// onboarding page or system ... trade manually and using our bots on
+// their accounts"). Mirrors backend/app/routers/trader_broker_connections.py
+// one-to-one; adminExchangeConnectionsApi below is the separate
+// /admin/exchange-connections surface for platform-wide management.
+export const exchangeConnectionsApi = {
+  listExchanges: () => api.get<ExchangeMetaResponse>('/exchange-connections/exchanges').then(r => r.data),
+  list: () => api.get<TraderBrokerConnection[]>('/exchange-connections').then(r => r.data),
+  connect: (body: { exchange: string; api_key: string; api_secret?: string; account_id?: string; label?: string; mode?: string }) =>
+    api.post<TraderBrokerConnection>('/exchange-connections', body).then(r => r.data),
+  update: (id: string, body: Partial<{ label: string; mode: string; is_active: boolean; api_key: string; api_secret: string; account_id: string }>) =>
+    api.patch<TraderBrokerConnection>(`/exchange-connections/${id}`, body).then(r => r.data),
+  remove: (id: string) => api.delete(`/exchange-connections/${id}`).then(r => r.data),
+  test: (id: string) => api.post<{ success: boolean; status: string; error?: string }>(`/exchange-connections/${id}/test`).then(r => r.data),
+  availableBots: () => api.get<AvailableBot[]>('/exchange-connections/available-bots').then(r => r.data),
+  mySubscriptions: () => api.get<TraderBotSubscription[]>('/exchange-connections/bots').then(r => r.data),
+  subscribeBot: (connectionId: string, botId: string, riskPerTrade?: number) =>
+    api.post<TraderBotSubscription>(`/exchange-connections/${connectionId}/bots`, { bot_id: botId, risk_per_trade: riskPerTrade }).then(r => r.data),
+  unsubscribeBot: (subscriptionId: string) => api.delete(`/exchange-connections/bots/${subscriptionId}`).then(r => r.data),
+};
+
+export const adminExchangeConnectionsApi = {
+  list: () => api.get<TraderBrokerConnection[]>('/admin/exchange-connections').then(r => r.data),
+  suspend: (id: string, suspended: boolean) =>
+    api.patch<TraderBrokerConnection>(`/admin/exchange-connections/${id}/suspend`, { suspended }).then(r => r.data),
+  remove: (id: string) => api.delete(`/admin/exchange-connections/${id}`).then(r => r.data),
 };
 
 export const webhookApi = {

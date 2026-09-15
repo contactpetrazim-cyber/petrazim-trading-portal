@@ -355,6 +355,14 @@ async def place_manual_order(
             # stop-market entry on every broker, not a limit order standing
             # in for one.
             "entry_type": req.order_type,
+            # Lets _get_broker_client route this order to the TRADER's
+            # OWN connected exchange account (trader_broker_connections.py)
+            # when they have one for the resolved broker, instead of
+            # always falling through to this platform's shared global
+            # key — see that method's own updated docstring for the
+            # full priority chain (bot credential > trader connection >
+            # global key).
+            "user_id": user.id,
         }, db, paper=paper)
 
         if result.get("success"):
@@ -434,7 +442,7 @@ async def partial_close(
     if not row.is_test:
         close_result = await _engine.close_broker_position(
             row.broker_name, row.symbol, row.direction.value, row.bot_id, db,
-            paper=row.is_test, quantity=closed_size,
+            paper=row.is_test, quantity=closed_size, user_id=row.user_id,
         )
         if not close_result.get("success"):
             raise HTTPException(
@@ -541,7 +549,7 @@ async def cancel_order(
         if row.broker_order_id and row.broker_name:
             cancel_result = await _engine.cancel_broker_order(
                 row.broker_name, row.broker_order_id, row.symbol, row.bot_id, db,
-                is_stop=row.entry_type == EntryType.STOP, paper=row.is_test,
+                is_stop=row.entry_type == EntryType.STOP, paper=row.is_test, user_id=row.user_id,
             )
             cancelled_at_broker = bool(cancel_result.get("success"))
             if not cancelled_at_broker:
@@ -568,7 +576,7 @@ async def cancel_order(
     ):
         cancel_result = await _engine.cancel_broker_order(
             row.broker_name, row.broker_order_id, row.symbol, row.bot_id, db,
-            is_stop=row.entry_type == EntryType.STOP, paper=row.is_test,
+            is_stop=row.entry_type == EntryType.STOP, paper=row.is_test, user_id=row.user_id,
         )
         if cancel_result.get("success"):
             row.status = TradeStatus.CANCELLED
@@ -608,7 +616,7 @@ async def cancel_order(
     # the position closed.
     if not row.is_test and row.broker_name:
         close_result = await _engine.close_broker_position(
-            row.broker_name, row.symbol, row.direction.value, row.bot_id, db, paper=row.is_test,
+            row.broker_name, row.symbol, row.direction.value, row.bot_id, db, paper=row.is_test, user_id=row.user_id,
         )
         if not close_result.get("success"):
             raise HTTPException(
@@ -776,6 +784,7 @@ async def modify_targets(
             row.broker_name, row.symbol, row.direction.value, row.bot_id, db, paper=row.is_test,
             stop_loss=row.stop_loss if sl_changed else None,
             take_profit=row.take_profit_1 if tp1_changed else None,
+            user_id=row.user_id,
         )
         broker_synced = bool(sync_result.get("success"))
         broker_message = sync_result.get("message") or sync_result.get("error")
