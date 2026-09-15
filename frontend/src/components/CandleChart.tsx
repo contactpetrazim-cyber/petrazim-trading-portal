@@ -45,15 +45,20 @@ export interface OverlaySeries {
   label?: string;
 }
 
-/** A single drawn trend-line segment — by direct request ("add drawing
- * tools ... to this chart"). Endpoints are `{index, price}` pairs
- * where `index` is relative to the SAME `candles` array CandleChart
- * was given (i.e. already the currently-visible window) — the CALLER
+/** A single drawn shape — a trend line, or (by direct follow-up
+ * request, "include a drawing tool for boxes - the box tool") a
+ * rectangle spanning the same two dragged corners instead of a line
+ * between them. Endpoints are `{index, price}` pairs where `index` is
+ * relative to the SAME `candles` array CandleChart was given (i.e.
+ * already the currently-visible window) — the CALLER
  * (PositionOnChartModal) is responsible for re-deriving these each
  * render from whatever stable, pan/zoom-independent anchor it keeps
  * the actual drawing data in; CandleChart itself just draws whatever
  * segments it's handed against its own current candles/price range,
- * the same way `lines`/`zones`/`markers` already work. */
+ * the same way `lines`/`zones`/`markers` already work. `shape` is
+ * optional and defaults to `'line'` so a segment drawn and persisted
+ * before this field existed (localStorage, per symbol) still renders
+ * exactly as it always did rather than needing a migration. */
 export interface DrawnSegment {
   id: string;
   index1: number;
@@ -61,6 +66,7 @@ export interface DrawnSegment {
   index2: number;
   price2: number;
   color?: string;
+  shape?: 'line' | 'box';
 }
 
 /** The fixed viewBox layout CandleChart's coordinate math uses —
@@ -272,8 +278,18 @@ export function CandleChart({
           );
         })}
 
-        {/* User-drawn trend-line segments */}
-        {drawings.map((d) => (
+        {/* User-drawn shapes — trend lines, and boxes spanning the
+            same two corners (Math.min/max since either dragged corner
+            could be top-left depending on drag direction). */}
+        {drawings.map((d) => d.shape === 'box' ? (
+          <rect
+            key={d.id}
+            x={Math.min(x(d.index1), x(d.index2))} y={Math.min(y(d.price1), y(d.price2))}
+            width={Math.abs(x(d.index2) - x(d.index1))} height={Math.abs(y(d.price2) - y(d.price1))}
+            fill={d.color ?? '#2563eb'} fillOpacity={0.12}
+            stroke={d.color ?? '#2563eb'} strokeWidth={0.35}
+          />
+        ) : (
           <line
             key={d.id}
             x1={x(d.index1)} y1={y(d.price1)} x2={x(d.index2)} y2={y(d.price2)}
