@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   X, Home, CreditCard, GraduationCap, CalendarClock, LayoutGrid,
-  HardDriveDownload, Link2, ChevronRight, Sun, Moon, Map, LogOut, Crown,
+  HardDriveDownload, Link2, ChevronRight, Sun, Moon, Map, LogOut, Crown, Wallet,
 } from 'lucide-react';
 import { HERO_GRADIENT } from '../config/theme';
 import type { ThemeName } from '../hooks/useTheme';
@@ -12,6 +12,7 @@ import { PortalSelectionCard, PortalOption } from './PortalSelectionCard';
 import { BackupOfflinePanel } from './BackupOfflinePanel';
 import { EverythingIncludedPanel } from './EverythingIncludedPanel';
 import { apiFetch } from './AccessExpiredGate';
+import { feesApi } from '../services/api';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -71,6 +72,22 @@ export function SettingsPanel({
     : user?.role === 'partner' ? 'partner'
     : null;
 
+  // Real fee balance, Trader only — the same performance-fee/Paystack-
+  // gate system as Connect Your Exchange's own "Performance Fees" card,
+  // reachable from here too now: "the user fee payment page... is
+  // missing... embed in Add Exchange and settings Icon and Admin
+  // portals" (Add Exchange and Admin already had it — this was the one
+  // genuine gap). Fetched only on open, matching every other real item
+  // in this panel (Switch Portal's own available-portals call, etc.) —
+  // not on every render.
+  const [feesOwed, setFeesOwed] = useState<{ amount: number; currency: string } | null>(null);
+  useEffect(() => {
+    if (!open || user?.role !== 'trader') return;
+    feesApi.gateStatus()
+      .then((s) => setFeesOwed({ amount: s.total_owed, currency: s.currency }))
+      .catch(() => {});
+  }, [open, user?.role]);
+
   if (!open) return null;
 
   function handleLogOut() {
@@ -105,6 +122,13 @@ export function SettingsPanel({
     // is reachable from every page while that sidebar only covers the
     // Trader console's own five pages.
     { icon: Link2, label: 'Add Exchange', detail: 'Connect your own exchange account for manual or bot trading', to: '/exchange-connections' },
+    ...(user?.role === 'trader' && feesOwed ? [{
+      icon: Wallet, label: 'Trading Fees',
+      detail: feesOwed.amount > 0
+        ? `${feesOwed.currency} ${feesOwed.amount.toFixed(2)} owed — pay with Paystack or crypto`
+        : 'No performance fees currently owed',
+      to: '/exchange-connections',
+    }] : []),
     { icon: LayoutGrid, label: 'Switch Portal', detail: 'Trader / Fund Manager / Partner / Admin — jump to a console you have access to', onClick: openSwitchPortal },
     // "Everything included at this level" — embedded here too, by
     // direct request, so it's reachable from wherever you are in the
