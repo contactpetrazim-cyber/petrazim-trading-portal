@@ -37,9 +37,22 @@ export function RecapPanel({ lessonId, dark }: { lessonId: string; dark: boolean
       .then((r) => {
         if (r) {
           setRecap(r);
-          // Fire-and-forget engagement ping — a failure here shouldn't
-          // block the trainee from reading the recap they already got.
-          apiFetch(`${API_URL}/curriculum/lessons/${lessonId}/recap/open`, { method: 'POST', headers }).catch(() => {});
+          // Real bug: the ping to record this open was fire-and-forget,
+          // its response discarded — so the "opened N times" count shown
+          // came from the GET above, taken BEFORE this open's own
+          // increment landed. A trainee's very first open displayed
+          // "opened 0 times" while they were actively looking at it.
+          // The POST already computes the correct new count server-side
+          // (open_lesson_recap in curriculum.py); read it back and use
+          // it, instead of throwing it away.
+          apiFetch(`${API_URL}/curriculum/lessons/${lessonId}/recap/open`, { method: 'POST', headers })
+            .then((res) => (res.ok ? res.json() : null))
+            .then((body) => {
+              if (body && typeof body.open_count === 'number') {
+                setRecap((prev) => (prev ? { ...prev, open_count: body.open_count } : prev));
+              }
+            })
+            .catch(() => {});
         } else {
           setError((prev) => prev ?? 'Could not generate a recap for this lesson right now — try again in a moment.');
         }
