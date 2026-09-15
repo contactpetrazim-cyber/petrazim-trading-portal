@@ -90,6 +90,14 @@ export function AdminFeeSettingsPage() {
   }
 
   const inputCls = `w-full mt-1 border rounded-lg px-2.5 py-1.5 text-sm ${dark ? 'bg-smc-dark border-smc-border text-white' : 'bg-white border-corporate-bg text-corporate-text-on-bg'}`;
+  // Every label below was `opacity-70` with NO base color set — opacity
+  // alone has nothing to dim, so they rendered fully invisible, by
+  // direct report with a screenshot ("empty input boxes with no
+  // explanation what each input refers to"). Explicit, theme-aware
+  // color fixes that; helpCls is the smaller "what this actually does"
+  // caption under a field, same idea, one step quieter.
+  const labelCls = `text-xs font-semibold block mb-1 ${dark ? 'text-white/70' : 'text-gray-600'}`;
+  const helpCls = `text-[11px] mt-1 ${dark ? 'text-white/40' : 'text-gray-400'}`;
   const totalOwed = ledger.filter((e) => e.status === 'owed').reduce((sum, e) => sum + e.fee_amount, 0);
 
   return (
@@ -108,45 +116,65 @@ export function AdminFeeSettingsPage() {
 
       <FoldedCard title="Fee Settings" summary={loading ? 'Loading…' : (settings?.enabled ? `On — ${settings.fee_percent}%` : 'Off — free')} icon={<Percent size={18} />} dark={dark} defaultOpen>
         {loading ? <p className="text-sm opacity-60 py-2">Loading…</p> : (
-          <div className="space-y-3 py-2">
-            <label className="flex items-center gap-2 text-sm font-medium">
-              <input type="checkbox" checked={!!draft.enabled} onChange={(e) => setDraft((d) => ({ ...d, enabled: e.target.checked }))} />
-              Charge a performance fee on profitable copy-trades
+          <div className="space-y-4 py-2">
+            <p className={`text-xs leading-relaxed ${dark ? 'text-white/50' : 'text-gray-500'}`}>
+              This controls whether — and how much — the platform takes as a fee on a subscriber's
+              bot-copied trades. It only ever applies to a copy trade that closes at a PROFIT (never a
+              loss, and never a trader's own manual trade). This page only calculates and records what's
+              owed — see the Fee Ledger card below to mark an entry paid once a real transfer happens
+              outside this app.
+            </p>
+
+            <label className="flex items-start gap-2 text-sm font-medium cursor-pointer">
+              <input type="checkbox" className="mt-0.5" checked={!!draft.enabled} onChange={(e) => setDraft((d) => ({ ...d, enabled: e.target.checked }))} />
+              <span>
+                Charge a performance fee on profitable copy-trades
+                <span className={`block font-normal ${helpCls} mt-0`}>
+                  When off, bot-copied trades are free — no fee is ever calculated or shown to traders, regardless of the percentage below.
+                </span>
+              </span>
             </label>
 
             <div className="grid sm:grid-cols-2 gap-3">
               <div>
-                <label className="text-xs font-semibold opacity-70">Fee percent of profit</label>
+                <label className={labelCls}>Fee percent of profit</label>
                 <input type="number" min={0} max={100} step={0.5} className={inputCls}
                   value={draft.fee_percent ?? 0} onChange={(e) => setDraft((d) => ({ ...d, fee_percent: parseFloat(e.target.value) || 0 }))} />
+                <p className={helpCls}>
+                  E.g. 10 = the platform takes 10% of ONLY the profit on each winning copy-trade close.
+                  A losing close never owes anything, at any percentage.
+                </p>
               </div>
               <div>
-                <label className="text-xs font-semibold opacity-70">Settlement currency</label>
+                <label className={labelCls}>Settlement currency</label>
                 <input className={inputCls} maxLength={3} placeholder="USD"
                   value={draft.settlement_currency || ''}
                   onChange={(e) => setDraft((d) => ({ ...d, settlement_currency: e.target.value.toUpperCase() }))} />
-                <p className="text-[11px] opacity-50 mt-0.5">What fee_amount figures are denominated in — also what the Paystack payment gate charges (Paystack supports NGN/USD/GHS/ZAR/KES on an eligible account).</p>
+                <p className={helpCls}>What fee amounts are denominated in — also what the Paystack payment gate charges traders to settle (NGN/USD/GHS/ZAR/KES, on an eligible Paystack account).</p>
               </div>
             </div>
 
             <div>
-              <label className="text-xs font-semibold opacity-70">Payout method</label>
+              <label className={labelCls}>Payout method</label>
               <select className={inputCls} value={draft.payout_method || 'crypto'} onChange={(e) => setDraft((d) => ({ ...d, payout_method: e.target.value as any }))}>
                 <option value="crypto">Crypto address only</option>
                 <option value="paystack">Bank account (Paystack) only</option>
                 <option value="both">Both</option>
               </select>
+              <p className={helpCls}>Which destination(s) below are shown to a trader as where to send what they owe — pick which fields to fill in underneath.</p>
             </div>
 
             {(draft.payout_method === 'crypto' || draft.payout_method === 'both') && (
               <div className="grid sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs font-semibold opacity-70">Crypto address</label>
+                  <label className={labelCls}>Crypto address</label>
                   <input className={inputCls} value={draft.crypto_address || ''} onChange={(e) => setDraft((d) => ({ ...d, crypto_address: e.target.value }))} placeholder="0x… / T… / bc1…" />
+                  <p className={helpCls}>Receive-only wallet address — shown as-is to every trader who owes a fee.</p>
                 </div>
                 <div>
-                  <label className="text-xs font-semibold opacity-70">Network</label>
+                  <label className={labelCls}>Network</label>
                   <input className={inputCls} value={draft.crypto_network || ''} onChange={(e) => setDraft((d) => ({ ...d, crypto_network: e.target.value }))} placeholder="e.g. USDT (TRC20)" />
+                  <p className={helpCls}>Free text — which coin/chain that address is on, so a trader sends the right asset.</p>
                 </div>
               </div>
             )}
@@ -154,27 +182,29 @@ export function AdminFeeSettingsPage() {
             {(draft.payout_method === 'paystack' || draft.payout_method === 'both') && (
               <div className="grid sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs font-semibold opacity-70">Account name</label>
+                  <label className={labelCls}>Account name</label>
                   <input className={inputCls} value={draft.paystack_account_name || ''} onChange={(e) => setDraft((d) => ({ ...d, paystack_account_name: e.target.value }))} />
                 </div>
                 <div>
-                  <label className="text-xs font-semibold opacity-70">Account number</label>
+                  <label className={labelCls}>Account number</label>
                   <input className={inputCls} value={draft.paystack_account_number || ''} onChange={(e) => setDraft((d) => ({ ...d, paystack_account_number: e.target.value }))} />
                 </div>
                 <div>
-                  <label className="text-xs font-semibold opacity-70">Bank name</label>
+                  <label className={labelCls}>Bank name</label>
                   <input className={inputCls} value={draft.paystack_bank_name || ''} onChange={(e) => setDraft((d) => ({ ...d, paystack_bank_name: e.target.value }))} />
                 </div>
                 <div>
-                  <label className="text-xs font-semibold opacity-70">Bank code</label>
+                  <label className={labelCls}>Bank code</label>
                   <input className={inputCls} value={draft.paystack_bank_code || ''} onChange={(e) => setDraft((d) => ({ ...d, paystack_bank_code: e.target.value }))} placeholder="Paystack bank code" />
+                  <p className={helpCls}>Optional — only needed if you later wire a real Paystack Recipient for this account.</p>
                 </div>
               </div>
             )}
 
             <div>
-              <label className="text-xs font-semibold opacity-70">Notes (shown to admins only)</label>
-              <textarea className={inputCls} rows={2} value={draft.notes || ''} onChange={(e) => setDraft((d) => ({ ...d, notes: e.target.value }))} />
+              <label className={labelCls}>Notes (shown to admins only)</label>
+              <textarea className={inputCls} rows={2} value={draft.notes || ''} onChange={(e) => setDraft((d) => ({ ...d, notes: e.target.value }))} placeholder="e.g. wire only above $50" />
+              <p className={helpCls}>Internal only — never shown to a trader, just a reminder for whoever manages this page.</p>
             </div>
 
             <button onClick={save} disabled={saving} className="text-sm font-semibold px-3 py-2 rounded-lg bg-blue-600 text-white disabled:opacity-50">
