@@ -11,6 +11,7 @@ import {
   X,
   Activity,
   Shield,
+  Link2,
   LucideIcon,
 } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
@@ -34,6 +35,13 @@ const TRADER_NAV_ITEMS: NavItem[] = [
   { path: '/bots', label: 'Bots', icon: Bot },
   { path: '/analytics', label: 'Analytics', icon: Activity },
   { path: '/risk', label: 'Risk Management', icon: Shield },
+  // "Connect Your Exchange" — by direct request ("create an onboarding
+  // page or system ... trade manually and using our bots on their
+  // accounts"). Own top-level nav entry, not folded into Settings,
+  // since connecting a real exchange account is a distinct enough
+  // action from the site-wide light/dark/notification SettingsPanel
+  // this gear icon already opens.
+  { path: '/exchange-connections', label: 'Exchange', icon: Link2 },
   { path: '/settings', label: 'Settings', icon: SettingsIcon },
 ];
 

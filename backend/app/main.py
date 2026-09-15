@@ -34,12 +34,14 @@ from app.routers.community_broadcast import router as community_broadcast_router
 from app.routers.manual_trading import router as manual_trading_router
 from app.routers.coach import router as coach_router
 from app.routers.internal import router as internal_router
+from app.routers.trader_broker_connections import router as trader_broker_connections_router, admin_router as trader_broker_connections_admin_router
 from app.database import engine, Base
 from app.db.session import engine as legacy_engine, Base as LegacyBase
 from app.services.execution_engine import ExecutionEngine
 from app.services.market_scanner import MarketScanner
 from app.services.position_monitor import PositionMonitor
 from app.services.pending_order_monitor import PendingOrderMonitor
+from app.services.outbound_ip_detector import OutboundIpDetector
 
 settings = get_settings()
 logger = structlog.get_logger()
@@ -173,6 +175,15 @@ async def lifespan(app: FastAPI):
         pending_order_monitor = PendingOrderMonitor()
         pending_order_monitor.start()
 
+    # Auto-detects and persists this platform's real outbound IP(s) —
+    # see outbound_ip_detector.py's own module docstring. On by
+    # default; harmless to run (free IP-echo calls, no exchange API
+    # involved).
+    outbound_ip_detector = None
+    if settings.OUTBOUND_IP_DETECTOR_ENABLED:
+        outbound_ip_detector = OutboundIpDetector()
+        outbound_ip_detector.start()
+
     yield
 
     if scanner is not None:
@@ -181,6 +192,8 @@ async def lifespan(app: FastAPI):
         await position_monitor.stop()
     if pending_order_monitor is not None:
         await pending_order_monitor.stop()
+    if outbound_ip_detector is not None:
+        await outbound_ip_detector.stop()
 
     logger.info("app_shutdown")
     await engine.dispose()
@@ -230,6 +243,8 @@ app.include_router(community_broadcast_router)
 app.include_router(manual_trading_router)
 app.include_router(coach_router)
 app.include_router(internal_router)
+app.include_router(trader_broker_connections_router)
+app.include_router(trader_broker_connections_admin_router)
 
 # Phase-1 analytics engines — routers ship without their own prefix
 app.include_router(monte_carlo_router, prefix="/api/monte-carlo", tags=["monte-carlo"])

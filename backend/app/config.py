@@ -96,6 +96,30 @@ class Settings(BaseSettings):
     MEXC_BACKUP_PROXY_URL: str = ""
     MT5_PROXY_URL: str = ""
 
+    # The literal outbound IP(s) a TRADER needs to whitelist on their
+    # own exchange account to connect it to this platform (see
+    # services/trader_broker_connections.py's own "Connect Your
+    # Exchange" onboarding flow) — comma-separated if there's more than
+    # one (e.g. the Fixie ventoux + criterium pools' real IPs, the same
+    # two pools already whitelisted on every one of this platform's OWN
+    # exchange keys above). Deliberately not hardcoded here: a Fixie (or
+    # any proxy provider) IP is assigned per-account and this app has no
+    # way to verify it hasn't changed — set this once you have the real,
+    # current value(s) so the onboarding page shows a real IP instead of
+    # a placeholder telling the trader to ask their admin.
+    PLATFORM_OUTBOUND_IPS: str = ""
+
+    # Auto-detection engine for the value above (services/
+    # outbound_ip_detector.py) — by direct follow-up request ("can we
+    # work an engine that auto do this" instead of hand-typing
+    # PLATFORM_OUTBOUND_IPS). On by default: the probe is a handful of
+    # free, no-auth IP-echo calls, not an exchange API call, so it
+    # costs nothing to leave running. Long interval since Fixie's
+    # assigned IPs essentially never change — this is a slow safety
+    # net, not a polling loop.
+    OUTBOUND_IP_DETECTOR_ENABLED: bool = True
+    OUTBOUND_IP_DETECTOR_INTERVAL_SECONDS: int = 21600  # 6 hours
+
     # Backend-to-backend order-execution failover — by direct request
     # ("can orders... be broadcast using both fixie and VM IP... so
     # exchanges still get the instructions from my VM IP"). NOT a
