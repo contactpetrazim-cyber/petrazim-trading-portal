@@ -188,7 +188,13 @@ export function AdminFeeSettingsPage() {
         <div className="flex gap-2 py-2">
           {(['owed', 'paid', 'waived', undefined] as const).map((s) => (
             <button key={s ?? 'all'} onClick={() => setLedgerFilter(s)}
-              className={`text-xs font-semibold px-2.5 py-1 rounded-full ${ledgerFilter === s ? 'bg-gray-900 text-white' : 'bg-black/5'}`}>
+              className={`text-xs font-semibold px-2.5 py-1 rounded-full border transition-colors ${
+                ledgerFilter === s
+                  ? 'bg-gray-900 text-white border-gray-900'
+                  : dark
+                    ? 'bg-white/5 text-white/70 border-white/10 hover:bg-white/10 hover:text-white'
+                    : 'bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200 hover:text-gray-900'
+              }`}>
               {s ? s[0].toUpperCase() + s.slice(1) : 'All'}
             </button>
           ))}
