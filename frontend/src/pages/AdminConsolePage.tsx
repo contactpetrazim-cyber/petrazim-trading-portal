@@ -227,12 +227,13 @@ export function AdminConsolePage() {
         />
       </div>
 
+      <div className="space-y-3 mb-4">
       {isSuperAdmin && (
-        <div className={`border rounded-xl p-6 mb-4 ${dark ? 'bg-smc-card border-smc-border' : 'bg-white border-corporate-bg'}`}>
-          <div className="flex items-center gap-2 mb-1">
-            <ShieldAlert size={16} className="text-amber-400" />
-            <h2 className={`text-sm font-medium ${dark ? 'text-gray-300' : 'text-corporate-text-on-bg'}`}>Payments Mode</h2>
-          </div>
+        <FoldedCard
+          title="Payments Mode"
+          summary={paymentsMode === null ? 'Loading…' : paymentsMode === 'test' ? 'Test — no real gateway' : 'LIVE — real money'}
+          icon={<ShieldAlert size={18} />} accent="#f59e0b" dark={dark} defaultOpen
+        >
           <p className={`text-xs mb-3 ${dark ? 'text-gray-500' : 'text-gray-500'}`}>
             Test: checkout opens a simulated page — choose Success or Failure yourself, no real gateway or card involved.
             Live: real Stripe/Paystack/IvoryPay checkout, real money.
@@ -262,18 +263,18 @@ export function AdminConsolePage() {
             </button>
             {paymentsMode === null && <span className="text-xs text-gray-500">Loading…</span>}
           </div>
-        </div>
+        </FoldedCard>
       )}
 
       {/* Trading Master Control — by direct request ("a master control
           in the super Admin portal"), same pattern as Payments Mode
           right above it. */}
       {isSuperAdmin && (
-        <div className={`border rounded-xl p-6 mb-4 ${dark ? 'bg-smc-card border-smc-border' : 'bg-white border-corporate-bg'}`}>
-          <div className="flex items-center gap-2 mb-1">
-            <ShieldAlert size={16} className="text-amber-400" />
-            <h2 className={`text-sm font-medium ${dark ? 'text-gray-300' : 'text-corporate-text-on-bg'}`}>Trading Master Control</h2>
-          </div>
+        <FoldedCard
+          title="Trading Master Control"
+          summary={paperEnforced === null ? 'Loading…' : paperEnforced ? 'ON — every trader forced to Paper Trading' : 'Off — individual settings respected'}
+          icon={<ShieldAlert size={18} />} accent="#f59e0b" dark={dark} defaultOpen
+        >
           <p className="text-xs text-gray-500 mb-3">
             On: forces EVERY trader's account into Paper Trading platform-wide, overriding each individual trader's
             own Test/Live and Paper Trading toggle — a real kill-switch, not a default. Off: every trader's own
@@ -304,7 +305,7 @@ export function AdminConsolePage() {
             </button>
             {paperEnforced === null && <span className="text-xs text-gray-500">Loading…</span>}
           </div>
-        </div>
+        </FoldedCard>
       )}
 
       {/* Fireflies Master Control — same pattern as Trading Master
@@ -314,11 +315,11 @@ export function AdminConsolePage() {
           Admin-set switch, every portal's Meetings page beneath it
           just shows the resolved state (FacilitatorCalendar.tsx). */}
       {isSuperAdmin && (
-        <div className={`border rounded-xl p-6 mb-4 ${dark ? 'bg-smc-card border-smc-border' : 'bg-white border-corporate-bg'}`}>
-          <div className="flex items-center gap-2 mb-1">
-            <ShieldAlert size={16} className="text-amber-400" />
-            <h2 className={`text-sm font-medium ${dark ? 'text-gray-300' : 'text-corporate-text-on-bg'}`}>Fireflies Master Control</h2>
-          </div>
+        <FoldedCard
+          title="Fireflies Master Control"
+          summary={firefliesEnabled === null ? 'Loading…' : firefliesEnabled ? 'On' : 'Off'}
+          icon={<ShieldAlert size={18} />} accent="#f59e0b" dark={dark} defaultOpen
+        >
           <p className="text-xs text-gray-500 mb-3">
             On: the Fireflies notetaker is invited to every facilitator session booked platform-wide, across every
             portal. Off: no session anywhere gets a notetaker invite, regardless of who books it.
@@ -348,8 +349,9 @@ export function AdminConsolePage() {
             </button>
             {firefliesEnabled === null && <span className="text-xs text-gray-500">Loading…</span>}
           </div>
-        </div>
+        </FoldedCard>
       )}
+      </div>
 
       <div className="space-y-4 mb-4">
         <LearningDashboardPanel dark={dark} />
