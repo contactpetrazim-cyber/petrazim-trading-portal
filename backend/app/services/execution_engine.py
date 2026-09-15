@@ -392,6 +392,81 @@ class ExecutionEngine:
             logger.error("broker_cancel_failed", broker=broker, order_id=order_id, error=str(e))
             return {"success": False, "error": str(e)}
 
+    async def close_broker_position(
+        self, broker: Optional[str], symbol: str, side: str, bot_id: Optional[str],
+        db: Optional[AsyncSession] = None, paper: bool = False, quantity: Optional[float] = None,
+    ) -> Dict:
+        """
+        Send a genuine reduce-only close (full, or partial when
+        `quantity` is given) to the real broker that holds this
+        position — the counterpart to cancel_broker_order for an
+        already-FILLED position. Real bug this closes: manual_trading.py's
+        own partial_close and cancel_order (ACTIVE branch) previously
+        never called a broker at all for a LIVE trade — only ever
+        updated our own DB row, leaving the trader's real exchange
+        position (and, for Binance, its real resting SL/TP orders)
+        completely untouched regardless of what our own UI/DB said. Every
+        broker integration in broker_integrations.py already HAD a
+        close_position method the whole time; nothing ever called it
+        (see this file's own dead-code-removal comment right below this
+        method's siblings) — this is that missing call site.
+
+        `broker`/`bot_id` should come from the Trade row's own
+        broker_name/bot_id, same convention as cancel_broker_order.
+        `paper` should mirror Trade.is_test — a paper position was never
+        opened at a real broker, so there's nothing real to close; this
+        still returns a real success/failure shape so callers don't need
+        a separate paper branch of their own.
+        """
+        if paper:
+            return {"success": True, "order_id": f"PAPER-CLOSE-{symbol}", "status": "FILLED", "paper": True}
+        if not broker:
+            return {"success": False, "error": "missing_broker_reference", "message": "No broker recorded for this trade — nothing to close at a broker."}
+        client = await self._get_broker_client(broker, bot_id, db, paper=paper)
+        if client is None or not hasattr(client, "close_position"):
+            return {"success": False, "error": "no_broker_client", "message": f"No {broker} client configured to close this position."}
+        try:
+            return await client.close_position(symbol, side, quantity=quantity)
+        except Exception as e:
+            logger.error("broker_close_failed", broker=broker, symbol=symbol, error=str(e))
+            return {"success": False, "error": str(e)}
+
+    async def update_broker_stop_loss_take_profit(
+        self, broker: Optional[str], symbol: str, side: str, bot_id: Optional[str],
+        db: Optional[AsyncSession] = None, paper: bool = False,
+        stop_loss: Optional[float] = None, take_profit: Optional[float] = None,
+    ) -> Dict:
+        """
+        Move this position's REAL stop-loss/take-profit at the broker —
+        the broker-side half of manual_trading.py's modify_targets,
+        which before this only ever updated our own DB record (see that
+        endpoint's own "Honest scope" docstring). Implemented for real,
+        currently, on Bybit (native trading-stop endpoint), Binance
+        (cancel+replace the resting STOP_MARKET/TAKE_PROFIT_MARKET
+        order) and MetaApi/MT4-5 (native POSITION_MODIFY) — see each
+        broker's own update_stop_loss_take_profit in
+        broker_integrations.py. BingX/MEXC/TradeLocker don't have one
+        yet; this returns an honest "not supported" failure for those
+        rather than silently doing nothing, so the caller can tell the
+        trader their broker's real order wasn't touched instead of
+        wrongly implying it was.
+        """
+        if paper:
+            return {"success": True, "paper": True}
+        if not broker:
+            return {"success": False, "error": "missing_broker_reference", "message": "No broker recorded for this trade — nothing to update at a broker."}
+        client = await self._get_broker_client(broker, bot_id, db, paper=paper)
+        if client is None or not hasattr(client, "update_stop_loss_take_profit"):
+            return {
+                "success": False, "error": "not_supported",
+                "message": f"This app doesn't yet sync SL/TP edits to {broker} — your own record is updated, but the real order at {broker} is unchanged. Adjust it there directly for now.",
+            }
+        try:
+            return await client.update_stop_loss_take_profit(symbol, side, stop_loss=stop_loss, take_profit=take_profit)
+        except Exception as e:
+            logger.error("broker_sltp_update_failed", broker=broker, symbol=symbol, error=str(e))
+            return {"success": False, "error": str(e)}
+
     async def _execute_broker_order(
         self, trade: Dict, db: Optional[AsyncSession] = None, paper: bool = False, is_relay: bool = False,
     ) -> Dict:

@@ -270,19 +270,47 @@ class BingXBroker:
 
         return result
 
-    async def close_position(self, symbol: str, side: str) -> Dict:
-        """Close an open position."""
-        endpoint = "/openApi/swap/v2/trade/order"
+    async def close_position(self, symbol: str, side: str, quantity: Optional[float] = None) -> Dict:
+        """
+        Close all (default) or part (`quantity`) of an open position via
+        a reduce-only MARKET order — opposite side to the position, so a
+        LONG closes with a SELL and a SHORT with a BUY.
 
+        Real bug fixed here: this previously sent `quantity: "0"` with
+        `reduceOnly: "true"` and no `closePosition` flag for a full
+        close — BingX's own API requires a non-zero quantity unless
+        `closePosition` is set, so that call was never actually valid
+        and (since nothing anywhere in the backend called close_position
+        at all until now — see execution_engine.py's own close_broker_position)
+        this bug was never exercised or caught. Fixed to use BingX's
+        documented `closePosition: "true"` flag (ignores quantity,
+        closes the entire remaining position) when no explicit quantity
+        is given, and a real reduce-only `quantity` otherwise for a
+        genuine partial close. Written from BingX's documented request
+        shape, not exercised against a live account in this session —
+        verify against a small position before relying on it for size.
+        """
+        if self.paper:
+            return {"success": True, "order_id": f"PAPER-CLOSE-{uuid.uuid4().hex[:10]}", "status": "FILLED", "paper": True}
+        endpoint = "/openApi/swap/v2/trade/order"
         params = {
             "symbol": symbol.replace("/", "-").upper(),
+            "positionSide": "LONG" if side.upper() == "BUY" else "SHORT",
             "side": "SELL" if side.upper() == "BUY" else "BUY",  # Opposite side to close
             "type": "MARKET",
-            "quantity": "0",  # Close all
-            "reduceOnly": "true"
         }
+        if quantity:
+            params["quantity"] = str(quantity)
+            params["reduceOnly"] = "true"
+        else:
+            params["quantity"] = "0"
+            params["closePosition"] = "true"
 
-        return await self._request("POST", endpoint, body=params)
+        result = await self._request("POST", endpoint, body=params)
+        if result["success"]:
+            order_data = result["data"]
+            return {"success": True, "order_id": order_data.get("orderId"), "status": order_data.get("status", "FILLED")}
+        return result
 
     async def cancel_order(self, symbol: str, order_id: str, is_stop: bool = False) -> Dict:
         """
@@ -483,10 +511,44 @@ class TradeLockerBroker:
 
         return result
 
-    async def close_position(self, position_id: str) -> Dict:
-        """Close a position by ID."""
+    async def close_position(self, symbol: str, side: str, quantity: Optional[float] = None) -> Dict:
+        """
+        Close an open position on this symbol — TradeLocker's own API is
+        keyed by position ID, not symbol/side, so this first looks the
+        open position up (matches this file's other brokers' common
+        close_position(symbol, side, quantity) interface, used uniformly
+        by execution_engine.py's close_broker_position).
+
+        Honest scope: only a FULL close is implemented here.
+        TradeLocker's documented close endpoint (POST
+        /positions/{id}/close) takes no quantity in this app's current
+        understanding of it — verify against your specific TradeLocker
+        broker deployment before assuming a partial close is possible
+        this way (same "white-label, can differ per broker" caveat
+        get_ticker_price already carries for this class). A `quantity`
+        request that doesn't match the full open size is refused rather
+        than silently closing the whole thing anyway.
+        """
+        if self.paper:
+            return {"success": True, "order_id": f"PAPER-CLOSE-{uuid.uuid4().hex[:10]}", "status": "FILLED", "paper": True}
+        positions = await self.get_positions()
+        if not positions.get("success") or not positions.get("data"):
+            return {"success": False, "error": "no_open_position", "message": "No open TradeLocker position found for this symbol."}
+        match = next((p for p in positions["data"] if p.get("symbol") == symbol or p.get("tradableInstrumentId") == symbol), None)
+        if not match:
+            return {"success": False, "error": "no_open_position", "message": f"No open TradeLocker position found for {symbol}."}
+        position_size = match.get("qty") or match.get("quantity") or match.get("size")
+        if quantity and position_size and abs(float(position_size) - quantity) > 1e-8:
+            return {
+                "success": False, "error": "partial_close_unsupported",
+                "message": "TradeLocker partial close isn't supported by this integration — only a full close is. Close it fully, or contact support to adjust manually.",
+            }
+        position_id = match.get("id")
         endpoint = f"/positions/{position_id}/close"
-        return await self._request("POST", endpoint)
+        result = await self._request("POST", endpoint)
+        if result["success"]:
+            return {"success": True, "order_id": position_id, "status": "CLOSED"}
+        return result
 
     async def cancel_order(self, symbol: str, order_id: str, is_stop: bool = False) -> Dict:
         """
@@ -715,23 +777,80 @@ class BinanceBroker:
         logger.info("binance_order_placed", symbol=symbol_clean, side=side, order_id=response["order_id"])
         return response
 
-    async def close_position(self, symbol: str, side: str) -> Dict:
-        """Close an open position with an opposite reduce-only market order."""
+    async def close_position(self, symbol: str, side: str, quantity: Optional[float] = None) -> Dict:
+        """Close all (default) or part (`quantity`) of an open position
+        with an opposite reduce-only market order. Was never gated on
+        self.paper before now (had zero real callers anywhere in the
+        backend — see execution_engine.py's own close_broker_position —
+        so the gap was never exercised); fixed to match every other
+        place_order/cancel_order method's own paper short-circuit."""
+        if self.paper:
+            return {"success": True, "order_id": f"PAPER-CLOSE-{uuid.uuid4().hex[:10]}", "status": "FILLED", "paper": True}
         symbol_clean = symbol.replace("/", "").replace("-", "").upper()
         close_side = "SELL" if side.upper() == "BUY" else "BUY"
-        position = await self.get_position(symbol_clean)
-        qty = 0.0
-        if position["success"] and position.get("data"):
-            positions = position["data"] if isinstance(position["data"], list) else [position["data"]]
-            for p in positions:
-                if p.get("symbol") == symbol_clean:
-                    qty = abs(float(p.get("positionAmt", 0)))
-        if qty == 0:
+        qty = quantity
+        if not qty:
+            position = await self.get_position(symbol_clean)
+            if position["success"] and position.get("data"):
+                positions = position["data"] if isinstance(position["data"], list) else [position["data"]]
+                for p in positions:
+                    if p.get("symbol") == symbol_clean:
+                        qty = abs(float(p.get("positionAmt", 0)))
+        if not qty:
             return {"success": False, "error": "No open position quantity found to close"}
-        return await self._request("POST", "/fapi/v1/order", {
+        result = await self._request("POST", "/fapi/v1/order", {
             "symbol": symbol_clean, "side": close_side, "type": "MARKET",
             "quantity": qty, "reduceOnly": "true",
         })
+        if result["success"]:
+            return {"success": True, "order_id": result["data"].get("orderId"), "status": result["data"].get("status", "FILLED")}
+        return result
+
+    async def update_stop_loss_take_profit(
+        self, symbol: str, side: str, stop_loss: Optional[float] = None, take_profit: Optional[float] = None,
+    ) -> Dict:
+        """
+        Move this position's real resting SL/TP orders on Binance — the
+        broker-side half of manual_trading.py's modify_targets, which
+        before this only ever updated OUR OWN record, never the real
+        order sitting at the exchange (see that endpoint's own "Honest
+        scope" docstring). Binance has no single "modify SL/TP" call the
+        way Bybit does; its SL/TP are genuinely separate STOP_MARKET /
+        TAKE_PROFIT_MARKET closePosition orders placed at entry (see
+        place_order above) — so this finds and cancels whichever of
+        those is still resting for this symbol, then places a fresh one
+        at the new price. Only touches the side(s) actually passed in;
+        omitting stop_loss (or take_profit) leaves that order alone.
+        """
+        if self.paper:
+            return {"success": True, "paper": True}
+        symbol_clean = symbol.replace("/", "").replace("-", "").upper()
+        close_side = "SELL" if side.upper() == "BUY" else "BUY"
+        open_orders = await self._request("GET", "/fapi/v1/openOrders", {"symbol": symbol_clean})
+        if not open_orders["success"]:
+            return open_orders
+        results: Dict[str, Dict] = {}
+        wanted = [("STOP_MARKET", "stop_loss", stop_loss), ("TAKE_PROFIT_MARKET", "take_profit", take_profit)]
+        for order_type, key, new_price in wanted:
+            if new_price is None:
+                continue
+            existing = next(
+                (o for o in open_orders["data"] if o.get("type") == order_type and o.get("closePosition")),
+                None,
+            )
+            if existing:
+                cancel = await self._request("DELETE", "/fapi/v1/order", {"symbol": symbol_clean, "orderId": existing["orderId"]})
+                if not cancel["success"]:
+                    results[key] = cancel
+                    continue
+            place = await self._request("POST", "/fapi/v1/order", {
+                "symbol": symbol_clean, "side": close_side, "type": order_type,
+                "stopPrice": new_price, "closePosition": "true",
+            })
+            results[key] = {"success": place["success"], "order_id": place.get("data", {}).get("orderId") if place["success"] else None, "error": place.get("error")}
+        if not results:
+            return {"success": True, "message": "Nothing to update."}
+        return {"success": all(r.get("success") for r in results.values()), "results": results}
 
     async def cancel_order(self, symbol: str, order_id: str, is_stop: bool = False) -> Dict:
         """Cancel a still-resting order — DELETE /fapi/v1/order per
@@ -910,22 +1029,59 @@ class BybitBroker:
             }
         return result
 
-    async def close_position(self, symbol: str, side: str) -> Dict:
-        """Close via Bybit's reduce-only market order against the open size."""
+    async def close_position(self, symbol: str, side: str, quantity: Optional[float] = None) -> Dict:
+        """Close all (default) or part (`quantity`) of an open position
+        via a reduce-only market order. Was never gated on self.paper
+        before now (zero real callers anywhere in the backend until
+        execution_engine.py's own close_broker_position) — fixed to
+        match every other paper short-circuit in this class."""
+        if self.paper:
+            return {"success": True, "order_id": f"PAPER-CLOSE-{uuid.uuid4().hex[:10]}", "status": "FILLED", "paper": True}
         symbol_clean = symbol.replace("/", "").replace("-", "").upper()
-        position = await self.get_position(symbol_clean)
-        qty = 0.0
-        if position["success"] and position.get("data"):
-            for p in position["data"]:
-                if p.get("symbol") == symbol_clean:
-                    qty = abs(float(p.get("size", 0)))
-        if qty == 0:
+        qty = quantity
+        if not qty:
+            position = await self.get_position(symbol_clean)
+            if position["success"] and position.get("data"):
+                for p in position["data"]:
+                    if p.get("symbol") == symbol_clean:
+                        qty = abs(float(p.get("size", 0)))
+        if not qty:
             return {"success": False, "error": "No open position quantity found to close"}
         close_side = "Sell" if side.upper() == "BUY" else "Buy"
-        return await self._request("POST", "/v5/order/create", {
+        result = await self._request("POST", "/v5/order/create", {
             "category": "linear", "symbol": symbol_clean, "side": close_side,
             "orderType": "Market", "qty": str(qty), "reduceOnly": True,
         })
+        if result["success"]:
+            return {"success": True, "order_id": result["data"].get("orderId"), "status": "FILLED"}
+        return result
+
+    async def update_stop_loss_take_profit(
+        self, symbol: str, side: str, stop_loss: Optional[float] = None, take_profit: Optional[float] = None,
+    ) -> Dict:
+        """
+        Move this position's real SL/TP on Bybit — the broker-side half
+        of manual_trading.py's modify_targets (see that endpoint's own
+        "Honest scope" docstring: before this, an edit there only ever
+        touched OUR OWN record, never the real position at the broker).
+        Bybit V5's dedicated `POST /v5/position/trading-stop` sets or
+        replaces the position's attached stop-loss/take-profit directly
+        (no separate resting order to cancel/replace, unlike Binance) —
+        a well-documented, stable endpoint. Only the field(s) actually
+        passed in are sent; omitting one leaves Bybit's own value alone.
+        """
+        if self.paper:
+            return {"success": True, "paper": True}
+        symbol_clean = symbol.replace("/", "").replace("-", "").upper()
+        params: Dict = {"category": "linear", "symbol": symbol_clean, "positionIdx": 0}
+        if stop_loss is not None:
+            params["stopLoss"] = str(stop_loss)
+        if take_profit is not None:
+            params["takeProfit"] = str(take_profit)
+        if len(params) <= 3:
+            return {"success": True, "message": "Nothing to update."}
+        result = await self._request("POST", "/v5/position/trading-stop", params)
+        return {"success": result["success"], "error": result.get("error")}
 
     async def cancel_order(self, symbol: str, order_id: str, is_stop: bool = False) -> Dict:
         """Cancel a still-resting (unfilled or partially filled) order —
@@ -1160,22 +1316,32 @@ class MexcBroker:
             }
         return result
 
-    async def close_position(self, symbol: str, side: str) -> Dict:
-        """Close via an opposite close-side order sized to the open position."""
+    async def close_position(self, symbol: str, side: str, quantity: Optional[float] = None) -> Dict:
+        """Close all (default) or part (`quantity`) of an open position
+        via an opposite close-side market order. Was never gated on
+        self.paper before now (zero real callers anywhere in the
+        backend until execution_engine.py's own close_broker_position)
+        — fixed to match every other paper short-circuit in this class."""
+        if self.paper:
+            return {"success": True, "order_id": f"PAPER-CLOSE-{uuid.uuid4().hex[:10]}", "status": "FILLED", "paper": True}
         mexc_symbol = self._mexc_symbol(symbol)
-        position = await self.get_position(mexc_symbol)
-        qty = 0.0
-        if position["success"] and position.get("data"):
-            for p in position["data"]:
-                if p.get("symbol") == mexc_symbol:
-                    qty = abs(float(p.get("holdVol", 0)))
-        if qty == 0:
+        qty = quantity
+        if not qty:
+            position = await self.get_position(mexc_symbol)
+            if position["success"] and position.get("data"):
+                for p in position["data"]:
+                    if p.get("symbol") == mexc_symbol:
+                        qty = abs(float(p.get("holdVol", 0)))
+        if not qty:
             return {"success": False, "error": "No open position quantity found to close"}
         close_side_code = 4 if side.upper() == "BUY" else 2  # close long / close short
-        return await self._request("POST", "/api/v1/private/order/submit", {
+        result = await self._request("POST", "/api/v1/private/order/submit", {
             "symbol": mexc_symbol, "side": close_side_code, "type": 5,
             "openType": 2, "vol": qty,
         })
+        if result["success"]:
+            return {"success": True, "order_id": result["data"], "status": "FILLED"}
+        return result
 
     async def cancel_order(self, symbol: str, order_id: str, is_stop: bool = False) -> Dict:
         """
@@ -1359,18 +1525,63 @@ class MetaApiBroker:
             }
         return result
 
-    async def close_position(self, symbol: str, side: str, position_id: Optional[str] = None) -> Dict:
+    async def close_position(
+        self, symbol: str, side: str, quantity: Optional[float] = None, position_id: Optional[str] = None,
+    ) -> Dict:
         """
         MetaApi closes by positionId, not by symbol/side like the crypto
         brokers — if position_id isn't supplied, looks up the first open
-        position on this symbol.
+        position on this symbol. `quantity` given uses MetaApi's own
+        POSITION_PARTIAL_CLOSE_ID action (a genuine partial close,
+        `volume` = how much to close now) instead of a full
+        POSITION_CLOSE_ID — the same MT4/5 "partial close" a trader
+        could do by hand in the terminal.
         """
+        if self.paper:
+            return {"success": True, "order_id": f"PAPER-CLOSE-{uuid.uuid4().hex[:10]}", "status": "FILLED", "paper": True}
         if not position_id:
             positions = await self.get_position(symbol)
             if not positions["success"] or not positions.get("data"):
                 return {"success": False, "error": "No open position found to close"}
             position_id = positions["data"][0]["id"]
-        return await self._request("POST", "/trade", {"actionType": "POSITION_CLOSE_ID", "positionId": position_id})
+        if quantity:
+            body = {"actionType": "POSITION_PARTIAL_CLOSE_ID", "positionId": position_id, "volume": quantity}
+        else:
+            body = {"actionType": "POSITION_CLOSE_ID", "positionId": position_id}
+        result = await self._request("POST", "/trade", body)
+        if result["success"]:
+            return {"success": True, "order_id": result["data"].get("positionId", position_id), "status": result["data"].get("stringCode", "CLOSED")}
+        return result
+
+    async def update_stop_loss_take_profit(
+        self, symbol: str, side: str, stop_loss: Optional[float] = None, take_profit: Optional[float] = None,
+        position_id: Optional[str] = None,
+    ) -> Dict:
+        """
+        Move this position's real stop-loss/take-profit on the MT4/5
+        terminal itself, via MetaApi's own POSITION_MODIFY trade action
+        — the broker-side half of manual_trading.py's modify_targets
+        (see that endpoint's own "Honest scope" docstring: before this,
+        an edit there only ever touched OUR OWN record, never the real
+        position at the broker). Only the field(s) actually passed in
+        are sent; MetaApi leaves an omitted one at its current value.
+        """
+        if self.paper:
+            return {"success": True, "paper": True}
+        if not position_id:
+            positions = await self.get_position(symbol)
+            if not positions["success"] or not positions.get("data"):
+                return {"success": False, "error": "No open position found to modify"}
+            position_id = positions["data"][0]["id"]
+        body: Dict = {"actionType": "POSITION_MODIFY", "positionId": position_id}
+        if stop_loss is not None:
+            body["stopLoss"] = stop_loss
+        if take_profit is not None:
+            body["takeProfit"] = take_profit
+        if len(body) <= 2:
+            return {"success": True, "message": "Nothing to update."}
+        result = await self._request("POST", "/trade", body)
+        return {"success": result["success"], "error": result.get("error")}
 
     async def cancel_order(self, symbol: str, order_id: str, is_stop: bool = False) -> Dict:
         """
