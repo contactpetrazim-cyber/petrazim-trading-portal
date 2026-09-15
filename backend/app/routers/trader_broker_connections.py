@@ -35,6 +35,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import get_current_user, require_role
+from app.core.fee_gate import raise_if_fees_owed
 from app.database import get_db
 from app.models.bot import BotConfig
 from app.models.trader_broker_connection import ConnectionMode, ConnectionStatus, SubscriptionCopyMode, TraderBotSubscription, TraderBrokerConnection
@@ -301,6 +302,10 @@ async def subscribe_bot(
     approval step; "manual" (default) drafts a pending trade the
     trader approves themselves, same as a human-in-the-loop platform
     bot signal."""
+    # New bot-trading access, same gate as a fresh manual order — see
+    # core/fee_gate.py's own module docstring. Existing subscriptions
+    # are never touched by this; only opting INTO a new one is gated.
+    await raise_if_fees_owed(db, user)
     connection = await _get_own_connection(db, user, connection_id)
     if connection.mode == ConnectionMode.MANUAL:
         raise HTTPException(status_code=409, detail="This connection is set to manual-only — switch its mode to 'bot' or 'both' first.")

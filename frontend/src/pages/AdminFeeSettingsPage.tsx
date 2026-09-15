@@ -58,7 +58,7 @@ export function AdminFeeSettingsPage() {
         crypto_address: draft.crypto_address ?? undefined, crypto_network: draft.crypto_network ?? undefined,
         paystack_account_name: draft.paystack_account_name ?? undefined, paystack_account_number: draft.paystack_account_number ?? undefined,
         paystack_bank_name: draft.paystack_bank_name ?? undefined, paystack_bank_code: draft.paystack_bank_code ?? undefined,
-        notes: draft.notes ?? undefined,
+        notes: draft.notes ?? undefined, settlement_currency: draft.settlement_currency ?? undefined,
       });
       setSettings(s);
       setDraft(s);
@@ -114,10 +114,19 @@ export function AdminFeeSettingsPage() {
               Charge a performance fee on profitable copy-trades
             </label>
 
-            <div>
-              <label className="text-xs font-semibold opacity-70">Fee percent of profit</label>
-              <input type="number" min={0} max={100} step={0.5} className={inputCls}
-                value={draft.fee_percent ?? 0} onChange={(e) => setDraft((d) => ({ ...d, fee_percent: parseFloat(e.target.value) || 0 }))} />
+            <div className="grid sm:grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-semibold opacity-70">Fee percent of profit</label>
+                <input type="number" min={0} max={100} step={0.5} className={inputCls}
+                  value={draft.fee_percent ?? 0} onChange={(e) => setDraft((d) => ({ ...d, fee_percent: parseFloat(e.target.value) || 0 }))} />
+              </div>
+              <div>
+                <label className="text-xs font-semibold opacity-70">Settlement currency</label>
+                <input className={inputCls} maxLength={3} placeholder="USD"
+                  value={draft.settlement_currency || ''}
+                  onChange={(e) => setDraft((d) => ({ ...d, settlement_currency: e.target.value.toUpperCase() }))} />
+                <p className="text-[11px] opacity-50 mt-0.5">What fee_amount figures are denominated in — also what the Paystack payment gate charges (Paystack supports NGN/USD/GHS/ZAR/KES on an eligible account).</p>
+              </div>
             </div>
 
             <div>

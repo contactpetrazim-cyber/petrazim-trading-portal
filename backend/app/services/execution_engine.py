@@ -373,6 +373,8 @@ class ExecutionEngine:
         if not rows:
             return
 
+        from app.services.performance_fees import owed_from_previous_days
+
         base_risk_percent = trade_data.get("risk_percent") or 0.0
         for idx, (sub, conn) in enumerate(rows):
             lot_size = trade_data["lot_size"]
@@ -385,6 +387,18 @@ class ExecutionEngine:
                 lot_size = trade_data["lot_size"] * (sub.risk_per_trade / base_risk_percent)
 
             is_auto = sub.copy_mode == SubscriptionCopyMode.AUTO
+            # The Paystack fee gate (core/fee_gate.py) — an AUTO
+            # subscriber who owes performance fees from a previous day
+            # gets downgraded to a drafted, requires-approval trade
+            # instead of firing live, exactly as if they were on MANUAL
+            # copy mode. Nothing is silently skipped: it's still
+            # persisted and visible on their own pending-approvals,
+            # they just can't have it fire unattended while unpaid.
+            # approve_trade below re-checks the same gate before letting
+            # them approve it into a live order.
+            fees_owed = await owed_from_previous_days(db, sub.user_id) if is_auto else 0.0
+            effective_auto = is_auto and fees_owed <= 0
+
             copy_trade_data = {
                 **trade_data,
                 "trade_id": f"{trade_data['trade_id']}_SUB{idx}",
@@ -393,7 +407,7 @@ class ExecutionEngine:
                 "lot_size": round(lot_size, 8),
                 "is_test": False,  # a subscriber's own connection is always their real account
                 "preferred_broker": conn.exchange,
-                "requires_approval": not is_auto,
+                "requires_approval": not effective_auto,
             }
             try:
                 await self._persist_trade(db, copy_trade_data)
@@ -401,8 +415,14 @@ class ExecutionEngine:
                 logger.error("subscriber_copy_persist_failed", user_id=str(sub.user_id), bot_id=bot_id, error=str(e))
                 continue
 
-            if not is_auto:
-                logger.info("subscriber_copy_drafted", trade_id=copy_trade_data["trade_id"], user_id=str(sub.user_id))
+            if not effective_auto:
+                if is_auto and fees_owed > 0:
+                    logger.info(
+                        "subscriber_copy_downgraded_fees_owed", trade_id=copy_trade_data["trade_id"],
+                        user_id=str(sub.user_id), fees_owed=fees_owed,
+                    )
+                else:
+                    logger.info("subscriber_copy_drafted", trade_id=copy_trade_data["trade_id"], user_id=str(sub.user_id))
                 continue
 
             try:
@@ -435,6 +455,24 @@ class ExecutionEngine:
                 return {"success": False, "message": "Trade not found"}
 
             if approved:
+                # Same Paystack fee gate as the AUTO-copy downgrade
+                # above — only ever relevant for a subscriber's own
+                # fee-eligible copy trade (subscription_id set), never
+                # the platform's own Human-in-the-Loop bot trade.
+                # Rejecting (approved=False) is never gated: declining a
+                # drafted trade carries no risk and shouldn't require
+                # paying first.
+                if row.subscription_id is not None and not row.is_test:
+                    from app.services.performance_fees import owed_from_previous_days
+                    fees_owed = await owed_from_previous_days(db, row.user_id)
+                    if fees_owed > 0:
+                        return {
+                            "success": False,
+                            "message": (
+                                f"Cannot approve — {fees_owed:,.2f} in performance fees is owed from a "
+                                "previous day. Settle it to resume trading."
+                            ),
+                        }
                 trade = {
                     "trade_id": row.trade_id, "bot_id": row.bot_id, "symbol": row.symbol,
                     "direction": "long" if row.direction.value == "long" else "short",

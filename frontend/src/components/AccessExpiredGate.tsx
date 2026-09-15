@@ -5,6 +5,7 @@ import { CardLogoBand } from './CardLogoBand';
 import { useThemeStore } from '../hooks/useTheme';
 import { handleUnauthorized } from '../lib/authGuard';
 import { isNetworkFailure, resolveFailoverUrl, tryFailoverToVm } from '../lib/backendFailover';
+import { triggerFeesOwed } from './TradingFeeGate';
 
 /**
  * AccessExpiredGate — matches the exact card design confirmed working
@@ -156,6 +157,9 @@ export async function apiFetch(
     const body = await res.clone().json().catch(() => null);
     if (body?.detail?.error === 'access_expired') {
       triggerAccessExpired(body.detail);
+    }
+    if (body?.detail?.error === 'trading_fees_owed') {
+      triggerFeesOwed(body.detail);
     }
   }
   return res;

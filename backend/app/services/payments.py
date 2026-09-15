@@ -231,8 +231,17 @@ class TestPaymentClient:
     simulated payment, there's no external system to ask.
     """
 
-    def __init__(self, base_url: str):
+    def __init__(self, base_url: str, path_prefix: str = "/payments/test-checkout"):
         self.base_url = base_url.rstrip("/")
+        # Lets a second product (routers/fees.py's own fee-settlement
+        # checkout) reuse this same client with its OWN simulated-
+        # checkout route instead of colliding with the Academy's
+        # /payments/test-checkout, which resolves a reference against
+        # the Payment table and grants UserAccess on success — wrong
+        # for a fee payment, which needs to settle ledger entries
+        # instead. Defaults to the original path so every existing
+        # caller is unaffected.
+        self.path_prefix = path_prefix
 
     def create_checkout(
         self, amount: float, currency: str, description: str, customer_email: str
@@ -240,7 +249,7 @@ class TestPaymentClient:
         reference = f"TEST_{uuid.uuid4().hex[:16]}"
         return CheckoutSession(
             provider="test",
-            checkout_url=f"{self.base_url}/payments/test-checkout/{reference}",
+            checkout_url=f"{self.base_url}{self.path_prefix}/{reference}",
             reference=reference,
             amount=amount,
             currency=currency.upper(),

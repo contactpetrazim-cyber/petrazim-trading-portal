@@ -65,6 +65,15 @@ class PlatformFeeSettings(Base):
 
     payout_method = Column(Enum(PayoutMethod), nullable=False, default=PayoutMethod.CRYPTO)
 
+    # What currency fee_amount figures (and, by extension, the real
+    # Paystack checkout in routers/fees.py's own start_fee_checkout)
+    # are denominated in. Not assumed NGN like the Academy's own
+    # catalogue (models/access.py) — a copy trade's realized P&L comes
+    # from a crypto/forex broker and is typically USD, so this is an
+    # explicit Admin-set field rather than a hardcoded currency that
+    # would silently mismatch what a trader's P&L actually is in.
+    settlement_currency = Column(String(3), nullable=False, default="USD")
+
     # Not secrets — a receive-only crypto address or bank account
     # number can't be used to move money OUT on its own, unlike an
     # exchange API key, so these are plain columns, not Fernet-

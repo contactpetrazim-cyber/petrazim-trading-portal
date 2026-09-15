@@ -6,11 +6,15 @@ models/fee_settings.py. See that module's own docstring for the full
 
 from __future__ import annotations
 
-from typing import Optional
+import json
+import uuid
+from datetime import datetime, timezone
+from typing import List, Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.fee_payment import FeePayment, FeePaymentStatus
 from app.models.fee_settings import PlatformFeeSettings, PerformanceFeeLedgerEntry, FeeLedgerStatus
 from app.models.trade import Trade
 
@@ -72,3 +76,72 @@ async def apply_performance_fee(db: AsyncSession, trade: Trade, pnl_this_close: 
     await db.commit()
     await db.refresh(entry)
     return entry
+
+
+async def _owed_entries(db: AsyncSession, user_id, before=None) -> List[PerformanceFeeLedgerEntry]:
+    query = select(PerformanceFeeLedgerEntry).where(
+        PerformanceFeeLedgerEntry.user_id == user_id,
+        PerformanceFeeLedgerEntry.status == FeeLedgerStatus.OWED,
+    )
+    if before is not None:
+        query = query.where(PerformanceFeeLedgerEntry.created_at < before)
+    return (await db.execute(query)).scalars().all()
+
+
+async def owed_from_previous_days(db: AsyncSession, user_id) -> float:
+    """The gate's own number — "pays for previous day fees before
+    access to a new day," by direct request. Only counts a fee that
+    accrued BEFORE today (UTC) started; a fee that just accrued from a
+    trade that closed minutes ago, today, never blocks anything until
+    tomorrow — today's own trading is never retroactively gated by
+    itself."""
+    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=None)
+    rows = await _owed_entries(db, user_id, before=today_start)
+    return round(sum(e.fee_amount for e in rows), 2)
+
+
+async def total_owed(db: AsyncSession, user_id) -> float:
+    """Every OWED entry regardless of date — what a "Pay now" checkout
+    actually charges. Settling this always also settles the (subset)
+    amount owed_from_previous_days is gating on, so a trader who pays
+    can never end up still gated afterward."""
+    rows = await _owed_entries(db, user_id)
+    return round(sum(e.fee_amount for e in rows), 2)
+
+
+async def start_fee_checkout_snapshot(db: AsyncSession, user_id) -> tuple[float, List[str]]:
+    """Snapshots every currently-OWED entry for this trader — the exact
+    set a checkout is started against (see FeePayment.covered_entry_ids'
+    own comment for why this needs to be a snapshot, not "whatever's
+    OWED when the webhook later arrives"). Returns (amount, entry_ids)."""
+    rows = await _owed_entries(db, user_id)
+    amount = round(sum(e.fee_amount for e in rows), 2)
+    return amount, [str(r.id) for r in rows]
+
+
+async def settle_fee_payment(db: AsyncSession, payment: FeePayment) -> None:
+    """The one place a FeePayment is actually marked settled and its
+    covered ledger entries flipped to PAID — called from BOTH the real
+    Paystack webhook (routers/payment_webhooks.py) and the Test-mode
+    simulated-checkout completion (routers/fees.py), so there is
+    exactly one code path from "payment confirmed" to "access
+    restored," matching how _grant_access_for_payment is the single
+    such path for the Academy's own payments. Idempotent: a webhook
+    that fires twice for the same reference is a no-op the second time."""
+    if payment.status == FeePaymentStatus.SUCCEEDED:
+        return
+    payment.status = FeePaymentStatus.SUCCEEDED
+    payment.paid_at = datetime.utcnow()
+
+    covered_ids = json.loads(payment.covered_entry_ids or "[]")
+    if covered_ids:
+        ids = [uuid.UUID(i) for i in covered_ids]
+        rows = (await db.execute(
+            select(PerformanceFeeLedgerEntry).where(PerformanceFeeLedgerEntry.id.in_(ids))
+        )).scalars().all()
+        for row in rows:
+            if row.status == FeeLedgerStatus.OWED:
+                row.status = FeeLedgerStatus.PAID
+                row.paid_at = datetime.utcnow()
+                row.paid_note = f"Paid via {payment.provider} — ref {payment.provider_reference}"
+    await db.commit()

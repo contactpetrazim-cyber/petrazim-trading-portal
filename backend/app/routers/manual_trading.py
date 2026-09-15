@@ -31,6 +31,7 @@ import structlog
 
 from app.core.access_gate import _raise_if_access_expired
 from app.core.auth import get_current_user, require_super_admin
+from app.core.fee_gate import raise_if_fees_owed
 from app.core.idempotency import idempotency_guard
 from app.database import get_db
 from app.models.platform_setting import PlatformSetting, TRADING_PAPER_ENFORCED_KEY
@@ -242,6 +243,11 @@ async def place_manual_order(
         # mode."
         if not paper:
             await _raise_if_access_expired(db, user)
+            # New-order-only, same reasoning as the access-expiry check
+            # right above — never gates closing/managing a position
+            # already open, only placing a fresh one. See
+            # core/fee_gate.py's own module docstring.
+            await raise_if_fees_owed(db, user)
 
         risk_dist = abs(req.entry_price - req.stop_loss)
         if risk_dist <= 0:

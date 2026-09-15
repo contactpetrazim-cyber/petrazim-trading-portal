@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link2, Plus, RefreshCw, Trash2, CheckCircle2, XCircle, Clock, Ban, Bot, Percent } from 'lucide-react';
+import { Link2, Plus, RefreshCw, Trash2, CheckCircle2, XCircle, Clock, Ban, Bot, Percent, CreditCard } from 'lucide-react';
 import { FoldedCard } from '../components/FoldedCard';
 import { exchangeConnectionsApi, feesApi } from '../services/api';
 import { ExchangeInfo, TraderBrokerConnection, AvailableBot, TraderBotSubscription, MyFeesResponse } from '../types';
@@ -52,6 +52,8 @@ export function ConnectExchangePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [payBusy, setPayBusy] = useState(false);
+  const [payError, setPayError] = useState<string | null>(null);
 
   const [showForm, setShowForm] = useState(false);
   const [formExchange, setFormExchange] = useState('');
@@ -176,6 +178,22 @@ export function ConnectExchangePage() {
     }
   }
 
+  // The Paystack fee-settlement gate's own checkout — pays off the
+  // FULL owed balance in one go (see routers/fees.py's own
+  // start_fee_checkout docstring for why it's the full balance, not
+  // just the previous-day amount the gate itself blocks on).
+  async function payFees() {
+    setPayBusy(true);
+    setPayError(null);
+    try {
+      const session = await feesApi.checkout();
+      window.location.href = session.checkout_url;
+    } catch (err: any) {
+      setPayError(err?.response?.data?.detail || 'Could not start checkout — try again in a moment.');
+      setPayBusy(false);
+    }
+  }
+
   const cardCls = dark ? 'bg-smc-panel border-smc-border text-white' : 'bg-white border-corporate-bg text-corporate-text-on-bg';
   const inputCls = `w-full mt-1 border rounded-lg px-2.5 py-1.5 text-sm ${dark ? 'bg-smc-dark border-smc-border text-white' : 'bg-white border-corporate-bg text-corporate-text-on-bg'}`;
 
@@ -215,7 +233,7 @@ export function ConnectExchangePage() {
       {fees && (
         <FoldedCard
           title="Performance Fees"
-          summary={fees.enabled ? `${fees.fee_percent}% of profit on bot-copied trades${fees.total_owed > 0 ? ` · $${fees.total_owed.toFixed(2)} owed` : ''}` : 'Free — no fee currently charged'}
+          summary={fees.enabled ? `${fees.fee_percent}% of profit on bot-copied trades${fees.total_owed > 0 ? ` · ${fees.settlement_currency} ${fees.total_owed.toFixed(2)} owed` : ''}` : 'Free — no fee currently charged'}
           icon={<Percent size={18} />} dark={dark}
         >
           <div className="space-y-2 py-2 text-sm">
@@ -225,13 +243,25 @@ export function ConnectExchangePage() {
                   A {fees.fee_percent}% fee applies to the PROFIT on any trade a bot copies onto your own account (never on a loss, and never on a manual trade you place yourself).
                 </p>
                 {fees.total_owed > 0 && (
-                  <p className="font-semibold">
-                    You currently owe ${fees.total_owed.toFixed(2)}. Pay via
-                    {fees.crypto_address && <> crypto (<span className="font-mono">{fees.crypto_address}</span>{fees.crypto_network ? `, ${fees.crypto_network}` : ''})</>}
-                    {fees.crypto_address && fees.paystack_account_number && ' or '}
-                    {fees.paystack_account_number && <> bank transfer ({fees.paystack_account_name}, {fees.paystack_bank_name} {fees.paystack_account_number})</>}
-                    , then let your admin know.
-                  </p>
+                  <div className={`rounded-xl p-3 border ${dark ? 'bg-amber-400/10 border-amber-400/20' : 'bg-amber-50 border-amber-200'}`}>
+                    <p className="font-semibold">
+                      You currently owe {fees.settlement_currency} {fees.total_owed.toFixed(2)}.
+                      {' '}Any fee from a PREVIOUS day pauses new trades until it's settled — pay
+                      instantly with Paystack below, or send it directly
+                      {fees.crypto_address && <> via crypto (<span className="font-mono">{fees.crypto_address}</span>{fees.crypto_network ? `, ${fees.crypto_network}` : ''})</>}
+                      {fees.crypto_address && fees.paystack_account_number && ' or'}
+                      {fees.paystack_account_number && <> bank transfer ({fees.paystack_account_name}, {fees.paystack_bank_name} {fees.paystack_account_number}) and let your admin know</>}
+                      .
+                    </p>
+                    {payError && <p className="text-xs text-red-600 mt-2">{payError}</p>}
+                    <button
+                      onClick={payFees}
+                      disabled={payBusy}
+                      className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-blue-600 text-white disabled:opacity-50"
+                    >
+                      <CreditCard size={13} /> {payBusy ? 'Starting checkout…' : `Pay ${fees.settlement_currency} ${fees.total_owed.toFixed(2)} with Paystack`}
+                    </button>
+                  </div>
                 )}
                 {fees.entries.length > 0 && (
                   <div className="pt-2 space-y-1">

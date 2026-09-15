@@ -83,6 +83,7 @@ const PremiumDashboardPage = lazy(() => import('./pages/PremiumDashboardPage').t
 const CheckoutReturnPage = lazy(() => import('./pages/CheckoutReturnPage').then((module) => ({ default: module.CheckoutReturnPage })));
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { AccessExpiredGate } from './components/AccessExpiredGate';
+import { TradingFeeGate } from './components/TradingFeeGate';
 import { AppErrorBoundary } from './components/AppErrorBoundary';
 import { RouteLoadingFallback } from './components/RouteLoadingFallback';
 import { EntitlementGate } from './components/EntitlementGate';
@@ -159,6 +160,7 @@ function App() {
     <ToastProvider>
     <BrowserRouter>
       <AccessExpiredGate>
+      <TradingFeeGate>
       <AppErrorBoundary>
         {/* Mounted once at the app root, not inside CorporateLayout —
             CorporateLayout is re-instantiated on every corporate-page
@@ -377,6 +379,7 @@ function App() {
           </Routes>
         </Suspense>
       </AppErrorBoundary>
+      </TradingFeeGate>
       </AccessExpiredGate>
     </BrowserRouter>
     </ToastProvider>

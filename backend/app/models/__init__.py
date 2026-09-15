@@ -22,3 +22,4 @@ from .broadcast_log import *
 from .idempotency import *
 from .trader_broker_connection import *
 from .fee_settings import *
+from .fee_payment import *

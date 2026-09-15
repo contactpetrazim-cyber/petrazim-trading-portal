@@ -1,8 +1,9 @@
 
 import axios from 'axios';
-import { Trade, BotConfig, BotPerformance, BotMetricsUpdate, DashboardStats, SignalPreview, PerformanceSummary, ExchangeMetaResponse, TraderBrokerConnection, AvailableBot, TraderBotSubscription, OutboundIpsResponse, FeeSettings, FeeLedgerEntry, MyFeesResponse } from '../types';
+import { Trade, BotConfig, BotPerformance, BotMetricsUpdate, DashboardStats, SignalPreview, PerformanceSummary, ExchangeMetaResponse, TraderBrokerConnection, AvailableBot, TraderBotSubscription, OutboundIpsResponse, FeeSettings, FeeLedgerEntry, MyFeesResponse, FeeGateStatus, FeeCheckoutSession } from '../types';
 import { useAuthStore } from '../hooks/useAuth';
 import { triggerAccessExpired } from '../components/AccessExpiredGate';
+import { triggerFeesOwed } from '../components/TradingFeeGate';
 import { handleUnauthorized } from '../lib/authGuard';
 import { getActiveBase, tryFailoverToVm } from '../lib/backendFailover';
 
@@ -42,6 +43,9 @@ api.interceptors.response.use(
 
     if (status === 402 && detail?.error === 'access_expired') {
       triggerAccessExpired(detail);
+    }
+    if (status === 402 && detail?.error === 'trading_fees_owed') {
+      triggerFeesOwed(detail);
     }
 
     if (status === 401) {
@@ -254,7 +258,7 @@ export const adminFeesApi = {
     enabled: boolean; fee_percent: number; payout_method: string;
     crypto_address: string; crypto_network: string;
     paystack_account_name: string; paystack_account_number: string; paystack_bank_name: string; paystack_bank_code: string;
-    notes: string;
+    notes: string; settlement_currency: string;
   }>) => api.patch<FeeSettings>('/admin/fees/settings', body).then(r => r.data),
   listLedger: (status?: 'owed' | 'paid' | 'waived') =>
     api.get<FeeLedgerEntry[]>('/admin/fees/ledger', { params: status ? { status } : undefined }).then(r => r.data),
@@ -266,6 +270,15 @@ export const adminFeesApi = {
 
 export const feesApi = {
   myLedger: () => api.get<MyFeesResponse>('/fees/my-ledger').then(r => r.data),
+  // The Paystack fee-settlement gate — "pays for previous day fees
+  // before access to a new day." gateStatus is what the frontend
+  // polls to show/hide the paywall proactively; checkout starts a
+  // real (or Test-mode simulated) Paystack transaction for the FULL
+  // owed balance, returning a checkout_url the caller redirects to
+  // (window.location.href), same pattern as PaymentsPage's own Academy
+  // checkout.
+  gateStatus: () => api.get<FeeGateStatus>('/fees/gate-status').then(r => r.data),
+  checkout: () => api.post<FeeCheckoutSession>('/fees/checkout').then(r => r.data),
 };
 
 export const webhookApi = {
