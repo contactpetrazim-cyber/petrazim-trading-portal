@@ -85,10 +85,11 @@ EXCHANGE_META = {
 
 
     # The literal outbound IP(s) to tell a trader to whitelist now come
-    # from outbound_ip_detector.py's get_effective_outbound_ips() —
-    # a manual PLATFORM_OUTBOUND_IPS override when an admin has set
-    # one, else the value that module's background detector engine
-    # auto-discovers and persists. See that module's own docstring.
+    # from outbound_ip_detector.py's get_effective_outbound_ips_with_source()
+    # — two separate, labeled values (VM primary, Fixie backup), each an
+    # admin's manual override when set, else whatever that module's
+    # background detector engine auto-discovers. See that module's own
+    # docstring for the full "why two, not one" explanation.
 
 
 async def get_connection(
