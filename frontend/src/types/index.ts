@@ -78,6 +78,15 @@ export interface TodayTradeBreakdown {
   breakeven: number;
 }
 
+export type TradeBreakdownPeriod = 'today' | 'week' | 'month';
+
+export interface TradeBreakdown extends TodayTradeBreakdown {
+  period: TradeBreakdownPeriod;
+  total: number;
+  win_rate: number;
+  pnl: number;
+}
+
 export interface DashboardStats {
   total_trades_today: number;
   active_trades: number;

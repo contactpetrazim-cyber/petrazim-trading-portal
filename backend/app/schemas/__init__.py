@@ -218,6 +218,20 @@ class TodayTradeBreakdown(BaseModel):
     loss: int
     breakeven: int
 
+class TradeBreakdown(TodayTradeBreakdown):
+    """The same Pending/Executed/Cancelled/Won/Loss/Break-even buckets
+    as TodayTradeBreakdown, widened to any of Today/Week/Month — by
+    direct request ("can we include Today, Week, Month toggle in the
+    dashboard ... instead of just Today"). A separate schema (and
+    separate /dashboard/trade-breakdown endpoint) rather than widening
+    DashboardStats.today_breakdown itself, so that field's existing
+    shape and every consumer of it (the headline stat card) is
+    untouched — this is the data source for the new toggle only."""
+    period: str  # "today" | "week" | "month"
+    total: int
+    win_rate: float
+    pnl: float
+
 
 class DashboardStats(BaseModel):
     total_trades_today: int

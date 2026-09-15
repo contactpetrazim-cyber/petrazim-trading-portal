@@ -9,7 +9,7 @@ from app.models.trade import Trade, TradeStatus
 from app.models.bot import BotConfig, BotStatus
 from app.models.user import User, UserRole
 from app.core.access_gate import require_active_access
-from app.schemas import DashboardStats, PerformanceSummary, TodayTradeBreakdown
+from app.schemas import DashboardStats, PerformanceSummary, TodayTradeBreakdown, TradeBreakdown
 import structlog
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
@@ -30,6 +30,35 @@ def _scope_bots(query, user: User):
     if user.role not in STAFF_ROLES:
         query = query.where(BotConfig.user_id == user.id)
     return query
+
+
+# "week"/"month" are rolling 7d/30d windows ending now, matching the
+# same convention /performance already uses for its own 1d/7d/30d/90d
+# period param — not calendar week/month, so the toggle always shows a
+# consistent trailing window rather than resetting mid-week.
+def _period_start(period: str) -> datetime:
+    now = datetime.utcnow()
+    if period == "week":
+        return now - timedelta(days=7)
+    if period == "month":
+        return now - timedelta(days=30)
+    return now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def _breakdown_counts(all_trades: list) -> dict:
+    """Shared Pending/Executed/Cancelled/Won/Loss/Break-even bucket
+    counts, used by both dashboard_stats' own today_breakdown and the
+    Today/Week/Month-toggle-able trade_breakdown endpoint below, so the
+    bucket definitions can't drift between the two."""
+    closed = [t for t in all_trades if t.status == TradeStatus.CLOSED]
+    return dict(
+        pending=len([t for t in all_trades if t.status == TradeStatus.PENDING]),
+        executed=len([t for t in all_trades if t.status == TradeStatus.ACTIVE]),
+        cancelled=len([t for t in all_trades if t.status == TradeStatus.CANCELLED]),
+        won=len([t for t in closed if (t.realized_pnl or 0) > 0]),
+        loss=len([t for t in closed if (t.realized_pnl or 0) < 0]),
+        breakeven=len([t for t in closed if (t.realized_pnl or 0) == 0]),
+    )
 
 
 @router.get("/stats", response_model=DashboardStats)
@@ -64,14 +93,7 @@ async def dashboard_stats(db: AsyncSession = Depends(get_db), user: User = Depen
     pnl = sum(t.realized_pnl or 0 for t in today_trades)
 
     closed_trades_today = [t for t in all_today_trades if t.status == TradeStatus.CLOSED]
-    today_breakdown = TodayTradeBreakdown(
-        pending=len([t for t in all_today_trades if t.status == TradeStatus.PENDING]),
-        executed=len([t for t in all_today_trades if t.status == TradeStatus.ACTIVE]),
-        cancelled=len([t for t in all_today_trades if t.status == TradeStatus.CANCELLED]),
-        won=len([t for t in closed_trades_today if (t.realized_pnl or 0) > 0]),
-        loss=len([t for t in closed_trades_today if (t.realized_pnl or 0) < 0]),
-        breakeven=len([t for t in closed_trades_today if (t.realized_pnl or 0) == 0]),
-    )
+    today_breakdown = TodayTradeBreakdown(**_breakdown_counts(all_today_trades))
 
     # Intraday drawdown — real, computed from today's own closed trades'
     # running P&L, not the "0.0, calculate from equity tracking" stub
@@ -114,6 +136,45 @@ async def dashboard_stats(db: AsyncSession = Depends(get_db), user: User = Depen
         current_drawdown=round(drawdown, 2),
         active_bots=active_bots,
         today_breakdown=today_breakdown,
+    )
+
+@router.get("/trade-breakdown", response_model=TradeBreakdown)
+async def trade_breakdown(
+    period: str = "today",  # "today" | "week" | "month"
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_active_access),
+):
+    """The Today's Trades breakdown card's Pending/Executed/Cancelled/
+    Won/Loss/Break-even pills, widened to a Today/Week/Month toggle —
+    by direct request ("can we include Today, Week, Month toggle in the
+    dashboard ... instead of just Today"). A separate endpoint from
+    /stats (whose own today_breakdown stays exactly as before, always
+    "today") so nothing about the existing headline stat card changes
+    — the frontend toggle calls this one for "week"/"month" and can
+    keep reusing /stats' own today_breakdown for "today" without an
+    extra round trip.
+    """
+    if period not in ("today", "week", "month"):
+        period = "today"
+    start = _period_start(period)
+
+    # Same "all statuses, exclude cancelled/errored only for the
+    # headline total/win-rate pair, not from the breakdown itself" split
+    # as dashboard_stats above.
+    trades_query = _scope_trades(select(Trade), user).where(Trade.created_at >= start)
+    result = await db.execute(trades_query)
+    all_trades = result.scalars().all()
+    real_trades = [t for t in all_trades if t.status not in (TradeStatus.CANCELLED, TradeStatus.ERROR)]
+    total = len(real_trades)
+    wins = len([t for t in real_trades if t.realized_pnl and t.realized_pnl > 0])
+    pnl = sum(t.realized_pnl or 0 for t in real_trades)
+
+    return TradeBreakdown(
+        period=period,
+        total=total,
+        win_rate=round(wins / total * 100, 2) if total > 0 else 0.0,
+        pnl=round(pnl, 2),
+        **_breakdown_counts(all_trades),
     )
 
 @router.get("/performance")
