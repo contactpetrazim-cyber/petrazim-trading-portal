@@ -142,6 +142,17 @@ class Trade(Base):
     # toggle's own safe-default pattern for manual trade execution.
     is_test = Column(Boolean, default=False)
 
+    # Set only on a subscriber's own copy of a bot signal (see
+    # execution_engine.py's own _fan_out_to_subscribers) — NULL for
+    # every other trade, including the platform's own pooled-account
+    # trade from that same signal. This is what services/
+    # performance_fees.py's own apply_performance_fee reads to decide
+    # whether a closed trade is even fee-eligible at all — a manual
+    # trade or the platform's own trade never owes a performance fee,
+    # only a trade a bot placed on a trader's OWN account via a
+    # subscription they opted into.
+    subscription_id = Column(UUID(as_uuid=True), ForeignKey("trader_bot_subscriptions.id"), nullable=True, index=True)
+
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

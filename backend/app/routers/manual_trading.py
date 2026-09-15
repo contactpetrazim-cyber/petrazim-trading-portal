@@ -39,6 +39,7 @@ from app.models.user import User
 from app.services.execution_engine import ExecutionEngine
 from app.services.live_price import get_crypto_price
 from app.services.manual_trading import check_manual_trade_risk, compute_lot_size, compute_r_multiple, effective_limits, get_master_paper_enforced
+from app.services.performance_fees import apply_performance_fee
 
 router = APIRouter(prefix="/manual-trading", tags=["manual-trading"])
 logger = structlog.get_logger()
@@ -466,6 +467,7 @@ async def partial_close(
         # it's read.
         row.r_multiple = compute_r_multiple(row.entry_price, req.exit_price, row.stop_loss, row.direction)
     await db.commit()
+    await apply_performance_fee(db, row, pnl_this_close)
 
     return PartialCloseResponse(
         trade_id=trade_id, status=row.status.value, closed_lot_size=round(closed_size, 8),
@@ -642,6 +644,7 @@ async def cancel_order(
     row.r_multiple = compute_r_multiple(row.entry_price, exit_price, row.stop_loss, row.direction)
     row.exit_type = ExitType.MANUAL
     await db.commit()
+    await apply_performance_fee(db, row, pnl_this_close)
 
     return CancelOrderResponse(
         trade_id=trade_id, status=row.status.value,

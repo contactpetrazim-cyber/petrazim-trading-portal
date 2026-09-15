@@ -1,6 +1,6 @@
 
 import axios from 'axios';
-import { Trade, BotConfig, BotPerformance, BotMetricsUpdate, DashboardStats, SignalPreview, PerformanceSummary, ExchangeMetaResponse, TraderBrokerConnection, AvailableBot, TraderBotSubscription } from '../types';
+import { Trade, BotConfig, BotPerformance, BotMetricsUpdate, DashboardStats, SignalPreview, PerformanceSummary, ExchangeMetaResponse, TraderBrokerConnection, AvailableBot, TraderBotSubscription, FeeSettings, FeeLedgerEntry, MyFeesResponse } from '../types';
 import { useAuthStore } from '../hooks/useAuth';
 import { triggerAccessExpired } from '../components/AccessExpiredGate';
 import { handleUnauthorized } from '../lib/authGuard';
@@ -239,6 +239,33 @@ export const adminExchangeConnectionsApi = {
   refreshOutboundIps: () => api.post<{ outbound_ips: string; source: string }>('/admin/exchange-connections/outbound-ips/refresh').then(r => r.data),
   setOutboundIps: (outboundIps: string) =>
     api.patch<{ outbound_ips: string; source: string }>('/admin/exchange-connections/outbound-ips', { outbound_ips: outboundIps }).then(r => r.data),
+};
+
+// Performance-fee toggle, percentage, and payout destination — by
+// direct request ("introduce a fee base or a share of the profit -
+// on a success basis... Create a fee vs free toggle... include in
+// Admin portal... form for Admin to enter Account to receive the
+// benefit... Crypto address and/or bank account - Paystack?"). Mirrors
+// backend/app/routers/fees.py one-to-one; feesApi below is the
+// trader-facing "what do I owe" half of the same feature.
+export const adminFeesApi = {
+  getSettings: () => api.get<FeeSettings>('/admin/fees/settings').then(r => r.data),
+  updateSettings: (body: Partial<{
+    enabled: boolean; fee_percent: number; payout_method: string;
+    crypto_address: string; crypto_network: string;
+    paystack_account_name: string; paystack_account_number: string; paystack_bank_name: string; paystack_bank_code: string;
+    notes: string;
+  }>) => api.patch<FeeSettings>('/admin/fees/settings', body).then(r => r.data),
+  listLedger: (status?: 'owed' | 'paid' | 'waived') =>
+    api.get<FeeLedgerEntry[]>('/admin/fees/ledger', { params: status ? { status } : undefined }).then(r => r.data),
+  markPaid: (entryId: string, note?: string) =>
+    api.patch<FeeLedgerEntry>(`/admin/fees/ledger/${entryId}/mark-paid`, { note }).then(r => r.data),
+  waive: (entryId: string, note?: string) =>
+    api.patch<FeeLedgerEntry>(`/admin/fees/ledger/${entryId}/waive`, { note }).then(r => r.data),
+};
+
+export const feesApi = {
+  myLedger: () => api.get<MyFeesResponse>('/fees/my-ledger').then(r => r.data),
 };
 
 export const webhookApi = {

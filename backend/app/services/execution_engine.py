@@ -271,6 +271,11 @@ class ExecutionEngine:
             reasoning_log=trade_data.get("reasoning", ""),
             requires_approval=trade_data["requires_approval"],
             broker_name=trade_data.get("preferred_broker"),
+            # Only set on a subscriber's own copy of this signal (see
+            # _fan_out_to_subscribers below) — what makes this trade
+            # performance-fee-eligible at all; see Trade.subscription_id's
+            # own comment and services/performance_fees.py.
+            subscription_id=trade_data.get("subscription_id"),
             # Captured at draft time (see process_signal's own
             # _bot_paper_mode call) — approve_trade reads this same
             # value back later rather than re-computing it, since a
@@ -384,6 +389,7 @@ class ExecutionEngine:
                 **trade_data,
                 "trade_id": f"{trade_data['trade_id']}_SUB{idx}",
                 "user_id": sub.user_id,
+                "subscription_id": sub.id,  # marks this trade fee-eligible — see Trade.subscription_id's own comment
                 "lot_size": round(lot_size, 8),
                 "is_test": False,  # a subscriber's own connection is always their real account
                 "preferred_broker": conn.exchange,
