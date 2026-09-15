@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ShieldAlert, Users, Link2 } from 'lucide-react';
+import { ShieldAlert, Users, Link2, Percent } from 'lucide-react';
 import { FoldedCard } from '../components/FoldedCard';
 import { RoleBadge } from '../components/RoleBadge';
 import { RosterPanel } from '../components/RosterPanel';
@@ -188,6 +188,21 @@ export function AdminConsolePage() {
           <span className={`text-sm font-medium ${dark ? 'text-gray-200' : 'text-corporate-text-on-bg'}`}>Trader Exchange Connections</span>
         </div>
         <span className={`text-xs ${dark ? 'text-gray-500' : 'text-gray-400'}`}>Manage every trader's connected exchange account →</span>
+      </Link>
+
+      {/* The Fee/Free toggle, percentage, and payout destination for
+          subscriber copy-trades — by direct request ("introduce a fee
+          base or a share of the profit ... Create a fee vs free
+          toggle ... include in Admin portal"). */}
+      <Link
+        to="/admin/fees"
+        className={`mb-4 flex items-center justify-between rounded-xl border p-4 ${dark ? 'bg-smc-card border-smc-border hover:bg-smc-card/80' : 'bg-white border-corporate-bg hover:bg-gray-50'}`}
+      >
+        <div className="flex items-center gap-2">
+          <Percent size={16} className={dark ? 'text-blue-400' : 'text-blue-600'} />
+          <span className={`text-sm font-medium ${dark ? 'text-gray-200' : 'text-corporate-text-on-bg'}`}>Performance Fees</span>
+        </div>
+        <span className={`text-xs ${dark ? 'text-gray-500' : 'text-gray-400'}`}>Fee toggle, percentage, payout destination, and the owed/paid ledger →</span>
       </Link>
 
       {isSuperAdmin && (

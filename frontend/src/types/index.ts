@@ -159,3 +159,49 @@ export interface TraderBotSubscription {
   risk_per_trade: number | null;
   copy_mode: SubscriptionCopyMode;
 }
+
+export type PayoutMethod = 'crypto' | 'paystack' | 'both';
+
+export interface FeeSettings {
+  enabled: boolean;
+  fee_percent: number;
+  payout_method: PayoutMethod;
+  crypto_address: string | null;
+  crypto_network: string | null;
+  paystack_account_name: string | null;
+  paystack_account_number: string | null;
+  paystack_bank_name: string | null;
+  paystack_bank_code: string | null;
+  notes: string | null;
+  updated_at: string;
+}
+
+export type FeeLedgerStatus = 'owed' | 'paid' | 'waived';
+
+export interface FeeLedgerEntry {
+  id: string;
+  user_id: string;
+  trader_email?: string | null;
+  trader_name?: string | null;
+  trade_id: string;
+  pnl_amount: number;
+  fee_percent_applied: number;
+  fee_amount: number;
+  status: FeeLedgerStatus;
+  paid_at: string | null;
+  paid_note: string | null;
+  created_at: string;
+}
+
+export interface MyFeesResponse {
+  enabled: boolean;
+  fee_percent: number;
+  payout_method: PayoutMethod;
+  crypto_address: string | null;
+  crypto_network: string | null;
+  paystack_account_name: string | null;
+  paystack_account_number: string | null;
+  paystack_bank_name: string | null;
+  total_owed: number;
+  entries: FeeLedgerEntry[];
+}
