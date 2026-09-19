@@ -30,3 +30,11 @@ jobs:
             echo "::error::weekly-quiz broadcast returned HTTP $http_code"
             exit 1
           fi
+          # Same gap as daily-community-broadcast.yml: a 200 OK only means
+          # the request was accepted, not that anything reached Telegram —
+          # fail the workflow honestly when every channel's send failed.
+          sent=$(jq -r '.sent // false' response.json)
+          if [ "$sent" != "true" ]; then
+            echo "::error::weekly-quiz broadcast returned HTTP $http_code but sent=false — zero channels actually delivered (see channels_failed above). Check TELEGRAM_BOT_TOKEN_INDIVIDUAL / TELEGRAM_BOT_TOKEN_CORP on the Render backend."
+            exit 1
+          fi
