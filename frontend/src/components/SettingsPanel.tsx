@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   X, Home, CreditCard, GraduationCap, CalendarClock, LayoutGrid,
-  HardDriveDownload, Link2, ChevronRight, Sun, Moon, Map, LogOut, Crown, Wallet,
+  HardDriveDownload, Link2, ChevronRight, Sun, Moon, Map, LogOut, Crown, Wallet, ScrollText,
 } from 'lucide-react';
 import { HERO_GRADIENT } from '../config/theme';
 import type { ThemeName } from '../hooks/useTheme';
@@ -136,6 +136,7 @@ export function SettingsPanel({
     // mounted on. Omitted entirely for Trader (see premiumTier above).
     ...(premiumTier ? [{ icon: Crown, label: 'Everything Included', detail: 'Every tool and feature at your level, one overview', onClick: () => setPremiumOverviewOpen(true) }] : []),
     { icon: Map, label: 'Site Map', detail: 'Every page in the app, one list', to: '/sitemap' },
+    { icon: ScrollText, label: 'Policies', detail: 'Risk disclosure, terms, privacy, and refund policy', to: '/policies' },
     { icon: HardDriveDownload, label: 'Backup and Offline', detail: 'Manage local data and sync', onClick: () => setBackupOfflineOpen(true) },
     { icon: Link2, label: 'Quick Links', detail: 'Shortcuts to frequent pages' },
   ];
