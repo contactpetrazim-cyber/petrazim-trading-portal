@@ -20,7 +20,7 @@ ever reaches a real broker.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import List, Literal, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException
@@ -378,7 +378,16 @@ async def place_manual_order(
             # necessarily "filled," same distinction a real exchange's own
             # order history draws between "working" and "filled."
             trade.status = TradeStatus.ACTIVE
-            trade.entry_timestamp = datetime.now(timezone.utc)
+            # Naive UTC, not datetime.now(timezone.utc) — same bug class
+            # as the one already fixed a few lines up in this file (see
+            # today_start's own comment) and confirmed live in
+            # pending_order_monitor.py: a tz-aware value into
+            # Trade.entry_timestamp, a plain DateTime column, makes
+            # asyncpg raise "can't subtract offset-naive and
+            # offset-aware datetimes" on commit. This exact spot was
+            # never audited when the other one was found — fixed here
+            # before a live/market order placement ever hit it.
+            trade.entry_timestamp = datetime.utcnow()
             trade.broker_order_id = str(result.get("order_id", ""))
             trade.broker_name = result.get("broker", trade.broker_name)
             await db.commit()
@@ -465,7 +474,10 @@ async def partial_close(
     if row.lot_size <= 1e-8 or req.percent >= 100:
         row.status = TradeStatus.CLOSED
         row.exit_price = req.exit_price
-        row.exit_timestamp = datetime.now(timezone.utc)
+        # Naive UTC — same offset-naive/aware bug class as
+        # place_manual_order's own entry_timestamp above; Trade.exit_timestamp
+        # is a plain DateTime column too.
+        row.exit_timestamp = datetime.utcnow()
         row.exit_type = ExitType.MANUAL
         row.lot_size = 0.0
         # See compute_r_multiple's own docstring — this was never set
@@ -646,7 +658,9 @@ async def cancel_order(
     # PENDING/never-filled case above.
     row.status = TradeStatus.CLOSED
     row.exit_price = exit_price
-    row.exit_timestamp = datetime.now(timezone.utc)
+    # Naive UTC — same offset-naive/aware bug class as the other two
+    # timestamp writes in this file.
+    row.exit_timestamp = datetime.utcnow()
     row.r_multiple = compute_r_multiple(row.entry_price, exit_price, row.stop_loss, row.direction)
     row.exit_type = ExitType.MANUAL
     await db.commit()

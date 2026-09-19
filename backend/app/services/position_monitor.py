@@ -46,7 +46,7 @@ configured target has been reached.
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Optional
 
 import structlog
@@ -184,7 +184,16 @@ class PositionMonitor:
         trade.lot_size = 0.0
         trade.status = TradeStatus.CLOSED
         trade.exit_price = exit_price
-        trade.exit_timestamp = datetime.now(timezone.utc)
+        # Naive UTC, not datetime.now(timezone.utc) — Trade.exit_timestamp
+        # is a plain DateTime column (no timezone=True). Same bug class
+        # confirmed live for pending_order_monitor.py's own
+        # entry_timestamp write (see its own comment): asyncpg raises
+        # "can't subtract offset-naive and offset-aware datetimes" on
+        # commit for a tz-aware value into a naive column, which would
+        # have silently broken every paper trade's automatic TP/SL close
+        # the same way it broke every pending-order fill. Fixed
+        # proactively here before a real close ever hit it in production.
+        trade.exit_timestamp = datetime.utcnow()
         trade.exit_type = exit_type
         trade.r_multiple = compute_r_multiple(trade.entry_price, exit_price, trade.stop_loss, trade.direction)
 
