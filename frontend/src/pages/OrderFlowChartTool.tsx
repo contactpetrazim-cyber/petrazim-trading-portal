@@ -34,6 +34,19 @@ const CHART_POLL_MS = 15000;
 // query, so a longer interval can genuinely span very few real candles.
 const FOOTPRINT_INTERVALS = ['1m', '5m', '15m', '30m', '1h'] as const;
 
+// Tape and DOM don't have a "timeframe" in the candle-duration sense —
+// by direct request ("Integrate time frame options for Time & Sales
+// (Tape) / Order Book (DOM)"), but neither panel aggregates anything
+// over a calendar duration the way the footprint chart's candles do:
+// the tape is a live scroll of individual prints and the DOM is a
+// point-in-time resting-order snapshot, so "1m of tape" or "5m of
+// depth" isn't a real thing either could honestly mean. What both DO
+// already support server-side but had no control for at all: HOW MANY
+// — recent prints for the tape, price levels for the DOM. Exposing
+// that real, already-built param is the honest equivalent here.
+const TAPE_LIMITS = [20, 40, 100, 200] as const;
+const DOM_LIMITS = [5, 10, 20, 50, 100] as const;
+
 /**
  * OrderFlowChartTool — a REAL order-flow chart, not a simulation.
  * Embedded as a FoldedCard section in ToolsPage.tsx, the same pattern
@@ -76,7 +89,9 @@ export function OrderFlowChartTool({
   const symbol = controlledSymbol ?? internalSymbol;
   const setSymbol = onSymbolChange ?? setInternalSymbol;
   const [trades, setTrades] = useState<TradePrint[] | null>(null);
+  const [tapeLimit, setTapeLimit] = useState<typeof TAPE_LIMITS[number]>(40);
   const [depth, setDepth] = useState<Depth | null>(null);
+  const [domLimit, setDomLimit] = useState<typeof DOM_LIMITS[number]>(10);
   const [chart, setChart] = useState<FootprintChart | null>(null);
   const [chartInterval, setChartInterval] = useState<typeof FOOTPRINT_INTERVALS[number]>('1m');
   const [error, setError] = useState<string | null>(null);
@@ -95,7 +110,7 @@ export function OrderFlowChartTool({
     if (!token) return;
     let cancelled = false;
     const load = () => {
-      apiFetch(`${API_URL}/order-flow/trades?symbol=${symbol}&limit=40`, { headers })
+      apiFetch(`${API_URL}/order-flow/trades?symbol=${symbol}&limit=${tapeLimit}`, { headers })
         .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
         // Real bug: on a cold Render free-tier start, the very first
         // poll could land before the backend woke up, setting this
@@ -109,7 +124,7 @@ export function OrderFlowChartTool({
     load();
     const id = setInterval(load, TRADES_POLL_MS);
     return () => { cancelled = true; clearInterval(id); };
-  }, [token, symbol]);
+  }, [token, symbol, tapeLimit]);
 
   // Depth and footprint-chart used to swallow every failure into a
   // silent no-op, so a genuinely broken fetch (the require_active_access
@@ -124,7 +139,7 @@ export function OrderFlowChartTool({
     if (!token) return;
     let cancelled = false;
     const load = () => {
-      apiFetch(`${API_URL}/order-flow/depth?symbol=${symbol}&limit=10`, { headers })
+      apiFetch(`${API_URL}/order-flow/depth?symbol=${symbol}&limit=${domLimit}`, { headers })
         .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
         .then((d) => { if (!cancelled) { setDepth(d); setError(null); } })
         .catch(() => !cancelled && setError('Could not load live order flow data right now.'));
@@ -132,7 +147,7 @@ export function OrderFlowChartTool({
     load();
     const id = setInterval(load, DEPTH_POLL_MS);
     return () => { cancelled = true; clearInterval(id); };
-  }, [token, symbol]);
+  }, [token, symbol, domLimit]);
 
   useEffect(() => {
     if (!token) return;
@@ -178,7 +193,24 @@ export function OrderFlowChartTool({
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Tape */}
         <div className={cardCls}>
-          <div className={titleCls}>Time &amp; Sales (Tape)</div>
+          <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+            <div className={titleCls} style={{ marginBottom: 0 }}>Time &amp; Sales (Tape)</div>
+            <div className={`flex items-center gap-1 rounded-lg p-1 ${dark ? 'bg-white/5' : 'bg-black/5'}`}>
+              {TAPE_LIMITS.map((n) => (
+                <button
+                  key={n}
+                  onClick={() => setTapeLimit(n)}
+                  className={`px-2 py-1 rounded-md text-xs font-semibold transition-colors ${
+                    tapeLimit === n
+                      ? dark ? 'bg-white/20 text-white' : 'bg-white text-corporate-text-on-bg shadow-sm'
+                      : dark ? 'text-white/40 hover:text-white/70' : 'text-gray-400 hover:text-gray-600'
+                  }`}
+                >
+                  {n}
+                </button>
+              ))}
+            </div>
+          </div>
           {trades === null ? (
             <p className={`text-sm ${mutedCls}`}>Loading live trades…</p>
           ) : (
@@ -200,7 +232,24 @@ export function OrderFlowChartTool({
 
         {/* DOM */}
         <div className={cardCls}>
-          <div className={titleCls}>Order Book (DOM)</div>
+          <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+            <div className={titleCls} style={{ marginBottom: 0 }}>Order Book (DOM)</div>
+            <div className={`flex items-center gap-1 rounded-lg p-1 ${dark ? 'bg-white/5' : 'bg-black/5'}`}>
+              {DOM_LIMITS.map((n) => (
+                <button
+                  key={n}
+                  onClick={() => setDomLimit(n)}
+                  className={`px-2 py-1 rounded-md text-xs font-semibold transition-colors ${
+                    domLimit === n
+                      ? dark ? 'bg-white/20 text-white' : 'bg-white text-corporate-text-on-bg shadow-sm'
+                      : dark ? 'text-white/40 hover:text-white/70' : 'text-gray-400 hover:text-gray-600'
+                  }`}
+                >
+                  {n}
+                </button>
+              ))}
+            </div>
+          </div>
           {depth === null ? (
             <p className={`text-sm ${mutedCls}`}>Loading order book…</p>
           ) : (
