@@ -43,3 +43,16 @@ jobs:
             echo "::error::daily-tip broadcast returned HTTP $http_code"
             exit 1
           fi
+          # A 200 OK here only means the request was accepted — the backend
+          # fails soft per-channel (see community_broadcast.py's
+          # channels_sent/channels_failed), so a missing/invalid bot token
+          # for BOTH channels still returns 200 with "sent": false and zero
+          # actual Telegram deliveries. This masked exactly that for weeks
+          # (every run showed green here while broadcast_logs recorded
+          # nothing) — now the workflow itself goes red when nothing
+          # actually reached Telegram, instead of only the app-level log.
+          sent=$(jq -r '.sent // false' response.json)
+          if [ "$sent" != "true" ]; then
+            echo "::error::daily-tip broadcast returned HTTP $http_code but sent=false — zero channels actually delivered (see channels_failed above). Check TELEGRAM_BOT_TOKEN_INDIVIDUAL / TELEGRAM_BOT_TOKEN_CORP on the Render backend."
+            exit 1
+          fi
