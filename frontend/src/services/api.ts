@@ -81,7 +81,7 @@ export const dashboardApi = {
 };
 
 export const tradesApi = {
-  getTrades: (params?: { status?: string; bot_id?: string; symbol?: string; direction?: string; source?: string; limit?: number; offset?: number }) =>
+  getTrades: (params?: { status?: string; bot_id?: string; symbol?: string; direction?: string; source?: string; archived?: boolean; limit?: number; offset?: number }) =>
     api.get<Trade[]>('/trades/', { params }).then(r => r.data),
   getPendingApprovals: () => api.get<Trade[]>('/trades/pending-approvals').then(r => r.data),
   approveTrade: (tradeId: string, approved: boolean, notes?: string) =>
@@ -110,6 +110,11 @@ export const tradesApi = {
     api.patch(`/manual-trading/${tradeId}/modify-targets`, targets).then(r => r.data),
   partialClose: (tradeId: string, percent: number, exitPrice: number) =>
     api.post(`/manual-trading/${tradeId}/partial-close`, { percent, exit_price: exitPrice }).then(r => r.data),
+  // Moves a trade between the "Recent Trades" and "Archive Trades"
+  // cards — by direct request ("create an option to move individual
+  // trades to a new archive trades card").
+  archiveTrade: (tradeId: string, archived: boolean) =>
+    api.patch<Trade>(`/trades/${tradeId}/archive`, { archived }).then(r => r.data),
 };
 
 export const botsApi = {

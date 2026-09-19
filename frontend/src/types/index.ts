@@ -30,6 +30,10 @@ export interface Trade {
    * field was surfaced by the API, or the rare symbol the backend's
    * own routing heuristic couldn't match to any broker. */
   broker_name?: string | null;
+  /** True once moved into the folded "Archive Trades" card (see
+   * tradesApi.archiveTrade) — a pure declutter flag, unrelated to
+   * status/PnL. */
+  is_archived?: boolean;
 }
 
 export interface BotConfig {
