@@ -25,6 +25,7 @@ const OnboardingPage = lazy(() => import('./pages/OnboardingPage').then((module)
 const TradingViewFramePage = lazy(() => import('./pages/TradingViewFramePage').then((module) => ({ default: module.TradingViewFramePage })));
 const ChartPage = lazy(() => import('./pages/ChartPage').then((module) => ({ default: module.ChartPage })));
 const SiteMapPage = lazy(() => import('./pages/SiteMapPage').then((module) => ({ default: module.SiteMapPage })));
+const PoliciesPage = lazy(() => import('./pages/PoliciesPage').then((module) => ({ default: module.PoliciesPage })));
 const MeetingsPage = lazy(() => import('./pages/MeetingsPage').then((module) => ({ default: module.MeetingsPage })));
 const CorporateHomePage = lazy(() => import('./pages/CorporateHomePage').then((module) => ({ default: module.CorporateHomePage })));
 const AreaPage = lazy(() => import('./pages/AreaPage').then((module) => ({ default: module.AreaPage })));
@@ -248,6 +249,7 @@ function App() {
         <Route path="/tradingview" element={<CorporateLayout><TradingViewFramePage /></CorporateLayout>} />
         <Route path="/chart" element={<CorporateLayout><ChartPage /></CorporateLayout>} />
         <Route path="/sitemap" element={<CorporateLayout><SiteMapPage /></CorporateLayout>} />
+        <Route path="/policies" element={<CorporateLayout><PoliciesPage /></CorporateLayout>} />
         <Route path="/meetings" element={<CorporateLayout><MeetingsPage /></CorporateLayout>} />
         <Route path="/payments" element={<CorporateLayout><PaymentsPage /></CorporateLayout>} />
         {/* Phase 3 — where a gateway (or the simulated test checkout)
