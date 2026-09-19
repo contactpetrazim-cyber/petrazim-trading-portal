@@ -22,7 +22,7 @@ jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
-      - name: Ping Supabase REST API
+      - name: Ping Supabase REST API (this app's own project)
         run: |
           if [ -z "${{ secrets.SUPABASE_URL }}" ] || [ -z "${{ secrets.SUPABASE_ANON_KEY }}" ]; then
             echo "SUPABASE_URL / SUPABASE_ANON_KEY secrets not set yet — add them in repo Settings > Secrets and variables > Actions once the Supabase project exists. Skipping."
@@ -37,3 +37,25 @@ jobs:
             -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
             && echo "Supabase responded — project active." \
             || echo "No response — check the project isn't already paused (Supabase dashboard shows this, and a paused project needs one manual un-pause click to recover, this workflow can't do that part)."
+
+      # Second, unrelated project — "Petrazim Training" (a separate
+      # Supabase project, ehfnoktatbbucvpnkyty, that got its own "7 days
+      # no activity" pause warning by direct report). Piggybacking on
+      # this same daily workflow rather than a whole second file: same
+      # mechanism, same schedule, nothing about it needs to run on a
+      # different cadence. URL is hardcoded (Supabase project URLs
+      # aren't secret, only the key is) — fetched directly via the
+      # Supabase MCP, no need to look it up manually. The anon key
+      # couldn't be fetched the same way (the project was already
+      # dormant when asked), so that one still needs the one-time manual
+      # paste this whole file's setup comment already describes.
+      - name: Ping Supabase REST API (Petrazim Training project)
+        run: |
+          if [ -z "${{ secrets.TRAINING_SUPABASE_ANON_KEY }}" ]; then
+            echo "TRAINING_SUPABASE_ANON_KEY secret not set yet — add it in repo Settings > Secrets and variables > Actions (Project Settings > API on https://supabase.com/dashboard/project/ehfnoktatbbucvpnkyty). Skipping."
+            exit 0
+          fi
+          curl -sf --max-time 25 "https://ehfnoktatbbucvpnkyty.supabase.co/auth/v1/health" \
+            -H "apikey: ${{ secrets.TRAINING_SUPABASE_ANON_KEY }}" \
+            && echo "Training Supabase project responded — active." \
+            || echo "No response — if this project was already paused before the key was added, a paused project needs one manual un-pause click from the dashboard first; this workflow can't do that part."
