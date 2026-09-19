@@ -153,6 +153,15 @@ class Trade(Base):
     # subscription they opted into.
     subscription_id = Column(UUID(as_uuid=True), ForeignKey("trader_bot_subscriptions.id"), nullable=True, index=True)
 
+    # Moves a trade out of the "Recent Trades" card into "Archive
+    # Trades" (folded by default) — by direct request ("Create an
+    # option to move individual trades to a new archive trades card").
+    # A pure declutter action, not a deletion or a status change: an
+    # archived trade still counts everywhere PnL/analytics reads
+    # CLOSED trades (routers/trades.py's analytics_summary/detail never
+    # filter on this), it's just hidden from the default trade list.
+    is_archived = Column(Boolean, nullable=False, default=False, index=True)
+
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

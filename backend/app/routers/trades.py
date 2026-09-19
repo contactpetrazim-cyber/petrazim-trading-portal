@@ -11,7 +11,7 @@ from app.models.trade import Trade, TradeLog, TradeStatus, TradeDirection
 from app.models.user import User, UserRole
 from app.core.auth import get_current_user
 from app.core.access_gate import require_active_access, has_active_access, _raise_if_access_expired
-from app.schemas import TradeCreate, TradeResponse, TradeApproval
+from app.schemas import TradeCreate, TradeResponse, TradeApproval, TradeArchiveUpdate
 from app.services.execution_engine import ExecutionEngine
 from app.services.live_price import get_crypto_price
 import structlog
@@ -111,6 +111,14 @@ async def list_trades(
     symbol: Optional[str] = Query(None),
     direction: Optional[str] = Query(None),
     source: Optional[str] = Query(None, description="'all' (default), 'bots', or 'manual'"),
+    # Powers the "Recent Trades" / "Archive Trades" card split on
+    # TradesPage — by direct request ("create an option to move
+    # individual trades to a new archive trades card"). Defaults to
+    # False (archived trades hidden) so every existing caller of this
+    # endpoint keeps seeing exactly what it saw before archiving
+    # existed; the Archive Trades card is the one place that passes
+    # archived=true explicitly.
+    archived: bool = Query(False, description="False (default) hides archived trades, True shows only archived trades"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
@@ -120,7 +128,7 @@ async def list_trades(
     Not gated on active access at the dependency level any more — see
     _visible_trades above for why (a Paper Trading trader must be able
     to list their own free practice trades regardless)."""
-    query = _scope_to_owner(select(Trade), user)
+    query = _scope_to_owner(select(Trade), user).where(Trade.is_archived == archived)
     query = _apply_source_filter(query, source)
 
     # Real bug, found while wiring TradeSpecsPanel's "?status=active"
@@ -419,6 +427,25 @@ async def get_trade(trade_id: str, db: AsyncSession = Depends(get_db), user: Use
     if not trade.is_test:
         await _raise_if_access_expired(db, user)
     await _enrich_live_pnl([trade])
+    return trade
+
+@router.patch("/{trade_id}/archive", response_model=TradeResponse)
+async def set_trade_archived(
+    trade_id: str,
+    update: TradeArchiveUpdate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Move a trade into/out of the folded "Archive Trades" card — by
+    direct request ("create an option to move individual trades to a
+    new archive trades card"). Any status can be archived (a trader
+    may want pending/cancelled clutter out of Recent Trades just as
+    much as old closed ones); this never touches PnL, status, or
+    analytics — see Trade.is_archived's own comment."""
+    trade = await _get_owned_trade(trade_id, user, db)
+    trade.is_archived = update.archived
+    await db.commit()
+    await db.refresh(trade)
     return trade
 
 @router.get("/{trade_id}/logs")

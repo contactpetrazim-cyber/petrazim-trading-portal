@@ -1,7 +1,7 @@
 
 import { useState } from 'react';
 import { Trade } from '../types';
-import { ArrowUpRight, ArrowDownRight, Clock, CheckCircle, XCircle, AlertCircle, Ban, Settings2, ChevronDown } from 'lucide-react';
+import { ArrowUpRight, ArrowDownRight, Clock, CheckCircle, XCircle, AlertCircle, Ban, Settings2, ChevronDown, Archive, ArchiveRestore } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { useThemeStore } from '../hooks/useTheme';
 import { PositionManager } from './PositionManager';
@@ -15,9 +15,12 @@ interface TradeRowProps {
    * an edit/partial-close made from the expanded row is reflected in
    * this row (and everywhere else the list is shown) right away. */
   onChanged?: () => void;
+  /** Moves this trade into/out of the folded "Archive Trades" card —
+   * omitted (button hidden) on rows that don't support archiving. */
+  onArchive?: (tradeId: string, archived: boolean) => void;
 }
 
-export function TradeRow({ trade, onApprove, onReject, onCancel, onChanged }: TradeRowProps) {
+export function TradeRow({ trade, onApprove, onReject, onCancel, onChanged, onArchive }: TradeRowProps) {
   const { theme } = useThemeStore();
   const dark = theme === 'dark';
   // "Copy exchange style trade order management setup and dashboard
@@ -153,6 +156,20 @@ export function TradeRow({ trade, onApprove, onReject, onCancel, onChanged }: Tr
               }`}
             >
               <Settings2 size={13} /> Manage <ChevronDown size={13} className={`transition-transform ${managing ? 'rotate-180' : ''}`} />
+            </button>
+          )}
+
+          {/* Archive/Unarchive — moves this row between the "Recent
+              Trades" and "Archive Trades" cards. Any status can be
+              archived; see Trade.is_archived's own backend comment. */}
+          {onArchive && (
+            <button
+              onClick={() => onArchive(trade.trade_id, !trade.is_archived)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-500/20 text-gray-400 rounded-lg text-sm font-medium hover:bg-gray-500/30 hover:text-gray-300 transition-colors"
+              title={trade.is_archived ? 'Move back to Recent Trades' : 'Move to Archive Trades'}
+            >
+              {trade.is_archived ? <ArchiveRestore size={13} /> : <Archive size={13} />}
+              {trade.is_archived ? 'Unarchive' : 'Archive'}
             </button>
           )}
 

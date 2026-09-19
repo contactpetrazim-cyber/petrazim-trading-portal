@@ -77,9 +77,16 @@ class TradeResponse(BaseModel):
     # in this app doesn't actually store which exchange it was placed
     # on" — the DB column already existed, it just never left the API).
     broker_name: Optional[str] = None
+    # Same tolerant-Optional pattern as is_test above — the schema-
+    # repair step backfills existing rows to False, but a legacy row
+    # mid-migration shouldn't 500 the whole list.
+    is_archived: Optional[bool] = False
 
     class Config:
         from_attributes = True
+
+class TradeArchiveUpdate(BaseModel):
+    archived: bool
 
 class TradeApproval(BaseModel):
     trade_id: str
