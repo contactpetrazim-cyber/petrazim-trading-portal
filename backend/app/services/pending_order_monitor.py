@@ -56,7 +56,7 @@ paper trades) applied to a second trade state.
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Optional
 
 import structlog
@@ -151,7 +151,18 @@ class PendingOrderMonitor:
             return
 
         order.status = TradeStatus.ACTIVE
-        order.entry_timestamp = datetime.now(timezone.utc)
+        # Naive UTC, not datetime.now(timezone.utc) — Trade.entry_timestamp
+        # is a plain DateTime column (no timezone=True). Root-caused
+        # directly from production logs: this exact line was throwing
+        # "can't subtract offset-naive and offset-aware datetimes" on
+        # every single cycle for any order that had genuinely triggered,
+        # so the fill NEVER actually committed — the order sat rolled
+        # back at PENDING forever, retried and failed again 20 seconds
+        # later, indefinitely. Same bug, same fix, as the one already
+        # documented in routers/manual_trading.py's own
+        # place_manual_order (see its comment on today_start) — this
+        # exact spot was simply never audited when that one was found.
+        order.entry_timestamp = datetime.utcnow()
         await db.commit()
         logger.info(
             "pending_order_filled", trade_id=order.trade_id, entry_type=order.entry_type.value,
