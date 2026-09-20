@@ -327,6 +327,14 @@ export function PositionOnChartModal({
     entryIndex: number; entryPrice: number; stopLoss: number; takeProfit: number; direction: 'long' | 'short';
   } | null>(null);
   const [quickTradeRR, setQuickTradeRR] = useState(2);
+  // Free-typed R:R, alongside the preset buttons — by direct request
+  // ("Add 4R and 5R to the quick trade - Don't stop at 3R ... can we
+  // put a free form RR that I can type specific RR"). Kept as its own
+  // string (not derived from quickTradeRR on every render) so a
+  // partial value mid-typing — "4." on the way to "4.5" — isn't
+  // reformatted out from under the trader on every keystroke; only a
+  // successfully-parsed positive number ever calls applyQuickTradeRR.
+  const [customRRText, setCustomRRText] = useState('');
 
   function computeQuickTradeDraft(entryIndex: number, entryPrice: number, dragPrice: number, rr: number) {
     const direction: 'long' | 'short' = dragPrice < entryPrice ? 'long' : 'short';
@@ -347,6 +355,7 @@ export function PositionOnChartModal({
   function togglePositionTool() {
     setDrawShape((v) => (v === 'position' ? null : 'position'));
     setQuickTradeDraft(null);
+    setCustomRRText('');
   }
 
   /** Recompute takeProfit only, keeping entry/stopLoss/direction fixed
@@ -448,6 +457,7 @@ export function PositionOnChartModal({
         if (pt) {
           quickTradeAnchor = { entryIndex: liveRef.current.visibleStart + pt.visibleIndex, entryPrice: pt.price };
           setQuickTradeDraft(null);
+          setCustomRRText('');
         }
         return;
       }
@@ -1068,7 +1078,7 @@ export function PositionOnChartModal({
                   <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold text-white ${quickTradeDraft.direction === 'long' ? 'bg-emerald-600' : 'bg-red-600'}`}>
                     <Zap size={11} /> {quickTradeDraft.direction === 'long' ? 'LONG' : 'SHORT'}
                   </span>
-                  <button onClick={() => setQuickTradeDraft(null)} aria-label="Discard this quick trade" className={chromeMutedCls}>
+                  <button onClick={() => { setQuickTradeDraft(null); setCustomRRText(''); }} aria-label="Discard this quick trade" className={chromeMutedCls}>
                     <X size={14} />
                   </button>
                 </div>
@@ -1077,17 +1087,42 @@ export function PositionOnChartModal({
                   <div className="flex justify-between text-red-500"><span className="opacity-70">Stop Loss</span><span className="font-semibold">{formatQuickTradePrice(quickTradeDraft.stopLoss)}</span></div>
                   <div className="flex justify-between text-emerald-500"><span className="opacity-70">Take Profit</span><span className="font-semibold">{formatQuickTradePrice(quickTradeDraft.takeProfit)}</span></div>
                 </div>
-                <div className="flex items-center gap-1">
+                <div className="space-y-1.5">
                   <span className={`text-[10px] ${chromeMutedCls}`}>R:R</span>
-                  {[1, 1.5, 2, 3].map((rr) => (
-                    <button
-                      key={rr}
-                      onClick={() => applyQuickTradeRR(rr)}
-                      className={`flex-1 rounded-md py-1 text-[10px] font-semibold ${quickTradeRR === rr ? 'bg-corporate-hero text-white' : `${toggleWrapCls} ${chromeMutedCls}`}`}
-                    >
-                      {rr}R
-                    </button>
-                  ))}
+                  <div className="grid grid-cols-3 gap-1">
+                    {[1, 1.5, 2, 3, 4, 5].map((rr) => (
+                      <button
+                        key={rr}
+                        onClick={() => { applyQuickTradeRR(rr); setCustomRRText(''); }}
+                        className={`rounded-md py-1 text-[10px] font-semibold ${quickTradeRR === rr ? 'bg-corporate-hero text-white' : `${toggleWrapCls} ${chromeMutedCls}`}`}
+                      >
+                        {rr}R
+                      </button>
+                    ))}
+                  </div>
+                  {/* Custom R:R — any positive value, not just the
+                      presets above (e.g. 2.5R, 7R). Applies live as
+                      soon as what's typed parses to a real positive
+                      number; an in-progress value ("4.", "-", empty)
+                      just doesn't touch the draft yet rather than
+                      erroring or snapping to 0. */}
+                  <div className="flex items-center gap-1.5">
+                    <span className={`text-[10px] shrink-0 ${chromeMutedCls}`}>Custom</span>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      placeholder="e.g. 4.5"
+                      value={customRRText}
+                      onChange={(e) => {
+                        const raw = e.target.value;
+                        setCustomRRText(raw);
+                        const parsed = Number(raw);
+                        if (raw.trim() !== '' && Number.isFinite(parsed) && parsed > 0) applyQuickTradeRR(parsed);
+                      }}
+                      className={`w-full rounded-md px-2 py-1 text-[10px] outline-none border ${localDark ? 'bg-white/5 border-white/10 text-white placeholder:text-white/30' : 'bg-white border-gray-200 placeholder:text-gray-300'}`}
+                    />
+                    <span className={`text-[10px] shrink-0 ${chromeMutedCls}`}>R</span>
+                  </div>
                 </div>
                 <button
                   onClick={() => {
@@ -1098,6 +1133,7 @@ export function PositionOnChartModal({
                       takeProfit: quickTradeDraft.takeProfit,
                     });
                     setQuickTradeDraft(null);
+                    setCustomRRText('');
                     setDrawShape(null);
                     onClose();
                   }}
