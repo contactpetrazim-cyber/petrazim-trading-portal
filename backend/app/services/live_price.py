@@ -47,8 +47,36 @@ async def get_crypto_price(symbol: str) -> Optional[float]:
     """Real data, not invented — tries Binance's public ticker first
     (via the proxy pair), CoinGecko second. Returns None (never
     raises) if neither has this symbol, so a caller enriching a list
-    of trades can skip one bad symbol without failing the whole list."""
+    of trades can skip one bad symbol without failing the whole list.
+
+    CRITICAL FIX, root-caused from a direct bug report ("price reached
+    my trigger point entry 81367.39933, but the trade was not
+    executed"): a ".P" suffix (this app's own perpetual-futures
+    convention — see order_flow.py's `_resolve_market`, e.g.
+    "BTCUSDT.P") was never stripped here, so every caller of this
+    function — pending_order_monitor.py (fills a paper LIMIT/STOP the
+    moment live price crosses its trigger), position_monitor.py
+    (SL/TP-hit detection on ACTIVE trades), manual_trading.py
+    (unrealized P&L, "Use current price"), trades.py (live price on
+    the trades list), webhook_processor.py (webhook-triggered exit
+    price) — silently got back None for any ".P" symbol: Binance's
+    SPOT ticker endpoint doesn't recognize "BTCUSDT.P" as a symbol at
+    all (its real spot symbols never carry that suffix), so the request
+    failed, CoinGecko's lookup also missed (COINGECKO_IDS is keyed by
+    the bare spot ticker), and every caller's own "price is None, skip
+    this one" fallback made a `.P` order behave as if price could never
+    be checked — a pending order on a perpetual-futures symbol could
+    sit at "Pending" forever, and SL/TP would never fire on an ACTIVE
+    one either, regardless of how far real price actually moved.
+    Stripping it here, once, fixes every caller at the source: spot and
+    perpetual-futures prices for the same underlying pair track each
+    other closely enough that the existing spot ticker is a perfectly
+    good reference price for this app's own paper-trading simulation
+    (this app never places a real futures order; `.P` only distinguishes
+    which chart/UI symbol string the user is looking at)."""
     clean = symbol.upper().replace("BINANCE:", "").replace("/", "")
+    if clean.endswith(".P"):
+        clean = clean[:-2]
 
     try:
         resp = await _send_with_failover(_binance_client, _binance_backup_client, "get", "/ticker/price", params={"symbol": clean})
