@@ -293,6 +293,24 @@ export function PositionOnChartModal({
   // up exactly with what CandleChart renders; chartPaneRef above has
   // its own p-3 padding around that, which would throw the math off.
   const chartBoxRef = useRef<HTMLDivElement>(null);
+  // The Quick Trade confirm card sits inside chartPaneRef's own
+  // pointer-tracked subtree — checked at the top of onPointerDown
+  // below so a click on its buttons/R:R selector can never be
+  // misread as starting a new drag on the chart underneath it. A
+  // plain onPointerDown-stopPropagation on the card itself is NOT
+  // enough: chartPaneRef's listener is a native addEventListener on
+  // an ANCESTOR closer to the target than React's own root-level
+  // event delegation, so it already runs before a React synthetic
+  // handler further down ever gets the chance to stop it — confirmed
+  // live (clicking "Use in Order Ticket" was re-armed as a chart
+  // drag instead of cleanly confirming).
+  const quickTradeCardRef = useRef<HTMLDivElement>(null);
+  // Same reasoning as quickTradeCardRef — the right-margin drag
+  // handle also sits inside chartPaneRef's own pointer-tracked
+  // subtree, so its own pointerdown needs the same exclusion or
+  // grabbing it would ALSO start a pan/draw/quick-trade gesture on
+  // the chart underneath at the same time.
+  const rightMarginHandleRef = useRef<HTMLDivElement>(null);
 
   // Drawing tool — by direct request ("add drawing tools ... to this
   // chart"). Segments are anchored to `allCandles`-relative (absolute)
@@ -327,6 +345,14 @@ export function PositionOnChartModal({
     entryIndex: number; entryPrice: number; stopLoss: number; takeProfit: number; direction: 'long' | 'short';
   } | null>(null);
   const [quickTradeRR, setQuickTradeRR] = useState(2);
+  // Free-typed R:R, alongside the preset buttons — by direct request
+  // ("Add 4R and 5R to the quick trade - Don't stop at 3R ... can we
+  // put a free form RR that I can type specific RR"). Kept as its own
+  // string (not derived from quickTradeRR on every render) so a
+  // partial value mid-typing — "4." on the way to "4.5" — isn't
+  // reformatted out from under the trader on every keystroke; only a
+  // successfully-parsed positive number ever calls applyQuickTradeRR.
+  const [customRRText, setCustomRRText] = useState('');
 
   function computeQuickTradeDraft(entryIndex: number, entryPrice: number, dragPrice: number, rr: number) {
     const direction: 'long' | 'short' = dragPrice < entryPrice ? 'long' : 'short';
@@ -347,6 +373,7 @@ export function PositionOnChartModal({
   function togglePositionTool() {
     setDrawShape((v) => (v === 'position' ? null : 'position'));
     setQuickTradeDraft(null);
+    setCustomRRText('');
   }
 
   /** Recompute takeProfit only, keeping entry/stopLoss/direction fixed
@@ -441,6 +468,11 @@ export function PositionOnChartModal({
     }
 
     function onPointerDown(e: PointerEvent) {
+      // See quickTradeCardRef's own comment above — a click on the
+      // confirm card or the right-margin handle must never be read
+      // as the start of a new drag on the chart underneath them.
+      if (quickTradeCardRef.current?.contains(e.target as Node)) return;
+      if (rightMarginHandleRef.current?.contains(e.target as Node)) return;
       el!.setPointerCapture(e.pointerId);
       pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (drawShape === 'position') {
@@ -448,6 +480,7 @@ export function PositionOnChartModal({
         if (pt) {
           quickTradeAnchor = { entryIndex: liveRef.current.visibleStart + pt.visibleIndex, entryPrice: pt.price };
           setQuickTradeDraft(null);
+          setCustomRRText('');
         }
         return;
       }
@@ -1024,6 +1057,7 @@ export function PositionOnChartModal({
               return (
                 <div className="absolute inset-3 pointer-events-none">
                   <div
+                    ref={rightMarginHandleRef}
                     onPointerDown={onRightMarginHandlePointerDown}
                     role="separator"
                     aria-orientation="vertical"
@@ -1063,12 +1097,24 @@ export function PositionOnChartModal({
                 caller via onQuickTrade and closes this modal so the
                 trader lands back on the now-filled form. */}
             {quickTradeDraft && onQuickTrade && (
-              <div className={`absolute bottom-4 right-4 z-10 w-64 rounded-xl border p-3 space-y-2.5 shadow-lg ${popoverCls}`}>
+              // onPointerDown stopPropagation — this card sits inside
+              // chartPaneRef's own pointer-tracked area (same fragment
+              // as the chart pane's native drag listeners below), so
+              // without this, clicking anything on the card (R:R,
+              // Discard, Use in Order Ticket) also bubbles up as a
+              // NEW quick-trade drag start on the chart itself —
+              // confirmed live: the card's own click could immediately
+              // re-arm dragging instead of cleanly confirming/closing.
+              <div
+                ref={quickTradeCardRef}
+                onPointerDown={(e) => e.stopPropagation()}
+                className={`absolute bottom-4 right-4 z-10 w-64 rounded-xl border p-3 space-y-2.5 shadow-lg ${popoverCls}`}
+              >
                 <div className="flex items-center justify-between">
                   <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold text-white ${quickTradeDraft.direction === 'long' ? 'bg-emerald-600' : 'bg-red-600'}`}>
                     <Zap size={11} /> {quickTradeDraft.direction === 'long' ? 'LONG' : 'SHORT'}
                   </span>
-                  <button onClick={() => setQuickTradeDraft(null)} aria-label="Discard this quick trade" className={chromeMutedCls}>
+                  <button onClick={() => { setQuickTradeDraft(null); setCustomRRText(''); }} aria-label="Discard this quick trade" className={chromeMutedCls}>
                     <X size={14} />
                   </button>
                 </div>
@@ -1077,17 +1123,42 @@ export function PositionOnChartModal({
                   <div className="flex justify-between text-red-500"><span className="opacity-70">Stop Loss</span><span className="font-semibold">{formatQuickTradePrice(quickTradeDraft.stopLoss)}</span></div>
                   <div className="flex justify-between text-emerald-500"><span className="opacity-70">Take Profit</span><span className="font-semibold">{formatQuickTradePrice(quickTradeDraft.takeProfit)}</span></div>
                 </div>
-                <div className="flex items-center gap-1">
+                <div className="space-y-1.5">
                   <span className={`text-[10px] ${chromeMutedCls}`}>R:R</span>
-                  {[1, 1.5, 2, 3].map((rr) => (
-                    <button
-                      key={rr}
-                      onClick={() => applyQuickTradeRR(rr)}
-                      className={`flex-1 rounded-md py-1 text-[10px] font-semibold ${quickTradeRR === rr ? 'bg-corporate-hero text-white' : `${toggleWrapCls} ${chromeMutedCls}`}`}
-                    >
-                      {rr}R
-                    </button>
-                  ))}
+                  <div className="grid grid-cols-3 gap-1">
+                    {[1, 1.5, 2, 3, 4, 5].map((rr) => (
+                      <button
+                        key={rr}
+                        onClick={() => { applyQuickTradeRR(rr); setCustomRRText(''); }}
+                        className={`rounded-md py-1 text-[10px] font-semibold ${quickTradeRR === rr && !customRRText.trim() ? 'bg-corporate-hero text-white' : `${toggleWrapCls} ${chromeMutedCls}`}`}
+                      >
+                        {rr}R
+                      </button>
+                    ))}
+                  </div>
+                  {/* Custom R:R — any positive value, not just the
+                      presets above (e.g. 2.5R, 7R). Applies live as
+                      soon as what's typed parses to a real positive
+                      number; an in-progress value ("4.", "-", empty)
+                      just doesn't touch the draft yet rather than
+                      erroring or snapping to 0. */}
+                  <div className="flex items-center gap-1.5">
+                    <span className={`text-[10px] shrink-0 ${chromeMutedCls}`}>Custom</span>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      placeholder="e.g. 4.5"
+                      value={customRRText}
+                      onChange={(e) => {
+                        const raw = e.target.value;
+                        setCustomRRText(raw);
+                        const parsed = Number(raw);
+                        if (raw.trim() !== '' && Number.isFinite(parsed) && parsed > 0) applyQuickTradeRR(parsed);
+                      }}
+                      className={`w-full rounded-md px-2 py-1 text-[10px] outline-none border ${localDark ? 'bg-white/5 border-white/10 text-white placeholder:text-white/30' : 'bg-white border-gray-200 placeholder:text-gray-300'}`}
+                    />
+                    <span className={`text-[10px] shrink-0 ${chromeMutedCls}`}>R</span>
+                  </div>
                 </div>
                 <button
                   onClick={() => {
@@ -1098,6 +1169,7 @@ export function PositionOnChartModal({
                       takeProfit: quickTradeDraft.takeProfit,
                     });
                     setQuickTradeDraft(null);
+                    setCustomRRText('');
                     setDrawShape(null);
                     onClose();
                   }}
