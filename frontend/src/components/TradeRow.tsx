@@ -81,19 +81,21 @@ export function TradeRow({ trade, onApprove, onReject, onCancel, onChanged, onAr
             <div className="text-xs text-gray-400">{trade.strategy_type}</div>
           </div>
 
-          {/* Prices */}
+          {/* Prices — 2 decimal places, matching every other price in
+              the portal, by direct request ("Use two decimal points
+              for the prices. Apply to the entire portal"). */}
           <div className="hidden md:flex items-center gap-4 text-sm">
             <div>
               <span className="text-gray-500">Entry:</span>
-              <span className="ml-1 font-mono">{trade.entry_price?.toFixed(5) || 'Pending'}</span>
+              <span className="ml-1 font-mono">{trade.entry_price?.toFixed(2) || 'Pending'}</span>
             </div>
             <div>
               <span className="text-gray-500">SL:</span>
-              <span className="ml-1 font-mono text-red-400">{trade.stop_loss.toFixed(5)}</span>
+              <span className="ml-1 font-mono text-red-400">{trade.stop_loss.toFixed(2)}</span>
             </div>
             <div>
               <span className="text-gray-500">TP:</span>
-              <span className="ml-1 font-mono text-emerald-400">{trade.take_profit?.toFixed(5) || '-'}</span>
+              <span className="ml-1 font-mono text-emerald-400">{trade.take_profit?.toFixed(2) || '-'}</span>
             </div>
           </div>
         </div>
@@ -187,9 +189,12 @@ export function TradeRow({ trade, onApprove, onReject, onCancel, onChanged, onAr
             </button>
           )}
 
-          {/* Time */}
-          <div className="text-xs text-gray-500 hidden lg:block">
-            {formatDistanceToNow(new Date(trade.created_at), { addSuffix: true })}
+          {/* Time — relative, plus the exact date and time underneath,
+              by direct request ("include date and time ... in the
+              trades form"). */}
+          <div className="text-xs text-gray-500 hidden lg:block text-right">
+            <div>{formatDistanceToNow(new Date(trade.created_at), { addSuffix: true })}</div>
+            <div className="text-[10px] text-gray-400 font-mono mt-0.5">{new Date(trade.created_at).toLocaleString()}</div>
           </div>
         </div>
       </div>
