@@ -828,9 +828,16 @@ export function PositionOnChartModal({
   }, [activeSymbol, interval, retryTick]);
 
   const dirLabel = position?.direction === 'long' ? 'LONG' : 'SHORT';
-  const pnlLabel = position?.pending
-    ? 'Pending'
-    : position?.unrealizedPnl != null ? `P/L ${formatSignedMoney(position.unrealizedPnl)}` : '';
+  // Second line under the Entry price — by direct request ("the
+  // current entry line is too long - let's break into two lines /
+  // Entry price / Short or Long (Pending/Live) / The live will show
+  // then current PL as the position progresses"): direction and
+  // Pending-vs-Live status, plus the SAME live unrealized P&L already
+  // shown elsewhere once the position is actually Live — updates on
+  // its own as `position.unrealizedPnl` refreshes from the caller.
+  const entryStatusLabel = position?.pending
+    ? `${dirLabel} (Pending)`
+    : `${dirLabel} (Live)${position?.unrealizedPnl != null ? ` ${formatSignedMoney(position.unrealizedPnl)}` : ''}`;
   // Every price drawn on this chart — by direct request ("make all
   // prices text max of two decimal points"): the raw values here carry
   // whatever precision the backend computed them at (position sizing
@@ -842,7 +849,7 @@ export function PositionOnChartModal({
   // hidden the moment "Pairs" points this chart at a different one;
   // see `isOriginalSymbol`'s own comment above `activeSymbol`.
   const lines: ChartLine[] = [
-    ...(position && isOriginalSymbol ? [{ price: position.entryPrice, color: '#2962FF', dashed: true, label: `Entry ${dirLabel} ${fmtPrice(position.entryPrice)}${pnlLabel ? ` (${pnlLabel})` : ''}` }] : []),
+    ...(position && isOriginalSymbol ? [{ price: position.entryPrice, color: '#2962FF', dashed: true, label: fmtPrice(position.entryPrice), label2: entryStatusLabel }] : []),
     ...(position?.stopLoss != null && isOriginalSymbol ? [{ price: position.stopLoss, color: '#EF5350', dashed: true, label: `SL ${fmtPrice(position.stopLoss)}` }] : []),
     ...(position?.takeProfit1 != null && isOriginalSymbol ? [{ price: position.takeProfit1, color: '#26A69A', dashed: true, label: `TP1 ${fmtPrice(position.takeProfit1)}` }] : []),
     ...(position?.takeProfit2 != null && isOriginalSymbol ? [{ price: position.takeProfit2, color: '#26A69A', dashed: true, label: `TP2 ${fmtPrice(position.takeProfit2)}` }] : []),

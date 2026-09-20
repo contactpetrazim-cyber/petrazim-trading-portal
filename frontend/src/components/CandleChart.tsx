@@ -30,6 +30,12 @@ export interface ChartMarker {
 export interface ChartLine {
   price: number;
   label?: string;
+  /** Optional second line, rendered directly under `label` in the same
+   * pill — by direct request ("the current entry line is too long -
+   * let's break into two lines"). Omit for every other single-line
+   * label (SL/TP/etc.) — this only widens the pill vertically when a
+   * caller actually needs the extra line. */
+  label2?: string;
   color?: string;
   dashed?: boolean;
 }
@@ -332,10 +338,11 @@ export function CandleChart({
         {lines.map((l, i) => l.label && (
           <div
             key={`line-${i}`}
-            className={labelCls}
+            className={`${labelCls}${l.label2 ? ' leading-tight' : ''}`}
             style={{ right: `${(padRight / width) * 100}%`, top: `${yPct(l.price)}%`, transform: 'translateY(-100%)', color: l.color ?? textColor }}
           >
-            {l.label}
+            <div>{l.label}</div>
+            {l.label2 && <div>{l.label2}</div>}
           </div>
         ))}
         {markers.map((m, i) => {
