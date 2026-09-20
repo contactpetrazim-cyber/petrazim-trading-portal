@@ -293,6 +293,24 @@ export function PositionOnChartModal({
   // up exactly with what CandleChart renders; chartPaneRef above has
   // its own p-3 padding around that, which would throw the math off.
   const chartBoxRef = useRef<HTMLDivElement>(null);
+  // The Quick Trade confirm card sits inside chartPaneRef's own
+  // pointer-tracked subtree — checked at the top of onPointerDown
+  // below so a click on its buttons/R:R selector can never be
+  // misread as starting a new drag on the chart underneath it. A
+  // plain onPointerDown-stopPropagation on the card itself is NOT
+  // enough: chartPaneRef's listener is a native addEventListener on
+  // an ANCESTOR closer to the target than React's own root-level
+  // event delegation, so it already runs before a React synthetic
+  // handler further down ever gets the chance to stop it — confirmed
+  // live (clicking "Use in Order Ticket" was re-armed as a chart
+  // drag instead of cleanly confirming).
+  const quickTradeCardRef = useRef<HTMLDivElement>(null);
+  // Same reasoning as quickTradeCardRef — the right-margin drag
+  // handle also sits inside chartPaneRef's own pointer-tracked
+  // subtree, so its own pointerdown needs the same exclusion or
+  // grabbing it would ALSO start a pan/draw/quick-trade gesture on
+  // the chart underneath at the same time.
+  const rightMarginHandleRef = useRef<HTMLDivElement>(null);
 
   // Drawing tool — by direct request ("add drawing tools ... to this
   // chart"). Segments are anchored to `allCandles`-relative (absolute)
@@ -450,6 +468,11 @@ export function PositionOnChartModal({
     }
 
     function onPointerDown(e: PointerEvent) {
+      // See quickTradeCardRef's own comment above — a click on the
+      // confirm card or the right-margin handle must never be read
+      // as the start of a new drag on the chart underneath them.
+      if (quickTradeCardRef.current?.contains(e.target as Node)) return;
+      if (rightMarginHandleRef.current?.contains(e.target as Node)) return;
       el!.setPointerCapture(e.pointerId);
       pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (drawShape === 'position') {
@@ -1034,6 +1057,7 @@ export function PositionOnChartModal({
               return (
                 <div className="absolute inset-3 pointer-events-none">
                   <div
+                    ref={rightMarginHandleRef}
                     onPointerDown={onRightMarginHandlePointerDown}
                     role="separator"
                     aria-orientation="vertical"
@@ -1073,7 +1097,19 @@ export function PositionOnChartModal({
                 caller via onQuickTrade and closes this modal so the
                 trader lands back on the now-filled form. */}
             {quickTradeDraft && onQuickTrade && (
-              <div className={`absolute bottom-4 right-4 z-10 w-64 rounded-xl border p-3 space-y-2.5 shadow-lg ${popoverCls}`}>
+              // onPointerDown stopPropagation — this card sits inside
+              // chartPaneRef's own pointer-tracked area (same fragment
+              // as the chart pane's native drag listeners below), so
+              // without this, clicking anything on the card (R:R,
+              // Discard, Use in Order Ticket) also bubbles up as a
+              // NEW quick-trade drag start on the chart itself —
+              // confirmed live: the card's own click could immediately
+              // re-arm dragging instead of cleanly confirming/closing.
+              <div
+                ref={quickTradeCardRef}
+                onPointerDown={(e) => e.stopPropagation()}
+                className={`absolute bottom-4 right-4 z-10 w-64 rounded-xl border p-3 space-y-2.5 shadow-lg ${popoverCls}`}
+              >
                 <div className="flex items-center justify-between">
                   <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold text-white ${quickTradeDraft.direction === 'long' ? 'bg-emerald-600' : 'bg-red-600'}`}>
                     <Zap size={11} /> {quickTradeDraft.direction === 'long' ? 'LONG' : 'SHORT'}
