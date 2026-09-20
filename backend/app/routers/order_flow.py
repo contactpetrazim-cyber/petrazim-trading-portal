@@ -12,7 +12,7 @@ that data, this proxies Binance's public market-data REST API —
 free, no API key required, no account needed — for a fixed list of
 liquid crypto pairs.
 
-This is deliberately scoped to Binance's spot market data only:
+Binance spot for /api/v3/{trades,depth,klines}:
 - GET /api/v3/trades — individual trade prints, each carrying a real
   `isBuyerMaker` flag that tells you which side was the aggressor
   (OF-02's exact "who crossed the spread" question, answered by real
@@ -21,9 +21,26 @@ This is deliberately scoped to Binance's spot market data only:
   the taker/aggressor BOUGHT (traded at the ask).
 - GET /api/v3/depth — real resting order-book depth (OF-05's DOM).
 
+Also Binance USDⓈ-M perpetual futures (/fapi/v1/{trades,depth,klines})
+for the same base symbols, TradingView-suffix-style as "BTCUSDT.P" —
+by direct bug report/request ("Unsupported symbol 'BTCUSDT.P' ...
+We should be able to use all charts"): the main TradingView chart
+embed (TradingViewChart.tsx) already lets a trader change symbol
+inside the widget itself, including to a perpetual — PositionOnChartModal's
+own hand-rolled chart correctly inherited that exact symbol, it just
+had nowhere to fetch its candles from. Binance's spot and futures
+REST APIs return the identical trades/depth/klines row shapes, so
+`_resolve_market` below is the only place that needs to know which
+base URL/client a given symbol resolves to.
+
 Symbols are restricted to a small allow-list of liquid pairs rather
 than an open passthrough, to keep this platform's own exposure to
-Binance's public rate limits bounded and predictable.
+Binance's public rate limits bounded and predictable. Forex, indices,
+and commodities are a separate, larger scope: unlike crypto, there is
+no free/no-key public REST source for those the way Binance's own API
+is for crypto — a real (paid or keyed) market-data provider would need
+to be chosen and configured before this proxy could cover them, so
+that stays out of this file's scope for now.
 
 Auth: every endpoint here was gated on require_active_access (paid
 access) — a real bug, found from a cross-session bug report ("order
@@ -65,6 +82,7 @@ from app.services.proxy_health import record_proxy_failure, record_proxy_success
 router = APIRouter(prefix="/order-flow", tags=["order-flow"])
 
 BINANCE_BASE_URL = "https://api.binance.com/api/v3"
+FUTURES_BASE_URL = "https://fapi.binance.com/fapi/v1"
 
 # A small, fixed allow-list of liquid pairs — real Binance symbols,
 # not an open passthrough. Extend this list rather than accepting an
@@ -72,6 +90,15 @@ BINANCE_BASE_URL = "https://api.binance.com/api/v3"
 ALLOWED_SYMBOLS = [
     "BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "DOGEUSDT",
 ]
+
+# The same base symbols, as Binance USDⓈ-M perpetual futures —
+# TradingView's own ".P" suffix convention for a perpetual (e.g. the
+# main chart shows "BINANCE:BTCUSDT.P"), which this module's own
+# client-facing symbols use too so a caller never has to know which
+# underlying Binance market a symbol resolves to. Binance's futures
+# API itself takes the bare "BTCUSDT" (no suffix) — the suffix is
+# stripped in _resolve_market below before the real API call.
+ALLOWED_FUTURES_SYMBOLS = [f"{s}.P" for s in ALLOWED_SYMBOLS]
 
 # Binance geofences plenty of cloud-host IP ranges (Render's included) with
 # a 451, which is why the chart could load from a developer's own machine
@@ -86,6 +113,17 @@ _client = httpx.AsyncClient(
 _backup_client = (
     httpx.AsyncClient(
         timeout=10.0, base_url=BINANCE_BASE_URL, proxy=_settings.BINANCE_BACKUP_PROXY_URL,
+    )
+    if _settings.BINANCE_BACKUP_PROXY_URL else None
+)
+# Same Fixie proxy pair as spot — Binance geofences futures the same
+# way it geofences spot, and fapi.binance.com is still Binance.
+_futures_client = httpx.AsyncClient(
+    timeout=10.0, base_url=FUTURES_BASE_URL, proxy=_settings.BINANCE_PROXY_URL or None,
+)
+_futures_backup_client = (
+    httpx.AsyncClient(
+        timeout=10.0, base_url=FUTURES_BASE_URL, proxy=_settings.BINANCE_BACKUP_PROXY_URL,
     )
     if _settings.BINANCE_BACKUP_PROXY_URL else None
 )
@@ -114,7 +152,29 @@ _tv_client = httpx.AsyncClient(timeout=8.0, headers=_TV_HEADERS)
 _TV_HIGHLIGHT_TAGS_RE = re.compile(r"</?em>")
 
 
+def _resolve_market(symbol: str) -> tuple[str, bool]:
+    """Validates a client-facing symbol and says which Binance market it
+    belongs to — (base_symbol, is_futures). A ".P" suffix (TradingView's
+    own perpetual-futures convention, e.g. "BTCUSDT.P") routes to
+    Binance's USDⓈ-M futures API with the suffix stripped (Binance
+    futures symbols carry no suffix of their own); anything else is
+    validated as spot, unchanged from before."""
+    symbol = symbol.upper()
+    if symbol.endswith(".P"):
+        base = symbol[:-2]
+        if base in ALLOWED_SYMBOLS:
+            return base, True
+    elif symbol in ALLOWED_SYMBOLS:
+        return symbol, False
+    raise HTTPException(
+        status_code=400,
+        detail=f"Unsupported symbol '{symbol}' — choose one of {ALLOWED_SYMBOLS + ALLOWED_FUTURES_SYMBOLS}.",
+    )
+
+
 def _validate_symbol(symbol: str) -> str:
+    """Spot-only validation — kept for the instrument-search endpoints
+    below, which are explicitly spot-only by their own docstring."""
     symbol = symbol.upper()
     if symbol not in ALLOWED_SYMBOLS:
         raise HTTPException(
@@ -124,17 +184,19 @@ def _validate_symbol(symbol: str) -> str:
     return symbol
 
 
-async def _binance_get(path: str, params: dict) -> httpx.Response:
+async def _binance_get(path: str, params: dict, futures: bool = False) -> httpx.Response:
+    client, backup = (_futures_client, _futures_backup_client) if futures else (_client, _backup_client)
+    market = "Binance futures" if futures else "Binance"
     try:
-        resp = await _send_with_failover(_client, _backup_client, "get", path, params=params)
+        resp = await _send_with_failover(client, backup, "get", path, params=params)
     except _FAILOVER_EXCEPTIONS as e:
         record_proxy_failure("order_flow", str(e))
-        raise HTTPException(status_code=502, detail=f"Could not reach Binance market data: {e}")
+        raise HTTPException(status_code=502, detail=f"Could not reach {market} market data: {e}")
     except httpx.RequestError as e:
         record_proxy_failure("order_flow", str(e))
-        raise HTTPException(status_code=502, detail=f"Could not reach Binance market data: {e}")
+        raise HTTPException(status_code=502, detail=f"Could not reach {market} market data: {e}")
     if resp.status_code != 200:
-        raise HTTPException(status_code=502, detail=f"Binance returned {resp.status_code} for {path}")
+        raise HTTPException(status_code=502, detail=f"{market} returned {resp.status_code} for {path}")
     record_proxy_success()
     return resp
 
@@ -145,7 +207,7 @@ class SymbolsResponse(BaseModel):
 
 @router.get("/symbols", response_model=SymbolsResponse)
 async def list_symbols(user: User = Depends(get_current_user)):
-    return SymbolsResponse(symbols=ALLOWED_SYMBOLS)
+    return SymbolsResponse(symbols=ALLOWED_SYMBOLS + ALLOWED_FUTURES_SYMBOLS)
 
 
 class TradePrint(BaseModel):
@@ -164,9 +226,9 @@ async def get_trades(
     200 (Binance's own recent-trades endpoint doesn't need more for a
     live-feeling tape view, and it keeps this platform's own request
     weight small)."""
-    symbol = _validate_symbol(symbol)
+    symbol, futures = _resolve_market(symbol)
     limit = max(1, min(limit, 200))
-    resp = await _binance_get("/trades", {"symbol": symbol, "limit": limit})
+    resp = await _binance_get("/trades", {"symbol": symbol, "limit": limit}, futures=futures)
     raw = resp.json()
     return [
         TradePrint(
@@ -199,9 +261,9 @@ async def get_depth(
     this platform's own paid-access model and every other data route
     here are simple request/response, so a polled snapshot matches the
     existing pattern rather than introducing new infrastructure)."""
-    symbol = _validate_symbol(symbol)
+    symbol, futures = _resolve_market(symbol)
     limit = limit if limit in (5, 10, 20, 50, 100) else 10
-    resp = await _binance_get("/depth", {"symbol": symbol, "limit": limit})
+    resp = await _binance_get("/depth", {"symbol": symbol, "limit": limit}, futures=futures)
     raw = resp.json()
     return DepthResponse(
         bids=[DepthLevel(price=float(p), qty=float(q)) for p, q in raw["bids"]],
@@ -285,7 +347,7 @@ async def get_footprint_chart(
     candle duration (same convention as the klines endpoint below, so a
     5m footprint candle lines up with a real 5m candlestick elsewhere)
     — see FOOTPRINT_INTERVAL_MS's own comment for why it's capped at 1h."""
-    symbol = _validate_symbol(symbol)
+    symbol, futures = _resolve_market(symbol)
     if interval not in FOOTPRINT_INTERVAL_MS:
         raise HTTPException(status_code=400, detail=f"interval must be one of {list(FOOTPRINT_INTERVAL_MS)}")
     interval_ms = FOOTPRINT_INTERVAL_MS[interval]
@@ -293,7 +355,7 @@ async def get_footprint_chart(
     num_candles = max(3, min(num_candles, 30))
     target_rows = max(10, min(target_rows, 80))
 
-    resp = await _binance_get("/trades", {"symbol": symbol, "limit": trade_limit})
+    resp = await _binance_get("/trades", {"symbol": symbol, "limit": trade_limit}, futures=futures)
     raw = resp.json()
     if not raw:
         raise HTTPException(status_code=404, detail="No recent trades available for this symbol")
@@ -478,22 +540,27 @@ async def get_klines(
     symbol: str = "BTCUSDT", interval: str = "4h", limit: int = 60,
     user: User = Depends(get_current_user),
 ):
-    symbol = _validate_symbol(symbol)
+    requested_symbol = symbol.upper()
+    symbol, futures = _resolve_market(symbol)
     if interval not in ALLOWED_INTERVALS:
         raise HTTPException(status_code=400, detail=f"interval must be one of {ALLOWED_INTERVALS}")
     limit = max(10, min(limit, 500))
     try:
-        resp = await _binance_get("/klines", {"symbol": symbol, "interval": interval, "limit": limit})
+        resp = await _binance_get("/klines", {"symbol": symbol, "interval": interval, "limit": limit}, futures=futures)
         candles = [
             KlineBar(time_ms=int(row[0]), open=float(row[1]), high=float(row[2]), low=float(row[3]), close=float(row[4]))
             for row in resp.json()
         ]
     except HTTPException:
-        fallback = await _coingecko_klines_fallback(symbol)
+        # The CoinGecko fallback only ever covers spot (see its own
+        # docstring — it's keyed by COINGECKO_IDS, base symbols only),
+        # so a futures request that fails just re-raises rather than
+        # silently handing back spot candles under a futures symbol.
+        fallback = None if futures else await _coingecko_klines_fallback(symbol)
         if fallback is None:
             raise
         candles = fallback[-limit:]
-    return KlinesResponse(symbol=symbol, interval=interval, candles=candles)
+    return KlinesResponse(symbol=requested_symbol, interval=interval, candles=candles)
 
 
 # ---------------------------------------------------------------------------
