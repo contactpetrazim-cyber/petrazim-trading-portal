@@ -236,7 +236,7 @@ export function PositionManager({ trade, dark = false, onChanged }: { trade: Tra
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div>
           <div className={labelCls}>{isPending ? 'Trigger price' : 'Entry'}</div>
-          <div className={statCls}>{entry ? entry.toFixed(5) : '—'}</div>
+          <div className={statCls}>{entry ? entry.toFixed(2) : '—'}</div>
         </div>
         {isPending ? (
           <div>
@@ -247,7 +247,7 @@ export function PositionManager({ trade, dark = false, onChanged }: { trade: Tra
           <>
             <div>
               <div className={labelCls}>Mark (est.)</div>
-              <div className={statCls}>{impliedPrice ? impliedPrice.toFixed(5) : '—'}</div>
+              <div className={statCls}>{impliedPrice ? impliedPrice.toFixed(2) : '—'}</div>
             </div>
             <div>
               <div className={labelCls}>Unrealized P/L</div>
@@ -308,12 +308,35 @@ export function PositionManager({ trade, dark = false, onChanged }: { trade: Tra
         </div>
 
         {!editingTargets ? (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-sm font-mono">
-            {isPending && <div><span className="text-corporate-hero">Trigger</span> {trade.entry_price?.toFixed(5) ?? '—'}</div>}
-            <div><span className="text-red-500">SL</span> {trade.stop_loss?.toFixed(5) ?? '—'}</div>
-            <div><span className="text-emerald-500">TP1</span> {trade.take_profit?.toFixed(5) ?? '—'}</div>
-            <div><span className="text-emerald-500">TP2</span> {trade.take_profit_2?.toFixed(5) ?? '—'}</div>
-            <div><span className="text-emerald-500">TP3</span> {trade.take_profit_3?.toFixed(5) ?? '—'}</div>
+          // Label on its own line, price on the line below — same
+          // stacked layout as TradeRow's closed-trade details, by
+          // direct request ("the corresponding prices should be under
+          // each of the following ... the second or following line -
+          // for consistency"). Also 2 decimal places (was 5), matching
+          // every other price on this card.
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-3 gap-y-2 text-sm font-mono">
+            {isPending && (
+              <div className="flex flex-col gap-0.5">
+                <span className="text-corporate-hero">Trigger</span>
+                <span className="font-semibold">{trade.entry_price?.toFixed(2) ?? '—'}</span>
+              </div>
+            )}
+            <div className="flex flex-col gap-0.5">
+              <span className="text-red-500">SL</span>
+              <span className="font-semibold">{trade.stop_loss?.toFixed(2) ?? '—'}</span>
+            </div>
+            <div className="flex flex-col gap-0.5">
+              <span className="text-emerald-500">TP1</span>
+              <span className="font-semibold">{trade.take_profit?.toFixed(2) ?? '—'}</span>
+            </div>
+            <div className="flex flex-col gap-0.5">
+              <span className="text-emerald-500">TP2</span>
+              <span className="font-semibold">{trade.take_profit_2?.toFixed(2) ?? '—'}</span>
+            </div>
+            <div className="flex flex-col gap-0.5">
+              <span className="text-emerald-500">TP3</span>
+              <span className="font-semibold">{trade.take_profit_3?.toFixed(2) ?? '—'}</span>
+            </div>
           </div>
         ) : (
           <div className="space-y-2">

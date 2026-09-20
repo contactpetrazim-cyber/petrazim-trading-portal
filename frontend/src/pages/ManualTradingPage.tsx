@@ -1185,7 +1185,7 @@ export function ManualTradingPage() {
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-xs">
-                  <span className={dark ? 'text-white/40' : 'text-gray-400'}>Entry {openTrade.entry_price ?? '—'} · SL {openTrade.stop_loss}</span>
+                  <span className={dark ? 'text-white/40' : 'text-gray-400'}>Entry {openTrade.entry_price != null ? openTrade.entry_price.toFixed(2) : '—'} · SL {openTrade.stop_loss.toFixed(2)}</span>
                   <span className={dark ? 'text-white/40' : 'text-gray-400'}>{openTrade.lot_size} units</span>
                 </div>
               </div>

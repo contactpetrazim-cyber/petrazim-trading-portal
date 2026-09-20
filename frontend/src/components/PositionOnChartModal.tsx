@@ -822,28 +822,34 @@ export function PositionOnChartModal({
   const pnlLabel = position?.pending
     ? 'Pending'
     : position?.unrealizedPnl != null ? `P/L ${formatSignedMoney(position.unrealizedPnl)}` : '';
+  // Every price drawn on this chart — by direct request ("make all
+  // prices text max of two decimal points"): the raw values here carry
+  // whatever precision the backend computed them at (position sizing
+  // etc. can produce e.g. "81982.92169386141"), which is real data but
+  // unreadable as a line label crowding the chart pane.
+  const fmtPrice = (p: number) => p.toFixed(2);
   // Position-derived lines (and the Quick Trade draft) only ever
   // describe `symbol` — the position's own instrument — so they're
   // hidden the moment "Pairs" points this chart at a different one;
   // see `isOriginalSymbol`'s own comment above `activeSymbol`.
   const lines: ChartLine[] = [
-    ...(position && isOriginalSymbol ? [{ price: position.entryPrice, color: '#2962FF', dashed: true, label: `Entry ${dirLabel} ${position.entryPrice}${pnlLabel ? ` (${pnlLabel})` : ''}` }] : []),
-    ...(position?.stopLoss != null && isOriginalSymbol ? [{ price: position.stopLoss, color: '#EF5350', dashed: true, label: `SL ${position.stopLoss}` }] : []),
-    ...(position?.takeProfit1 != null && isOriginalSymbol ? [{ price: position.takeProfit1, color: '#26A69A', dashed: true, label: `TP1 ${position.takeProfit1}` }] : []),
-    ...(position?.takeProfit2 != null && isOriginalSymbol ? [{ price: position.takeProfit2, color: '#26A69A', dashed: true, label: `TP2 ${position.takeProfit2}` }] : []),
-    ...(position?.takeProfit3 != null && isOriginalSymbol ? [{ price: position.takeProfit3, color: '#26A69A', dashed: true, label: `TP3 ${position.takeProfit3}` }] : []),
+    ...(position && isOriginalSymbol ? [{ price: position.entryPrice, color: '#2962FF', dashed: true, label: `Entry ${dirLabel} ${fmtPrice(position.entryPrice)}${pnlLabel ? ` (${pnlLabel})` : ''}` }] : []),
+    ...(position?.stopLoss != null && isOriginalSymbol ? [{ price: position.stopLoss, color: '#EF5350', dashed: true, label: `SL ${fmtPrice(position.stopLoss)}` }] : []),
+    ...(position?.takeProfit1 != null && isOriginalSymbol ? [{ price: position.takeProfit1, color: '#26A69A', dashed: true, label: `TP1 ${fmtPrice(position.takeProfit1)}` }] : []),
+    ...(position?.takeProfit2 != null && isOriginalSymbol ? [{ price: position.takeProfit2, color: '#26A69A', dashed: true, label: `TP2 ${fmtPrice(position.takeProfit2)}` }] : []),
+    ...(position?.takeProfit3 != null && isOriginalSymbol ? [{ price: position.takeProfit3, color: '#26A69A', dashed: true, label: `TP3 ${fmtPrice(position.takeProfit3)}` }] : []),
     // Solid (not dashed) and a distinct amber, so it's unmistakably
     // "where price is right this second" versus the dashed reference
     // levels above — refreshes every 15s while this stays open. Not
     // gated on isOriginalSymbol: whatever pair you're currently
     // viewing, its own live price is still correct and useful.
-    ...(livePrice != null ? [{ price: livePrice, color: '#f59e0b', dashed: false, label: `Live ${livePrice}` }] : []),
+    ...(livePrice != null ? [{ price: livePrice, color: '#f59e0b', dashed: false, label: `Live ${fmtPrice(livePrice)}` }] : []),
     // Quick Trade draft — see quickTradeZones above for the matching
     // risk/reward brackets.
     ...(quickTradeDraft && isOriginalSymbol ? [
-      { price: quickTradeDraft.entryPrice, color: '#2563eb', dashed: true, label: `Entry ${quickTradeDraft.direction.toUpperCase()} ${quickTradeDraft.entryPrice}` },
-      { price: quickTradeDraft.stopLoss, color: '#ef4444', dashed: true, label: `SL ${quickTradeDraft.stopLoss}` },
-      { price: quickTradeDraft.takeProfit, color: '#22c55e', dashed: true, label: `TP ${quickTradeDraft.takeProfit}` },
+      { price: quickTradeDraft.entryPrice, color: '#2563eb', dashed: true, label: `Entry ${quickTradeDraft.direction.toUpperCase()} ${fmtPrice(quickTradeDraft.entryPrice)}` },
+      { price: quickTradeDraft.stopLoss, color: '#ef4444', dashed: true, label: `SL ${fmtPrice(quickTradeDraft.stopLoss)}` },
+      { price: quickTradeDraft.takeProfit, color: '#22c55e', dashed: true, label: `TP ${fmtPrice(quickTradeDraft.takeProfit)}` },
     ] : []),
   ];
 
@@ -877,21 +883,6 @@ export function PositionOnChartModal({
             : 'browsing — Pairs to switch back'}
         </span>
         <div className="flex items-center gap-2 flex-wrap">
-          {/* Pairs — quick symbol switcher, by direct request ("include
-              the quick 'Pairs' in the 'on Chart' - so that there could
-              be a quick selection of charts on that page"). Same
-              PairsPanel every other chart uses; switching away from the
-              position's own `symbol` hides the Entry/SL/TP/Quick Trade
-              tooling below (see isOriginalSymbol) since those only ever
-              describe that one instrument. */}
-          <button
-            onClick={() => setPairsOpen((o) => !o)}
-            aria-label={pairsOpen ? 'Hide pairs and exchanges' : 'Show pairs and exchanges'}
-            title={pairsOpen ? 'Hide pairs and exchanges' : 'Pairs and exchanges'}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium ${pairsOpen ? 'bg-corporate-hero text-white' : `${chromeMutedCls} ${toggleWrapCls}`}`}
-          >
-            <CandlestickChart size={13} /> Pairs
-          </button>
           <div className="inline-flex items-center gap-1 rounded-full p-1">
             {KLINE_INTERVALS.map((i) => (
               <button
@@ -922,6 +913,22 @@ export function PositionOnChartModal({
               <Moon size={13} />
             </button>
           </div>
+          {/* Pairs — quick symbol switcher, by direct request ("include
+              the quick 'Pairs' in the 'on Chart' - so that there could
+              be a quick selection of charts on that page"), placed
+              directly next to "Position" by further direct request.
+              Same PairsPanel every other chart uses; switching away
+              from the position's own `symbol` hides the Entry/SL/TP/
+              Quick Trade tooling below (see isOriginalSymbol) since
+              those only ever describe that one instrument. */}
+          <button
+            onClick={() => setPairsOpen((o) => !o)}
+            aria-label={pairsOpen ? 'Hide pairs and exchanges' : 'Show pairs and exchanges'}
+            title={pairsOpen ? 'Hide pairs and exchanges' : 'Pairs and exchanges'}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium ${pairsOpen ? 'bg-corporate-hero text-white' : `${chromeMutedCls} ${toggleWrapCls}`}`}
+          >
+            <CandlestickChart size={13} /> Pairs
+          </button>
           {/* "Position" — edit/cancel/partial-close this trade right
               here, by direct request ("in addition to seeing the entry,
               SL and TP levels ... you can edit or manage your trade
@@ -1180,7 +1187,7 @@ export function PositionOnChartModal({
                     <Crosshair size={10} />
                     {hoveredCandle.time ? new Date(hoveredCandle.time).toLocaleString() : `Candle ${hoverIndex + 1}`}
                   </div>
-                  O <span className="text-inherit">{hoveredCandle.open}</span> · H <span className="text-emerald-500">{hoveredCandle.high}</span> · L <span className="text-red-500">{hoveredCandle.low}</span> · C <span className="font-bold">{hoveredCandle.close}</span>
+                  O <span className="text-inherit">{hoveredCandle.open.toFixed(2)}</span> · H <span className="text-emerald-500">{hoveredCandle.high.toFixed(2)}</span> · L <span className="text-red-500">{hoveredCandle.low.toFixed(2)}</span> · C <span className="font-bold">{hoveredCandle.close.toFixed(2)}</span>
                 </div>
               </div>
             )}
