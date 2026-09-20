@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { X, Loader2, RotateCcw, Sun, Moon, Palette, Target, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Maximize2, Crosshair, TrendingUp, PenLine, Square, Eraser } from 'lucide-react';
-import { CandleChart, CHART_LAYOUT, computeChartRange, type Candle, type ChartLine, type OverlaySeries, type DrawnSegment } from './CandleChart';
+import { X, Loader2, RotateCcw, Sun, Moon, Palette, Target, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Maximize2, Crosshair, TrendingUp, PenLine, Square, Eraser, Zap } from 'lucide-react';
+import { CandleChart, CHART_LAYOUT, computeChartRange, type Candle, type ChartLine, type ChartZone, type OverlaySeries, type DrawnSegment } from './CandleChart';
 import { formatSignedMoney, type ChartPosition } from './TradingViewChart';
 import { PositionManager } from './PositionManager';
 import { orderFlowApi } from '../services/api';
@@ -146,6 +146,25 @@ const COLOR_PRESETS: { label: string; up: string; down: string }[] = [
  * upgrade path; this stays the fallback if that license isn't
  * approved.
  *
+ * QUICK TRADE — a real Long/Short position tool, by direct request
+ * ("the quick trade button from the short position or long position
+ * tradingview tool ... integrate this with my order position form so
+ * that the entry level, SL and TP are automatically populated").
+ * TradingView's own Long/Short Position drawing tool lives INSIDE its
+ * free embedded widget's iframe (TradingViewChart.tsx), which — same
+ * honest limitation already documented there and on ManualTradingPage's
+ * own Exits section — exposes no JS API to read back what's dragged on
+ * it; that tool's Entry/SL/TP/Amount can never be read out of the free
+ * embed into this app's own state, only TradingView's separately
+ * licensed Charting Library could do that. This is the real, buildable
+ * equivalent: drag on THIS app's own chart (which this app has full
+ * pixel and event access to) from an entry price to a stop price — the
+ * drag direction sets LONG vs SHORT (dragging down = stop below entry
+ * = long, same convention as TradingView's own tool), a take-profit is
+ * computed at a chosen risk:reward multiple, and a confirm card lets
+ * you adjust R:R before handing the three prices straight to the
+ * caller's order form via `onQuickTrade` — no retyping.
+ *
  * HONEST SCOPE: the real candle data comes from order_flow.py's
  * `/klines` proxy, which only covers Binance's own small, explicit
  * crypto allow-list (BTCUSDT, ETHUSDT, SOLUSDT, BNBUSDT, XRPUSDT,
@@ -163,6 +182,7 @@ export function PositionOnChartModal({
   initialInterval,
   onClose,
   onChanged,
+  onQuickTrade,
 }: {
   /** Omit entirely to open "On Chart" with no open/pending order on
    * this symbol — by direct request ("make 'Position' and 'On Chart'
@@ -196,6 +216,15 @@ export function PositionOnChartModal({
    * including the lines drawn on this very chart once the caller's
    * refreshed `position` prop flows back down. */
   onChanged?: () => void;
+  /** Wire this to your own order form's setters (direction/entry/SL/TP)
+   * to enable the "Quick Trade" drag tool in the toolbar below — see
+   * this component's own QUICK TRADE docstring above. Omitted (as on
+   * every read-only chart page with no order form to feed) and the
+   * tool button simply doesn't render, same convention as ChartPanel's
+   * own optional onQuickFill/onToggleOrderForm. Called once, when the
+   * trader taps "Use in Order Ticket" on the confirm card — this
+   * modal then closes itself so they land back on the now-filled form. */
+  onQuickTrade?: (trade: { direction: 'long' | 'short'; entryPrice: number; stopLoss: number; takeProfit: number }) => void;
 }) {
   const [interval, setInterval] = useState<KlineInterval>(mapTvIntervalToKlines(initialInterval));
   // The full fetched pool — up to POOL_SIZE candles, most-recent last
@@ -278,10 +307,60 @@ export function PositionOnChartModal({
   // request ("include a drawing tool for boxes - the box tool"), a
   // second shape alongside the original trend-line tool, picked from
   // its own small tool row (see the toolbar below) rather than a
-  // single on/off toggle.
-  const [drawShape, setDrawShape] = useState<'line' | 'box' | null>(null);
+  // single on/off toggle. 'position' is the Quick Trade Long/Short
+  // tool below — a third mode, not persisted into `drawings` (see
+  // this component's own QUICK TRADE docstring).
+  const [drawShape, setDrawShape] = useState<'line' | 'box' | 'position' | null>(null);
   const [drawings, setDrawings] = useState<DrawnSegment[]>([]);
   const [inProgressDraw, setInProgressDraw] = useState<DrawnSegment | null>(null);
+
+  // Quick Trade — see this component's own QUICK TRADE docstring.
+  // `quickTradeDraft` is the live (while dragging) or final (after
+  // pointer-up, awaiting confirm) Entry/SL/TP; entryIndex is stored
+  // absolute (allCandles-relative, same convention as `drawings`) so
+  // the risk/reward zones stay anchored to the real entry candle
+  // across pan/zoom, converted to visible-relative only at render
+  // time (see quickTradeZones below). Deliberately NOT persisted to
+  // localStorage — unlike drawn lines/boxes, a quick-trade draft is a
+  // one-shot order proposal, not a chart annotation to keep around.
+  const [quickTradeDraft, setQuickTradeDraft] = useState<{
+    entryIndex: number; entryPrice: number; stopLoss: number; takeProfit: number; direction: 'long' | 'short';
+  } | null>(null);
+  const [quickTradeRR, setQuickTradeRR] = useState(2);
+
+  function computeQuickTradeDraft(entryIndex: number, entryPrice: number, dragPrice: number, rr: number) {
+    const direction: 'long' | 'short' = dragPrice < entryPrice ? 'long' : 'short';
+    const stopLoss = dragPrice;
+    const risk = Math.abs(entryPrice - stopLoss);
+    const takeProfit = direction === 'long' ? entryPrice + risk * rr : entryPrice - risk * rr;
+    return { entryIndex, entryPrice, stopLoss, takeProfit, direction };
+  }
+
+  /** Same magnitude-based precision CandleChart's own price axis uses
+   * (fmt), kept as a small local copy since that one isn't exported —
+   * just for the confirm card's numbers reading sensibly for both a
+   * ~1.08 forex pair and a ~65000 crypto pair. */
+  function formatQuickTradePrice(p: number): string {
+    return p >= 1000 ? p.toFixed(0) : p >= 1 ? p.toFixed(2) : p.toPrecision(4);
+  }
+
+  function togglePositionTool() {
+    setDrawShape((v) => (v === 'position' ? null : 'position'));
+    setQuickTradeDraft(null);
+  }
+
+  /** Recompute takeProfit only, keeping entry/stopLoss/direction fixed
+   * — the confirm card's R:R buttons use this so bumping 1R -> 2R
+   * doesn't require redragging. */
+  function applyQuickTradeRR(rr: number) {
+    setQuickTradeRR(rr);
+    setQuickTradeDraft((d) => {
+      if (!d) return d;
+      const risk = Math.abs(d.entryPrice - d.stopLoss);
+      const takeProfit = d.direction === 'long' ? d.entryPrice + risk * rr : d.entryPrice - risk * rr;
+      return { ...d, takeProfit };
+    });
+  }
   const drawStorageKey = `petrazim.chartDrawings.${symbol}`;
   useEffect(() => {
     try {
@@ -318,10 +397,10 @@ export function PositionOnChartModal({
   // for BOTH the crosshair and drawing pixel math) reads this ref at
   // call time instead of closing over stale values from whenever the
   // effect last (re-)attached.
-  const liveRef = useRef({ visibleCount, panOffset, visibleStart, candlesLength: 0, yTop: 0, yBottom: 0 });
+  const liveRef = useRef({ visibleCount, panOffset, visibleStart, candlesLength: 0, yTop: 0, yBottom: 0, rr: quickTradeRR });
   useEffect(() => {
     const range = candles && candles.length > 0 ? computeChartRange(candles, [], lines, []) : { yTop: 0, yBottom: 0 };
-    liveRef.current = { visibleCount, panOffset, visibleStart, candlesLength: candles?.length ?? 0, yTop: range.yTop, yBottom: range.yBottom };
+    liveRef.current = { visibleCount, panOffset, visibleStart, candlesLength: candles?.length ?? 0, yTop: range.yTop, yBottom: range.yBottom, rr: quickTradeRR };
   });
 
   useEffect(() => {
@@ -330,6 +409,11 @@ export function PositionOnChartModal({
 
     const pointers = new Map<number, { x: number; y: number }>();
     let gesture: { mode: 'pan' | 'pinch'; visibleCount: number; panOffset: number; x?: number; dist?: number } | null = null;
+    // Same non-reactive-local pattern as `gesture` above (see this
+    // effect's own dependency-array comment for why) — the Quick
+    // Trade drag's entry anchor only needs to survive for the
+    // duration of one gesture, not trigger a re-render itself.
+    let quickTradeAnchor: { entryIndex: number; entryPrice: number } | null = null;
 
     function clampPan(offset: number, visible: number) {
       return Math.max(0, Math.min(offset, Math.max(0, (allCandles?.length ?? 0) - visible)));
@@ -359,6 +443,14 @@ export function PositionOnChartModal({
     function onPointerDown(e: PointerEvent) {
       el!.setPointerCapture(e.pointerId);
       pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (drawShape === 'position') {
+        const pt = pixelToChartLive(e.clientX, e.clientY);
+        if (pt) {
+          quickTradeAnchor = { entryIndex: liveRef.current.visibleStart + pt.visibleIndex, entryPrice: pt.price };
+          setQuickTradeDraft(null);
+        }
+        return;
+      }
       if (drawShape) {
         const pt = pixelToChartLive(e.clientX, e.clientY);
         if (pt) {
@@ -381,6 +473,15 @@ export function PositionOnChartModal({
       // works as a plain hover (mouse, no button pressed).
       const pt = pixelToChartLive(e.clientX, e.clientY);
       setHoverIndex(pt ? pt.visibleIndex : null);
+
+      if (drawShape === 'position') {
+        if (!pointers.has(e.pointerId) || !quickTradeAnchor) return;
+        pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        if (pt) {
+          setQuickTradeDraft(computeQuickTradeDraft(quickTradeAnchor.entryIndex, quickTradeAnchor.entryPrice, pt.price, liveRef.current.rr));
+        }
+        return;
+      }
 
       if (drawShape) {
         if (!pointers.has(e.pointerId)) return;
@@ -412,6 +513,16 @@ export function PositionOnChartModal({
     }
     function onPointerUp(e: PointerEvent) {
       pointers.delete(e.pointerId);
+      if (drawShape === 'position') {
+        if (pointers.size === 0) {
+          quickTradeAnchor = null;
+          // A click with no real drag (stopLoss === entryPrice) has
+          // zero risk to size a trade off — discard it rather than
+          // leave a degenerate confirm card up.
+          setQuickTradeDraft((d) => (d && d.stopLoss !== d.entryPrice ? d : null));
+        }
+        return;
+      }
       if (drawShape) {
         if (pointers.size === 0) {
           setInProgressDraw((prev) => {
@@ -487,6 +598,33 @@ export function PositionOnChartModal({
     if (inProgressDraw) list.push({ ...toVisible(inProgressDraw), color: '#2563eb', id: 'preview' });
     return list;
   }, [drawings, inProgressDraw, visibleStart]);
+
+  /** The Quick Trade draft's risk (red, entry->SL) and reward (green,
+   * entry->TP) brackets — same visible-relative conversion as
+   * visibleDrawings above, spanning from the entry candle out to the
+   * right edge of the currently-visible window so it reads as the
+   * same kind of bracket TradingView's own Long/Short tool draws. */
+  const quickTradeZones: ChartZone[] = useMemo(() => {
+    if (!quickTradeDraft || !candles || candles.length === 0) return [];
+    const entryVisible = quickTradeDraft.entryIndex - visibleStart;
+    const rightEdge = candles.length - 1;
+    if (entryVisible > rightEdge) return []; // entry scrolled out of the visible window
+    const fromIndex = Math.max(0, entryVisible);
+    return [
+      {
+        fromIndex, toIndex: rightEdge,
+        priceTop: Math.max(quickTradeDraft.entryPrice, quickTradeDraft.stopLoss),
+        priceBottom: Math.min(quickTradeDraft.entryPrice, quickTradeDraft.stopLoss),
+        color: '#ef4444',
+      },
+      {
+        fromIndex, toIndex: rightEdge,
+        priceTop: Math.max(quickTradeDraft.entryPrice, quickTradeDraft.takeProfit),
+        priceBottom: Math.min(quickTradeDraft.entryPrice, quickTradeDraft.takeProfit),
+        color: '#22c55e',
+      },
+    ];
+  }, [quickTradeDraft, candles, visibleStart]);
 
   /** Simple moving average(s) — by direct request ("add ... standard
    * charting tools"). Computed from the STABLE allCandles pool (real
@@ -573,6 +711,13 @@ export function PositionOnChartModal({
     // "where price is right this second" versus the dashed reference
     // levels above — refreshes every 15s while this stays open.
     ...(livePrice != null ? [{ price: livePrice, color: '#f59e0b', dashed: false, label: `Live ${livePrice}` }] : []),
+    // Quick Trade draft — see quickTradeZones above for the matching
+    // risk/reward brackets.
+    ...(quickTradeDraft ? [
+      { price: quickTradeDraft.entryPrice, color: '#2563eb', dashed: true, label: `Entry ${quickTradeDraft.direction.toUpperCase()} ${quickTradeDraft.entryPrice}` },
+      { price: quickTradeDraft.stopLoss, color: '#ef4444', dashed: true, label: `SL ${quickTradeDraft.stopLoss}` },
+      { price: quickTradeDraft.takeProfit, color: '#22c55e', dashed: true, label: `TP ${quickTradeDraft.takeProfit}` },
+    ] : []),
   ];
 
   const overlayCls = localDark ? 'bg-black/90' : 'bg-white/95';
@@ -737,6 +882,22 @@ export function PositionOnChartModal({
           >
             <TrendingUp size={13} /> MA
           </button>
+          {/* Quick Trade — Long/Short position tool, only rendered when
+              the caller wired an order form up to receive it (see this
+              component's own QUICK TRADE / onQuickTrade docstrings).
+              Own accent color (not the shared corporate-hero pill) so
+              it reads as distinct from the annotation tools next to it
+              — this one places a real order draft, not a drawing. */}
+          {onQuickTrade && (
+            <button
+              onClick={togglePositionTool}
+              aria-label={drawShape === 'position' ? 'Stop Quick Trade' : 'Quick Trade — drag from entry to stop'}
+              title={drawShape === 'position' ? 'Quick Trade — drag from your entry price down (long) or up (short) to your stop; release to review' : 'Quick Trade — drag on the chart to set Entry + Stop, auto-computes Take Profit'}
+              className={`flex items-center gap-1 px-2 py-1.5 rounded-md text-[11px] font-medium ${drawShape === 'position' ? 'bg-emerald-600 text-white' : chromeMutedCls}`}
+            >
+              <Zap size={13} /> Quick Trade
+            </button>
+          )}
           <button
             onClick={() => setDrawShape((v) => (v === 'line' ? null : 'line'))}
             aria-label={drawShape === 'line' ? 'Stop drawing' : 'Draw a trend line'}
@@ -789,7 +950,7 @@ export function PositionOnChartModal({
           <>
             <div ref={chartBoxRef}>
               <CandleChart
-                candles={candles} lines={lines} overlaySeries={maSeries} drawings={visibleDrawings}
+                candles={candles} lines={lines} zones={quickTradeZones} overlaySeries={maSeries} drawings={visibleDrawings}
                 height={CHART_HEIGHT} dark={localDark} bullColor={localBull} bearColor={localBear}
               />
             </div>
@@ -810,6 +971,57 @@ export function PositionOnChartModal({
                   </div>
                   O <span className="text-inherit">{hoveredCandle.open}</span> · H <span className="text-emerald-500">{hoveredCandle.high}</span> · L <span className="text-red-500">{hoveredCandle.low}</span> · C <span className="font-bold">{hoveredCandle.close}</span>
                 </div>
+              </div>
+            )}
+            {/* Quick Trade confirm card — appears once a drag has set a
+                real (non-zero-risk) Entry/SL, live-updating while still
+                dragging. R:R buttons recompute TP only (applyQuickTradeRR);
+                "Use in Order Ticket" hands the three prices to the
+                caller via onQuickTrade and closes this modal so the
+                trader lands back on the now-filled form. */}
+            {quickTradeDraft && onQuickTrade && (
+              <div className={`absolute bottom-4 right-4 z-10 w-64 rounded-xl border p-3 space-y-2.5 shadow-lg ${popoverCls}`}>
+                <div className="flex items-center justify-between">
+                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold text-white ${quickTradeDraft.direction === 'long' ? 'bg-emerald-600' : 'bg-red-600'}`}>
+                    <Zap size={11} /> {quickTradeDraft.direction === 'long' ? 'LONG' : 'SHORT'}
+                  </span>
+                  <button onClick={() => setQuickTradeDraft(null)} aria-label="Discard this quick trade" className={chromeMutedCls}>
+                    <X size={14} />
+                  </button>
+                </div>
+                <div className={`text-[11px] font-mono space-y-1 ${chromeTextCls}`}>
+                  <div className="flex justify-between"><span className="opacity-60">Entry</span><span className="font-semibold">{formatQuickTradePrice(quickTradeDraft.entryPrice)}</span></div>
+                  <div className="flex justify-between text-red-500"><span className="opacity-70">Stop Loss</span><span className="font-semibold">{formatQuickTradePrice(quickTradeDraft.stopLoss)}</span></div>
+                  <div className="flex justify-between text-emerald-500"><span className="opacity-70">Take Profit</span><span className="font-semibold">{formatQuickTradePrice(quickTradeDraft.takeProfit)}</span></div>
+                </div>
+                <div className="flex items-center gap-1">
+                  <span className={`text-[10px] ${chromeMutedCls}`}>R:R</span>
+                  {[1, 1.5, 2, 3].map((rr) => (
+                    <button
+                      key={rr}
+                      onClick={() => applyQuickTradeRR(rr)}
+                      className={`flex-1 rounded-md py-1 text-[10px] font-semibold ${quickTradeRR === rr ? 'bg-corporate-hero text-white' : `${toggleWrapCls} ${chromeMutedCls}`}`}
+                    >
+                      {rr}R
+                    </button>
+                  ))}
+                </div>
+                <button
+                  onClick={() => {
+                    onQuickTrade({
+                      direction: quickTradeDraft.direction,
+                      entryPrice: quickTradeDraft.entryPrice,
+                      stopLoss: quickTradeDraft.stopLoss,
+                      takeProfit: quickTradeDraft.takeProfit,
+                    });
+                    setQuickTradeDraft(null);
+                    setDrawShape(null);
+                    onClose();
+                  }}
+                  className="w-full rounded-lg py-2 text-xs font-bold text-white bg-corporate-hero hover:opacity-90"
+                >
+                  Use in Order Ticket
+                </button>
               </div>
             )}
           </>

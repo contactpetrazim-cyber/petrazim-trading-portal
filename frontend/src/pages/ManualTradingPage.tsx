@@ -671,6 +671,33 @@ export function ManualTradingPage() {
     });
   }
 
+  /** Quick Trade — the real, buildable equivalent of TradingView's own
+   * Long/Short position tool (that one lives inside the free embedded
+   * widget's iframe and can't be read out of it; see
+   * PositionOnChartModal.tsx's own QUICK TRADE docstring), by direct
+   * request ("the quick trade button from the short position or long
+   * position tradingview tool ... integrate this with my order
+   * position form so that the entry level, SL and TP are automatically
+   * populated"). Populates this exact ticket's own state the same way
+   * a trader typing the numbers by hand would — both price fields
+   * switch to Price mode (in case a trader had left them on $-amount
+   * mode) so the values set here are what actually shows, Take Profit
+   * is turned on if it was off, and the form itself opens if it was
+   * folded, so the result of confirming a Quick Trade is immediately
+   * visible rather than a silent state change behind a closed panel. */
+  function handleQuickTrade({ direction: dir, entryPrice: entry, stopLoss: sl, takeProfit: tp }: {
+    direction: 'long' | 'short'; entryPrice: number; stopLoss: number; takeProfit: number;
+  }) {
+    setDirection(dir);
+    setSlMode('price');
+    setTpMode('price');
+    setTpEnabled(true);
+    setEntryPrice(String(entry));
+    setStopLoss(String(sl));
+    setTakeProfit(String(tp));
+    setOrderFormOpen(true);
+  }
+
   return (
     <div className={`min-h-screen ${dark ? 'bg-[#0a0e1a] text-white' : 'bg-corporate-bg text-corporate-text-on-bg'}`}>
       <div className="max-w-7xl mx-auto p-4 md:p-6">
@@ -799,6 +826,7 @@ export function ManualTradingPage() {
             onPositionChanged={loadOpenPosition}
             otherOpenTrades={otherOpenTrades}
             positionLoading={positionLoading}
+            onQuickTrade={handleQuickTrade}
           />
 
           {/* "View and edit the statistics of this trade ... exchange
