@@ -36,6 +36,11 @@ export interface ChartLine {
    * label (SL/TP/etc.) — this only widens the pill vertically when a
    * caller actually needs the extra line. */
   label2?: string;
+  /** Appended to `label2` in its own color — by direct request ("put
+   * the live PL in colours green for profit and red for loss"), so a
+   * live P/L figure reads at a glance instead of inheriting the rest
+   * of the line's own color (e.g. the Entry line's blue). */
+  label2Suffix?: { text: string; color: string };
   color?: string;
   dashed?: boolean;
 }
@@ -342,7 +347,12 @@ export function CandleChart({
             style={{ right: `${(padRight / width) * 100}%`, top: `${yPct(l.price)}%`, transform: 'translateY(-100%)', color: l.color ?? textColor }}
           >
             <div>{l.label}</div>
-            {l.label2 && <div>{l.label2}</div>}
+            {l.label2 && (
+              <div>
+                {l.label2}
+                {l.label2Suffix && <span style={{ color: l.label2Suffix.color }}> {l.label2Suffix.text}</span>}
+              </div>
+            )}
           </div>
         ))}
         {markers.map((m, i) => {
