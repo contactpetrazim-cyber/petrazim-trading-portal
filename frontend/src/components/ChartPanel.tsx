@@ -164,6 +164,7 @@ export function ChartPanel({
   onPositionChanged,
   otherOpenTrades,
   positionLoading,
+  onQuickTrade,
 
 }: {
   symbol: string;
@@ -244,6 +245,18 @@ export function ChartPanel({
    * otherOpenTrades treated as already-known, even on the very first
    * render). */
   positionLoading?: boolean;
+  /** Wire this to your order form's direction/entry/SL/TP setters to
+   * enable the "Quick Trade" Long/Short drag tool inside "On Chart" —
+   * by direct request ("the quick trade button from the short
+   * position or long position tradingview tool ... integrate this
+   * with my order position form so that the entry level, SL and TP
+   * are automatically populated"). Forwarded straight to
+   * PositionOnChartModal's own `onQuickTrade` — see that component's
+   * QUICK TRADE docstring for why this can't come from the embedded
+   * TradingView widget itself. Omit on a page with no order form
+   * (Dashboard, Insights, Tools) and the tool button simply doesn't
+   * render there, same convention as onQuickFill/onToggleOrderForm. */
+  onQuickTrade?: (trade: { direction: 'long' | 'short'; entryPrice: number; stopLoss: number; takeProfit: number }) => void;
 
 }) {
   const navigate = useNavigate();
@@ -400,7 +413,7 @@ export function ChartPanel({
           <PositionOnChartModal
             position={position ? tradeToChartPosition(position) : undefined} trade={position} symbol={resolvedTradeSymbol}
             bullColor={colors.upColor} bearColor={colors.downColor} initialInterval={interval}
-            onClose={() => setOnChartOpen(false)} onChanged={onPositionChanged}
+            onClose={() => setOnChartOpen(false)} onChanged={onPositionChanged} onQuickTrade={onQuickTrade}
           />
         )}
       </div>
@@ -427,7 +440,7 @@ export function ChartPanel({
         <PositionOnChartModal
           position={position ? tradeToChartPosition(position) : undefined} trade={position} symbol={resolvedTradeSymbol}
           bullColor={colors.upColor} bearColor={colors.downColor} initialInterval={interval}
-          onClose={() => setOnChartOpen(false)} onChanged={onPositionChanged}
+          onClose={() => setOnChartOpen(false)} onChanged={onPositionChanged} onQuickTrade={onQuickTrade}
         />
       )}
     </div>
