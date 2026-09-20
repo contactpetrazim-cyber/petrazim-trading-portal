@@ -1,4 +1,4 @@
-import { useEffect, useRef, memo } from 'react';
+import { useMemo, memo } from 'react';
 import type { Trade } from '../types';
 
 /**
@@ -64,6 +64,26 @@ import type { Trade } from '../types';
  * doesn't have, the caller-visible position info now lives in
  * ChartPanel's own foldable "Position" overlay card, rendered outside
  * the TradingView iframe entirely — see ChartPanel.tsx.
+ *
+ * IMPLEMENTATION, as of the fix for the long-running "pairs switch
+ * shows the wrong symbol" bug: this component does NOT call `new
+ * TradingView.widget()` itself. It renders an <iframe> pointing at the
+ * static `public/tv-widget-embed.html` page (symbol/interval/theme/
+ * style/overrides passed as query params), and that page's own script
+ * constructs the widget. See that file's own top comment for the full
+ * root-cause story — short version: TradingView's free `tv.js` embed
+ * keeps some internal, page-scoped state that sticks the FIRST symbol
+ * any widget on a page was ever built with onto every later `new
+ * TradingView.widget()` call in that SAME top-level JS realm, and nothing
+ * reachable from outside the widget (destroying it via its own
+ * `.remove()`, a fresh DOM container, deleting `window.TradingView` and
+ * re-loading `tv.js` from scratch, clearing every storage bucket its
+ * own iframe can see) frees it — confirmed directly, repeatedly. Giving
+ * each symbol its OWN fresh top-level-for-that-frame JS realm (a real
+ * navigation of the wrapper iframe, done by just changing its `src`) is
+ * the only thing that reliably did. A full top-level reload of the
+ * whole app would also "work" but throws away everything else on the
+ * page; scoping the fresh-realm trick to this one iframe doesn't.
  */
 
 /** The subset of a live position TradingViewChart needs to overlay —
@@ -221,153 +241,32 @@ function TradingViewChartBase({
   candleColors,
   chartStyle = '1',
 }: TradingViewChartProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const containerId = useRef(`tv_chart_${Math.random().toString(36).slice(2)}`);
-  const widgetRef = useRef<any>(null);
-
-  useEffect(() => {
-    if (!containerRef.current) return;
-    // `cancelled` matters: the widget script can still be loading when
-    // the symbol changes, and TWO pending createWidget callbacks racing
-    // into the same container is exactly how a chart ends up showing the
-    // FIRST (usually default BTC) symbol after you picked another one —
-    // the reported "the chart still shows BTC whatever I click". Each run
-    // also mounts into a freshly-named div, so a widget from a previous
-    // run can never re-attach to the current one.
-    let cancelled = false;
-
-    function destroyPreviousWidget() {
-      // CONFIRMED, still-live bug (by repeat report, with video proof:
-      // even the widget's OWN internal symbol-search box never updates
-      // — not just our candles — ruling out every caching layer, since
-      // it reproduces in a fresh Incognito session too). Root cause:
-      // `widgetRef.current` was only ever discarded by wiping its DOM
-      // container (`innerHTML = ''`) — the widget object itself, and
-      // whatever internal state TradingView's tv.js keeps for it (this
-      // free embed widget is documented to persist "last symbol shown"
-      // across instances on the same page when `allow_symbol_change` is
-      // on), was never actually torn down. TradingView's own widget
-      // constructor exposes a real `remove()` method for exactly this —
-      // call it before building the next widget so nothing carries
-      // forward. Guarded: `remove()` can itself throw if the widget
-      // never finished initializing (e.g. torn down mid-load), which
-      // must never block building the next, correct widget.
-      const prev = widgetRef.current;
-      widgetRef.current = null;
-      if (prev && typeof prev.remove === 'function') {
-        try { prev.remove(); } catch { /* already gone — nothing to clean up */ }
-      }
-    }
-
-    function createWidget() {
-      // @ts-expect-error — TradingView attaches this global at runtime, no official types package
-      if (cancelled || !window.TradingView || !containerRef.current) return;
-      // Whether this run is REPLACING a live widget (a symbol/interval/
-      // theme/etc change) vs. the very first mount — see the deferred
-      // mountWidget() call below for why this matters.
-      const hadPreviousWidget = widgetRef.current != null;
-      destroyPreviousWidget();
-      containerRef.current.innerHTML = '';
-      containerId.current = `tv_chart_${Math.random().toString(36).slice(2)}`;
-      const chartDiv = document.createElement('div');
-      chartDiv.id = containerId.current;
-      chartDiv.style.height = '100%';
-      chartDiv.style.width = '100%';
-      containerRef.current.appendChild(chartDiv);
-
-      function mountWidget() {
-        // @ts-expect-error — see above
-        if (cancelled || !window.TradingView) return;
-        // @ts-expect-error — see above
-        const widget = new window.TradingView.widget({
-          autosize: true,
-          symbol,
-          interval,
-          timezone: 'Etc/UTC',
-          theme,
-          style: chartStyle,
-          locale: 'en',
-          enable_publishing: false,
-          // STILL BROKEN with `true`, confirmed by direct re-report
-          // after the .remove()/timing fixes above (still not fixed on
-          // the trade chart, only the backend-driven On Chart view
-          // which isn't this widget at all). Both those fixes assumed a
-          // JS-side race; this app has zero programmatic control over
-          // what's actually wrong inside TradingView's own free
-          // widget, but `allow_symbol_change` is TradingView's own
-          // documented trigger for it to remember and restore the last
-          // MANUALLY-searched symbol across re-initializations — which
-          // fights directly against this app's own `symbol` prop the
-          // moment a trader has ever typed into the widget's own
-          // internal search box once. Turned off: every page that
-          // embeds this component already has its own app-level
-          // symbol picker (PairsPanel, with its own real
-          // TradingView-backed search) that does the same job without
-          // that persistence, so the widget's own redundant search
-          // isn't a capability actually lost.
-          allow_symbol_change: false,
-          hide_side_toolbar: false,
-          hide_top_toolbar: false,
-          withdateranges: true,
-          container_id: containerId.current,
-          overrides: buildOverrides(candleColors, chartStyle),
-          studies_overrides: buildStudiesOverrides(candleColors),
-        });
-        widgetRef.current = widget;
-      }
-
-      // CONFIRMED, still-recurring after the .remove()/fresh-container
-      // fix above (by direct bug report, with video: picking a
-      // different pair froze the chart on the OLD symbol's candles AND
-      // price feed — the "Chart symbol:" label and TradingView's own
-      // quote line both updated, but the actual chart pane never did).
-      // A replacement widget constructed in the SAME tick its
-      // predecessor's `.remove()` ran can race TradingView's own
-      // cross-origin iframe teardown / postMessage handshake — `.remove()`
-      // returning doesn't guarantee that handshake has actually finished
-      // before the next `new TradingView.widget()` call starts its own.
-      // One tick's grace before constructing the replacement is a
-      // standard, low-risk defensive pattern for exactly this class of
-      // "destroy+recreate too fast" third-party iframe bug. Only applied
-      // when actually replacing a widget — first mount (nothing to race
-      // against) still creates immediately, so initial chart load isn't
-      // delayed.
-      if (hadPreviousWidget) {
-        window.setTimeout(mountWidget, 60);
-      } else {
-        mountWidget();
-      }
-    }
-
-    const existingScript = document.getElementById('tradingview-widget-script');
-    // @ts-expect-error — runtime global
-    if (existingScript && window.TradingView) {
-      createWidget();
-    } else if (existingScript) {
-      existingScript.addEventListener('load', createWidget);
-    } else {
-      const script = document.createElement('script');
-      script.id = 'tradingview-widget-script';
-      script.src = 'https://s3.tradingview.com/tv.js';
-      script.async = true;
-      script.onload = createWidget;
-      document.body.appendChild(script);
-    }
-
-    return () => {
-      cancelled = true;
-      destroyPreviousWidget();
-    };
+  // See this file's module docstring for why this is an <iframe src=...>
+  // rather than a `new TradingView.widget()` call made directly in this
+  // component's own JS realm. Recomputed whenever anything that should
+  // actually change what's on screen changes; React then just updates
+  // this SAME <iframe> element's `src` attribute, which is a real
+  // navigation of that one frame — a fresh JS realm for tv.js each
+  // time, with no stale symbol able to survive into it.
+  const src = useMemo(() => {
+    const params = new URLSearchParams();
+    params.set('symbol', symbol);
+    params.set('interval', interval);
+    params.set('theme', theme);
+    params.set('style', chartStyle);
+    params.set('overrides', JSON.stringify(buildOverrides(candleColors, chartStyle)));
+    params.set('studies_overrides', JSON.stringify(buildStudiesOverrides(candleColors)));
+    return `/tv-widget-embed.html?${params.toString()}`;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [symbol, interval, theme, chartStyle, JSON.stringify(candleColors)]);
 
-  // `key={symbol}` forces React itself to throw away and rebuild this
-  // exact DOM node (not just its children) on every symbol change, on
-  // top of destroyPreviousWidget()/innerHTML above — belt-and-suspenders
-  // against a third-party widget's own internal state ever surviving
-  // into the next instance, given how load-bearing "the chart actually
-  // updates" is and how this exact bug has already recurred once.
-  return <div key={symbol} ref={containerRef} style={{ height, width: '100%' }} />;
+  return (
+    <iframe
+      src={src}
+      title="TradingView Chart"
+      style={{ height, width: '100%', border: 'none' }}
+    />
+  );
 }
 
 export const TradingViewChart = memo(TradingViewChartBase);
