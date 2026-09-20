@@ -203,25 +203,34 @@ export function TradeRow({ trade, onApprove, onReject, onCancel, onChanged, onAr
           where these numbers matter most and there's no live position
           to fall back on managing instead. */}
       {trade.status === 'closed' && (
-        <div className={`mt-3 pt-3 border-t grid grid-cols-2 sm:grid-cols-5 gap-x-3 gap-y-1.5 text-xs ${dark ? 'border-smc-border' : 'border-corporate-bg'}`}>
-          <div>
-            <span className="text-gray-500">Entry: </span>
-            <span className="font-mono">{trade.entry_price?.toFixed(5) ?? '—'}</span>
+        <div className={`mt-3 pt-3 border-t grid grid-cols-2 sm:grid-cols-5 gap-x-3 gap-y-2 text-xs ${dark ? 'border-smc-border' : 'border-corporate-bg'}`}>
+          {/* Label on its own line, price on the line below — by
+              direct request ("the corresponding prices should be
+              under each of the following Entry, SL, TP, Close etc -
+              the second or following line - for consistency"):
+              Entry/Closed used to wrap onto a second line only
+              because their 5-decimal values ran long, while SL/TP/
+              Result stayed inline — same stacked layout for all five
+              now, regardless of value length. Also 2 decimal places
+              (was 5), matching every other price shown on this row. */}
+          <div className="flex flex-col gap-0.5">
+            <span className="text-gray-500">Entry:</span>
+            <span className="font-mono">{trade.entry_price?.toFixed(2) ?? '—'}</span>
           </div>
-          <div>
-            <span className="text-gray-500">SL: </span>
-            <span className="font-mono text-red-400">{trade.stop_loss.toFixed(5)}</span>
+          <div className="flex flex-col gap-0.5">
+            <span className="text-gray-500">SL:</span>
+            <span className="font-mono text-red-400">{trade.stop_loss.toFixed(2)}</span>
           </div>
-          <div>
-            <span className="text-gray-500">TP: </span>
-            <span className="font-mono text-emerald-400">{trade.take_profit?.toFixed(5) ?? '—'}</span>
+          <div className="flex flex-col gap-0.5">
+            <span className="text-gray-500">TP:</span>
+            <span className="font-mono text-emerald-400">{trade.take_profit?.toFixed(2) ?? '—'}</span>
           </div>
-          <div>
-            <span className="text-gray-500">Closed: </span>
-            <span className="font-mono">{trade.exit_price?.toFixed(5) ?? '—'}</span>
+          <div className="flex flex-col gap-0.5">
+            <span className="text-gray-500">Closed:</span>
+            <span className="font-mono">{trade.exit_price?.toFixed(2) ?? '—'}</span>
           </div>
-          <div>
-            <span className="text-gray-500">Result: </span>
+          <div className="flex flex-col gap-0.5">
+            <span className="text-gray-500">Result:</span>
             <span className={`font-semibold ${outcomeColorCls}`}>{outcomeLabel}</span>
           </div>
         </div>
