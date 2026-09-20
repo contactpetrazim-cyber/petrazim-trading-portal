@@ -835,9 +835,15 @@ export function PositionOnChartModal({
   // Pending-vs-Live status, plus the SAME live unrealized P&L already
   // shown elsewhere once the position is actually Live — updates on
   // its own as `position.unrealizedPnl` refreshes from the caller.
-  const entryStatusLabel = position?.pending
-    ? `${dirLabel} (Pending)`
-    : `${dirLabel} (Live)${position?.unrealizedPnl != null ? ` ${formatSignedMoney(position.unrealizedPnl)}` : ''}`;
+  // The P&L figure itself gets its own green/profit or red/loss color
+  // (label2Suffix), by further direct request ("put the live PL in
+  // colours green for profit and red for loss") — same green/red pair
+  // (#22c55e/#ef4444) this file already uses for every other SL/TP-
+  // style line, rather than inheriting the Entry line's own blue.
+  const entryStatusLabel = position?.pending ? `${dirLabel} (Pending)` : `${dirLabel} (Live)`;
+  const entryPnlSuffix = !position?.pending && position?.unrealizedPnl != null
+    ? { text: formatSignedMoney(position.unrealizedPnl), color: position.unrealizedPnl >= 0 ? '#22c55e' : '#ef4444' }
+    : undefined;
   // Every price drawn on this chart — by direct request ("make all
   // prices text max of two decimal points"): the raw values here carry
   // whatever precision the backend computed them at (position sizing
@@ -849,7 +855,7 @@ export function PositionOnChartModal({
   // hidden the moment "Pairs" points this chart at a different one;
   // see `isOriginalSymbol`'s own comment above `activeSymbol`.
   const lines: ChartLine[] = [
-    ...(position && isOriginalSymbol ? [{ price: position.entryPrice, color: '#2962FF', dashed: true, label: fmtPrice(position.entryPrice), label2: entryStatusLabel }] : []),
+    ...(position && isOriginalSymbol ? [{ price: position.entryPrice, color: '#2962FF', dashed: true, label: fmtPrice(position.entryPrice), label2: entryStatusLabel, label2Suffix: entryPnlSuffix }] : []),
     ...(position?.stopLoss != null && isOriginalSymbol ? [{ price: position.stopLoss, color: '#EF5350', dashed: true, label: `SL ${fmtPrice(position.stopLoss)}` }] : []),
     ...(position?.takeProfit1 != null && isOriginalSymbol ? [{ price: position.takeProfit1, color: '#26A69A', dashed: true, label: `TP1 ${fmtPrice(position.takeProfit1)}` }] : []),
     ...(position?.takeProfit2 != null && isOriginalSymbol ? [{ price: position.takeProfit2, color: '#26A69A', dashed: true, label: `TP2 ${fmtPrice(position.takeProfit2)}` }] : []),
