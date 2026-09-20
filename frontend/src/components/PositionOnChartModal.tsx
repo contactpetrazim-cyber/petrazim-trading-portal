@@ -1130,7 +1130,7 @@ export function PositionOnChartModal({
                       <button
                         key={rr}
                         onClick={() => { applyQuickTradeRR(rr); setCustomRRText(''); }}
-                        className={`rounded-md py-1 text-[10px] font-semibold ${quickTradeRR === rr ? 'bg-corporate-hero text-white' : `${toggleWrapCls} ${chromeMutedCls}`}`}
+                        className={`rounded-md py-1 text-[10px] font-semibold ${quickTradeRR === rr && !customRRText.trim() ? 'bg-corporate-hero text-white' : `${toggleWrapCls} ${chromeMutedCls}`}`}
                       >
                         {rr}R
                       </button>
