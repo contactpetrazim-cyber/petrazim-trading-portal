@@ -1,14 +1,31 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { X, Loader2, RotateCcw, Sun, Moon, Palette, Target, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Maximize2, Crosshair, TrendingUp, PenLine, Square, Eraser, Zap } from 'lucide-react';
+import { X, Loader2, RotateCcw, Sun, Moon, Palette, Target, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Maximize2, Crosshair, TrendingUp, PenLine, Square, Eraser, Zap, CandlestickChart } from 'lucide-react';
 import { CandleChart, CHART_LAYOUT, computeChartRange, type Candle, type ChartLine, type ChartZone, type OverlaySeries, type DrawnSegment } from './CandleChart';
 import { formatSignedMoney, type ChartPosition } from './TradingViewChart';
 import { PositionManager } from './PositionManager';
+import { PairsPanel } from './PairsPanel';
+import { useQuickPairsStore } from '../hooks/useQuickPairs';
 import { orderFlowApi } from '../services/api';
 import { formatApiError } from '../lib/apiError';
 import { useQuickPrice } from '../hooks/useQuickPrice';
 import type { Trade } from '../types';
 
 const LIVE_PRICE_REFRESH_MS = 15_000;
+
+// Mirrors order_flow.py's own ALLOWED_SYMBOLS exactly — this chart's
+// candles come from that endpoint alone (a small, fixed Binance
+// allow-list), unlike the TradingView-backed main charts elsewhere in
+// the app that can show forex/indices/stocks too. Passed as Pairs'
+// `symbolFilter` so switching pairs here only ever offers instruments
+// this chart can actually render, instead of a pick that immediately
+// errors with "Unsupported symbol". Strips a trailing ".P" (Binance
+// perpetual futures, same suffix convention as the main chart) before
+// checking, matching that endpoint's own _resolve_market.
+const ONCHART_ALLOWED_SYMBOLS = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT', 'DOGEUSDT'];
+function isOnChartSupportedSymbol(tradeSymbol: string): boolean {
+  const base = tradeSymbol.toUpperCase().endsWith('.P') ? tradeSymbol.slice(0, -2).toUpperCase() : tradeSymbol.toUpperCase();
+  return ONCHART_ALLOWED_SYMBOLS.includes(base);
+}
 
 type KlineInterval = '1m' | '5m' | '15m' | '30m' | '1h' | '4h' | '1d' | '1w';
 
@@ -227,6 +244,20 @@ export function PositionOnChartModal({
   onQuickTrade?: (trade: { direction: 'long' | 'short'; entryPrice: number; stopLoss: number; takeProfit: number }) => void;
 }) {
   const [interval, setInterval] = useState<KlineInterval>(mapTvIntervalToKlines(initialInterval));
+  // The symbol actually being CHARTED — starts as the caller's own
+  // `symbol` (the position's instrument) but can be pointed at any
+  // other pair via the "Pairs" quick-selector below, by direct request
+  // ("include the quick 'Pairs' in the 'on Chart' - so that there
+  // could be a quick selection of charts on that page"). Deliberately
+  // separate from `symbol` itself: `position`/`trade` (and everything
+  // derived from them — the Entry/SL/TP lines, the Position card, the
+  // Quick Trade tool) only ever describe the ORIGINAL `symbol`, so
+  // those stay gated on `activeSymbol === symbol` throughout this file
+  // rather than silently relabeling a different instrument's chart
+  // with this position's own levels.
+  const [activeSymbol, setActiveSymbol] = useState(symbol);
+  const isOriginalSymbol = activeSymbol === symbol;
+  const [pairsOpen, setPairsOpen] = useState(false);
   // The full fetched pool — up to POOL_SIZE candles, most-recent last
   // (order_flow.py's /klines already returns oldest-to-newest). `zoom`/
   // `pan` below slice a WINDOW out of this pool; nothing here refetches
@@ -331,6 +362,18 @@ export function PositionOnChartModal({
   const [drawShape, setDrawShape] = useState<'line' | 'box' | 'position' | null>(null);
   const [drawings, setDrawings] = useState<DrawnSegment[]>([]);
   const [inProgressDraw, setInProgressDraw] = useState<DrawnSegment | null>(null);
+  // Switching pairs mid-draw/mid-draft would leave an active tool (or
+  // an unfinished Quick Trade draft) pointed at candles that just got
+  // replaced out from under it — clear both, and fold the Position
+  // card, on every symbol change (including switching back to the
+  // original one, which starts clean too).
+  useEffect(() => {
+    setDrawShape(null);
+    setInProgressDraw(null);
+    setQuickTradeDraft(null);
+    setPositionOpen(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSymbol]);
 
   // Quick Trade — see this component's own QUICK TRADE docstring.
   // `quickTradeDraft` is the live (while dragging) or final (after
@@ -388,18 +431,18 @@ export function PositionOnChartModal({
       return { ...d, takeProfit };
     });
   }
-  const drawStorageKey = `petrazim.chartDrawings.${symbol}`;
+  const drawStorageKey = `petrazim.chartDrawings.${activeSymbol}`;
   useEffect(() => {
     try {
       const raw = localStorage.getItem(drawStorageKey);
       setDrawings(raw ? JSON.parse(raw) : []);
     } catch { setDrawings([]); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [symbol]);
+  }, [activeSymbol]);
   useEffect(() => {
     try { localStorage.setItem(drawStorageKey, JSON.stringify(drawings)); } catch { /* not fatal — just won't persist */ }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [drawings, symbol]);
+  }, [drawings, activeSymbol]);
   function clearDrawings() { setDrawings([]); }
 
   // Crosshair — by direct request ("add ... other standard charting
@@ -744,13 +787,13 @@ export function PositionOnChartModal({
   // sit visibly stale (last candle's close) even while the real
   // market has moved on. Reuses the same quick-price lookup the order
   // ticket itself uses, not a second implementation.
-  const { price: livePrice, refresh: refreshLivePrice } = useQuickPrice(symbol);
+  const { price: livePrice, refresh: refreshLivePrice } = useQuickPrice(activeSymbol);
   useEffect(() => {
     refreshLivePrice({ silent: true });
     const t = window.setInterval(() => refreshLivePrice({ silent: true }), LIVE_PRICE_REFRESH_MS);
     return () => window.clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [symbol]);
+  }, [activeSymbol]);
 
   useEffect(() => {
     let cancelled = false;
@@ -762,7 +805,7 @@ export function PositionOnChartModal({
     // above just re-slice it client-side with zero extra requests.
     setVisibleCount(DEFAULT_VISIBLE);
     setPanOffset(0);
-    orderFlowApi.getKlines(symbol, interval, POOL_SIZE)
+    orderFlowApi.getKlines(activeSymbol, interval, POOL_SIZE)
       .then((res) => {
         if (cancelled) return;
         setAllCandles(res.candles.map((c) => ({ time: c.time_ms, open: c.open, high: c.high, low: c.low, close: c.close })));
@@ -773,30 +816,46 @@ export function PositionOnChartModal({
         setError(formatApiError(detail, 'Live candle data isn\'t available for this symbol right now.'));
       });
     return () => { cancelled = true; };
-  }, [symbol, interval, retryTick]);
+  }, [activeSymbol, interval, retryTick]);
 
   const dirLabel = position?.direction === 'long' ? 'LONG' : 'SHORT';
   const pnlLabel = position?.pending
     ? 'Pending'
     : position?.unrealizedPnl != null ? `P/L ${formatSignedMoney(position.unrealizedPnl)}` : '';
+  // Position-derived lines (and the Quick Trade draft) only ever
+  // describe `symbol` — the position's own instrument — so they're
+  // hidden the moment "Pairs" points this chart at a different one;
+  // see `isOriginalSymbol`'s own comment above `activeSymbol`.
   const lines: ChartLine[] = [
-    ...(position ? [{ price: position.entryPrice, color: '#2962FF', dashed: true, label: `Entry ${dirLabel} ${position.entryPrice}${pnlLabel ? ` (${pnlLabel})` : ''}` }] : []),
-    ...(position?.stopLoss != null ? [{ price: position.stopLoss, color: '#EF5350', dashed: true, label: `SL ${position.stopLoss}` }] : []),
-    ...(position?.takeProfit1 != null ? [{ price: position.takeProfit1, color: '#26A69A', dashed: true, label: `TP1 ${position.takeProfit1}` }] : []),
-    ...(position?.takeProfit2 != null ? [{ price: position.takeProfit2, color: '#26A69A', dashed: true, label: `TP2 ${position.takeProfit2}` }] : []),
-    ...(position?.takeProfit3 != null ? [{ price: position.takeProfit3, color: '#26A69A', dashed: true, label: `TP3 ${position.takeProfit3}` }] : []),
+    ...(position && isOriginalSymbol ? [{ price: position.entryPrice, color: '#2962FF', dashed: true, label: `Entry ${dirLabel} ${position.entryPrice}${pnlLabel ? ` (${pnlLabel})` : ''}` }] : []),
+    ...(position?.stopLoss != null && isOriginalSymbol ? [{ price: position.stopLoss, color: '#EF5350', dashed: true, label: `SL ${position.stopLoss}` }] : []),
+    ...(position?.takeProfit1 != null && isOriginalSymbol ? [{ price: position.takeProfit1, color: '#26A69A', dashed: true, label: `TP1 ${position.takeProfit1}` }] : []),
+    ...(position?.takeProfit2 != null && isOriginalSymbol ? [{ price: position.takeProfit2, color: '#26A69A', dashed: true, label: `TP2 ${position.takeProfit2}` }] : []),
+    ...(position?.takeProfit3 != null && isOriginalSymbol ? [{ price: position.takeProfit3, color: '#26A69A', dashed: true, label: `TP3 ${position.takeProfit3}` }] : []),
     // Solid (not dashed) and a distinct amber, so it's unmistakably
     // "where price is right this second" versus the dashed reference
-    // levels above — refreshes every 15s while this stays open.
+    // levels above — refreshes every 15s while this stays open. Not
+    // gated on isOriginalSymbol: whatever pair you're currently
+    // viewing, its own live price is still correct and useful.
     ...(livePrice != null ? [{ price: livePrice, color: '#f59e0b', dashed: false, label: `Live ${livePrice}` }] : []),
     // Quick Trade draft — see quickTradeZones above for the matching
     // risk/reward brackets.
-    ...(quickTradeDraft ? [
+    ...(quickTradeDraft && isOriginalSymbol ? [
       { price: quickTradeDraft.entryPrice, color: '#2563eb', dashed: true, label: `Entry ${quickTradeDraft.direction.toUpperCase()} ${quickTradeDraft.entryPrice}` },
       { price: quickTradeDraft.stopLoss, color: '#ef4444', dashed: true, label: `SL ${quickTradeDraft.stopLoss}` },
       { price: quickTradeDraft.takeProfit, color: '#22c55e', dashed: true, label: `TP ${quickTradeDraft.takeProfit}` },
     ] : []),
   ];
+
+  // Same shared quick-links store every other chart's Pairs panel
+  // reads/writes — a pair picked here shows up everywhere else too.
+  // `selectedPair` falls back to a plain synthesized entry when
+  // `activeSymbol` isn't (yet) one of the saved quick-links, e.g. the
+  // very first render, before the position's OWN symbol has ever been
+  // added as a pill — PairsPanel only needs it for highlighting.
+  const { pairs: quickPairs } = useQuickPairsStore();
+  const selectedPair = quickPairs.find((p) => p.trade === activeSymbol)
+    ?? { label: activeSymbol, trade: activeSymbol, tv: activeSymbol };
 
   const overlayCls = localDark ? 'bg-black/90' : 'bg-white/95';
   const chromeTextCls = localDark ? 'text-white' : 'text-corporate-text-on-bg';
@@ -811,9 +870,28 @@ export function PositionOnChartModal({
     <div className={`fixed inset-0 z-[210] ${overlayCls} p-4 flex flex-col`}>
       <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
         <span className={`text-sm font-semibold ${chromeTextCls}`}>
-          {symbol} — {position ? 'price references on chart' : 'no open or pending order on this symbol'}
+          {activeSymbol}
+          {' — '}
+          {isOriginalSymbol
+            ? (position ? 'price references on chart' : 'no open or pending order on this symbol')
+            : 'browsing — Pairs to switch back'}
         </span>
         <div className="flex items-center gap-2 flex-wrap">
+          {/* Pairs — quick symbol switcher, by direct request ("include
+              the quick 'Pairs' in the 'on Chart' - so that there could
+              be a quick selection of charts on that page"). Same
+              PairsPanel every other chart uses; switching away from the
+              position's own `symbol` hides the Entry/SL/TP/Quick Trade
+              tooling below (see isOriginalSymbol) since those only ever
+              describe that one instrument. */}
+          <button
+            onClick={() => setPairsOpen((o) => !o)}
+            aria-label={pairsOpen ? 'Hide pairs and exchanges' : 'Show pairs and exchanges'}
+            title={pairsOpen ? 'Hide pairs and exchanges' : 'Pairs and exchanges'}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium ${pairsOpen ? 'bg-corporate-hero text-white' : `${chromeMutedCls} ${toggleWrapCls}`}`}
+          >
+            <CandlestickChart size={13} /> Pairs
+          </button>
           <div className="inline-flex items-center gap-1 rounded-full p-1">
             {KLINE_INTERVALS.map((i) => (
               <button
@@ -849,8 +927,9 @@ export function PositionOnChartModal({
               SL and TP levels ... you can edit or manage your trade
               orders in that chart"). Only rendered when a full Trade
               record was actually handed to this modal (see `trade`'s
-              own docstring above). */}
-          {trade && (
+              own docstring above) AND you're still looking at that
+              trade's own instrument — see isOriginalSymbol. */}
+          {trade && isOriginalSymbol && (
             <button
               onClick={() => setPositionOpen((o) => !o)}
               aria-label={positionOpen ? 'Hide position management' : 'Manage this position'}
@@ -908,7 +987,17 @@ export function PositionOnChartModal({
           </button>
         </div>
       </div>
-      {positionOpen && trade && (
+      {pairsOpen && (
+        <div className="mb-3">
+          <PairsPanel
+            selected={selectedPair}
+            onSelect={(p) => { setActiveSymbol(p.trade); setPairsOpen(false); }}
+            dark={localDark}
+            symbolFilter={isOnChartSupportedSymbol}
+          />
+        </div>
+      )}
+      {positionOpen && trade && isOriginalSymbol && (
         <div className="mb-3">
           <PositionManager trade={trade} dark={localDark} onChanged={onChanged} />
         </div>
@@ -962,11 +1051,16 @@ export function PositionOnChartModal({
           </button>
           {/* Quick Trade — Long/Short position tool, only rendered when
               the caller wired an order form up to receive it (see this
-              component's own QUICK TRADE / onQuickTrade docstrings).
-              Own accent color (not the shared corporate-hero pill) so
-              it reads as distinct from the annotation tools next to it
-              — this one places a real order draft, not a drawing. */}
-          {onQuickTrade && (
+              component's own QUICK TRADE / onQuickTrade docstrings) AND
+              you're viewing the position's own symbol — onQuickTrade's
+              own callback doesn't carry a symbol, so it always applies
+              to whatever the order form is already set to; offering it
+              while "Pairs" has switched this chart to a different
+              instrument would silently draft a trade against the wrong
+              one. Own accent color (not the shared corporate-hero pill)
+              so it reads as distinct from the annotation tools next to
+              it — this one places a real order draft, not a drawing. */}
+          {onQuickTrade && isOriginalSymbol && (
             <button
               onClick={togglePositionTool}
               aria-label={drawShape === 'position' ? 'Stop Quick Trade' : 'Quick Trade — drag from entry to stop'}

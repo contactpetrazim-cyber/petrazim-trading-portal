@@ -25,13 +25,25 @@ export function PairsPanel({
   selected,
   onSelect,
   dark = false,
+  symbolFilter,
 }: {
   selected: QuickPair;
   onSelect: (pair: QuickPair) => void;
   dark?: boolean;
+  /** Restricts BOTH the pinned pills and the "+" search results to
+   * pairs whose bare exchange-format ticker (e.g. "BTCUSDT") passes
+   * this check — by direct bug report on PositionOnChartModal's own
+   * "On Chart" view ("include the quick 'Pairs' in the 'on Chart'"):
+   * that view's chart is order_flow.py's own klines endpoint, a small
+   * fixed Binance-only allow-list (ALLOWED_SYMBOLS), not the full
+   * TradingView-backed universe every other Pairs panel can offer —
+   * picking a forex/index/stock pair there errored with "Unsupported
+   * symbol". Omit for every other caller, which can chart anything. */
+  symbolFilter?: (tradeSymbol: string) => boolean;
 }) {
   const { token } = useAuth();
-  const { pairs, addPair, removePair } = useQuickPairsStore();
+  const { pairs: allPairs, addPair, removePair } = useQuickPairsStore();
+  const pairs = symbolFilter ? allPairs.filter((p) => symbolFilter(p.trade)) : allPairs;
   const [searching, setSearching] = useState(false);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<{ symbol: string; exchange: string; description: string; type: string }[]>(
@@ -75,7 +87,10 @@ export function PairsPanel({
     return () => clearTimeout(t);
   }, [query, searching, token]);
 
+  const filteredResults = symbolFilter ? results.filter((r) => symbolFilter(r.symbol.toUpperCase())) : results;
+
   function pick(result: { symbol: string; exchange: string; description?: string }) {
+    if (symbolFilter && !symbolFilter(result.symbol.toUpperCase())) return;
     const pair = pairFromResult(result, ORDER_BROKERS);
     if (!pair) return;
     addPair(pair);
@@ -92,7 +107,7 @@ export function PairsPanel({
       if (exch && sym) pick({ symbol: sym, exchange: exch });
       return;
     }
-    if (results.length > 0) pick(results[0]);
+    if (filteredResults.length > 0) pick(filteredResults[0]);
   }
 
   return (
@@ -123,7 +138,7 @@ export function PairsPanel({
               )}
             </span>
           ))}
-          {pairs.length < MAX_QUICK_PAIRS && (
+          {allPairs.length < MAX_QUICK_PAIRS && (
             <button
               onClick={() => setSearching((v) => !v)}
               title="Add a pair quick-link"
@@ -150,7 +165,7 @@ export function PairsPanel({
             className={`w-full rounded-lg px-3 py-2 text-sm outline-none border ${dark ? 'bg-corporate-nav-dark border-corporate-border-dark text-white' : 'bg-white border-gray-200'}`}
           />
           <div className="mt-2 max-h-56 overflow-y-auto divide-y divide-black/5">
-            {results.map((r) => (
+            {filteredResults.map((r) => (
               <button
                 key={`${r.exchange}:${r.symbol}`}
                 onClick={() => pick(r)}
@@ -163,9 +178,9 @@ export function PairsPanel({
                 <span className={`text-[10px] uppercase shrink-0 ${dark ? 'text-white/30' : 'text-gray-400'}`}>{r.exchange}</span>
               </button>
             ))}
-            {results.length === 0 && (
+            {filteredResults.length === 0 && (
               <p className={`text-xs py-3 text-center ${dark ? 'text-white/40' : 'text-gray-400'}`}>
-                {remoteBusy ? 'Searching…' : 'Nothing matched — type an EXCHANGE:TICKER pair and press Enter.'}
+                {remoteBusy ? 'Searching…' : symbolFilter ? 'Nothing matched among the symbols this chart can show.' : 'Nothing matched — type an EXCHANGE:TICKER pair and press Enter.'}
               </p>
             )}
           </div>
