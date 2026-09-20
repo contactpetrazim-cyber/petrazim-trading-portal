@@ -262,6 +262,10 @@ function TradingViewChartBase({
     function createWidget() {
       // @ts-expect-error — TradingView attaches this global at runtime, no official types package
       if (cancelled || !window.TradingView || !containerRef.current) return;
+      // Whether this run is REPLACING a live widget (a symbol/interval/
+      // theme/etc change) vs. the very first mount — see the deferred
+      // mountWidget() call below for why this matters.
+      const hadPreviousWidget = widgetRef.current != null;
       destroyPreviousWidget();
       containerRef.current.innerHTML = '';
       containerId.current = `tv_chart_${Math.random().toString(36).slice(2)}`;
@@ -271,25 +275,51 @@ function TradingViewChartBase({
       chartDiv.style.width = '100%';
       containerRef.current.appendChild(chartDiv);
 
-      // @ts-expect-error — see above
-      const widget = new window.TradingView.widget({
-        autosize: true,
-        symbol,
-        interval,
-        timezone: 'Etc/UTC',
-        theme,
-        style: chartStyle,
-        locale: 'en',
-        enable_publishing: false,
-        allow_symbol_change: true,
-        hide_side_toolbar: false,
-        hide_top_toolbar: false,
-        withdateranges: true,
-        container_id: containerId.current,
-        overrides: buildOverrides(candleColors, chartStyle),
-        studies_overrides: buildStudiesOverrides(candleColors),
-      });
-      widgetRef.current = widget;
+      function mountWidget() {
+        // @ts-expect-error — see above
+        if (cancelled || !window.TradingView) return;
+        // @ts-expect-error — see above
+        const widget = new window.TradingView.widget({
+          autosize: true,
+          symbol,
+          interval,
+          timezone: 'Etc/UTC',
+          theme,
+          style: chartStyle,
+          locale: 'en',
+          enable_publishing: false,
+          allow_symbol_change: true,
+          hide_side_toolbar: false,
+          hide_top_toolbar: false,
+          withdateranges: true,
+          container_id: containerId.current,
+          overrides: buildOverrides(candleColors, chartStyle),
+          studies_overrides: buildStudiesOverrides(candleColors),
+        });
+        widgetRef.current = widget;
+      }
+
+      // CONFIRMED, still-recurring after the .remove()/fresh-container
+      // fix above (by direct bug report, with video: picking a
+      // different pair froze the chart on the OLD symbol's candles AND
+      // price feed — the "Chart symbol:" label and TradingView's own
+      // quote line both updated, but the actual chart pane never did).
+      // A replacement widget constructed in the SAME tick its
+      // predecessor's `.remove()` ran can race TradingView's own
+      // cross-origin iframe teardown / postMessage handshake — `.remove()`
+      // returning doesn't guarantee that handshake has actually finished
+      // before the next `new TradingView.widget()` call starts its own.
+      // One tick's grace before constructing the replacement is a
+      // standard, low-risk defensive pattern for exactly this class of
+      // "destroy+recreate too fast" third-party iframe bug. Only applied
+      // when actually replacing a widget — first mount (nothing to race
+      // against) still creates immediately, so initial chart load isn't
+      // delayed.
+      if (hadPreviousWidget) {
+        window.setTimeout(mountWidget, 60);
+      } else {
+        mountWidget();
+      }
     }
 
     const existingScript = document.getElementById('tradingview-widget-script');
