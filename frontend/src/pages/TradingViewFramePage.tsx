@@ -69,7 +69,7 @@ interface LayoutSummary {
 export function TradingViewFramePage() {
   const { token } = useAuth();
   const navigate = useNavigate();
-  const { colors, chartStyle, applyLocal, applyGlobal, resetLocal, resetGlobal } = useEffectiveChartColors();
+  const { colors, chartStyle, hydrated: colorsHydrated, applyLocal, applyGlobal, resetLocal, resetGlobal } = useEffectiveChartColors();
   const { pairs } = useQuickPairsStore();
   const [selectedTv, setSelectedTv] = useState<string>(pairs[0]?.tv);
   const selectedPair = pairs.find((p) => p.tv === selectedTv) ?? pairs[0];
@@ -361,7 +361,14 @@ export function TradingViewFramePage() {
           style={{ aspectRatio: '16/9' }}
         >
           {(mode === 'widget' || mode === 'workspace') && (
-            <TradingViewChart symbol={symbol.value} interval={interval.value} theme={frameTheme} candleColors={colors} chartStyle={chartStyle} />
+            colorsHydrated
+              ? <TradingViewChart symbol={symbol.value} interval={interval.value} theme={frameTheme} candleColors={colors} chartStyle={chartStyle} />
+              : (
+                <div className={`absolute inset-0 flex items-center justify-center text-sm ${frameDark ? 'text-white/40' : 'text-gray-400'}`}>
+                  <span className="inline-block w-3 h-3 mr-2 rounded-full border-2 border-current border-t-transparent animate-spin" />
+                  Loading chart…
+                </div>
+              )
           )}
 
           {mode === 'workspace' && savedViewsOpen && (

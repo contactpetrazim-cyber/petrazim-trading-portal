@@ -123,6 +123,22 @@ export function PositionLoadingCard({ dark }: { dark: boolean }) {
   );
 }
 
+/** Placeholder shown for the brief window before useEffectiveChartColors'
+ * `hydrated` flips true — see that hook's own docstring for why
+ * TradingViewChart must never mount before then (it would build the
+ * widget once with defaults, then again moments later with the real
+ * saved colors, and that second near-simultaneous construction is the
+ * confirmed root cause of TradingView rendering the wrong symbol on a
+ * bare page load). */
+function ChartHydratingPlaceholder({ dark }: { dark: boolean }) {
+  return (
+    <div className={`h-full w-full flex items-center justify-center text-sm ${dark ? 'text-white/40' : 'text-gray-400'}`}>
+      <span className="inline-block w-3 h-3 mr-2 rounded-full border-2 border-current border-t-transparent animate-spin" />
+      Loading chart…
+    </div>
+  );
+}
+
 /**
  * ChartPanel — the one reusable chart embed every page uses (Trade,
  * Learn/Practise/Explore area pages, Insights, Tools, the Trader
@@ -268,7 +284,7 @@ export function ChartPanel({
   // component's own top-level `symbol` prop directly (already the
   // real, exact EXCHANGE:TICKER on screen — no guessing needed).
   const resolvedTradeSymbol = position?.symbol ?? effectiveSpecsSymbol;
-  const { colors, chartStyle, applyLocal, applyGlobal, resetLocal, resetGlobal } = useEffectiveChartColors();
+  const { colors, chartStyle, hydrated: colorsHydrated, applyLocal, applyGlobal, resetLocal, resetGlobal } = useEffectiveChartColors();
   const { busy: quickPriceBusy, refresh: refreshQuickPrice } = useQuickPrice(effectiveSpecsSymbol || symbol);
 
   async function handleQuickPrice() {
@@ -406,8 +422,9 @@ export function ChartPanel({
           </div>
         )}
         <div className="flex-1 min-h-0 rounded-lg overflow-hidden">
-
-          <TradingViewChart symbol={symbol} interval={interval} theme={chartTheme} candleColors={colors} chartStyle={chartStyle} />
+          {colorsHydrated
+            ? <TradingViewChart symbol={symbol} interval={interval} theme={chartTheme} candleColors={colors} chartStyle={chartStyle} />
+            : <ChartHydratingPlaceholder dark />}
         </div>
         {onChartOpen && resolvedTradeSymbol && (
           <PositionOnChartModal
@@ -434,7 +451,9 @@ export function ChartPanel({
         </div>
       )}
       <div className={`rounded-lg overflow-hidden ${chartDark ? '' : 'border border-gray-200'}`} style={{ height }}>
-        <TradingViewChart symbol={symbol} interval={interval} theme={chartTheme} candleColors={colors} chartStyle={chartStyle} />
+        {colorsHydrated
+          ? <TradingViewChart symbol={symbol} interval={interval} theme={chartTheme} candleColors={colors} chartStyle={chartStyle} />
+          : <ChartHydratingPlaceholder dark={chartDark} />}
       </div>
       {onChartOpen && resolvedTradeSymbol && (
         <PositionOnChartModal

@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<!--
+  Standalone TradingView widget embed — loaded inside an <iframe> by
+  TradingViewChart.tsx rather than having that component construct the
+  widget directly in the TOP page's own JS realm.
+
+  CONFIRMED ROOT CAUSE (by direct, repeated bug report across several
+  prior "fixed" PRs — "the pairs issue is still not fixed", with video,
+  specifically on the Manual Trading page's chart): TradingView's free
+  `tv.js` embed keeps some internal, undocumented, page-scoped state
+  that "sticks" the FIRST symbol any widget on a page was constructed
+  with onto every SUBSEQUENT `new TradingView.widget()` call in that
+  same top-level JS realm — confirmed to survive destroying the old
+  widget via its own real `.remove()` method, wiping/recreating its DOM
+  container with a fresh id, deleting `window.TradingView` and
+  re-injecting a completely fresh `tv.js` `<script>` tag from scratch,
+  and clearing every localStorage/sessionStorage/Cache-Storage bucket
+  reachable from inside the widget's own iframe. None of that freed it.
+  What DOES reliably fix it (verified directly): a genuine browser
+  navigation — a brand new top-level JS realm — for each symbol. A full
+  page reload achieves that but throws away the rest of the app's
+  state; scoping that same "fresh realm per symbol" trick to just an
+  <iframe> that TradingView's widget lives inside, and switching
+  symbols by changing THAT iframe's `src` (a real navigation of just
+  that frame), reproduces the same fix without reloading the app around
+  it. This file is that iframe's document.
+-->
+<html>
+<head>
+<meta charset="utf-8" />
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden; }
+  #container { height: 100%; width: 100%; }
+</style>
+</head>
+<body>
+<div id="container"></div>
+<script src="https://s3.tradingview.com/tv.js"></script>
+<script>
+  var params = new URLSearchParams(window.location.search);
+  function readJson(name, fallback) {
+    var raw = params.get(name);
+    if (!raw) return fallback;
+    try { return JSON.parse(raw); } catch (e) { return fallback; }
+  }
+  var config = {
+    autosize: true,
+    symbol: params.get('symbol') || 'BINANCE:BTCUSDT',
+    interval: params.get('interval') || '60',
+    timezone: 'Etc/UTC',
+    theme: params.get('theme') || 'light',
+    style: params.get('style') || '1',
+    locale: 'en',
+    enable_publishing: false,
+    // Same reasoning as the old in-page construction this replaces:
+    // every page embedding this already has its own app-level symbol
+    // picker, so the widget's own redundant "remember what I searched"
+    // behavior isn't a capability actually lost by turning it off.
+    allow_symbol_change: false,
+    hide_side_toolbar: false,
+    hide_top_toolbar: false,
+    withdateranges: true,
+    container_id: 'container',
+    overrides: readJson('overrides', {}),
+    studies_overrides: readJson('studies_overrides', {}),
+  };
+
+  function mount() {
+    if (!window.TradingView) return;
+    new window.TradingView.widget(config);
+  }
+
+  if (document.readyState === 'complete') {
+    mount();
+  } else {
+    window.addEventListener('load', mount);
+  }
+</script>
+</body>
+</html>
