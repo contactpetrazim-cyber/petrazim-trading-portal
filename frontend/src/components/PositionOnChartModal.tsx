@@ -731,10 +731,19 @@ export function PositionOnChartModal({
 
   // Local-only theme/color overrides. Theme defaults to light always
   // (by direct instruction), independent of whatever the calling chart
-  // was showing; candle colors still start from the caller's own.
+  // was showing. Candle colors default to Monochrome (Optimised) — by
+  // direct request ("Use Monochrome (Optimised) as default for the on
+  // chart") — rather than inheriting the caller's own bullColor/
+  // bearColor: those are the main chart's colored candles, which
+  // otherwise visually compete with THIS view's own colored Entry/SL/
+  // TP/live-price reference lines (blue/red/green) — a neutral
+  // grayscale candle backdrop is what those lines were actually
+  // designed to stand out against. Still fully overridable via the
+  // Colors picker right here, including back to any of the caller's
+  // own colors if a trader wants that.
   const [localDark, setLocalDark] = useState(false);
-  const [localBull, setLocalBull] = useState(bullColor ?? '#22c55e');
-  const [localBear, setLocalBear] = useState(bearColor ?? '#ef4444');
+  const [localBull, setLocalBull] = useState('#94a3b8');
+  const [localBear, setLocalBear] = useState('#334155');
   const [colorPickerOpen, setColorPickerOpen] = useState(false);
 
   // Reserved empty space on the right for the always-right-anchored
