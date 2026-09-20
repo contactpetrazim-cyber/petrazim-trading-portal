@@ -32,10 +32,23 @@ export function TradeRow({ trade, onApprove, onReject, onCancel, onChanged, onAr
   // click into ever mounts.
   const [managing, setManaging] = useState(false);
   const isLong = trade.direction === 'long';
+
+  // Win / Loss / Breakeven — by direct request ("provide details of
+  // the trade - Entry, SL, TP, Closed price, Win, Loss or BE for every
+  // closed trade"). A realized_pnl of exactly 0 is a real, distinct
+  // outcome (breakeven), not a loss — the status pill, icon, and PnL
+  // figure below previously all treated "not a win" as red/loss,
+  // coloring a genuine breakeven trade the same as an actual loser.
+  const outcome: 'win' | 'loss' | 'be' | null = trade.status !== 'closed'
+    ? null
+    : trade.realized_pnl > 0 ? 'win' : trade.realized_pnl < 0 ? 'loss' : 'be';
+  const outcomeLabel = outcome === 'win' ? 'WIN' : outcome === 'loss' ? 'LOSS' : 'BE';
+  const outcomeColorCls = outcome === 'win' ? 'text-emerald-400' : outcome === 'loss' ? 'text-red-400' : 'text-amber-400';
+
   const statusColors: Record<string, string> = {
     pending: 'text-amber-400 bg-amber-400/10',
     active: 'text-blue-400 bg-blue-400/10',
-    closed: trade.realized_pnl > 0 ? 'text-emerald-400 bg-emerald-400/10' : 'text-red-400 bg-red-400/10',
+    closed: outcome === 'loss' ? 'text-red-400 bg-red-400/10' : outcome === 'be' ? 'text-amber-400 bg-amber-400/10' : 'text-emerald-400 bg-emerald-400/10',
     cancelled: 'text-gray-400 bg-gray-400/10',
   };
 
@@ -43,7 +56,7 @@ export function TradeRow({ trade, onApprove, onReject, onCancel, onChanged, onAr
     switch (trade.status) {
       case 'pending': return <Clock size={14} />;
       case 'active': return <AlertCircle size={14} />;
-      case 'closed': return trade.realized_pnl > 0 ? <CheckCircle size={14} /> : <XCircle size={14} />;
+      case 'closed': return outcome === 'loss' ? <XCircle size={14} /> : <CheckCircle size={14} />;
       default: return <Clock size={14} />;
     }
   };
@@ -94,8 +107,9 @@ export function TradeRow({ trade, onApprove, onReject, onCancel, onChanged, onAr
 
           {/* P&L — realized once closed, live unrealized while active */}
           {trade.status === 'closed' && (
-            <div className={`text-right font-mono font-bold ${trade.realized_pnl > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+            <div className={`text-right font-mono font-bold ${outcomeColorCls}`}>
               {trade.realized_pnl > 0 ? '+' : ''}{trade.realized_pnl.toFixed(2)}
+              <span className="block text-[10px] font-normal">{outcomeLabel}</span>
             </div>
           )}
           {trade.status === 'active' && (
@@ -179,6 +193,39 @@ export function TradeRow({ trade, onApprove, onReject, onCancel, onChanged, onAr
           </div>
         </div>
       </div>
+
+      {/* Closed-trade details — Entry, SL, TP, Closed price, Win/Loss/BE
+          — by direct request ("provide details of the trade ... for
+          every closed trade"). Own row, always visible (unlike the
+          Entry/SL/TP row above, which is `hidden md:flex` and so never
+          shows at all on a narrow card like the one in the bug
+          report), since a closed trade's history is exactly the case
+          where these numbers matter most and there's no live position
+          to fall back on managing instead. */}
+      {trade.status === 'closed' && (
+        <div className={`mt-3 pt-3 border-t grid grid-cols-2 sm:grid-cols-5 gap-x-3 gap-y-1.5 text-xs ${dark ? 'border-smc-border' : 'border-corporate-bg'}`}>
+          <div>
+            <span className="text-gray-500">Entry: </span>
+            <span className="font-mono">{trade.entry_price?.toFixed(5) ?? '—'}</span>
+          </div>
+          <div>
+            <span className="text-gray-500">SL: </span>
+            <span className="font-mono text-red-400">{trade.stop_loss.toFixed(5)}</span>
+          </div>
+          <div>
+            <span className="text-gray-500">TP: </span>
+            <span className="font-mono text-emerald-400">{trade.take_profit?.toFixed(5) ?? '—'}</span>
+          </div>
+          <div>
+            <span className="text-gray-500">Closed: </span>
+            <span className="font-mono">{trade.exit_price?.toFixed(5) ?? '—'}</span>
+          </div>
+          <div>
+            <span className="text-gray-500">Result: </span>
+            <span className={`font-semibold ${outcomeColorCls}`}>{outcomeLabel}</span>
+          </div>
+        </div>
+      )}
 
       {managing && (
         <div className="mt-3">
