@@ -874,7 +874,7 @@ export function ManualTradingPage() {
                 }`}
               >
                 <div className={`text-[11px] font-medium ${dark ? 'text-white/40' : 'text-gray-400'}`}>Sell</div>
-                <div className={`text-base font-bold ${direction === 'short' ? 'text-red-500' : dark ? 'text-white/70' : 'text-gray-700'}`}>{quickPrice != null ? quickPrice : '—'}</div>
+                <div className={`text-base font-bold ${direction === 'short' ? 'text-red-500' : dark ? 'text-white/70' : 'text-gray-700'}`}>{quickPrice != null ? quickPrice.toFixed(2) : '—'}</div>
               </button>
               <button
                 onClick={() => setDirection('long')}
@@ -883,7 +883,7 @@ export function ManualTradingPage() {
                 }`}
               >
                 <div className={`text-[11px] font-medium ${dark ? 'text-white/40' : 'text-gray-400'}`}>Buy</div>
-                <div className={`text-base font-bold ${direction === 'long' ? 'text-blue-500' : dark ? 'text-white/70' : 'text-gray-700'}`}>{quickPrice != null ? quickPrice : '—'}</div>
+                <div className={`text-base font-bold ${direction === 'long' ? 'text-blue-500' : dark ? 'text-white/70' : 'text-gray-700'}`}>{quickPrice != null ? quickPrice.toFixed(2) : '—'}</div>
               </button>
             </div>
 
@@ -1128,11 +1128,11 @@ export function ManualTradingPage() {
                   </div>
                   <div className="flex items-center justify-between text-sm">
                     <span className={dark ? 'text-white/50' : 'text-gray-500'}>Stop loss</span>
-                    <span className={`font-semibold ${dark ? 'text-white' : 'text-gray-900'}`}>{stopLoss || '—'}</span>
+                    <span className={`font-semibold ${dark ? 'text-white' : 'text-gray-900'}`}>{stopLoss && Number.isFinite(Number(stopLoss)) ? Number(stopLoss).toFixed(2) : '—'}</span>
                   </div>
                   <div className="flex items-center justify-between text-sm">
                     <span className={dark ? 'text-white/50' : 'text-gray-500'}>Distance to stop</span>
-                    <span className={`font-semibold ${dark ? 'text-white' : 'text-gray-900'}`}>{perUnitRisk > 0 ? perUnitRisk.toFixed(4) : '—'}</span>
+                    <span className={`font-semibold ${dark ? 'text-white' : 'text-gray-900'}`}>{perUnitRisk > 0 ? perUnitRisk.toFixed(2) : '—'}</span>
                   </div>
                   <div className="flex items-center justify-between text-sm">
                     <span className={dark ? 'text-white/50' : 'text-gray-500'}>Risk amount</span>

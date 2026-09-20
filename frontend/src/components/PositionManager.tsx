@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
 import { Pencil, X, Check, Scissors, AlertCircle, Ban, LineChart } from 'lucide-react';
@@ -50,6 +50,21 @@ export function PositionManager({ trade, dark = false, onChanged }: { trade: Tra
 
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const { price: livePrice, refresh: refreshLivePrice } = useQuickPrice(trade.symbol);
+  // Real current price, polled every 15s — by direct request ("include
+  // current price in position form"). `livePrice` was already fetched
+  // by this component, but only ever as a silent default for the Close
+  // form's price field; never actually shown to the trader. Most
+  // useful on a still-PENDING order, where there's no unrealized P&L
+  // yet to back an "implied" price out of (see impliedPrice below) —
+  // this is how a trader gauges how far the market still has to move
+  // to reach the trigger. Same 15s cadence PositionOnChartModal's own
+  // live-price line already uses.
+  useEffect(() => {
+    refreshLivePrice({ silent: true });
+    const t = window.setInterval(() => refreshLivePrice({ silent: true }), 15_000);
+    return () => window.clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trade.symbol]);
 
   // By direct bug report ("no menu to review trade order statistics
   // or update or manage trades") — the two trades in that report were
@@ -230,19 +245,29 @@ export function PositionManager({ trade, dark = false, onChanged }: { trade: Tra
   return (
     <div className={cardCls}>
       {/* Stats row — the "dashboard" half of the request. A pending
-          order has no mark price/P&L/R-multiple yet (it hasn't filled),
-          so those three swap for a plain "Pending" status instead of
-          showing fabricated numbers computed off a $0 P&L. */}
+          order has no P&L/R-multiple yet (it hasn't filled), so those
+          swap for a plain "Pending" status instead of showing
+          fabricated numbers computed off a $0 P&L — but a real current
+          price (Current Price, below) IS available and shown either
+          way, by direct request ("include current price in position
+          form"), so a trader can see how close the market is to the
+          trigger. */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div>
           <div className={labelCls}>{isPending ? 'Trigger price' : 'Entry'}</div>
           <div className={statCls}>{entry ? entry.toFixed(2) : '—'}</div>
         </div>
         {isPending ? (
-          <div>
-            <div className={labelCls}>Status</div>
-            <div className="text-sm font-mono font-semibold text-amber-500">Pending — not filled yet</div>
-          </div>
+          <>
+            <div>
+              <div className={labelCls}>Status</div>
+              <div className="text-sm font-mono font-semibold text-amber-500">Pending — not filled yet</div>
+            </div>
+            <div>
+              <div className={labelCls}>Current Price</div>
+              <div className={statCls}>{livePrice != null ? livePrice.toFixed(2) : '—'}</div>
+            </div>
+          </>
         ) : (
           <>
             <div>
