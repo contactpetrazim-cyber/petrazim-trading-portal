@@ -71,9 +71,12 @@ function PasswordToggleButton({ shown, onClick, dark }: { shown: boolean; onClic
  */
 export function LoginPage() {
   const [searchParams] = useSearchParams();
-  // ?mode=register — ProgrammeStepsModal's step-1 "Go" lands straight
-  // on the Register tab instead of Sign In, by direct request.
-  const [mode, setMode] = useState<Mode>(searchParams.get('mode') === 'register' ? 'register' : 'signin');
+  // Register is the default tab — by direct request. ?mode=signin still
+  // lands straight on Sign In (e.g. a future "session expired, sign
+  // back in" link), and ?mode=register is kept too, though it's now
+  // redundant with the default — ProgrammeStepsModal's step-1 "Go" set
+  // it explicitly before Register was the default.
+  const [mode, setMode] = useState<Mode>(searchParams.get('mode') === 'signin' ? 'signin' : 'register');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
@@ -85,6 +88,13 @@ export function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Distinct from `error` — guidance, not a failure. Set when Register
+  // hits a 409 (email already has an account) and auto-flips to Sign
+  // In, by direct request ("If the user has already registered -
+  // automatically flip to sign in and put a message"). Kept separate
+  // from the red `error` text so "you're already registered" doesn't
+  // read as something having gone wrong.
+  const [info, setInfo] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   // The free-tier backend sleeps after idle and can take up to ~90s to
   // wake. A single sign-in attempt landing mid-wake was the real cause
@@ -102,6 +112,7 @@ export function LoginPage() {
   function switchMode(next: Mode) {
     setMode(next);
     setError(null);
+    setInfo(null);
   }
 
   async function handlePostLogin(data: { access_token: string; user: any }) {
@@ -167,8 +178,15 @@ export function LoginPage() {
         body: JSON.stringify({ email, password, full_name: fullName, phone: phone || null }),
       }, setPhase);
       if (!res.ok) {
+        if (res.status === 409) {
+          // Already has an account — flip to Sign In with a guidance
+          // message rather than leaving them stuck re-submitting a
+          // Register form that can only ever fail the same way.
+          switchMode('signin');
+          setInfo('User registered, please Sign in');
+          return;
+        }
         const body = await res.json().catch(() => ({}));
-        if (res.status === 409) throw new Error('An account with this email already exists — sign in instead.');
         throw new Error(formatApiError(body.detail, 'Registration failed'));
       }
 
@@ -279,6 +297,7 @@ export function LoginPage() {
             {loading && (phase === 'loading' || phase === 'stalled') && (
               <div className="mb-4 flex justify-center"><LoadingIndicator phase={phase} dark={dark} /></div>
             )}
+            {info && <p className="text-sm text-corporate-hero mb-4">{info}</p>}
             {error && <p className="text-sm text-red-500 mb-4">{error}</p>}
 
             <button
