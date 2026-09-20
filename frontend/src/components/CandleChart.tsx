@@ -151,6 +151,7 @@ export function CandleChart({
   dark = false,
   bullColor = '#22c55e',
   bearColor = '#ef4444',
+  rightMargin = 0,
 }: {
   candles: Candle[];
   zones?: ChartZone[];
@@ -164,6 +165,19 @@ export function CandleChart({
   dark?: boolean;
   bullColor?: string;
   bearColor?: string;
+  /** Reserved empty space on the right, sized in candle-slot units (0
+   * = candles fill the full width, the old behavior — every existing
+   * caller keeps that unless it opts in). By direct bug report/request
+   * ("make about 10 candles on the right side free space to allow for
+   * the text boxes and entry, SL, TP boxes ... not allow items on the
+   * right to overlap"): `lines`' own labels are always right-anchored
+   * (see the label overlay below), so a level near the current price —
+   * exactly where price action usually sits, at the right edge — had
+   * nothing but real candles to render its label over. Computed as
+   * EXTRA slots added to the denominator, not a wider padRight, so
+   * real candles keep their existing width/spacing; they just stop
+   * short of the right edge instead of being squeezed thinner. */
+  rightMargin?: number;
 }) {
   if (candles.length === 0) return null;
 
@@ -174,7 +188,7 @@ export function CandleChart({
   const { yTop, yBottom } = computeChartRange(candles, zones, lines, markers);
   const yRange = yTop - yBottom;
 
-  const slotWidth = plotWidth / candles.length;
+  const slotWidth = plotWidth / (candles.length + Math.max(0, rightMargin));
   const bodyWidth = slotWidth * 0.62;
 
   function x(index: number): number {

@@ -661,6 +661,51 @@ export function PositionOnChartModal({
   const [localBear, setLocalBear] = useState(bearColor ?? '#ef4444');
   const [colorPickerOpen, setColorPickerOpen] = useState(false);
 
+  // Reserved empty space on the right for the always-right-anchored
+  // Entry/SL/TP/live-price labels (and the Quick Trade confirm card)
+  // to sit over instead of real candles — by direct bug report, with
+  // screenshot ("make about 10 candles on the right side free space
+  // ... provide a drag line that can define the limit"). Starts at a
+  // reasonable default (about 10 candle-slots); the drag handle below
+  // lets a trader shrink it back toward 0 if they'd rather have the
+  // candles fill the space instead.
+  const [rightMargin, setRightMargin] = useState(10);
+  const MAX_RIGHT_MARGIN = 40;
+
+  /** Drag-to-resize the right margin — native window listeners (not
+   * React's onPointerMove/Up) so the drag keeps tracking even if the
+   * pointer leaves the small handle element itself mid-drag, same
+   * "don't lose the gesture" reasoning as the main pan/pinch/draw
+   * system below, just scoped to this one handle rather than the
+   * whole chart pane. stopPropagation on pointerdown keeps this from
+   * also being interpreted as a pan/draw gesture on chartPaneRef. */
+  function onRightMarginHandlePointerDown(e: React.PointerEvent) {
+    e.stopPropagation();
+    e.preventDefault();
+    const box = chartBoxRef.current;
+    const count = candles?.length ?? 0;
+    if (!box || count === 0) return;
+    const rect = box.getBoundingClientRect();
+    const { width, padLeft, padRight } = CHART_LAYOUT;
+    const plotWidth = width - padLeft - padRight;
+    const startX = e.clientX;
+    const startMargin = rightMargin;
+    function onMove(ev: PointerEvent) {
+      // Recomputed every move (not just once) — the slot width itself
+      // changes as the margin changes mid-drag, so a fixed conversion
+      // factor would drift from what's actually on screen.
+      const pxPerSlot = (rect.width / width) * (plotWidth / (count + startMargin));
+      const deltaSlots = Math.round((startX - ev.clientX) / Math.max(1, pxPerSlot));
+      setRightMargin(Math.max(0, Math.min(MAX_RIGHT_MARGIN, startMargin + deltaSlots)));
+    }
+    function onUp() {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    }
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  }
+
   // Live "where is price right now" line — the candles above only
   // update on the next full refetch, so without this the chart can
   // sit visibly stale (last candle's close) even while the real
@@ -951,9 +996,47 @@ export function PositionOnChartModal({
             <div ref={chartBoxRef}>
               <CandleChart
                 candles={candles} lines={lines} zones={quickTradeZones} overlaySeries={maSeries} drawings={visibleDrawings}
-                height={CHART_HEIGHT} dark={localDark} bullColor={localBull} bearColor={localBear}
+                height={CHART_HEIGHT} dark={localDark} bullColor={localBull} bearColor={localBear} rightMargin={rightMargin}
               />
             </div>
+            {/* Right-margin drag handle — by direct request ("provide a
+                drag line that can define the limit of the candle
+                display to the right so that you can make room and not
+                allow items on the right to overlap"). Positioned at the
+                exact same boundary CandleChart itself computes between
+                real candles and the reserved margin (see this
+                component's own rightMargin state comment). w-4 hit
+                target (wider than the 1px visual line) so it's easy to
+                grab on touch; stopPropagation in the handler keeps a
+                drag here from also being read as a pan/draw gesture. */}
+            {candles.length > 0 && (() => {
+              // Same boundary math as CandleChart's own internal x(candles.length)
+              // — the exact pixel line real candles stop and reserved
+              // margin begins. Wrapped in the SAME `inset-3` box the
+              // crosshair overlay uses (matching chartBoxRef's own
+              // padded content area) so this percentage lines up with
+              // what's actually rendered, not chartPaneRef's outer
+              // padding box.
+              const { width: vbWidth, padLeft, padRight } = CHART_LAYOUT;
+              const plotWidth = vbWidth - padLeft - padRight;
+              const slotWidth = plotWidth / (candles.length + rightMargin);
+              const dividerXPct = ((padLeft + slotWidth * candles.length) / vbWidth) * 100;
+              return (
+                <div className="absolute inset-3 pointer-events-none">
+                  <div
+                    onPointerDown={onRightMarginHandlePointerDown}
+                    role="separator"
+                    aria-orientation="vertical"
+                    aria-label="Resize reserved space for price labels"
+                    title="Drag to resize the reserved space for Entry/SL/TP labels"
+                    className="absolute top-0 bottom-0 w-4 -ml-2 cursor-ew-resize group pointer-events-auto"
+                    style={{ left: `${dividerXPct}%` }}
+                  >
+                    <div className={`absolute inset-y-0 left-1/2 -translate-x-1/2 w-px transition-colors ${localDark ? 'bg-white/15 group-hover:bg-white/50' : 'bg-black/10 group-hover:bg-black/40'}`} />
+                  </div>
+                </div>
+              );
+            })()}
             {/* Crosshair guide + OHLC readout — by direct request ("add
                 ... other standard charting tools"). Vertical guide at
                 the hovered candle; readout pinned top-left so it never
