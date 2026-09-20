@@ -288,7 +288,24 @@ function TradingViewChartBase({
           style: chartStyle,
           locale: 'en',
           enable_publishing: false,
-          allow_symbol_change: true,
+          // STILL BROKEN with `true`, confirmed by direct re-report
+          // after the .remove()/timing fixes above (still not fixed on
+          // the trade chart, only the backend-driven On Chart view
+          // which isn't this widget at all). Both those fixes assumed a
+          // JS-side race; this app has zero programmatic control over
+          // what's actually wrong inside TradingView's own free
+          // widget, but `allow_symbol_change` is TradingView's own
+          // documented trigger for it to remember and restore the last
+          // MANUALLY-searched symbol across re-initializations — which
+          // fights directly against this app's own `symbol` prop the
+          // moment a trader has ever typed into the widget's own
+          // internal search box once. Turned off: every page that
+          // embeds this component already has its own app-level
+          // symbol picker (PairsPanel, with its own real
+          // TradingView-backed search) that does the same job without
+          // that persistence, so the widget's own redundant search
+          // isn't a capability actually lost.
+          allow_symbol_change: false,
           hide_side_toolbar: false,
           hide_top_toolbar: false,
           withdateranges: true,
