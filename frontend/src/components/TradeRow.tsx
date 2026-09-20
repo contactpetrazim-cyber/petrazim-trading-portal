@@ -189,9 +189,12 @@ export function TradeRow({ trade, onApprove, onReject, onCancel, onChanged, onAr
             </button>
           )}
 
-          {/* Time */}
-          <div className="text-xs text-gray-500 hidden lg:block">
-            {formatDistanceToNow(new Date(trade.created_at), { addSuffix: true })}
+          {/* Time — relative, plus the exact date and time underneath,
+              by direct request ("include date and time ... in the
+              trades form"). */}
+          <div className="text-xs text-gray-500 hidden lg:block text-right">
+            <div>{formatDistanceToNow(new Date(trade.created_at), { addSuffix: true })}</div>
+            <div className="text-[10px] text-gray-400 font-mono mt-0.5">{new Date(trade.created_at).toLocaleString()}</div>
           </div>
         </div>
       </div>

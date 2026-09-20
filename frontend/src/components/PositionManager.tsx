@@ -285,9 +285,18 @@ export function PositionManager({ trade, dark = false, onChanged }: { trade: Tra
         )}
         <div>
           <div className={labelCls}>{isPending ? 'Placed' : 'Open'}</div>
+          {/* Relative time on its own, plus the exact date and time
+              underneath — by direct request ("include date and time
+              ... in the position form"). "About 5 hours" alone doesn't
+              say WHEN, which matters for reviewing a trade later. */}
           <div className={statCls}>
             {trade.entry_timestamp || trade.created_at ? formatDistanceToNow(new Date(trade.entry_timestamp || trade.created_at), { addSuffix: false }) : '—'}
           </div>
+          {(trade.entry_timestamp || trade.created_at) && (
+            <div className={`text-[11px] font-mono mt-0.5 ${dark ? 'text-white/30' : 'text-gray-400'}`}>
+              {new Date(trade.entry_timestamp || trade.created_at).toLocaleString()}
+            </div>
+          )}
         </div>
         <div>
           <div className={labelCls}>Size</div>
