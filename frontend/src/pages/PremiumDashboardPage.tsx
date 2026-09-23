@@ -7,6 +7,7 @@ import {
 import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 import { StatCard } from '../components/StatCard';
 import { TodayTradeBreakdownPills } from '../components/TodayTradeBreakdownPills';
+import { ActivePositionsMetrics } from '../components/ActivePositionsMetrics';
 import { TradeRow } from '../components/TradeRow';
 import { FoldedCard } from '../components/FoldedCard';
 import { ChartWithPairs } from '../components/ChartWithPairs';
@@ -59,6 +60,7 @@ export function PremiumDashboardPage() {
   const [equity, setEquity] = useState<EquityPoint[]>([]);
   const [pending, setPending] = useState<Trade[]>([]);
   const [recent, setRecent] = useState<Trade[]>([]);
+  const [activeTrades, setActiveTrades] = useState<Trade[]>([]);
   const [bots, setBots] = useState<BotConfig[]>([]);
   const [performance, setPerformance] = useState<Record<string, BotPerformance>>({});
   const [learning, setLearning] = useState<LearningStats | null>(null);
@@ -67,17 +69,19 @@ export function PremiumDashboardPage() {
 
   async function loadOnce(): Promise<boolean> {
     try {
-      const [statsData, curve, pendingApprovals, trades, botList] = await Promise.all([
+      const [statsData, curve, pendingApprovals, trades, activeList, botList] = await Promise.all([
         dashboardApi.getStats(),
         dashboardApi.getEquityCurve(30),
         tradesApi.getPendingApprovals(),
         tradesApi.getTrades({ limit: 6 }),
+        tradesApi.getTrades({ status: 'active', limit: 8 }),
         botsApi.getBots(),
       ]);
       setStats(statsData);
       setEquity(curve);
       setPending(pendingApprovals);
       setRecent(trades);
+      setActiveTrades(activeList);
       setBots(botList);
 
       const perfEntries = await Promise.all(
@@ -174,7 +178,9 @@ export function PremiumDashboardPage() {
         </StatCard>
         <StatCard title="Daily P&L" value={`$${stats?.daily_pnl?.toFixed(2) ?? '0.00'}`} subtitle="Net realized profit" icon={<DollarSign size={20} />} color={(stats?.daily_pnl ?? 0) >= 0 ? 'green' : 'red'} />
         <StatCard title="Daily Drawdown" value={`$${stats?.current_drawdown?.toFixed(2) ?? '0.00'}`} subtitle="Decline from today's high" icon={<TrendingDown size={20} />} color={(stats?.current_drawdown ?? 0) > 0 ? 'amber' : 'blue'} />
-        <StatCard title="Active Trades" value={stats?.active_trades ?? 0} subtitle="Currently in market" icon={<Target size={20} />} color="purple" />
+        <StatCard title="Active Trades" value={stats?.active_trades ?? 0} subtitle="Currently in market" icon={<Target size={20} />} color="purple">
+          <ActivePositionsMetrics trades={activeTrades} />
+        </StatCard>
         <StatCard title="Configured Risk" value={`${openRisk.toFixed(2)}%`} subtitle={`${bots.length} bot${bots.length === 1 ? '' : 's'} configured`} icon={<Gauge size={20} />} color="amber" />
       </div>
 

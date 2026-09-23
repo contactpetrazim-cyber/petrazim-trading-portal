@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { StatCard } from '../components/StatCard';
 import { TodayTradeBreakdownPills } from '../components/TodayTradeBreakdownPills';
+import { ActivePositionsMetrics } from '../components/ActivePositionsMetrics';
 import { TradeRow } from '../components/TradeRow';
 import { FoldedCard } from '../components/FoldedCard';
 import { ChartWithPairs } from '../components/ChartWithPairs';
@@ -49,6 +50,7 @@ export function DashboardPage() {
   const [equityData, setEquityData] = useState<EquityPoint[]>([]);
   const [pending, setPending] = useState<Trade[]>([]);
   const [recentTrades, setRecentTrades] = useState<Trade[]>([]);
+  const [activeTrades, setActiveTrades] = useState<Trade[]>([]);
   const [bots, setBots] = useState<BotConfig[]>([]);
   const [performance, setPerformance] = useState<Record<string, BotPerformance>>({});
   const [loading, setLoading] = useState(true);
@@ -62,17 +64,19 @@ export function DashboardPage() {
    * scheduled 30s refresh. */
   async function loadData(): Promise<boolean> {
     try {
-      const [statsData, curve, pendingApprovals, trades, botList] = await Promise.all([
+      const [statsData, curve, pendingApprovals, trades, activeList, botList] = await Promise.all([
         dashboardApi.getStats(),
         dashboardApi.getEquityCurve(30),
         tradesApi.getPendingApprovals(),
         tradesApi.getTrades({ limit: 5 }),
+        tradesApi.getTrades({ status: 'active', limit: 8 }),
         botsApi.getBots(),
       ]);
       setStats(statsData);
       setEquityData(curve);
       setPending(pendingApprovals);
       setRecentTrades(trades);
+      setActiveTrades(activeList);
       setBots(botList);
 
       const perfEntries = await Promise.all(
@@ -204,7 +208,9 @@ export function DashboardPage() {
           subtitle="Currently in market"
           icon={<Target size={20} />}
           color="purple" dark={dark}
-        />
+        >
+          <ActivePositionsMetrics trades={activeTrades} />
+        </StatCard>
         <StatCard
           title="Pending Approvals"
           value={stats?.pending_approvals || 0}
