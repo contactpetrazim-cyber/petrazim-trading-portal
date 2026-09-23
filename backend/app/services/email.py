@@ -48,6 +48,18 @@ DEFAULT_FROM_ADDRESS = "Petrazim <onboarding@resend.dev>"
 # via EMAIL_LOGO_URL for a staging/preview build without editing code.
 DEFAULT_LOGO_URL = "https://trade.petrazim.online/petrazim-logo.jpg"
 
+# Portal's own characteristic blue (frontend/tailwind.config.js's
+# corporate.hero / config/theme.ts's HERO_GRADIENT middle stop) — by
+# direct request ("use the characteristic blue theme colour of the
+# portal to be consistent"), replacing the earlier dark-navy header so
+# every email reads as visually the same brand as the portal itself.
+BRAND_BLUE = "#005FB8"
+BRAND_GRADIENT = "linear-gradient(105deg, #003876 0%, #005FB8 50%, #00829B 100%)"
+
+# 60pt at the standard 96dpi CSS/email conversion (60 * 96/72) — by
+# direct request ("Petrazim logo 60pt").
+LOGO_WIDTH_PX = 80
+
 BAND_TIME_LABEL = {"am": "Morning", "afternoon": "Afternoon", "evening": "Evening"}
 
 
@@ -67,8 +79,8 @@ def render_html_email(preheader: str, body_html: str, cta: Optional[Tuple[str, s
         label, url = cta
         cta_html = f"""
         <tr><td style="padding:0 32px 8px;" align="center">
-          <a href="{url}" style="display:inline-block;background:#0b1220;color:#ffffff;text-decoration:none;
-            font-weight:bold;font-size:14px;padding:12px 28px;border-radius:8px;">{label}</a>
+          <a href="{url}" style="display:inline-block;background-color:{BRAND_BLUE};background-image:{BRAND_GRADIENT};
+            color:#ffffff;text-decoration:none;font-weight:bold;font-size:14px;padding:12px 28px;border-radius:8px;">{label}</a>
         </td></tr>"""
 
     return f"""<!DOCTYPE html>
@@ -80,16 +92,17 @@ def render_html_email(preheader: str, body_html: str, cta: Optional[Tuple[str, s
     <tr><td align="center">
       <table width="480" cellpadding="0" cellspacing="0" role="presentation"
         style="background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e5e7eb;max-width:480px;width:100%;">
-        <tr><td style="background:#0b1220;padding:24px 32px;text-align:center;">
-          <img src="{_logo_url()}" alt="Petrazim Solutions Ltd" width="220"
-            style="display:block;margin:0 auto;max-width:220px;height:auto;border:0;" />
+        <tr><td style="background-color:{BRAND_BLUE};background-image:{BRAND_GRADIENT};padding:24px 32px;text-align:center;">
+          <img src="{_logo_url()}" alt="Petrazim Solutions Ltd" width="{LOGO_WIDTH_PX}"
+            style="display:block;margin:0 auto;max-width:{LOGO_WIDTH_PX}px;height:auto;border:0;" />
         </td></tr>
         <tr><td style="padding:32px 32px 16px;color:#111827;font-size:14px;line-height:1.6;">
           {body_html}
         </td></tr>
         {cta_html}
         <tr><td style="padding:24px 32px 20px;"></td></tr>
-        <tr><td style="padding:16px 32px;background:#f9fafb;text-align:center;color:#9ca3af;font-size:11px;">
+        <tr><td style="padding:16px 32px;background:#f9fafb;text-align:center;color:#9ca3af;font-size:11px;
+          border-top:2px solid {BRAND_BLUE};">
           Petrazim Solutions Ltd &middot; This is an automated message from the Petrazim Trading Portal.
         </td></tr>
       </table>
@@ -124,7 +137,7 @@ def build_cycle_confirmation_email(trainee_name: str, sessions: List[ScheduledSe
         lines.append("")
         rows_html.append(f"""
           <div style="margin:16px 0;padding:16px;background:#f4f4f7;border-radius:8px;">
-            <a href="{s.jitsi_room_url}" style="display:inline-block;background:#0b1220;color:#ffffff;
+            <a href="{s.jitsi_room_url}" style="display:inline-block;background-color:{BRAND_BLUE};background-image:{BRAND_GRADIENT};color:#ffffff;
               text-decoration:none;font-weight:bold;font-size:13px;padding:10px 20px;border-radius:6px;margin-bottom:8px;">
               Join the meeting</a>
             <p style="margin:10px 0 0;font-size:13px;color:#374151;">
