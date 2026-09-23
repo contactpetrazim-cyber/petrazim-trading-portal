@@ -221,7 +221,9 @@ export function ManualTradingPage() {
   const [showExtraTargets, setShowExtraTargets] = useState(false);
   const [accountEquity, setAccountEquity] = useState('10000');
   const [riskMode, setRiskMode] = useState<'dollar' | 'percent'>('dollar');
-  const [riskAmount, setRiskAmount] = useState('100');
+  // $10 default — by direct request ("Make default Risk (USD) equal
+  // to $10 not $100").
+  const [riskAmount, setRiskAmount] = useState('10');
   const [riskPercent, setRiskPercent] = useState('1');
   // Each exit field can be driven by a typed PRICE (default) or a
   // typed $ amount that back-calculates the price — see
