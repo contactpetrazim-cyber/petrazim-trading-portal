@@ -57,8 +57,8 @@ class MacroSwingStructureBot:
     """
 
     def __init__(self, config: Dict):
-        self.bot_id = "bot_1_macro_swing"
-        self.bot_name = "Pure Macro Swing Structure"
+        self.bot_id = config.get("bot_id", "bot_1_macro_swing")
+        self.bot_name = config.get("bot_name", "Pure Macro Swing Structure")
         self.config = config
         self.structure_detector = MarketStructureDetector(left_bars=5, right_bars=5)
         self.entry_engine = EntryExitEngine(default_rr=5.0)
@@ -209,8 +209,8 @@ class OrderBlockReversalBot:
     """
 
     def __init__(self, config: Dict):
-        self.bot_id = "bot_2_ob_reversal"
-        self.bot_name = "HF Order Block Reversal"
+        self.bot_id = config.get("bot_id", "bot_2_ob_reversal")
+        self.bot_name = config.get("bot_name", "HF Order Block Reversal")
         self.config = config
         self.structure_detector = MarketStructureDetector(left_bars=3, right_bars=3)
         self.entry_engine = EntryExitEngine(default_rr=3.0)
@@ -343,8 +343,8 @@ class FVGExpansionBot:
     """
 
     def __init__(self, config: Dict):
-        self.bot_id = "bot_3_fvg_expansion"
-        self.bot_name = "FVG Expansion & Fill"
+        self.bot_id = config.get("bot_id", "bot_3_fvg_expansion")
+        self.bot_name = config.get("bot_name", "FVG Expansion & Fill")
         self.config = config
         self.structure_detector = MarketStructureDetector()
         self.entry_engine = EntryExitEngine(default_rr=4.0)
@@ -459,8 +459,8 @@ class VolumeLiquidityBot:
     """
 
     def __init__(self, config: Dict):
-        self.bot_id = "bot_4_volume_liq"
-        self.bot_name = "Volume & Liquidity Sweep"
+        self.bot_id = config.get("bot_id", "bot_4_volume_liq")
+        self.bot_name = config.get("bot_name", "Volume & Liquidity Sweep")
         self.config = config
         self.structure_detector = MarketStructureDetector(left_bars=5, right_bars=3)
         self.entry_engine = EntryExitEngine(default_rr=3.0)
@@ -624,8 +624,8 @@ class JeafxSMCBot:
     """
 
     def __init__(self, config: Dict):
-        self.bot_id = "bot_5_jeafx"
-        self.bot_name = "SMC BOT"
+        self.bot_id = config.get("bot_id", "bot_5_jeafx")
+        self.bot_name = config.get("bot_name", "SMC BOT")
         self.config = config
         self.structure_detector = MarketStructureDetector(left_bars=3, right_bars=2)
         self.entry_engine = EntryExitEngine(default_rr=4.0)
@@ -775,65 +775,72 @@ class JeafxSMCBot:
 # BOT ORCHESTRATOR
 # =============================================================================
 
-class BotOrchestrator:
-    """Manages all 5 bots and routes signals to execution."""
+# Which real engine class implements each of the 5 fixed strategies —
+# by direct request ("increase the number of Bots that can be created
+# - there could be repeats of specific type of Bots....( Within the 5)
+# - there should not be limits to the number of Bots that can be
+# created - just like no limits on the number of positions"). Keyed by
+# `strategy_engine` (BotConfig's own new column — see that model's
+# comment) rather than `bot_id`: `bot_id` used to BE the engine
+# selector 1:1, which is exactly what capped this at 5 total bots ever
+# — a BotConfig row's own bot_id is now a free, per-row-unique
+# identifier, and `strategy_engine` is the (still fixed-to-5) choice of
+# which real engine logic backs it, so N rows can share one engine.
+STRATEGY_ENGINES: Dict[str, type] = {
+    "bot_1_macro_swing": MacroSwingStructureBot,
+    "bot_2_ob_reversal": OrderBlockReversalBot,
+    "bot_3_fvg_expansion": FVGExpansionBot,
+    "bot_4_volume_liq": VolumeLiquidityBot,
+    "bot_5_jeafx": JeafxSMCBot,
+}
 
-    def __init__(self, configs: Dict[str, Dict]):
-        self.bots = {
-            "bot_1": MacroSwingStructureBot(configs.get("bot_1", {})),
-            "bot_2": OrderBlockReversalBot(configs.get("bot_2", {})),
-            "bot_3": FVGExpansionBot(configs.get("bot_3", {})),
-            "bot_4": VolumeLiquidityBot(configs.get("bot_4", {})),
-            "bot_5": JeafxSMCBot(configs.get("bot_5", {}))
-        }
+# Which timeframes each ENGINE TYPE needs — unchanged from the old
+# fixed-dispatch logic, just keyed by strategy_engine instead of an
+# assumed 1:1 bot_id.
+_ENGINE_TIMEFRAMES: Dict[str, tuple] = {
+    "bot_1_macro_swing": ("1D", "4H"),
+    "bot_2_ob_reversal": ("4H", "1H", "15M"),
+    "bot_3_fvg_expansion": ("1H", "15M"),
+    "bot_4_volume_liq": ("4H", "1H"),
+    "bot_5_jeafx": ("1H", "15M", "5M"),
+}
+
+
+class BotOrchestrator:
+    """Runs one strategy-engine instance per bot config handed to it.
+
+    Used to hardcode exactly 5 fixed instances (one hardcoded bot_id
+    each, `configs` keyed "bot_1".."bot_5") — now takes a plain LIST,
+    one dict per real BotConfig row, each carrying at minimum
+    `bot_id`, `bot_name`, `strategy_engine` plus whatever risk/config
+    fields that engine reads (risk_per_trade, max_exposure, ...). N
+    rows sharing the same strategy_engine each get their own
+    independent engine instance — their own symbols, risk settings,
+    and resulting BotSignal.bot_id, entirely decoupled from each
+    other. A row whose strategy_engine doesn't match a known engine is
+    silently skipped (defensive — should never happen once
+    BotConfigCreate validates it, but a bad DB row must never crash a
+    whole scan cycle for every other bot).
+    """
+
+    def __init__(self, bot_configs: Optional[List[Dict]] = None):
+        self.instances: List[tuple] = []  # (strategy_engine, engine instance)
+        for cfg in (bot_configs or []):
+            engine_cls = STRATEGY_ENGINES.get(cfg.get("strategy_engine", ""))
+            if engine_cls is None:
+                continue
+            self.instances.append((cfg["strategy_engine"], engine_cls(cfg)))
         self.active_signals: List[BotSignal] = []
 
     def run_all(self, market_data: Dict, account_balance: float) -> List[BotSignal]:
-        """Run all active bots against current market data."""
+        """Run every configured bot instance against current market data."""
         signals = []
-
-        # Bot 1: Needs 1D + 4H
-        if "1D" in market_data and "4H" in market_data:
-            sig = self.bots["bot_1"].analyze(
-                market_data["1D"], market_data["4H"], 
-                account_balance, market_data.get("symbol", "UNKNOWN")
-            )
-            if sig:
-                signals.append(sig)
-
-        # Bot 2: Needs 4H + 1H + 15M
-        if all(k in market_data for k in ["4H", "1H", "15M"]):
-            sig = self.bots["bot_2"].analyze(
-                market_data["4H"], market_data["1H"], market_data["15M"],
-                account_balance, market_data.get("symbol", "UNKNOWN")
-            )
-            if sig:
-                signals.append(sig)
-
-        # Bot 3: Needs 1H + 15M
-        if "1H" in market_data and "15M" in market_data:
-            sig = self.bots["bot_3"].analyze(
-                market_data["1H"], market_data["15M"],
-                account_balance, market_data.get("symbol", "UNKNOWN")
-            )
-            if sig:
-                signals.append(sig)
-
-        # Bot 4: Needs 4H + 1H
-        if "4H" in market_data and "1H" in market_data:
-            sig = self.bots["bot_4"].analyze(
-                market_data["4H"], market_data["1H"],
-                account_balance, market_data.get("symbol", "UNKNOWN")
-            )
-            if sig:
-                signals.append(sig)
-
-        # Bot 5: Needs 1H + 15M + 5M
-        if all(k in market_data for k in ["1H", "15M", "5M"]):
-            sig = self.bots["bot_5"].analyze(
-                market_data["1H"], market_data["15M"], market_data["5M"],
-                account_balance, market_data.get("symbol", "UNKNOWN")
-            )
+        symbol = market_data.get("symbol", "UNKNOWN")
+        for strategy_engine, bot in self.instances:
+            needed = _ENGINE_TIMEFRAMES.get(strategy_engine, ())
+            if not all(tf in market_data for tf in needed):
+                continue
+            sig = bot.analyze(*(market_data[tf] for tf in needed), account_balance, symbol)
             if sig:
                 signals.append(sig)
 

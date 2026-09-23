@@ -130,9 +130,24 @@ class WebhookResponse(BaseModel):
 # =============================================================================
 
 class BotConfigCreate(BaseModel):
-    bot_id: str
+    # No longer client-supplied — bot_id used to BE the strategy
+    # selector 1:1 (exactly 5 possible values ever existed, so only 5
+    # bots could ever exist total); routers/bots.py's create_bot now
+    # generates a fresh one per bot. `strategy_engine` (below) is the
+    # actual strategy-selector now, and is the one field that stays
+    # constrained to the 5 real engines.
     bot_name: str
     bot_type: str
+    # Which of the 5 real strategy engines (core/bot_strategies.py's
+    # own STRATEGY_ENGINES) this bot's signals come from — by direct
+    # request ("increase the number of Bots that can be created ...
+    # there could be repeats of specific type of Bots....( Within the
+    # 5) - there should not be limits to the number of Bots"). Any
+    # number of bots may share the same strategy_engine, each with its
+    # own symbols/risk/name.
+    strategy_engine: Literal[
+        "bot_1_macro_swing", "bot_2_ob_reversal", "bot_3_fvg_expansion", "bot_4_volume_liq", "bot_5_jeafx",
+    ]
     symbols: List[str]
     timeframes: List[str] = ["1D", "4H", "1H", "15M"]
     risk_per_trade: float = 1.0
@@ -159,6 +174,7 @@ class BotConfigResponse(BaseModel):
     bot_id: str
     bot_name: str
     bot_type: str
+    strategy_engine: Optional[str] = None
     status: str
     execution_mode: str
     symbols: List[str]
@@ -176,6 +192,12 @@ class BotConfigResponse(BaseModel):
     paper_trading_enabled: bool = False
     user_id: Optional[UUID] = None
     created_at: datetime
+    # Real scan-health data, written by market_scanner.py every cycle
+    # this bot's own symbols were scanned — by direct request ("put an
+    # indicator that the bot is actually searching the instrument and
+    # following the set up ... non issues Vs Needs Attention").
+    last_run: Optional[datetime] = None
+    last_scan_error: Optional[str] = None
 
     class Config:
         from_attributes = True

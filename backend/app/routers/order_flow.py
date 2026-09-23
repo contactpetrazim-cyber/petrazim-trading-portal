@@ -679,6 +679,15 @@ class ChartSymbolResult(BaseModel):
     exchange: str
     description: str
     type: str
+    # TradingView's own asset-class tags (e.g. ["crypto"],
+    # ["crypto", "perpetual", "defi"], ["forex"], ["america"] for a US
+    # stock) — by direct request ("Use the search engine of the
+    # 'Pairs', for the Bots and everywhere else ... make this the
+    # standard"). Bots can only actually trade crypto today (the
+    # scanner/execution engine is ccxt-only, no forex/stock/index
+    # broker wired up yet) — this is what lets a crypto-only caller
+    # filter client-side without a second, narrower endpoint.
+    typespecs: List[str] = []
 
 
 class ChartSymbolSearchResponse(BaseModel):
@@ -718,6 +727,7 @@ async def chart_symbol_search(
             exchange=s.get("exchange", ""),
             description=_TV_HIGHLIGHT_TAGS_RE.sub("", s.get("description", "")),
             type=s.get("type", ""),
+            typespecs=s.get("typespecs", []),
         )
         for s in raw.get("symbols", [])[:limit]
         # Skip TradingView's own synthetic/discontinued entries (e.g. the

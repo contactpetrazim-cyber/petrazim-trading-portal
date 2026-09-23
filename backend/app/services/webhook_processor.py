@@ -44,7 +44,7 @@ class WebhookProcessor:
 
     def __init__(self):
         self.execution_engine = ExecutionEngine()
-        self.orchestrator = BotOrchestrator({})
+        self.orchestrator = BotOrchestrator([])
 
     def verify_signature(self, payload: bytes, signature: str) -> bool:
         """Verify webhook signature for security."""

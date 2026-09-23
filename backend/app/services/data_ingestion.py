@@ -265,7 +265,7 @@ class MarketDataIngestion:
         market_data["symbol"] = symbol
 
         # Run bot analysis
-        orchestrator = BotOrchestrator({})
+        orchestrator = BotOrchestrator([])
         signals = orchestrator.run_all(market_data, account_balance)
 
         return {

@@ -21,9 +21,25 @@ class BotConfig(Base):
     __tablename__ = "bot_configs"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    # Per-ROW unique identifier — used to be the same string as the one
+    # real strategy engine backing it 1:1 (only 5 possible values ever
+    # existed), which is exactly what capped the whole platform at 5
+    # bots total. Now auto-generated fresh per bot (routers/bots.py's
+    # create_bot), so any number of bots can exist — by direct request
+    # ("there should not be limits to the number of Bots that can be
+    # created ... just like no limits on the number of positions").
     bot_id = Column(String(50), unique=True, nullable=False, index=True)
     bot_name = Column(String(100), nullable=False)
     bot_type = Column(String(50), nullable=False)
+    # Which of the 5 REAL strategy engines (core/bot_strategies.py's
+    # own STRATEGY_ENGINES registry) this bot's signals actually come
+    # from — the thing bot_id used to encode 1:1 before this column
+    # existed. Nullable only for legacy rows created before this
+    # column existed (none as of when this was added — the 5
+    # pre-existing bots were backfilled to their own bot_id, since for
+    # them bot_id WAS already the engine key); every bot created going
+    # forward always sets it.
+    strategy_engine = Column(String(50), nullable=True)
 
     # Owning Trader. Nullable — pre-existing bots (none, as of the
     # migration that added this column) have no owner; every bot
@@ -111,4 +127,16 @@ class BotConfig(Base):
 
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    # last_run existed but was never actually written anywhere — dead
+    # column. Now genuinely updated by market_scanner.py every cycle
+    # this bot's own symbols were scanned, whether or not a signal
+    # resulted — by direct request ("put an indicator that the bot is
+    # actually searching the instrument and following the set up ...
+    # else how can we know if something is wrong"). last_scan_error is
+    # new: the most recent real failure message for this bot's own
+    # symbols (a fetch failure, an unrecognized ccxt exchange, etc.),
+    # cleared the moment a cycle succeeds — together these are what let
+    # the frontend show a real "No issues" vs "Needs Attention" state
+    # instead of a fabricated one.
     last_run = Column(DateTime)
+    last_scan_error = Column(String(500), nullable=True)

@@ -121,7 +121,15 @@ export const botsApi = {
   getBots: () => api.get<BotConfig[]>('/bots/').then(r => r.data),
   getBot: (botId: string) => api.get<BotConfig>(`/bots/${botId}`).then(r => r.data),
   createBot: (config: {
-    bot_id: string; bot_name: string; bot_type: string; symbols: string[];
+    // Which of the 5 real strategy engines this bot's signals come
+    // from — by direct request ("there should not be limits to the
+    // number of Bots that can be created ... just like no limits on
+    // the number of positions"): bot_id used to double as this
+    // selector (capping the whole platform at 5 bots ever); it's now
+    // always server-generated fresh, never sent from here. Any number
+    // of bots may share one strategy_engine.
+    strategy_engine: 'bot_1_macro_swing' | 'bot_2_ob_reversal' | 'bot_3_fvg_expansion' | 'bot_4_volume_liq' | 'bot_5_jeafx';
+    bot_name: string; bot_type: string; symbols: string[];
     timeframes?: string[]; risk_per_trade?: number; max_daily_trades?: number;
     max_concurrent_trades?: number; min_rr_ratio?: number;
     execution_mode?: 'human_in_loop' | 'fully_autonomous'; use_trailing_stop?: boolean;
@@ -160,7 +168,7 @@ export const botsApi = {
   // server-side. See order_flow.py's chart_symbol_search for why this
   // has to be a backend proxy rather than a direct browser call.
   chartSymbolSearch: (q: string) =>
-    api.get<{ results: { symbol: string; exchange: string; description: string; type: string }[] }>(
+    api.get<{ results: { symbol: string; exchange: string; description: string; type: string; typespecs: string[] }[] }>(
       '/order-flow/symbol-search', { params: { q, limit: 25 } }
     ).then(r => r.data.results),
 };

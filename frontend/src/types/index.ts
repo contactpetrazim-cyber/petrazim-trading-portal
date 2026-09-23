@@ -41,6 +41,11 @@ export interface BotConfig {
   bot_id: string;
   bot_name: string;
   bot_type: string;
+  // Which of the 5 real strategy engines backs this bot — the field
+  // bot_id used to double as (see BotConfig's own bot_id comment on
+  // the backend model). Optional only for a legacy row from before
+  // this column existed.
+  strategy_engine?: string | null;
   status: string;
   execution_mode: string;
   symbols: string[];
@@ -58,6 +63,12 @@ export interface BotConfig {
   paper_trading_enabled?: boolean;
   user_id?: string | null;
   created_at: string;
+  // Real scan-health data, written by market_scanner.py every cycle
+  // this bot's own symbols were scanned — by direct request ("put an
+  // indicator that the bot is actually searching the instrument and
+  // following the set up ... non issues Vs Needs Attention").
+  last_run?: string | null;
+  last_scan_error?: string | null;
 }
 
 export interface BotPerformance {

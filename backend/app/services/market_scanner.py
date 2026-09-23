@@ -24,6 +24,7 @@ service instead of this loop.
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime
 from typing import Dict, List
 
 import structlog
@@ -61,7 +62,10 @@ class MarketScanner:
     def __init__(self, execution_engine: ExecutionEngine):
         self.execution_engine = execution_engine
         self.ingestion = MarketDataIngestion()
-        self.orchestrator = BotOrchestrator({})
+        # No shared orchestrator anymore — built fresh per (exchange,
+        # symbol) group inside scan_once, from the REAL BotConfig rows
+        # in that group, now that any number of them can share one
+        # strategy_engine. See BotOrchestrator's own docstring.
         self._task: asyncio.Task | None = None
 
     def start(self) -> None:
@@ -116,12 +120,43 @@ class MarketScanner:
                     market_data = await self._fetch_market_data(exchange, symbol)
                 except Exception as e:
                     logger.error("market_scan_fetch_failed", exchange=exchange, symbol=symbol, error=str(e))
+                    await self._record_scan_result(db, bots_here, error=f"Candle fetch failed: {e}")
                     continue
 
                 if len(market_data) <= 1:  # only "symbol" key, no candles at all
+                    await self._record_scan_result(db, bots_here, error="No candle data returned for any timeframe")
                     continue
 
-                signals = self.orchestrator.run_all(market_data, settings.MARKET_SCANNER_DEFAULT_ACCOUNT_BALANCE)
+                # One engine instance per BotConfig row in this group —
+                # by direct request ("there should not be limits to the
+                # number of Bots that can be created ... just like no
+                # limits on the number of positions"): N rows sharing
+                # the same strategy_engine each get their own instance,
+                # their own risk config, and their own resulting
+                # BotSignal.bot_id.
+                orchestrator = BotOrchestrator([
+                    {
+                        "bot_id": bot.bot_id,
+                        "bot_name": bot.bot_name,
+                        "strategy_engine": bot.strategy_engine,
+                        "risk_per_trade": bot.risk_per_trade,
+                        "max_exposure": bot.max_portfolio_exposure,
+                    }
+                    for bot in bots_here
+                ])
+                signals = orchestrator.run_all(market_data, settings.MARKET_SCANNER_DEFAULT_ACCOUNT_BALANCE)
+
+                # Every bot in this group was genuinely scanned this
+                # cycle (real candles fetched, its own engine ran)
+                # whether or not it happened to produce a signal — by
+                # direct request ("put an indicator that the bot is
+                # actually searching the instrument and following the
+                # set up ... else how can we know if something is
+                # wrong"). Recorded even when there are zero signals: a
+                # quiet bot is a healthy bot waiting for its setup, not
+                # a broken one.
+                await self._record_scan_result(db, bots_here, error=None)
+
                 if not signals:
                     continue
 
@@ -144,6 +179,17 @@ class MarketScanner:
                         bot_id=signal.bot_id, symbol=symbol, exchange=exchange,
                         mode=mode, result=exec_result.get("status", exec_result.get("success")),
                     )
+
+    async def _record_scan_result(self, db: AsyncSession, bots: List[BotConfig], error: str | None) -> None:
+        """Updates every bot in this scan group with whether this cycle
+        actually reached it — the real data behind the Bots page's own
+        "No issues" vs "Needs Attention" indicator (see BotConfig's own
+        last_run/last_scan_error comment)."""
+        now = datetime.utcnow()
+        for bot in bots:
+            bot.last_run = now
+            bot.last_scan_error = error[:500] if error else None
+        await db.commit()
 
     async def _fetch_market_data(self, exchange: str, symbol: str) -> Dict[str, List[Candle] | str]:
         market_data: Dict = {"symbol": symbol}

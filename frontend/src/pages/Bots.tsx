@@ -1,6 +1,7 @@
 
 import { useEffect, useState } from 'react';
-import { Bot, Play, Pause, Settings, TrendingUp, Save, Plus, X, Pencil, Trash2, ChevronDown } from 'lucide-react';
+import { formatDistanceToNow } from 'date-fns';
+import { Bot, Play, Pause, Settings, TrendingUp, Save, Plus, X, Pencil, Trash2, ChevronDown, CheckCircle2, AlertTriangle, CircleDashed } from 'lucide-react';
 import { botsApi } from '../services/api';
 import { BotConfig, BotPerformance, BotMetricsUpdate } from '../types';
 import { useThemeStore } from '../hooks/useTheme';
@@ -23,7 +24,7 @@ import { formatApiError } from '../lib/apiError';
  *     zero bots, and there was no way to add one from this page
  */
 
-const emptyNewBot = { bot_id: '', bot_name: '', bot_type: 'smc', symbols: [] as string[], exchange: '' };
+const emptyNewBot = { strategy_engine: '', bot_name: '', bot_type: 'smc', symbols: [] as string[], exchange: '' };
 
 // Quick exchange buttons — by direct request ("include the quick
 // options for exchange Binance, Bybit, Bingx, Mexc"). These are the 4
@@ -34,15 +35,30 @@ const emptyNewBot = { bot_id: '', bot_name: '', bot_type: 'smc', symbols: [] as 
 // own comment for why that's safe to leave open-ended.
 const QUICK_EXCHANGES = ['binance', 'bybit', 'bingx', 'mexc'];
 
-interface InstrumentResult { symbol: string; base_asset: string; quote_asset: string; market: 'spot' | 'futures' }
+// By direct request ("Use the search engine of the 'Pairs', for the
+// Bots and everywhere else that we need to search for instruments
+// pairs ... make this the standard - it specifies the pair, exchange
+// and type (perpetual Vs spot)"): same TradingView-backed search
+// PairsPanel's own "+" uses (order_flow.py's chart_symbol_search) —
+// real exchange names (Binance/Bybit/MEXC/...) and a genuine spot-vs-
+// perpetual distinction (TradingView's own typespecs), rather than
+// the earlier Binance-only spot+futures search. Filtered to crypto
+// client-side (typespecs.includes('crypto')) — a bot can only
+// actually trade crypto today (the scanner/execution engine is
+// ccxt-only), so a forex/stock/index result would just be another way
+// to hit "instrument pairs does not exist" later.
+interface InstrumentResult { symbol: string; exchange: string; description: string; type: string; typespecs: string[] }
 
 // The 5 REAL strategies core/bot_strategies.py actually implements —
-// bot_id must be one of these exact 5 values for BotOrchestrator to
-// ever dispatch a real signal to it; anything else is a BotConfig row
-// with no matching strategy engine, i.e. a bot that will never
-// actually trade. This dropdown replaces a free-text "Bot ID" field
-// that let someone create exactly that, by direct request to show a
-// short summary of the bot's technique/style before picking one.
+// `id` here is the strategy_engine value sent on create (which of the
+// 5 real engines backs this bot); any number of bots may share one,
+// by direct request ("there should not be limits to the number of
+// Bots that can be created ... just like no limits on the number of
+// positions"). This dropdown replaces a free-text "Bot ID" field that
+// let someone create a BotConfig row with no matching strategy engine
+// at all (a bot that would never actually trade), by direct request
+// to show a short summary of the bot's technique/style before
+// picking one.
 const BOT_CATALOG = [
   {
     id: 'bot_1_macro_swing', name: 'Pure Macro Swing Structure',
@@ -65,6 +81,44 @@ const BOT_CATALOG = [
     summary: 'Highly mechanical liquidity-purge and refined supply/demand entries with strict confirmation criteria — highest target R:R (4:1-6:1).',
   },
 ];
+
+// A cycle older than this reads as "the scanner isn't actually
+// reaching this bot anymore" rather than "just hasn't run yet this
+// interval" — generous relative to the scanner's own default 3-minute
+// interval so a slightly slow cycle never falsely reads as broken.
+const SCAN_STALE_MS = 15 * 60 * 1000;
+
+/** Real "No issues" vs "Needs Attention" health, from market_scanner.py's
+ * own last_run/last_scan_error — by direct request ("put an indicator
+ * that the bot is actually searching the instrument and following the
+ * set up ... non issues Vs Needs Attention ... else how can we know if
+ * something is wrong"). Only meaningful for an ACTIVE bot — a paused
+ * one isn't being scanned at all, by the trader's own choice, so
+ * there's nothing to flag. */
+function botHealth(bot: BotConfig): { label: string; cls: string; icon: typeof CheckCircle2; title: string } | null {
+  if (bot.status !== 'active') return null;
+  if (bot.last_scan_error) {
+    return { label: 'Needs Attention', cls: 'bg-red-500/10 text-red-400', icon: AlertTriangle, title: bot.last_scan_error };
+  }
+  if (!bot.last_run) {
+    return {
+      label: 'Waiting for first scan', cls: 'bg-gray-500/10 text-gray-400', icon: CircleDashed,
+      title: 'Not scanned yet — the market scanner may be off, or hasn\'t reached this bot\'s symbols yet.',
+    };
+  }
+  const lastRunDate = new Date(bot.last_run);
+  const staleMs = Date.now() - lastRunDate.getTime();
+  if (staleMs > SCAN_STALE_MS) {
+    return {
+      label: 'Needs Attention', cls: 'bg-red-500/10 text-red-400', icon: AlertTriangle,
+      title: `Last scanned ${formatDistanceToNow(lastRunDate, { addSuffix: true })} — longer ago than expected. The market scanner may be paused or stalled.`,
+    };
+  }
+  return {
+    label: 'No issues', cls: 'bg-emerald-500/10 text-emerald-400', icon: CheckCircle2,
+    title: `Last scanned ${formatDistanceToNow(lastRunDate, { addSuffix: true })}`,
+  };
+}
 
 export function BotsPage() {
   const { portalThemes } = useThemeStore();
@@ -90,6 +144,12 @@ export function BotsPage() {
   const [showExchangeSection, setShowExchangeSection] = useState(false);
   const [instrumentQuery, setInstrumentQuery] = useState('');
   const [instrumentResults, setInstrumentResults] = useState<InstrumentResult[]>([]);
+  // Separate search state for the per-bot edit panel's own "Symbols"
+  // section — kept independent from the create form's search above so
+  // opening/editing a bot never clobbers an in-progress create-form
+  // search, and vice versa.
+  const [editInstrumentQuery, setEditInstrumentQuery] = useState('');
+  const [editInstrumentResults, setEditInstrumentResults] = useState<InstrumentResult[]>([]);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -124,7 +184,9 @@ export function BotsPage() {
   useEffect(() => {
     if (!showExchangeSection) return;
     const t = setTimeout(() => {
-      botsApi.searchInstruments(instrumentQuery).then(setInstrumentResults).catch(() => setInstrumentResults([]));
+      botsApi.chartSymbolSearch(instrumentQuery)
+        .then((results) => setInstrumentResults(results.filter((r) => r.typespecs.includes('crypto'))))
+        .catch(() => setInstrumentResults([]));
     }, 250);
     return () => clearTimeout(t);
   }, [instrumentQuery, showExchangeSection]);
@@ -138,6 +200,41 @@ export function BotsPage() {
 
   function removeSymbol(sym: string) {
     setNewBot((b) => ({ ...b, symbols: b.symbols.filter((s) => s !== sym) }));
+  }
+
+  // Same debounced crypto-filtered TradingView search as the create
+  // form (see the effect above), scoped to whichever bot's edit panel
+  // is currently open.
+  useEffect(() => {
+    if (!selectedBot) return;
+    const t = setTimeout(() => {
+      botsApi.chartSymbolSearch(editInstrumentQuery)
+        .then((results) => setEditInstrumentResults(results.filter((r) => r.typespecs.includes('crypto'))))
+        .catch(() => setEditInstrumentResults([]));
+    }, 250);
+    return () => clearTimeout(t);
+  }, [editInstrumentQuery, selectedBot]);
+
+  function addEditSymbol(raw: string) {
+    const clean = raw.trim().toUpperCase();
+    if (!clean || !editing) return;
+    if (editing.symbols?.includes(clean)) return;
+    setEditing({ ...editing, symbols: [...(editing.symbols ?? []), clean] });
+    setEditInstrumentQuery('');
+  }
+
+  function removeEditSymbol(sym: string) {
+    if (!editing) return;
+    setEditing({ ...editing, symbols: (editing.symbols ?? []).filter((s) => s !== sym) });
+  }
+
+  function toggleEditTimeframe(tf: string) {
+    if (!editing) return;
+    const current = editing.timeframes ?? [];
+    setEditing({
+      ...editing,
+      timeframes: current.includes(tf) ? current.filter((t) => t !== tf) : [...current, tf],
+    });
   }
 
   function openBot(bot: BotConfig) {
@@ -154,7 +251,17 @@ export function BotsPage() {
       max_portfolio_exposure: bot.max_portfolio_exposure,
       min_rr_ratio: bot.min_rr_ratio,
       use_trailing_stop: bot.use_trailing_stop,
+      // Symbols/timeframes — by direct request ("update Bot management
+      // to be able to update bots after creation for example add more
+      // trading pairs, change risk or number of trades .....all
+      // aspects of bot should be updatable"). The backend endpoint
+      // (routers/bots.py's update_bot_metrics) already accepted both;
+      // this form just never offered them.
+      symbols: bot.symbols,
+      timeframes: bot.timeframes,
     });
+    setEditInstrumentQuery('');
+    setEditInstrumentResults([]);
   }
 
   async function toggleBot(bot: BotConfig) {
@@ -199,13 +306,13 @@ export function BotsPage() {
 
   async function createBot() {
     setCreateError(null);
-    if (!newBot.bot_id || !newBot.bot_name || newBot.symbols.length === 0) {
-      setCreateError('Bot ID, name, and at least one symbol are required.');
+    if (!newBot.strategy_engine || !newBot.bot_name || newBot.symbols.length === 0) {
+      setCreateError('Strategy, name, and at least one symbol are required.');
       return;
     }
     try {
       await botsApi.createBot({
-        bot_id: newBot.bot_id.trim(),
+        strategy_engine: newBot.strategy_engine as 'bot_1_macro_swing' | 'bot_2_ob_reversal' | 'bot_3_fvg_expansion' | 'bot_4_volume_liq' | 'bot_5_jeafx',
         bot_name: newBot.bot_name.trim(),
         bot_type: newBot.bot_type,
         symbols: newBot.symbols,
@@ -360,6 +467,16 @@ export function BotsPage() {
                       Paper
                     </span>
                   )}
+                  {(() => {
+                    const health = botHealth(bot);
+                    if (!health) return null;
+                    const HealthIcon = health.icon;
+                    return (
+                      <span title={health.title} className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${health.cls}`}>
+                        <HealthIcon size={11} /> {health.label}
+                      </span>
+                    );
+                  })()}
                 </div>
               </div>
 
@@ -476,6 +593,72 @@ export function BotsPage() {
                     <p className="text-xs text-red-400">{deleteError}</p>
                   )}
 
+                  <div onClick={(e) => e.stopPropagation()}>
+                    <div className="text-sm font-medium mb-2">Symbols</div>
+                    {(editing.symbols?.length ?? 0) > 0 && (
+                      <div className="flex flex-wrap gap-1.5 mb-2">
+                        {editing.symbols!.map((s) => (
+                          <span key={s} className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${dark ? 'bg-white/10 text-white/80' : 'bg-gray-100 text-gray-700'}`}>
+                            {s}
+                            <button onClick={() => removeEditSymbol(s)} aria-label={`Remove ${s}`} className="hover:text-red-400">
+                              <X size={11} />
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    <input
+                      placeholder="Search e.g. BTC, ETH, XAUT…"
+                      value={editInstrumentQuery}
+                      onChange={(e) => setEditInstrumentQuery(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter' && editInstrumentQuery.trim()) { e.preventDefault(); addEditSymbol(editInstrumentQuery); } }}
+                      className={`${inputCls} py-1.5`}
+                    />
+                    {editInstrumentResults.length > 0 && (
+                      <div className={`mt-1.5 max-h-32 overflow-y-auto rounded-lg border ${dark ? 'border-smc-border' : 'border-corporate-bg'}`}>
+                        {editInstrumentResults.map((i) => (
+                          <button
+                            key={`${i.exchange}:${i.symbol}`}
+                            onClick={() => addEditSymbol(i.symbol)}
+                            className={`w-full flex items-center justify-between px-2.5 py-1.5 text-xs text-left ${dark ? 'hover:bg-white/5 text-white/80' : 'hover:bg-corporate-bg text-corporate-text-on-bg'}`}
+                          >
+                            <span className="flex items-center gap-1.5">
+                              <span className="font-semibold">{i.symbol}</span>
+                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                                i.typespecs.includes('perpetual') ? 'bg-purple-500/15 text-purple-500' : 'bg-blue-500/15 text-blue-500'
+                              }`}>
+                                {i.typespecs.includes('perpetual') ? 'PERP' : 'SPOT'}
+                              </span>
+                            </span>
+                            <span className="text-gray-400">{i.exchange}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div onClick={(e) => e.stopPropagation()}>
+                    <div className="text-sm font-medium mb-2">Timeframes</div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {['1D', '4H', '1H', '15M', '5M'].map((tf) => {
+                        const active = editing.timeframes?.includes(tf) ?? false;
+                        return (
+                          <button
+                            key={tf}
+                            onClick={() => toggleEditTimeframe(tf)}
+                            className={`px-2.5 py-1 rounded-full text-xs font-semibold ${
+                              active
+                                ? dark ? 'bg-smc-accent text-white' : 'bg-corporate-hero text-white'
+                                : dark ? 'bg-white/5 text-white/50' : 'bg-gray-100 text-gray-500'
+                            }`}
+                          >
+                            {tf}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
                   <div>
                     <div className="text-sm font-medium mb-2">Risk Metrics</div>
                     <div className="grid grid-cols-2 gap-3">
@@ -559,10 +742,10 @@ export function BotsPage() {
               <label className="text-xs text-gray-400 block">
                 Strategy
                 <select
-                  value={newBot.bot_id}
+                  value={newBot.strategy_engine}
                   onChange={(e) => {
                     const chosen = BOT_CATALOG.find((b) => b.id === e.target.value);
-                    setNewBot({ ...newBot, bot_id: e.target.value, bot_name: chosen?.name || '' });
+                    setNewBot({ ...newBot, strategy_engine: e.target.value, bot_name: chosen?.name || '' });
                   }}
                   className={`${inputCls} py-2`}
                 >
@@ -572,9 +755,9 @@ export function BotsPage() {
                   ))}
                 </select>
               </label>
-              {newBot.bot_id && (
+              {newBot.strategy_engine && (
                 <p className={`text-xs -mt-1.5 leading-relaxed ${dark ? 'text-white/40' : 'text-gray-400'}`}>
-                  {BOT_CATALOG.find((b) => b.id === newBot.bot_id)?.summary}
+                  {BOT_CATALOG.find((b) => b.id === newBot.strategy_engine)?.summary}
                 </p>
               )}
               <label className="text-xs text-gray-400 block">
@@ -641,9 +824,9 @@ export function BotsPage() {
 
                     <div>
                       <div className="text-xs text-gray-400 mb-1.5">
-                        Search instruments — real, live Binance spot AND perpetual-futures pairs (futures results carry the
-                        ".P" suffix every bot actually needs), exactly like the chart's own symbol search (removes typos);
-                        press Enter to add a typed symbol directly (e.g. a forex pair with no live search data).
+                        Search instruments — the same real, live search the chart's own "Pairs" uses, across every
+                        crypto exchange TradingView covers (perpetual-futures results already carry the ".P" suffix
+                        every bot actually needs); press Enter to add a typed symbol directly.
                       </div>
                       <input
                         placeholder="Search e.g. BTC, ETH, XAUT…"
@@ -656,28 +839,29 @@ export function BotsPage() {
                         <div className={`mt-1.5 max-h-40 overflow-y-auto rounded-lg border ${dark ? 'border-smc-border' : 'border-corporate-bg'}`}>
                           {instrumentResults.map((i) => (
                             <button
-                              key={i.symbol}
+                              key={`${i.exchange}:${i.symbol}`}
                               onClick={() => addSymbol(i.symbol)}
                               className={`w-full flex items-center justify-between px-2.5 py-1.5 text-xs text-left ${dark ? 'hover:bg-white/5 text-white/80' : 'hover:bg-corporate-bg text-corporate-text-on-bg'}`}
                             >
                               <span className="flex items-center gap-1.5">
                                 <span className="font-semibold">{i.symbol}</span>
-                                {/* Spot vs perpetual-futures badge — by direct
-                                    request ("more the flexibility to select
-                                    the correct instrument of interest"): a
-                                    query like "XAUT" now returns both
-                                    XAUTUSDT (spot) and XAUTUSDT.P (futures),
-                                    so this is the only thing telling them
+                                {/* Spot vs perpetual badge, from TradingView's
+                                    own typespecs — by direct request ("it
+                                    specifies the pair, exchange and type
+                                    (perpetual Vs spot)"): a query like "XAUT"
+                                    returns both a spot and a perpetual
+                                    listing, often on several different
+                                    exchanges, so this is what tells them
                                     apart at a glance. */}
                                 <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                                  i.market === 'futures'
+                                  i.typespecs.includes('perpetual')
                                     ? 'bg-purple-500/15 text-purple-500'
                                     : 'bg-blue-500/15 text-blue-500'
                                 }`}>
-                                  {i.market === 'futures' ? 'PERP' : 'SPOT'}
+                                  {i.typespecs.includes('perpetual') ? 'PERP' : 'SPOT'}
                                 </span>
                               </span>
-                              <span className="text-gray-400">{i.base_asset}/{i.quote_asset}</span>
+                              <span className="text-gray-400">{i.exchange}</span>
                             </button>
                           ))}
                         </div>

@@ -1,4 +1,6 @@
 
+import secrets
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -106,11 +108,37 @@ async def list_bots(db: AsyncSession = Depends(get_db), user: User = Depends(req
 async def create_bot(
     config: BotConfigCreate, db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access)
 ):
-    """Create a new bot configuration, owned by the authenticated caller."""
+    """Create a new bot configuration, owned by the authenticated caller.
+
+    bot_id used to BE the strategy selector, 1:1 with one of exactly 5
+    hardcoded engines in core/bot_strategies.py — so only 5 bots could
+    ever exist, total, across the whole platform, and every attempt to
+    create a 6th (or a 2nd of the same strategy) failed with nothing
+    more specific than a raw DB IntegrityError, surfaced to the trader
+    as "Could not create bot" with no explanation why. By direct
+    request ("increase the number of Bots that can be created - there
+    could be repeats of specific type of Bots....( Within the 5) -
+    there should not be limits to the number of Bots that can be
+    created - just like no limits to the number of positions"):
+    bot_id is now generated fresh here every time (globally unique,
+    per row, never client-supplied) and `strategy_engine` is the field
+    that picks which of the 5 real engines backs it — any number of
+    bots may share one."""
+    bot_id = f"{config.strategy_engine}_{secrets.token_hex(4)}"
+    # Astronomically unlikely to collide (32 bits of randomness), but
+    # bot_id is still a real unique constraint — retry with a fresh
+    # suffix rather than ever surface that as an opaque 500.
+    for _ in range(5):
+        clash = (await db.execute(select(BotConfig).where(BotConfig.bot_id == bot_id))).scalar_one_or_none()
+        if not clash:
+            break
+        bot_id = f"{config.strategy_engine}_{secrets.token_hex(4)}"
+
     bot = BotConfig(
-        bot_id=config.bot_id,
+        bot_id=bot_id,
         bot_name=config.bot_name,
         bot_type=config.bot_type,
+        strategy_engine=config.strategy_engine,
         symbols=config.symbols,
         timeframes=config.timeframes,
         risk_per_trade=config.risk_per_trade,
@@ -134,7 +162,7 @@ async def create_bot(
     await db.commit()
     await db.refresh(bot)
 
-    logger.info("bot_created", bot_id=config.bot_id, name=config.bot_name, user_id=str(user.id))
+    logger.info("bot_created", bot_id=bot_id, strategy_engine=config.strategy_engine, name=config.bot_name, user_id=str(user.id))
     return bot
 
 @router.get("/{bot_id}", response_model=BotConfigResponse)
