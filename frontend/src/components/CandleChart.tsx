@@ -251,13 +251,17 @@ export function CandleChart({
           />
         ))}
 
-        {/* Horizontal reference lines (e.g. a level, a threshold) */}
+        {/* Horizontal reference lines (e.g. a level, a threshold) —
+            strokeWidth bumped from 0.25 to 0.45 (visibly thicker than a
+            candle wick's own 0.3) and the dash pattern widened from
+            '1.2,1' to '2.2,1.4', by direct request ("Make the dash
+            lines for entry, SL and TP more visible"). */}
         {lines.map((l, i) => (
           <line
             key={i}
             x1={padLeft} x2={width - padRight} y1={y(l.price)} y2={y(l.price)}
-            stroke={l.color ?? textColor} strokeWidth={0.25}
-            strokeDasharray={l.dashed === false ? undefined : '1.2,1'}
+            stroke={l.color ?? textColor} strokeWidth={0.45}
+            strokeDasharray={l.dashed === false ? undefined : '2.2,1.4'}
           />
         ))}
 

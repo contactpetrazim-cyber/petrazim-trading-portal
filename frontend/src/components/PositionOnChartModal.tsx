@@ -852,12 +852,22 @@ export function PositionOnChartModal({
   // describe `symbol` — the position's own instrument — so they're
   // hidden the moment "Pairs" points this chart at a different one;
   // see `isOriginalSymbol`'s own comment above `activeSymbol`.
+  // Vivid Blue/Red/Green — by direct request ("Make the dash lines for
+  // entry, SL and TP more visible ..... Blue, Red and Green Dash
+  // lines"), replacing TradingView's own muted palette (#2962FF/
+  // #EF5350/#26A69A), which read as too soft against a white pane.
+  // Same hexes as the Classic candle preset and the Quick Trade
+  // draft's own lines, so every dashed reference line in On Chart now
+  // shares one consistent, punchy color language.
+  const ENTRY_LINE_COLOR = '#2563eb';
+  const SL_LINE_COLOR = '#ef4444';
+  const TP_LINE_COLOR = '#22c55e';
   const lines: ChartLine[] = [
-    ...(position && isOriginalSymbol ? [{ price: position.entryPrice, color: '#2962FF', dashed: true, label: fmtPrice(position.entryPrice), label2: entryStatusLabel, label2Suffix: entryPnlSuffix }] : []),
-    ...(position?.stopLoss != null && isOriginalSymbol ? [{ price: position.stopLoss, color: '#EF5350', dashed: true, label: `SL ${fmtPrice(position.stopLoss)}` }] : []),
-    ...(position?.takeProfit1 != null && isOriginalSymbol ? [{ price: position.takeProfit1, color: '#26A69A', dashed: true, label: `TP1 ${fmtPrice(position.takeProfit1)}` }] : []),
-    ...(position?.takeProfit2 != null && isOriginalSymbol ? [{ price: position.takeProfit2, color: '#26A69A', dashed: true, label: `TP2 ${fmtPrice(position.takeProfit2)}` }] : []),
-    ...(position?.takeProfit3 != null && isOriginalSymbol ? [{ price: position.takeProfit3, color: '#26A69A', dashed: true, label: `TP3 ${fmtPrice(position.takeProfit3)}` }] : []),
+    ...(position && isOriginalSymbol ? [{ price: position.entryPrice, color: ENTRY_LINE_COLOR, dashed: true, label: fmtPrice(position.entryPrice), label2: entryStatusLabel, label2Suffix: entryPnlSuffix }] : []),
+    ...(position?.stopLoss != null && isOriginalSymbol ? [{ price: position.stopLoss, color: SL_LINE_COLOR, dashed: true, label: `SL ${fmtPrice(position.stopLoss)}` }] : []),
+    ...(position?.takeProfit1 != null && isOriginalSymbol ? [{ price: position.takeProfit1, color: TP_LINE_COLOR, dashed: true, label: `TP1 ${fmtPrice(position.takeProfit1)}` }] : []),
+    ...(position?.takeProfit2 != null && isOriginalSymbol ? [{ price: position.takeProfit2, color: TP_LINE_COLOR, dashed: true, label: `TP2 ${fmtPrice(position.takeProfit2)}` }] : []),
+    ...(position?.takeProfit3 != null && isOriginalSymbol ? [{ price: position.takeProfit3, color: TP_LINE_COLOR, dashed: true, label: `TP3 ${fmtPrice(position.takeProfit3)}` }] : []),
     // Solid (not dashed) and a distinct amber, so it's unmistakably
     // "where price is right this second" versus the dashed reference
     // levels above — refreshes every 15s while this stays open. Not
@@ -886,7 +896,12 @@ export function PositionOnChartModal({
   const overlayCls = localDark ? 'bg-black/90' : 'bg-white/95';
   const chromeTextCls = localDark ? 'text-white' : 'text-corporate-text-on-bg';
   const chromeMutedCls = localDark ? 'text-white/70 hover:text-white' : 'text-gray-500 hover:text-corporate-text-on-bg';
-  const paneCls = localDark ? 'bg-[#0b1220]' : 'bg-corporate-bg';
+  // Literal white, not the app's usual light lavender-grey surface —
+  // by direct request ("make the background of the 'On chart' white -
+  // default"). The light/dark toggle itself already existed
+  // (localDark, defaulting to light); this only changes what "light"
+  // actually renders as for the chart pane specifically.
+  const paneCls = localDark ? 'bg-[#0b1220]' : 'bg-white';
   const pillIdleCls = localDark ? 'text-white/50 hover:text-white bg-white/5' : 'text-gray-500 hover:text-corporate-text-on-bg bg-white';
   const pillActiveCls = 'bg-corporate-hero text-white';
   const toggleWrapCls = localDark ? 'bg-white/5' : 'bg-black/5';
