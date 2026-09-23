@@ -700,6 +700,24 @@ export function ManualTradingPage() {
     setOrderFormOpen(true);
   }
 
+  // Applies a Quick Trade drafted on a DIFFERENT chart page (Dashboard,
+  // Trade, Tools, ...) that has no local order form of its own to fill
+  // — see ChartWithPairs.tsx's own handleQuickTradeNavigate, which
+  // lands here with the draft in the URL instead of calling
+  // handleQuickTrade directly. One-shot: applied once on mount only,
+  // same as preselectPrice above — re-running on every param change
+  // would fight a trader's own edits to the form afterward.
+  useEffect(() => {
+    const qtDirection = params.get('qtDirection');
+    const qtEntry = params.get('qtEntry');
+    const qtStop = params.get('qtStop');
+    const qtTarget = params.get('qtTarget');
+    if ((qtDirection === 'long' || qtDirection === 'short') && qtEntry && qtStop && qtTarget) {
+      handleQuickTrade({ direction: qtDirection, entryPrice: Number(qtEntry), stopLoss: Number(qtStop), takeProfit: Number(qtTarget) });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return (
     <div className={`min-h-screen ${dark ? 'bg-[#0a0e1a] text-white' : 'bg-corporate-bg text-corporate-text-on-bg'}`}>
       <div className="max-w-7xl mx-auto p-4 md:p-6">
