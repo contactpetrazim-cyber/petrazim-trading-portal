@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
-import { Pencil, X, Check, Scissors, AlertCircle, Ban, LineChart } from 'lucide-react';
+import { Pencil, X, Check, Scissors, AlertCircle, Ban, LineChart, ShieldCheck } from 'lucide-react';
 import { Trade } from '../types';
 import { tradesApi } from '../services/api';
 import { useQuickPrice } from '../hooks/useQuickPrice';
@@ -47,6 +47,7 @@ export function PositionManager({ trade, dark = false, onChanged }: { trade: Tra
   const [closing, setClosing] = useState(false);
 
   const [cancelling, setCancelling] = useState(false);
+  const [movingToBreakeven, setMovingToBreakeven] = useState(false);
 
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const { price: livePrice, refresh: refreshLivePrice } = useQuickPrice(trade.symbol);
@@ -218,6 +219,35 @@ export function PositionManager({ trade, dark = false, onChanged }: { trade: Tra
     }
   }
 
+  // Move SL to Breakeven — by direct request ("Create a Move 'SL to
+  // BreakEven' button in Position and Trade Management forms or cards
+  // ... trigger a SL move to BreakEven upon clicking"). Reuses
+  // modify_targets exactly like the Edit Targets form does, just with
+  // stop_loss hardcoded to the trade's own entry price instead of a
+  // typed value — same broker-sync behavior (real ACTIVE trades only,
+  // see that endpoint's own docstring), same trade_id addressing.
+  // Only meaningful for an already-filled, non-pending position with
+  // a real entry price and an SL that isn't already sitting there.
+  const canMoveToBreakeven = !isPending && entry > 0 && trade.stop_loss !== entry;
+
+  async function moveSlToBreakeven() {
+    setMovingToBreakeven(true);
+    setMessage(null);
+    try {
+      const result = await tradesApi.modifyTargets(trade.trade_id, { stop_loss: entry });
+      if (result?.broker_synced === false) {
+        setMessage({ ok: false, text: result.broker_message || "Your own record was updated, but your broker's real order wasn't." });
+      } else {
+        setMessage({ ok: true, text: `Stop loss moved to breakeven (${entry.toFixed(2)}).` });
+      }
+      onChanged?.();
+    } catch (err: any) {
+      setMessage({ ok: false, text: formatApiError(err?.response?.data?.detail, 'Could not move stop loss — try again.') });
+    } finally {
+      setMovingToBreakeven(false);
+    }
+  }
+
   // A still-PENDING order has nothing to partially close — it hasn't
   // filled yet — so it gets Cancel instead of the exit-% form, reusing
   // the same endpoint TradeRow's own row-level Cancel button already
@@ -335,9 +365,20 @@ export function PositionManager({ trade, dark = false, onChanged }: { trade: Tra
         <div className="flex items-center justify-between mb-2">
           <span className={labelCls}>Stop Loss / Take Profit</span>
           {!editingTargets && (
-            <button onClick={startEditingTargets} className={`flex items-center gap-1 text-xs font-medium ${dark ? 'text-white/50 hover:text-white' : 'text-gray-500 hover:text-gray-800'}`}>
-              <Pencil size={12} /> Edit
-            </button>
+            <div className="flex items-center gap-3">
+              {canMoveToBreakeven && (
+                <button
+                  onClick={moveSlToBreakeven} disabled={movingToBreakeven}
+                  className="flex items-center gap-1 text-xs font-medium text-blue-500 hover:text-blue-400 disabled:opacity-50"
+                  title="Move Stop Loss to this position's entry price"
+                >
+                  <ShieldCheck size={12} /> {movingToBreakeven ? 'Moving…' : 'SL to Breakeven'}
+                </button>
+              )}
+              <button onClick={startEditingTargets} className={`flex items-center gap-1 text-xs font-medium ${dark ? 'text-white/50 hover:text-white' : 'text-gray-500 hover:text-gray-800'}`}>
+                <Pencil size={12} /> Edit
+              </button>
+            </div>
           )}
         </div>
 

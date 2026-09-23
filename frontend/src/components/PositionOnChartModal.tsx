@@ -1229,29 +1229,33 @@ export function PositionOnChartModal({
               <div
                 ref={quickTradeCardRef}
                 onPointerDown={(e) => e.stopPropagation()}
-                className={`absolute bottom-4 right-4 z-10 w-64 rounded-xl border p-3 space-y-2.5 shadow-lg ${popoverCls}`}
+                className={`absolute bottom-4 right-4 z-10 w-32 rounded-xl border p-2 space-y-2 shadow-lg ${popoverCls}`}
               >
                 <div className="flex items-center justify-between">
-                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold text-white ${quickTradeDraft.direction === 'long' ? 'bg-emerald-600' : 'bg-red-600'}`}>
-                    <Zap size={11} /> {quickTradeDraft.direction === 'long' ? 'LONG' : 'SHORT'}
+                  <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold text-white ${quickTradeDraft.direction === 'long' ? 'bg-emerald-600' : 'bg-red-600'}`}>
+                    <Zap size={9} /> {quickTradeDraft.direction === 'long' ? 'LONG' : 'SHORT'}
                   </span>
                   <button onClick={() => { setQuickTradeDraft(null); setCustomRRText(''); }} aria-label="Discard this quick trade" className={chromeMutedCls}>
-                    <X size={14} />
+                    <X size={12} />
                   </button>
                 </div>
-                <div className={`text-[11px] font-mono space-y-1 ${chromeTextCls}`}>
-                  <div className="flex justify-between"><span className="opacity-60">Entry</span><span className="font-semibold">{formatQuickTradePrice(quickTradeDraft.entryPrice)}</span></div>
-                  <div className="flex justify-between text-red-500"><span className="opacity-70">Stop Loss</span><span className="font-semibold">{formatQuickTradePrice(quickTradeDraft.stopLoss)}</span></div>
-                  <div className="flex justify-between text-emerald-500"><span className="opacity-70">Take Profit</span><span className="font-semibold">{formatQuickTradePrice(quickTradeDraft.takeProfit)}</span></div>
+                {/* Label-above-value stacking (not side-by-side) — the
+                    only way to fit "Stop Loss" + a full price on a
+                    128px-wide card, by direct request ("reduce the
+                    width of the quick trade form ... by 1/2"). */}
+                <div className={`text-[9px] font-mono space-y-1 ${chromeTextCls}`}>
+                  <div><div className="opacity-60 text-[8px]">Entry</div><div className="font-semibold">{formatQuickTradePrice(quickTradeDraft.entryPrice)}</div></div>
+                  <div className="text-red-500"><div className="opacity-70 text-[8px]">Stop Loss</div><div className="font-semibold">{formatQuickTradePrice(quickTradeDraft.stopLoss)}</div></div>
+                  <div className="text-emerald-500"><div className="opacity-70 text-[8px]">Take Profit</div><div className="font-semibold">{formatQuickTradePrice(quickTradeDraft.takeProfit)}</div></div>
                 </div>
-                <div className="space-y-1.5">
-                  <span className={`text-[10px] ${chromeMutedCls}`}>R:R</span>
-                  <div className="grid grid-cols-3 gap-1">
+                <div className="space-y-1">
+                  <span className={`text-[9px] ${chromeMutedCls}`}>R:R</span>
+                  <div className="grid grid-cols-2 gap-1">
                     {[1, 1.5, 2, 3, 4, 5].map((rr) => (
                       <button
                         key={rr}
                         onClick={() => { applyQuickTradeRR(rr); setCustomRRText(''); }}
-                        className={`rounded-md py-1 text-[10px] font-semibold ${quickTradeRR === rr && !customRRText.trim() ? 'bg-corporate-hero text-white' : `${toggleWrapCls} ${chromeMutedCls}`}`}
+                        className={`rounded-md py-1 text-[9px] font-semibold ${quickTradeRR === rr && !customRRText.trim() ? 'bg-corporate-hero text-white' : `${toggleWrapCls} ${chromeMutedCls}`}`}
                       >
                         {rr}R
                       </button>
@@ -1263,12 +1267,12 @@ export function PositionOnChartModal({
                       number; an in-progress value ("4.", "-", empty)
                       just doesn't touch the draft yet rather than
                       erroring or snapping to 0. */}
-                  <div className="flex items-center gap-1.5">
-                    <span className={`text-[10px] shrink-0 ${chromeMutedCls}`}>Custom</span>
+                  <div className="space-y-1">
+                    <span className={`text-[9px] ${chromeMutedCls}`}>Custom R</span>
                     <input
                       type="text"
                       inputMode="decimal"
-                      placeholder="e.g. 4.5"
+                      placeholder="4.5"
                       value={customRRText}
                       onChange={(e) => {
                         const raw = e.target.value;
@@ -1276,9 +1280,8 @@ export function PositionOnChartModal({
                         const parsed = Number(raw);
                         if (raw.trim() !== '' && Number.isFinite(parsed) && parsed > 0) applyQuickTradeRR(parsed);
                       }}
-                      className={`w-full rounded-md px-2 py-1 text-[10px] outline-none border ${localDark ? 'bg-white/5 border-white/10 text-white placeholder:text-white/30' : 'bg-white border-gray-200 placeholder:text-gray-300'}`}
+                      className={`w-full rounded-md px-1.5 py-1 text-[9px] outline-none border ${localDark ? 'bg-white/5 border-white/10 text-white placeholder:text-white/30' : 'bg-white border-gray-200 placeholder:text-gray-300'}`}
                     />
-                    <span className={`text-[10px] shrink-0 ${chromeMutedCls}`}>R</span>
                   </div>
                 </div>
                 <button
@@ -1294,7 +1297,7 @@ export function PositionOnChartModal({
                     setDrawShape(null);
                     onClose();
                   }}
-                  className="w-full rounded-lg py-2 text-xs font-bold text-white bg-corporate-hero hover:opacity-90"
+                  className="w-full rounded-lg py-1.5 text-[10px] leading-tight font-bold text-white bg-corporate-hero hover:opacity-90"
                 >
                   Use in Order Ticket
                 </button>
