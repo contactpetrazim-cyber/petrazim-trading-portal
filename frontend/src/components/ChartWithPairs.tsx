@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { ChartPanel } from './ChartPanel';
 import { PairsPanel } from './PairsPanel';
 import { useQuickPairsStore, type QuickPair } from '../hooks/useQuickPairs';
@@ -61,6 +62,7 @@ export function ChartWithPairs({
   defaultTv?: string;
 }) {
   const { token } = useAuth();
+  const navigate = useNavigate();
   const { pairs } = useQuickPairsStore();
   const [selectedTv, setSelectedTv] = useState<string>(
     () => (defaultTv && pairs.some((p) => p.tv === defaultTv) ? defaultTv : pairs[0]?.tv),
@@ -71,6 +73,29 @@ export function ChartWithPairs({
   function select(pair: QuickPair) {
     setSelectedTv(pair.tv);
     onSelect?.(pair);
+  }
+
+  // Quick Trade — by direct bug report ("Quick trade tool is missing
+  // from 'On Chart'"): the tool was only ever wired on Manual Trading
+  // itself (which owns a real order form to fill), so every OTHER
+  // chart page this component powers (Dashboard, PremiumDashboardPage,
+  // TradePage, ToolsPage, AreaPage, InsightsPage) silently never got
+  // it — ChartPanel's own onQuickTrade prop was simply never passed
+  // here at all, same "Position/On Chart are a permanent feature on
+  // all charts" gap those two had before an earlier direct request
+  // made THEM universal too. This is that same fix for Quick Trade:
+  // no local order form to fill here, so instead it navigates to
+  // Manual Trading with the drafted trade in the URL (?qt*), which
+  // reads and applies it once on mount (see that page's own effect).
+  function handleQuickTradeNavigate(trade: { direction: 'long' | 'short'; entryPrice: number; stopLoss: number; takeProfit: number }) {
+    const params = new URLSearchParams({
+      tv: selected.tv,
+      qtDirection: trade.direction,
+      qtEntry: String(trade.entryPrice),
+      qtStop: String(trade.stopLoss),
+      qtTarget: String(trade.takeProfit),
+    });
+    navigate(`/trade/manual?${params.toString()}`);
   }
 
   // Same shape as ManualTradingPage.tsx's own polling — see this
@@ -128,6 +153,7 @@ export function ChartWithPairs({
       onPositionChanged={loadOpenPosition}
       otherOpenTrades={otherOpenTrades}
       positionLoading={positionLoading}
+      onQuickTrade={handleQuickTradeNavigate}
     />
   );
 }
