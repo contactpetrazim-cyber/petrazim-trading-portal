@@ -1,5 +1,6 @@
 import { RoleBadge } from '../components/RoleBadge';
 import { RosterPanel } from '../components/RosterPanel';
+import { AllUsersCard } from '../components/AllUsersCard';
 import { AccessCodesPanel } from '../components/AccessCodesPanel';
 import { LearningDashboardPanel } from '../components/LearningDashboardPanel';
 import { EverythingIncludedPanel } from '../components/EverythingIncludedPanel';
@@ -43,6 +44,7 @@ export function PartnerConsolePage() {
 
       <LearningDashboardPanel dark={dark} />
       <RosterPanel dark={dark} />
+      <AllUsersCard dark={dark} />
       <AccessCodesPanel dark={dark} />
       <EverythingIncludedPanel tier="partner" dark={dark} />
     </div>
