@@ -243,11 +243,18 @@ class TradeBreakdown(TodayTradeBreakdown):
     separate /dashboard/trade-breakdown endpoint) rather than widening
     DashboardStats.today_breakdown itself, so that field's existing
     shape and every consumer of it (the headline stat card) is
-    untouched — this is the data source for the new toggle only."""
+    untouched — this is the data source for the new toggle only.
+
+    `drawdown` added by direct follow-up request ("Add - Today Week
+    Month To 'Daily Drawdown' and 'Daily P&L' - just like it works for
+    'Todays Trades'") — same $ peak-to-trough definition
+    dashboard_stats.current_drawdown already uses for "today", now
+    computed over whichever period this call asked for."""
     period: str  # "today" | "week" | "month"
     total: int
     win_rate: float
     pnl: float
+    drawdown: float
 
 
 class DashboardStats(BaseModel):

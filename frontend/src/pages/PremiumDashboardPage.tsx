@@ -7,6 +7,7 @@ import {
 import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 import { StatCard } from '../components/StatCard';
 import { TodayTradeBreakdownPills } from '../components/TodayTradeBreakdownPills';
+import { PnlDrawdownPeriodPills } from '../components/PnlDrawdownPeriodPills';
 import { ActivePositionsMetrics } from '../components/ActivePositionsMetrics';
 import { TradeRow } from '../components/TradeRow';
 import { FoldedCard } from '../components/FoldedCard';
@@ -176,13 +177,17 @@ export function PremiumDashboardPage() {
         <StatCard title="Today's Trades" value={stats?.total_trades_today ?? 0} subtitle={`${stats?.win_rate_today ?? 0}% win rate`} icon={<Activity size={20} />} color="blue">
           {stats?.today_breakdown && <TodayTradeBreakdownPills breakdown={stats.today_breakdown} />}
         </StatCard>
-        <StatCard title="Daily P&L" value={`$${stats?.daily_pnl?.toFixed(2) ?? '0.00'}`} subtitle="Net realized profit" icon={<DollarSign size={20} />} color={(stats?.daily_pnl ?? 0) >= 0 ? 'green' : 'red'} />
+        <StatCard title="Daily P&L" value={`$${stats?.daily_pnl?.toFixed(2) ?? '0.00'}`} subtitle="Net realized profit" icon={<DollarSign size={20} />} color={(stats?.daily_pnl ?? 0) >= 0 ? 'green' : 'red'}>
+          <PnlDrawdownPeriodPills metric="pnl" todayValue={stats?.daily_pnl ?? 0} />
+        </StatCard>
         {/* Shown as a negative number — by direct request ("Should this
             be a negative number - since it's a decline"). Display-side
             sign only; current_drawdown itself stays the plain
             non-negative magnitude the color logic below already keys
             off. */}
-        <StatCard title="Daily Drawdown" value={`${stats?.current_drawdown ? '-' : ''}$${stats?.current_drawdown?.toFixed(2) ?? '0.00'}`} subtitle="Decline from today's high" icon={<TrendingDown size={20} />} color={(stats?.current_drawdown ?? 0) > 0 ? 'amber' : 'blue'} />
+        <StatCard title="Daily Drawdown" value={`${stats?.current_drawdown ? '-' : ''}$${stats?.current_drawdown?.toFixed(2) ?? '0.00'}`} subtitle="Decline from today's high" icon={<TrendingDown size={20} />} color={(stats?.current_drawdown ?? 0) > 0 ? 'amber' : 'blue'}>
+          <PnlDrawdownPeriodPills metric="drawdown" todayValue={stats?.current_drawdown ?? 0} />
+        </StatCard>
         <StatCard title="Active Trades" value={stats?.active_trades ?? 0} subtitle="Currently in market" icon={<Target size={20} />} color="purple">
           <ActivePositionsMetrics trades={activeTrades} />
         </StatCard>
