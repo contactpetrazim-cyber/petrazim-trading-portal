@@ -96,8 +96,8 @@ async def register(req: RegisterRequest, background_tasks: BackgroundTasks, db: 
 
     # Best-effort — a Resend outage or misconfigured key must never
     # block registration itself; see email.py's send_email docstring.
-    subject, body = build_registration_confirmation_email(user.full_name)
-    background_tasks.add_task(send_email, user.email, subject, body)
+    subject, body, html_body = build_registration_confirmation_email(user.full_name)
+    background_tasks.add_task(send_email, user.email, subject, body, html_body)
 
     return _to_profile(user)
 
