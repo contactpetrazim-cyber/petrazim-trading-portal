@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import secrets
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,6 +25,7 @@ from starlette.concurrency import run_in_threadpool
 from app.core.auth import create_access_token, get_current_user, hash_password, verify_password
 from app.database import get_db
 from app.models.user import ROLE_BADGE_COLOR, ROLE_LANDING_ROUTE, User, UserRole, UserStatus
+from app.services.email import build_registration_confirmation_email, send_email
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -72,7 +73,7 @@ def _to_profile(user: User) -> UserProfileResponse:
 
 
 @router.post("/register", response_model=UserProfileResponse)
-async def register(req: RegisterRequest, db: AsyncSession = Depends(get_db)):
+async def register(req: RegisterRequest, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)):
     if req.role in (UserRole.ADMIN, UserRole.SUPER_ADMIN):
         raise HTTPException(
             status_code=400,
@@ -92,6 +93,12 @@ async def register(req: RegisterRequest, db: AsyncSession = Depends(get_db)):
     db.add(user)
     await db.commit()
     await db.refresh(user)
+
+    # Best-effort — a Resend outage or misconfigured key must never
+    # block registration itself; see email.py's send_email docstring.
+    subject, body = build_registration_confirmation_email(user.full_name)
+    background_tasks.add_task(send_email, user.email, subject, body)
+
     return _to_profile(user)
 
 
