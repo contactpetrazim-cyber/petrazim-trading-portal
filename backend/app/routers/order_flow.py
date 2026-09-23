@@ -33,10 +33,16 @@ REST APIs return the identical trades/depth/klines row shapes, so
 `_resolve_market` below is the only place that needs to know which
 base URL/client a given symbol resolves to.
 
-Symbols are restricted to a small allow-list of liquid pairs rather
-than an open passthrough, to keep this platform's own exposure to
-Binance's public rate limits bounded and predictable. Forex, indices,
-and commodities are a separate, larger scope: unlike crypto, there is
+Symbols are validated against the real, live Binance spot+futures
+instrument list (_get_all_instruments, ~2000+ pairs, cached hourly —
+see _resolve_market) rather than an open passthrough of an arbitrary
+client-supplied string, so this platform's own exposure to Binance's
+public rate limits stays bounded to genuinely real, currently-listed
+symbols. Widened from an earlier tiny 6-pair hardcoded allow-list by
+direct request ("Make the 'On Chart' allow all the instruments that
+the trade chart can display ... cover as many pairs as can be
+displayed by the global pair search tool"). Forex, indices, and
+commodities are a separate, larger scope: unlike crypto, there is
 no free/no-key public REST source for those the way Binance's own API
 is for crypto — a real (paid or keyed) market-data provider would need
 to be chosen and configured before this proxy could cover them, so
@@ -154,36 +160,38 @@ _tv_client = httpx.AsyncClient(timeout=8.0, headers=_TV_HEADERS)
 _TV_HIGHLIGHT_TAGS_RE = re.compile(r"</?em>")
 
 
-def _resolve_market(symbol: str) -> tuple[str, bool]:
+async def _resolve_market(symbol: str) -> tuple[str, bool]:
     """Validates a client-facing symbol and says which Binance market it
-    belongs to — (base_symbol, is_futures). A ".P" suffix (TradingView's
-    own perpetual-futures convention, e.g. "BTCUSDT.P") routes to
-    Binance's USDⓈ-M futures API with the suffix stripped (Binance
-    futures symbols carry no suffix of their own); anything else is
-    validated as spot, unchanged from before."""
-    symbol = symbol.upper()
-    if symbol.endswith(".P"):
-        base = symbol[:-2]
-        if base in ALLOWED_SYMBOLS:
-            return base, True
-    elif symbol in ALLOWED_SYMBOLS:
-        return symbol, False
-    raise HTTPException(
-        status_code=400,
-        detail=f"Unsupported symbol '{symbol}' — choose one of {ALLOWED_SYMBOLS + ALLOWED_FUTURES_SYMBOLS}.",
-    )
+    belongs to — (base_symbol, is_futures). By direct request ("Make
+    the 'On Chart' allow all the instruments that the trade chart can
+    display or can be traded from ... since they use the same global
+    pairs search instrument pairs tool - it should be able to cover as
+    many pairs as can be displayed by the global pair search tool"):
+    used to check against ALLOWED_SYMBOLS, a tiny hardcoded 6-pair
+    list — now checks against the SAME live-fetched, real Binance
+    spot+futures universe (_get_all_instruments, ~2000+ pairs) the
+    unified instrument search already serves, so any symbol a trader
+    can actually FIND via that search also works here. A ".P" suffix
+    (TradingView's own perpetual-futures convention, e.g. "BTCUSDT.P")
+    routes to Binance's USDⓈ-M futures API with the suffix stripped
+    (Binance futures symbols carry no suffix of their own).
 
-
-def _validate_symbol(symbol: str) -> str:
-    """Spot-only validation — kept for the instrument-search endpoints
-    below, which are explicitly spot-only by their own docstring."""
-    symbol = symbol.upper()
-    if symbol not in ALLOWED_SYMBOLS:
+    Honest limit, unchanged: this is still Binance-only, not literally
+    "every instrument the TradingView widget can display" — forex/
+    stocks/indices have no real candle-data source this backend can
+    fetch from at all (see chart_symbol_search's own docstring for the
+    same crypto-vs-everything-else line already drawn there)."""
+    clean = symbol.upper()
+    all_instruments = await _get_all_instruments()
+    match = next((i for i in all_instruments if i.symbol == clean), None)
+    if not match:
         raise HTTPException(
             status_code=400,
-            detail=f"Unsupported symbol '{symbol}' — choose one of {ALLOWED_SYMBOLS}.",
+            detail=f"Unsupported symbol '{clean}' — not a currently tradable Binance spot or perpetual-futures pair. Search for the exact symbol first.",
         )
-    return symbol
+    is_futures = match.market == "futures"
+    base = clean[:-2] if is_futures and clean.endswith(".P") else clean
+    return base, is_futures
 
 
 async def _binance_get(path: str, params: dict, futures: bool = False) -> httpx.Response:
@@ -228,7 +236,7 @@ async def get_trades(
     200 (Binance's own recent-trades endpoint doesn't need more for a
     live-feeling tape view, and it keeps this platform's own request
     weight small)."""
-    symbol, futures = _resolve_market(symbol)
+    symbol, futures = await _resolve_market(symbol)
     limit = max(1, min(limit, 200))
     resp = await _binance_get("/trades", {"symbol": symbol, "limit": limit}, futures=futures)
     raw = resp.json()
@@ -263,7 +271,7 @@ async def get_depth(
     this platform's own paid-access model and every other data route
     here are simple request/response, so a polled snapshot matches the
     existing pattern rather than introducing new infrastructure)."""
-    symbol, futures = _resolve_market(symbol)
+    symbol, futures = await _resolve_market(symbol)
     limit = limit if limit in (5, 10, 20, 50, 100) else 10
     resp = await _binance_get("/depth", {"symbol": symbol, "limit": limit}, futures=futures)
     raw = resp.json()
@@ -349,7 +357,7 @@ async def get_footprint_chart(
     candle duration (same convention as the klines endpoint below, so a
     5m footprint candle lines up with a real 5m candlestick elsewhere)
     — see FOOTPRINT_INTERVAL_MS's own comment for why it's capped at 1h."""
-    symbol, futures = _resolve_market(symbol)
+    symbol, futures = await _resolve_market(symbol)
     if interval not in FOOTPRINT_INTERVAL_MS:
         raise HTTPException(status_code=400, detail=f"interval must be one of {list(FOOTPRINT_INTERVAL_MS)}")
     interval_ms = FOOTPRINT_INTERVAL_MS[interval]
@@ -543,7 +551,7 @@ async def get_klines(
     user: User = Depends(get_current_user),
 ):
     requested_symbol = symbol.upper()
-    symbol, futures = _resolve_market(symbol)
+    symbol, futures = await _resolve_market(symbol)
     if interval not in ALLOWED_INTERVALS:
         raise HTTPException(status_code=400, detail=f"interval must be one of {ALLOWED_INTERVALS}")
     limit = max(10, min(limit, 500))

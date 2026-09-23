@@ -21,10 +21,27 @@ const LIVE_PRICE_REFRESH_MS = 15_000;
 // errors with "Unsupported symbol". Strips a trailing ".P" (Binance
 // perpetual futures, same suffix convention as the main chart) before
 // checking, matching that endpoint's own _resolve_market.
-const ONCHART_ALLOWED_SYMBOLS = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT', 'DOGEUSDT'];
+//
+// Widened from a tiny 6-symbol hardcoded list to every recognizable
+// crypto quote-currency suffix — by direct request ("Make the 'On
+// Chart' allow all the instruments that the trade chart can display
+// ... since they use the same global pairs search instrument pairs
+// tool ... cover as many pairs as can be displayed by the global pair
+// search tool"). order_flow.py's own /klines etc. now validate
+// against the REAL, live Binance spot+futures instrument list (~2000+
+// pairs, see that module's own _resolve_market) rather than a 6-pair
+// allow-list — this client-side check can't do a live lookup inside a
+// synchronous filter predicate, so it's a permissive heuristic instead
+// of an exact match: anything ending in a real Binance quote asset
+// passes through here, and the backend's own live check is still the
+// actual authority — a symbol that slips through this heuristic but
+// isn't genuinely listed gets a clear "Unsupported symbol" error from
+// the chart's own fetch, not a silent failure. Forex/stocks/indices
+// still correctly never match (no quote suffix here is one of theirs).
+const CRYPTO_QUOTE_SUFFIXES = ['USDT', 'USDC', 'BUSD', 'FDUSD', 'BTC', 'ETH', 'BNB', 'TRY', 'EUR'];
 function isOnChartSupportedSymbol(tradeSymbol: string): boolean {
   const base = tradeSymbol.toUpperCase().endsWith('.P') ? tradeSymbol.slice(0, -2).toUpperCase() : tradeSymbol.toUpperCase();
-  return ONCHART_ALLOWED_SYMBOLS.includes(base);
+  return CRYPTO_QUOTE_SUFFIXES.some((q) => base.endsWith(q) && base.length > q.length);
 }
 
 type KlineInterval = '1m' | '5m' | '15m' | '30m' | '1h' | '4h' | '1d' | '1w';
