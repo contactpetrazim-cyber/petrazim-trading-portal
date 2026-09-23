@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { X, Loader2, RotateCcw, Sun, Moon, Palette, Target, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Maximize2, Crosshair, TrendingUp, PenLine, Square, Eraser, Zap, CandlestickChart } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { X, Loader2, RotateCcw, Sun, Moon, Palette, Target, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Maximize2, Crosshair, TrendingUp, PenLine, Square, Eraser, Zap, Search, Receipt } from 'lucide-react';
 import { CandleChart, CHART_LAYOUT, computeChartRange, type Candle, type ChartLine, type ChartZone, type OverlaySeries, type DrawnSegment } from './CandleChart';
 import { formatSignedMoney, type ChartPosition } from './TradingViewChart';
 import { PositionManager } from './PositionManager';
@@ -1007,10 +1008,16 @@ export function PositionOnChartModal({
           <button
             onClick={() => setPairsOpen((o) => !o)}
             aria-label={pairsOpen ? 'Hide pairs and exchanges' : 'Show pairs and exchanges'}
-            title={pairsOpen ? 'Hide pairs and exchanges' : 'Pairs and exchanges'}
+            title={pairsOpen ? 'Hide pairs and exchanges' : 'Search instrument pairs'}
             className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium ${pairsOpen ? 'bg-corporate-hero text-white' : `${chromeMutedCls} ${toggleWrapCls}`}`}
           >
-            <CandlestickChart size={13} /> Pairs
+            {/* Search (magnifying glass) — by direct request ("the
+                search icon in the chart is missing ... Tradingview
+                search icon for pairs instrument pairs"), same icon
+                swap ChartPanel.tsx and TradingViewFramePage.tsx
+                already got; this is On Chart's own separate Pairs
+                button, promised as a quick follow-up there. */}
+            <Search size={13} /> Pairs
           </button>
           {/* "Position" — edit/cancel/partial-close this trade right
               here, by direct request ("in addition to seeing the entry,
@@ -1028,6 +1035,27 @@ export function PositionOnChartModal({
               <Target size={13} /> Position
             </button>
           )}
+          {/* "Order" — by direct follow-up request ("Add Pairs (with
+              search icon), position and order to all charts - including
+              the 'On Chart'"): Pairs and Position were already
+              universal here; a way to actually PLACE an order wasn't
+              — Quick Trade covers "drag out a new trade," but there
+              was no direct link to the real order ticket for whichever
+              pair is currently showing. Goes straight to Manual
+              Trading for `activeSymbol` (not necessarily the
+              position's own original symbol — Pairs may have switched
+              this chart to browsing a different one), same `?tv=`
+              deep-link convention PositionManager's own "Position
+              Chart" link already uses. */}
+          <Link
+            to={`/trade/manual?tv=${encodeURIComponent(selectedPair.tv)}`}
+            target="_blank" rel="noopener noreferrer"
+            aria-label={`Place an order on ${activeSymbol}`}
+            title={`Order — opens Manual Trading for ${activeSymbol}`}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium ${chromeMutedCls} ${toggleWrapCls}`}
+          >
+            <Receipt size={13} /> Order
+          </Link>
           {/* Local candle color picker — by direct request ("add
               ability to change candle colour on the chart"). No chart
               TYPE row here on purpose — see COLOR_PRESETS' own comment
