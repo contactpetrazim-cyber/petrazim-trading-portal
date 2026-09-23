@@ -197,7 +197,12 @@ export function DashboardPage() {
         />
         <StatCard
           title="Daily Drawdown"
-          value={`$${stats?.current_drawdown?.toFixed(2) || '0.00'}`}
+          // Shown as a negative number — by direct request ("Should
+          // this be a negative number - since it's a decline"). The
+          // underlying current_drawdown is a plain non-negative
+          // magnitude (backend's own peak-to-trough calculation), so
+          // the "-" is purely a display-side sign, not a value change.
+          value={`${stats?.current_drawdown ? '-' : ''}$${stats?.current_drawdown?.toFixed(2) || '0.00'}`}
           subtitle="Decline from today's P&L high"
           icon={<TrendingDown size={20} />}
           color={stats && stats.current_drawdown > 0 ? 'amber' : 'blue'} dark={dark}

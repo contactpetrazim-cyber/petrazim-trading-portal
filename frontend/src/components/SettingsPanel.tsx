@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   X, Home, CreditCard, GraduationCap, CalendarClock, LayoutGrid,
-  HardDriveDownload, Link2, ChevronRight, Sun, Moon, Map, LogOut, Crown, Wallet, ScrollText,
+  HardDriveDownload, Link2, ChevronRight, Sun, Moon, Map, LogOut, Crown, Wallet, ScrollText, Activity,
 } from 'lucide-react';
 import { HERO_GRADIENT } from '../config/theme';
 import type { ThemeName } from '../hooks/useTheme';
@@ -113,6 +113,11 @@ export function SettingsPanel({
 
   const items: { icon: typeof CreditCard; label: string; detail: string; to?: string; onClick?: () => void }[] = [
     { icon: Home, label: 'Home', detail: 'Back to the dashboard', to: '/home' },
+    // Embedded here too, by direct request ("Add and embed 'Traders
+    // Dashboard' link to the settings icon") — Home (above) goes to
+    // the main site's CorporateHomePage; this is the actual Trader
+    // Console (stats, equity curve, pending approvals) at /dashboard.
+    { icon: Activity, label: 'Traders Dashboard', detail: 'Your trading console — stats, equity curve, pending approvals', to: '/dashboard' },
     { icon: CreditCard, label: 'Select Access and Pay', detail: 'Choose a tier or duration pass', to: '/payments' },
     { icon: GraduationCap, label: 'Ask Trading Coach', detail: 'Open Trade AI', onClick: openTradeAI },
     { icon: CalendarClock, label: 'Facilitator Sessions', detail: 'Book time with a Manager or Partner (Tier 2/3)', to: '/meetings' },
@@ -235,7 +240,23 @@ export function SettingsPanel({
         <div className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center p-4" onClick={() => setPremiumOverviewOpen(false)}>
           <div
             className={`w-full max-w-xl max-h-[90vh] overflow-y-auto rounded-3xl shadow-2xl ${dark ? 'bg-corporate-surface-dark' : 'bg-white'}`}
-            onClick={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              // EverythingIncludedPanel's own rows are plain <Link>s with
+              // no onClick of their own (it's shared with 3 other,
+              // non-modal call sites where there's nothing to close) —
+              // by direct bug report ("the links ... does not work or
+              // trigger the corresponding page"): they WERE navigating
+              // fine, just invisibly, underneath this still-open
+              // full-screen popup AND the settings drawer behind it,
+              // which looked identical to nothing happening at all.
+              // Close both whenever the click that bubbled up here
+              // landed on (or inside) a link.
+              if ((e.target as HTMLElement).closest('a')) {
+                setPremiumOverviewOpen(false);
+                onClose();
+              }
+            }}
           >
             <div className="p-5 rounded-t-3xl flex items-center justify-between" style={{ background: HERO_GRADIENT }}>
               <div className="flex items-center gap-2.5 text-white">
