@@ -46,3 +46,18 @@ TRADING_PAPER_ENFORCED_KEY = "trading.paper_enforced"
 # before this switch existed, so an absent row preserves that rather
 # than silently going quiet.
 FIREFLIES_ENABLED_KEY = "fireflies.enabled"
+
+# Admin runtime on/off for the autonomous market scanner (see
+# services/market_scanner.py) — by direct request ("provide a switch
+# in the admin toggle on and off"). Distinct from the
+# MARKET_SCANNER_ENABLED env var, which is the one-time deploy-level
+# gate that decides whether the scanning loop exists on this backend
+# instance at all (both Render and the VM backup need it set once);
+# THIS setting is the runtime pause/resume switch an Admin flips
+# without any redeploy — checked once per cycle in
+# MarketScanner.scan_once, so turning it off takes effect within one
+# interval and turning it back on resumes without restarting the app.
+# Defaults to unset/"true" — the scanner runs as soon as the env var
+# capability is deployed, same fail-open shape FIREFLIES_ENABLED_KEY
+# uses, since Admin explicitly asked for it to be on.
+MARKET_SCANNER_ENABLED_KEY = "bots.market_scanner_enabled"
