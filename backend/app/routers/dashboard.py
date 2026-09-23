@@ -45,6 +45,20 @@ def _period_start(period: str) -> datetime:
     return now.replace(hour=0, minute=0, second=0, microsecond=0)
 
 
+def _drawdown(closed_trades: list) -> float:
+    """$ peak-to-trough decline in running realized P&L, walked in exit
+    order — shared by dashboard_stats' own "today" figure and
+    trade_breakdown's Today/Week/Month-toggleable one, so the two
+    definitions can't drift apart."""
+    closed_sorted = sorted(closed_trades, key=lambda t: t.exit_timestamp or t.created_at)
+    running, peak, drawdown = 0.0, 0.0, 0.0
+    for t in closed_sorted:
+        running += t.realized_pnl or 0.0
+        peak = max(peak, running)
+        drawdown = max(drawdown, peak - running)
+    return drawdown
+
+
 def _breakdown_counts(all_trades: list) -> dict:
     """Shared Pending/Executed/Cancelled/Won/Loss/Break-even bucket
     counts, used by both dashboard_stats' own today_breakdown and the
@@ -103,12 +117,7 @@ async def dashboard_stats(db: AsyncSession = Depends(get_db), user: User = Depen
     # peak-to-current-trough definition max_drawdown_pct already uses
     # elsewhere in this app, just in dollars instead of percent since
     # that's the honest unit available here.
-    closed_today = sorted(closed_trades_today, key=lambda t: t.exit_timestamp or t.created_at)
-    running, peak, drawdown = 0.0, 0.0, 0.0
-    for t in closed_today:
-        running += t.realized_pnl or 0.0
-        peak = max(peak, running)
-        drawdown = max(drawdown, peak - running)
+    drawdown = _drawdown(closed_trades_today)
 
     # Active trades
     active_query = _scope_trades(select(Trade), user).where(Trade.status == TradeStatus.ACTIVE)
@@ -168,12 +177,14 @@ async def trade_breakdown(
     total = len(real_trades)
     wins = len([t for t in real_trades if t.realized_pnl and t.realized_pnl > 0])
     pnl = sum(t.realized_pnl or 0 for t in real_trades)
+    drawdown = _drawdown([t for t in all_trades if t.status == TradeStatus.CLOSED])
 
     return TradeBreakdown(
         period=period,
         total=total,
         win_rate=round(wins / total * 100, 2) if total > 0 else 0.0,
         pnl=round(pnl, 2),
+        drawdown=round(drawdown, 2),
         **_breakdown_counts(all_trades),
     )
 

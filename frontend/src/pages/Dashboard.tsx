@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { StatCard } from '../components/StatCard';
 import { TodayTradeBreakdownPills } from '../components/TodayTradeBreakdownPills';
+import { PnlDrawdownPeriodPills } from '../components/PnlDrawdownPeriodPills';
 import { ActivePositionsMetrics } from '../components/ActivePositionsMetrics';
 import { TradeRow } from '../components/TradeRow';
 import { FoldedCard } from '../components/FoldedCard';
@@ -194,7 +195,9 @@ export function DashboardPage() {
           subtitle="Net realized profit"
           icon={<DollarSign size={20} />}
           color={stats && stats.daily_pnl >= 0 ? 'green' : 'red'} dark={dark}
-        />
+        >
+          <PnlDrawdownPeriodPills metric="pnl" todayValue={stats?.daily_pnl ?? 0} />
+        </StatCard>
         <StatCard
           title="Daily Drawdown"
           // Shown as a negative number — by direct request ("Should
@@ -206,7 +209,9 @@ export function DashboardPage() {
           subtitle="Decline from today's P&L high"
           icon={<TrendingDown size={20} />}
           color={stats && stats.current_drawdown > 0 ? 'amber' : 'blue'} dark={dark}
-        />
+        >
+          <PnlDrawdownPeriodPills metric="drawdown" todayValue={stats?.current_drawdown ?? 0} />
+        </StatCard>
         <StatCard
           title="Active Trades"
           value={stats?.active_trades || 0}

@@ -95,6 +95,7 @@ export interface TradeBreakdown extends TodayTradeBreakdown {
   total: number;
   win_rate: number;
   pnl: number;
+  drawdown: number;
 }
 
 export interface DashboardStats {
