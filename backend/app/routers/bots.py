@@ -1,5 +1,6 @@
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List
@@ -7,9 +8,13 @@ from app.database import get_db
 from app.models.bot import BotConfig, BotStatus, ExecutionMode
 from app.models.user import User, UserRole
 from app.core.access_gate import require_active_access
+from app.core.auth import get_current_user, require_super_admin
+from app.models.platform_setting import MARKET_SCANNER_ENABLED_KEY, PlatformSetting
 from app.models.trade import Trade, TradeStatus
 from app.services.roster_access import user_can_manage_trader
+from app.services.market_scanner import get_market_scanner_runtime_enabled
 from app.models.trade import TradingMode
+from app.config import get_settings
 from app.schemas import BotConfigCreate, BotConfigResponse, BotToggle, BotExchangeUpdate, BotMetricsUpdate, BotRename, BotTradingModeUpdate
 import structlog
 
@@ -23,6 +28,55 @@ logger = structlog.get_logger()
 # this is what actually lets a Manager adjust a Trader's risk settings
 # from the Manager console, not just view them.
 STAFF_ROLES = (UserRole.ADMIN, UserRole.SUPER_ADMIN)
+
+
+class MarketScannerModeResponse(BaseModel):
+    # Deploy-level capability — set once via the MARKET_SCANNER_ENABLED
+    # env var on Render and the Nube VM backup; read-only here, since
+    # changing it needs a redeploy, not a toggle click.
+    capability_enabled: bool
+    # Admin runtime pause/resume switch — this is what the toggle
+    # button in the Admin console actually flips. Only meaningful when
+    # capability_enabled is also True.
+    runtime_enabled: bool
+
+
+@router.get("/market-scanner-mode", response_model=MarketScannerModeResponse)
+async def get_market_scanner_mode(db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+    """Any authenticated user can read this — same "everyone sees the
+    resolved state, only Super Admin changes it" shape as
+    manual_trading.py's own master-mode endpoint."""
+    return MarketScannerModeResponse(
+        capability_enabled=get_settings().MARKET_SCANNER_ENABLED,
+        runtime_enabled=await get_market_scanner_runtime_enabled(db),
+    )
+
+
+class SetMarketScannerModeRequest(BaseModel):
+    runtime_enabled: bool
+
+
+@router.patch("/market-scanner-mode", response_model=MarketScannerModeResponse)
+async def set_market_scanner_mode(
+    req: SetMarketScannerModeRequest, db: AsyncSession = Depends(get_db), admin: User = Depends(require_super_admin),
+):
+    """Super Admin only — by direct request ("provide a switch in the
+    admin toggle on and off"). Pauses/resumes the already-running
+    scanner loop without a redeploy; see MARKET_SCANNER_ENABLED_KEY's
+    own comment for why this is separate from the env var."""
+    value = "true" if req.runtime_enabled else "false"
+    row = (await db.execute(
+        select(PlatformSetting).where(PlatformSetting.key == MARKET_SCANNER_ENABLED_KEY)
+    )).scalar_one_or_none()
+    if row:
+        row.value = value
+    else:
+        db.add(PlatformSetting(key=MARKET_SCANNER_ENABLED_KEY, value=value))
+    await db.commit()
+    return MarketScannerModeResponse(
+        capability_enabled=get_settings().MARKET_SCANNER_ENABLED,
+        runtime_enabled=req.runtime_enabled,
+    )
 
 
 async def _get_owned_bot(bot_id: str, user: User, db: AsyncSession) -> BotConfig:

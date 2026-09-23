@@ -28,16 +28,29 @@ from typing import Dict, List
 
 import structlog
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.core.bot_strategies import BotOrchestrator, Candle
 from app.database import AsyncSessionLocal
 from app.models.bot import BotConfig, BotStatus
+from app.models.platform_setting import MARKET_SCANNER_ENABLED_KEY, PlatformSetting
 from app.services.data_ingestion import MarketDataIngestion
 from app.services.execution_engine import ExecutionEngine
 
 logger = structlog.get_logger()
 settings = get_settings()
+
+
+async def get_market_scanner_runtime_enabled(db: AsyncSession) -> bool:
+    """The Admin runtime pause/resume switch — see
+    MARKET_SCANNER_ENABLED_KEY's own comment for how this differs from
+    the MARKET_SCANNER_ENABLED env var. Defaults to True when never
+    explicitly set."""
+    row = (await db.execute(
+        select(PlatformSetting).where(PlatformSetting.key == MARKET_SCANNER_ENABLED_KEY)
+    )).scalar_one_or_none()
+    return row.value.lower() == "true" if row else True
 
 # BotOrchestrator dispatches by these timeframe keys (bot_strategies.py's
 # run_all) — each maps to the ccxt timeframe string data_ingestion.py needs.
@@ -78,6 +91,12 @@ class MarketScanner:
 
     async def scan_once(self) -> None:
         async with AsyncSessionLocal() as db:
+            if not await get_market_scanner_runtime_enabled(db):
+                # Admin paused it — skip this cycle only, not the loop
+                # itself, so flipping the switch back on resumes within
+                # one interval with no restart needed.
+                return
+
             result = await db.execute(select(BotConfig).where(BotConfig.status == BotStatus.ACTIVE))
             active_bots = result.scalars().all()
             if not active_bots:

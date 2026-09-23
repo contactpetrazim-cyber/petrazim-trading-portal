@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { ShieldAlert, Users, Link2, Percent, ArrowRight } from 'lucide-react';
+import { ShieldAlert, Users, Link2, Percent, ArrowRight, Bot } from 'lucide-react';
 import { FoldedCard } from '../components/FoldedCard';
 import { RoleBadge } from '../components/RoleBadge';
 import { RosterPanel } from '../components/RosterPanel';
@@ -95,6 +95,9 @@ export function AdminConsolePage() {
   const [switchingPaper, setSwitchingPaper] = useState(false);
   const [firefliesEnabled, setFirefliesEnabled] = useState<boolean | null>(null);
   const [switchingFireflies, setSwitchingFireflies] = useState(false);
+  const [scannerCapabilityEnabled, setScannerCapabilityEnabled] = useState<boolean | null>(null);
+  const [scannerRuntimeEnabled, setScannerRuntimeEnabled] = useState<boolean | null>(null);
+  const [switchingScanner, setSwitchingScanner] = useState(false);
 
   const isSuperAdmin = user?.role === 'super_admin';
 
@@ -119,6 +122,10 @@ export function AdminConsolePage() {
       .then((r) => (r.ok ? r.json() : null)).then((d) => d && setPaperEnforced(d.paper_enforced)).catch(() => {});
     apiFetch(`${API_URL}/meetings/fireflies-setting`, { headers: { Authorization: `Bearer ${token}` } })
       .then((r) => (r.ok ? r.json() : null)).then((d) => d && setFirefliesEnabled(d.enabled)).catch(() => {});
+    apiFetch(`${API_URL}/bots/market-scanner-mode`, { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d) { setScannerCapabilityEnabled(d.capability_enabled); setScannerRuntimeEnabled(d.runtime_enabled); } })
+      .catch(() => {});
   }, [token]);
 
   async function setMode(mode: 'test' | 'live') {
@@ -177,6 +184,22 @@ export function AdminConsolePage() {
       if (res.ok) setFirefliesEnabled((await res.json()).enabled);
     } finally {
       setSwitchingFireflies(false);
+    }
+  }
+
+  async function setScannerRuntime(next: boolean) {
+    if (next === scannerRuntimeEnabled) return;
+    setSwitchingScanner(true);
+    try {
+      const res = await apiFetch(`${API_URL}/bots/market-scanner-mode`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ runtime_enabled: next }),
+        timeoutMs: 60_000,
+      });
+      if (res.ok) setScannerRuntimeEnabled((await res.json()).runtime_enabled);
+    } finally {
+      setSwitchingScanner(false);
     }
   }
 
@@ -348,6 +371,63 @@ export function AdminConsolePage() {
               Off
             </button>
             {firefliesEnabled === null && <span className="text-xs text-gray-500">Loading…</span>}
+          </div>
+        </FoldedCard>
+      )}
+
+      {/* Bot Market Scanner — by direct request ("provide a switch in
+          the admin toggle on and off"), same pattern as Fireflies
+          Master Control above. capability_enabled (the
+          MARKET_SCANNER_ENABLED env var, deployed on Render + the VM
+          backup) is read-only here — it needs a redeploy, not a
+          click; runtime_enabled is the actual pause/resume switch,
+          checked once per scan cycle with no restart needed. */}
+      {isSuperAdmin && (
+        <FoldedCard
+          title="Bot Market Scanner"
+          summary={
+            scannerCapabilityEnabled === null ? 'Loading…'
+              : !scannerCapabilityEnabled ? 'Not deployed'
+              : scannerRuntimeEnabled ? 'On — scanning every 5 min' : 'Paused'
+          }
+          icon={<Bot size={18} />} accent="#f59e0b" dark={dark} defaultOpen
+        >
+          <p className="text-xs text-gray-500 mb-3">
+            On: every active bot's strategy runs against live market candles every few minutes. A bot in
+            Human-in-the-Loop mode only creates a pending approval — nothing executes until you approve it.
+            A bot in Fully Autonomous mode executes immediately. Off: bots stay idle and only react to a
+            manual TradingView alert, same as before this was turned on.
+          </p>
+          {scannerCapabilityEnabled === false && (
+            <p className="text-xs text-amber-500 mb-3">
+              Not deployed on this backend yet — the MARKET_SCANNER_ENABLED environment variable needs to be
+              set on Render (and the Nube VM backup) before this switch does anything.
+            </p>
+          )}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setScannerRuntime(true)}
+              disabled={switchingScanner || !scannerCapabilityEnabled}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 border ${
+                scannerRuntimeEnabled === true
+                  ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
+                  : dark ? 'bg-smc-dark text-gray-400 border-smc-border hover:text-white' : 'bg-gray-50 text-gray-500 border-corporate-bg hover:text-corporate-text-on-bg'
+              }`}
+            >
+              On
+            </button>
+            <button
+              onClick={() => setScannerRuntime(false)}
+              disabled={switchingScanner || !scannerCapabilityEnabled}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 border ${
+                scannerRuntimeEnabled === false
+                  ? 'bg-amber-500/20 text-amber-400 border-amber-500/40'
+                  : dark ? 'bg-smc-dark text-gray-400 border-smc-border hover:text-white' : 'bg-gray-50 text-gray-500 border-corporate-bg hover:text-corporate-text-on-bg'
+              }`}
+            >
+              Off
+            </button>
+            {scannerRuntimeEnabled === null && <span className="text-xs text-gray-500">Loading…</span>}
           </div>
         </FoldedCard>
       )}
