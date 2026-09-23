@@ -362,15 +362,15 @@ export function PositionOnChartModal({
   const [drawShape, setDrawShape] = useState<'line' | 'box' | 'position' | null>(null);
   const [drawings, setDrawings] = useState<DrawnSegment[]>([]);
   const [inProgressDraw, setInProgressDraw] = useState<DrawnSegment | null>(null);
-  // Switching pairs mid-draw/mid-draft would leave an active tool (or
-  // an unfinished Quick Trade draft) pointed at candles that just got
-  // replaced out from under it — clear both, and fold the Position
-  // card, on every symbol change (including switching back to the
-  // original one, which starts clean too).
+  // Switching pairs mid-draw would leave an active tool pointed at
+  // candles that just got replaced out from under it — clear the
+  // active tool and fold the Position card on every symbol change
+  // (including switching back to the original one, which starts
+  // clean too). quickTradeDraft is deliberately NOT reset here
+  // anymore — see its own declaration below for why.
   useEffect(() => {
     setDrawShape(null);
     setInProgressDraw(null);
-    setQuickTradeDraft(null);
     setPositionOpen(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSymbol]);
@@ -381,12 +381,43 @@ export function PositionOnChartModal({
   // absolute (allCandles-relative, same convention as `drawings`) so
   // the risk/reward zones stay anchored to the real entry candle
   // across pan/zoom, converted to visible-relative only at render
-  // time (see quickTradeZones below). Deliberately NOT persisted to
-  // localStorage — unlike drawn lines/boxes, a quick-trade draft is a
-  // one-shot order proposal, not a chart annotation to keep around.
+  // time (see quickTradeZones below).
+  //
+  // Persisted to localStorage per symbol, same pattern `drawings`
+  // below already uses — by direct bug report ("the [tool/lines] to
+  // stay on the 'On Chart' after closing the quick trade tool - just
+  // like box stays on the chart after unlocking the box tool"). This
+  // USED to be deliberately unpersisted ("a one-shot order proposal,
+  // not a chart annotation to keep around") — but On Chart's modal
+  // fully UNMOUNTS on close (it's conditionally rendered, not just
+  // hidden — see ChartPanel.tsx's
+  // `{onChartOpen && ... && <PositionOnChartModal />}`), which was
+  // silently discarding an in-progress draft and its drawn preview
+  // lines the instant the modal closed. A drawn box never had this
+  // problem because it's the one thing here that was already
+  // localStorage-backed. Root cause was that mismatch — not a bug in
+  // drawShape itself, which behaves identically for the Quick Trade,
+  // Line and Box tools (none of them stay "selected" across a
+  // remount; only a drawn box's own OUTPUT does, and now a Quick
+  // Trade draft's does too).
+  const quickTradeStorageKey = `petrazim.chartQuickTrade.${activeSymbol}`;
   const [quickTradeDraft, setQuickTradeDraft] = useState<{
     entryIndex: number; entryPrice: number; stopLoss: number; takeProfit: number; direction: 'long' | 'short';
   } | null>(null);
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(quickTradeStorageKey);
+      setQuickTradeDraft(raw ? JSON.parse(raw) : null);
+    } catch { setQuickTradeDraft(null); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSymbol]);
+  useEffect(() => {
+    try {
+      if (quickTradeDraft) localStorage.setItem(quickTradeStorageKey, JSON.stringify(quickTradeDraft));
+      else localStorage.removeItem(quickTradeStorageKey);
+    } catch { /* not fatal — just won't persist */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quickTradeDraft, activeSymbol]);
   const [quickTradeRR, setQuickTradeRR] = useState(2);
   // Free-typed R:R, alongside the preset buttons — by direct request
   // ("Add 4R and 5R to the quick trade - Don't stop at 3R ... can we
