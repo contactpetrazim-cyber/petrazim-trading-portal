@@ -12,6 +12,7 @@ import asyncio
 import aiohttp
 import pandas as pd
 from app.core.smc_algorithms import Candle
+from app.core.symbols import strip_futures_suffix
 
 
 def to_ccxt_symbol(symbol: str) -> str:
@@ -31,8 +32,9 @@ def to_ccxt_symbol(symbol: str) -> str:
     "binance does not have market symbol BTCUSDT.P", so autonomous
     scanning never had any real candles to run strategies against.
     """
-    if symbol.upper().endswith(".P"):
-        base_symbol = to_ccxt_symbol(symbol[:-2])
+    base, is_futures = strip_futures_suffix(symbol)
+    if is_futures:
+        base_symbol = to_ccxt_symbol(base)
         if "/" in base_symbol:
             quote = base_symbol.split("/", 1)[1]
             return f"{base_symbol}:{quote}"

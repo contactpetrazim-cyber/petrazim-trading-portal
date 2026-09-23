@@ -26,6 +26,7 @@ import httpx
 import structlog
 
 from app.config import get_settings
+from app.core.symbols import strip_futures_suffix
 from app.services.broker_integrations import _FAILOVER_EXCEPTIONS, _send_with_failover
 from app.services.proxy_health import record_proxy_failure, record_proxy_success
 
@@ -75,8 +76,7 @@ async def get_crypto_price(symbol: str) -> Optional[float]:
     (this app never places a real futures order; `.P` only distinguishes
     which chart/UI symbol string the user is looking at)."""
     clean = symbol.upper().replace("BINANCE:", "").replace("/", "")
-    if clean.endswith(".P"):
-        clean = clean[:-2]
+    clean, _ = strip_futures_suffix(clean)
 
     try:
         resp = await _send_with_failover(_binance_client, _binance_backup_client, "get", "/ticker/price", params={"symbol": clean})

@@ -74,6 +74,7 @@ from pydantic import BaseModel
 
 from app.config import get_settings
 from app.core.auth import get_current_user
+from app.core.symbols import strip_futures_suffix
 from app.models.user import User
 from app.services.broker_integrations import _FAILOVER_EXCEPTIONS, _send_with_failover
 from app.services.live_price import COINGECKO_IDS
@@ -159,16 +160,15 @@ def _resolve_market(symbol: str) -> tuple[str, bool]:
     Binance's USDⓈ-M futures API with the suffix stripped (Binance
     futures symbols carry no suffix of their own); anything else is
     validated as spot, unchanged from before."""
-    symbol = symbol.upper()
-    if symbol.endswith(".P"):
-        base = symbol[:-2]
+    base, is_futures = strip_futures_suffix(symbol)
+    if is_futures:
         if base in ALLOWED_SYMBOLS:
             return base, True
-    elif symbol in ALLOWED_SYMBOLS:
-        return symbol, False
+    elif base in ALLOWED_SYMBOLS:
+        return base, False
     raise HTTPException(
         status_code=400,
-        detail=f"Unsupported symbol '{symbol}' — choose one of {ALLOWED_SYMBOLS + ALLOWED_FUTURES_SYMBOLS}.",
+        detail=f"Unsupported symbol '{symbol.upper()}' — choose one of {ALLOWED_SYMBOLS + ALLOWED_FUTURES_SYMBOLS}.",
     )
 
 
