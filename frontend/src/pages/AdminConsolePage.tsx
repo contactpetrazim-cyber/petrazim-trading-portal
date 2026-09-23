@@ -98,6 +98,17 @@ export function AdminConsolePage() {
   const [scannerCapabilityEnabled, setScannerCapabilityEnabled] = useState<boolean | null>(null);
   const [scannerRuntimeEnabled, setScannerRuntimeEnabled] = useState<boolean | null>(null);
   const [switchingScanner, setSwitchingScanner] = useState(false);
+  // Global Risk Defaults — by direct request ("with a global risk
+  // settings override in the Admin portal"). Edited in a draft object
+  // (not saved on every keystroke) so a Super Admin can change all 4
+  // fields, then commit them together with one Save — see
+  // routers/manual_trading.py's own PATCH /global-risk-defaults for
+  // why these are written atomically as one JSON blob.
+  const [riskDefaults, setRiskDefaults] = useState<{
+    risk_per_trade: number; max_daily_trades: number; max_portfolio_exposure: number; min_rr_ratio: number; is_override: boolean;
+  } | null>(null);
+  const [riskDraft, setRiskDraft] = useState<{ risk_per_trade: number; max_daily_trades: number; max_portfolio_exposure: number; min_rr_ratio: number } | null>(null);
+  const [savingRiskDefaults, setSavingRiskDefaults] = useState(false);
 
   const isSuperAdmin = user?.role === 'super_admin';
 
@@ -126,7 +137,31 @@ export function AdminConsolePage() {
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => { if (d) { setScannerCapabilityEnabled(d.capability_enabled); setScannerRuntimeEnabled(d.runtime_enabled); } })
       .catch(() => {});
+    apiFetch(`${API_URL}/manual-trading/global-risk-defaults`, { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d) { setRiskDefaults(d); setRiskDraft(d); } })
+      .catch(() => {});
   }, [token]);
+
+  async function saveRiskDefaults() {
+    if (!riskDraft) return;
+    setSavingRiskDefaults(true);
+    try {
+      const res = await apiFetch(`${API_URL}/manual-trading/global-risk-defaults`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(riskDraft),
+        timeoutMs: 60_000,
+      });
+      if (res.ok) {
+        const d = await res.json();
+        setRiskDefaults(d);
+        setRiskDraft(d);
+      }
+    } finally {
+      setSavingRiskDefaults(false);
+    }
+  }
 
   async function setMode(mode: 'test' | 'live') {
     if (mode === paymentsMode) return;
@@ -429,6 +464,52 @@ export function AdminConsolePage() {
             </button>
             {scannerRuntimeEnabled === null && <span className="text-xs text-gray-500">Loading…</span>}
           </div>
+        </FoldedCard>
+      )}
+
+      {/* Global Risk Defaults — by direct request ("Provide an option
+          to adjust the global risk settings in the trader Dashboard -
+          Risk settings areas ... with a global risk settings override
+          in the Admin portal"). These are the numbers every trader on
+          "Global defaults" (their own Risk Settings toggle, on the
+          Trader Dashboard or Manual Trading) actually resolves to —
+          used to be config.py's own static DEFAULT_RISK_PERCENT etc.,
+          only changeable by editing an env var and redeploying. */}
+      {isSuperAdmin && (
+        <FoldedCard
+          title="Global Risk Defaults"
+          summary={riskDefaults === null ? 'Loading…' : riskDefaults.is_override ? 'Customized' : 'Platform defaults (not customized)'}
+          icon={<ShieldAlert size={18} />} accent="#f59e0b" dark={dark} defaultOpen
+        >
+          <p className="text-xs text-gray-500 mb-3">
+            Every trader whose own Risk Settings are set to "Global defaults" resolves to these 4 numbers — changing
+            them here takes effect immediately, platform-wide, with no redeploy.
+          </p>
+          {riskDraft && (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {([
+                ['risk_per_trade', 'Risk/trade %'], ['max_daily_trades', 'Max trades/day'],
+                ['max_portfolio_exposure', 'Max exposure %'], ['min_rr_ratio', 'Min R:R'],
+              ] as const).map(([field, label]) => (
+                <label key={field} className="text-xs text-gray-400">
+                  {label}
+                  <input
+                    type="number"
+                    value={riskDraft[field]}
+                    onChange={(e) => setRiskDraft({ ...riskDraft, [field]: Number(e.target.value) })}
+                    className={`w-full mt-1 border rounded-lg px-2 py-1.5 text-sm ${dark ? 'bg-smc-dark border-smc-border text-white' : 'bg-white border-corporate-bg text-corporate-text-on-bg'}`}
+                  />
+                </label>
+              ))}
+            </div>
+          )}
+          <button
+            onClick={saveRiskDefaults}
+            disabled={savingRiskDefaults || !riskDraft}
+            className={`mt-3 px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50 ${dark ? 'bg-smc-accent' : 'bg-corporate-hero'}`}
+          >
+            {savingRiskDefaults ? 'Saving…' : 'Save global defaults'}
+          </button>
         </FoldedCard>
       )}
       </div>
