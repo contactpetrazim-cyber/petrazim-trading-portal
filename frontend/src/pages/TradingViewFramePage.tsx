@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Sun, Moon, Save, Trash2, FolderOpen, X, TrendingUp, CandlestickChart, Target, LineChart } from 'lucide-react';
+import { Sun, Moon, Save, Trash2, FolderOpen, X, TrendingUp, Target, LineChart, Search } from 'lucide-react';
 import { TradingViewChart } from '../components/TradingViewChart';
 import { CandleColorPicker } from '../components/CandleColorPicker';
 import { PositionManager } from '../components/PositionManager';
@@ -240,11 +240,12 @@ export function TradingViewFramePage() {
             <button
               onClick={() => setPairsOpen((o) => !o)}
               aria-label={pairsOpen ? 'Hide pairs' : 'Show pairs'}
+              title="Search instrument pairs"
               className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium ${
                 pairsOpen ? 'bg-corporate-accent text-white' : frameDark ? 'bg-white/5 text-white/60 hover:text-white' : 'bg-black/5 text-[#141a33]/60 hover:text-[#141a33]'
               }`}
             >
-              <CandlestickChart size={13} /> Pairs
+              <Search size={13} /> Pairs
             </button>
 
 

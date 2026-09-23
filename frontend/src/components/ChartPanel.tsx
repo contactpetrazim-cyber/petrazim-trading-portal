@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Maximize2, Minimize2, Sun, Moon, TrendingUp, X, Zap, Receipt, CandlestickChart, Target, LineChart } from 'lucide-react';
+import { Maximize2, Minimize2, Sun, Moon, TrendingUp, X, Zap, Receipt, Target, LineChart, Search } from 'lucide-react';
 import { TradingViewChart, type ChartPosition } from './TradingViewChart';
 import { CandleColorPicker } from './CandleColorPicker';
 import { PositionManager } from './PositionManager';
@@ -339,12 +339,20 @@ export function ChartPanel({
           <button
             onClick={onTogglePairs}
             aria-label={pairsOpen ? 'Hide pairs and exchanges' : 'Show pairs and exchanges'}
-            title={pairsOpen ? 'Hide pairs and exchanges' : 'Pairs and exchanges'}
+            title={pairsOpen ? 'Hide pairs and exchanges' : 'Search instrument pairs'}
             className={`p-1.5 rounded-md flex items-center gap-1.5 text-xs font-medium ${
               pairsOpen ? 'bg-blue-600 text-white' : containerDark ? 'text-white/50 hover:text-white/80 bg-white/5' : 'text-gray-500 hover:text-gray-700 bg-black/5'
             }`}
           >
-            <CandlestickChart size={13} /> Pairs
+            {/* Search (magnifying glass) — by direct request ("the
+                search icon in the chart is missing ... TradingView
+                search icon for pairs instrument pairs"): this button
+                already opens the real TradingView-backed instrument
+                search (PairsPanel's own "+" search, itself backed by
+                order_flow.py's chart_symbol_search), it just never
+                looked like a search affordance — CandlestickChart read
+                as a chart-type toggle instead. */}
+            <Search size={13} /> Pairs
           </button>
         )}
         {onToggleOrderForm && (
