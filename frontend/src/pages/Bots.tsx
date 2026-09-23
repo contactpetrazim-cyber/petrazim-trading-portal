@@ -34,7 +34,7 @@ const emptyNewBot = { bot_id: '', bot_name: '', bot_type: 'smc', symbols: [] as 
 // own comment for why that's safe to leave open-ended.
 const QUICK_EXCHANGES = ['binance', 'bybit', 'bingx', 'mexc'];
 
-interface InstrumentResult { symbol: string; base_asset: string; quote_asset: string }
+interface InstrumentResult { symbol: string; base_asset: string; quote_asset: string; market: 'spot' | 'futures' }
 
 // The 5 REAL strategies core/bot_strategies.py actually implements —
 // bot_id must be one of these exact 5 values for BotOrchestrator to
@@ -641,10 +641,12 @@ export function BotsPage() {
 
                     <div>
                       <div className="text-xs text-gray-400 mb-1.5">
-                        Search instruments — real, live Binance pairs, exactly like the chart's own symbol search (removes typos); press Enter to add a typed symbol directly (e.g. a forex pair with no live search data).
+                        Search instruments — real, live Binance spot AND perpetual-futures pairs (futures results carry the
+                        ".P" suffix every bot actually needs), exactly like the chart's own symbol search (removes typos);
+                        press Enter to add a typed symbol directly (e.g. a forex pair with no live search data).
                       </div>
                       <input
-                        placeholder="Search e.g. BTC, ETH, EURUSD…"
+                        placeholder="Search e.g. BTC, ETH, XAUT…"
                         value={instrumentQuery}
                         onChange={(e) => setInstrumentQuery(e.target.value)}
                         onKeyDown={(e) => { if (e.key === 'Enter' && instrumentQuery.trim()) { e.preventDefault(); addSymbol(instrumentQuery); } }}
@@ -658,7 +660,23 @@ export function BotsPage() {
                               onClick={() => addSymbol(i.symbol)}
                               className={`w-full flex items-center justify-between px-2.5 py-1.5 text-xs text-left ${dark ? 'hover:bg-white/5 text-white/80' : 'hover:bg-corporate-bg text-corporate-text-on-bg'}`}
                             >
-                              <span className="font-semibold">{i.symbol}</span>
+                              <span className="flex items-center gap-1.5">
+                                <span className="font-semibold">{i.symbol}</span>
+                                {/* Spot vs perpetual-futures badge — by direct
+                                    request ("more the flexibility to select
+                                    the correct instrument of interest"): a
+                                    query like "XAUT" now returns both
+                                    XAUTUSDT (spot) and XAUTUSDT.P (futures),
+                                    so this is the only thing telling them
+                                    apart at a glance. */}
+                                <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                                  i.market === 'futures'
+                                    ? 'bg-purple-500/15 text-purple-500'
+                                    : 'bg-blue-500/15 text-blue-500'
+                                }`}>
+                                  {i.market === 'futures' ? 'PERP' : 'SPOT'}
+                                </span>
+                              </span>
                               <span className="text-gray-400">{i.base_asset}/{i.quote_asset}</span>
                             </button>
                           ))}

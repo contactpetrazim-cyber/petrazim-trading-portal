@@ -152,7 +152,7 @@ export const botsApi = {
   // like the one on the chart ... removing errors"). Reuses the same
   // proxy order_flow.py already has for the Order Flow tool.
   searchInstruments: (q: string) =>
-    api.get<{ instruments: { symbol: string; base_asset: string; quote_asset: string }[] }>(
+    api.get<{ instruments: { symbol: string; base_asset: string; quote_asset: string; market: 'spot' | 'futures' }[] }>(
       '/order-flow/instruments', { params: { q, limit: 25 } }
     ).then(r => r.data.instruments),
   // The chart's own "search any instrument" — real TradingView symbols

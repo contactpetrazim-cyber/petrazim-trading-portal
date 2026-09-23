@@ -69,6 +69,7 @@ from collections import defaultdict
 from typing import Dict, List, Literal, Optional
 
 import httpx
+import structlog
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
@@ -80,6 +81,7 @@ from app.services.live_price import COINGECKO_IDS
 from app.services.proxy_health import record_proxy_failure, record_proxy_success
 
 router = APIRouter(prefix="/order-flow", tags=["order-flow"])
+logger = structlog.get_logger()
 
 BINANCE_BASE_URL = "https://api.binance.com/api/v3"
 FUTURES_BASE_URL = "https://fapi.binance.com/fapi/v1"
@@ -581,6 +583,18 @@ class InstrumentInfo(BaseModel):
     symbol: str
     base_asset: str
     quote_asset: str
+    # "spot" or "futures" — by direct request ("build it into the
+    # search for instruments so I can select ... the correct instrument
+    # of interest — without an error the instrument pairs does not
+    # exist"): this search used to be spot-only, so a real, tradable
+    # Binance perpetual future (e.g. XAUTUSDT, genuinely listed on
+    # Binance futures as tokenized-gold-vs-USDT) never showed up in a
+    # form that expects the ".P" suffix every bot/the market scanner
+    # actually uses — a trader had no way to find or confirm the
+    # correct futures symbol short of typing ".P" blind and hoping.
+    # `symbol` for a futures result already carries the ".P" suffix, so
+    # the frontend can add it directly with no extra formatting.
+    market: str
 
 
 class InstrumentsResponse(BaseModel):
@@ -596,13 +610,29 @@ async def _get_all_instruments() -> List[InstrumentInfo]:
     cached = _instruments_cache["data"]
     if cached is not None and now - _instruments_cache["fetched_at"] < _INSTRUMENTS_CACHE_TTL_SECONDS:
         return cached  # type: ignore[return-value]
-    resp = await _binance_get("/exchangeInfo", {})
-    raw = resp.json()
+
+    spot_resp = await _binance_get("/exchangeInfo", {})
+    spot_raw = spot_resp.json()
     instruments = [
-        InstrumentInfo(symbol=s["symbol"], base_asset=s["baseAsset"], quote_asset=s["quoteAsset"])
-        for s in raw.get("symbols", [])
+        InstrumentInfo(symbol=s["symbol"], base_asset=s["baseAsset"], quote_asset=s["quoteAsset"], market="spot")
+        for s in spot_raw.get("symbols", [])
         if s.get("status") == "TRADING"
     ]
+
+    # Futures fetch failing (a transient Binance futures API hiccup)
+    # shouldn't take down spot search too — degrade to spot-only rather
+    # than a hard 502 for the whole endpoint.
+    try:
+        futures_resp = await _binance_get("/exchangeInfo", {}, futures=True)
+        futures_raw = futures_resp.json()
+        instruments += [
+            InstrumentInfo(symbol=f"{s['symbol']}.P", base_asset=s["baseAsset"], quote_asset=s["quoteAsset"], market="futures")
+            for s in futures_raw.get("symbols", [])
+            if s.get("status") == "TRADING" and s.get("contractType") == "PERPETUAL"
+        ]
+    except HTTPException:
+        logger.warning("instrument_search_futures_fetch_failed", note="degrading to spot-only results")
+
     _instruments_cache["data"] = instruments
     _instruments_cache["fetched_at"] = now
     return instruments
@@ -615,7 +645,10 @@ async def search_instruments(
     """Real, live-tradable Binance symbols matching `q` (substring,
     case-insensitive) — an empty query returns the first `limit`
     alphabetically, so the field has something to show before a trader
-    types anything."""
+    types anything. Covers both spot and perpetual-futures markets
+    (see InstrumentInfo.market) — a query like "XAUT" now returns both
+    "XAUTUSDT" (spot) and "XAUTUSDT.P" (perpetual futures), letting the
+    trader pick the one their bot actually needs instead of guessing."""
     limit = max(1, min(limit, 100))
     all_instruments = await _get_all_instruments()
     query = q.strip().upper()
