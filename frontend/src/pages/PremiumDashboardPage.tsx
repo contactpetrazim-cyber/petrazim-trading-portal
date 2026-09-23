@@ -177,7 +177,12 @@ export function PremiumDashboardPage() {
           {stats?.today_breakdown && <TodayTradeBreakdownPills breakdown={stats.today_breakdown} />}
         </StatCard>
         <StatCard title="Daily P&L" value={`$${stats?.daily_pnl?.toFixed(2) ?? '0.00'}`} subtitle="Net realized profit" icon={<DollarSign size={20} />} color={(stats?.daily_pnl ?? 0) >= 0 ? 'green' : 'red'} />
-        <StatCard title="Daily Drawdown" value={`$${stats?.current_drawdown?.toFixed(2) ?? '0.00'}`} subtitle="Decline from today's high" icon={<TrendingDown size={20} />} color={(stats?.current_drawdown ?? 0) > 0 ? 'amber' : 'blue'} />
+        {/* Shown as a negative number — by direct request ("Should this
+            be a negative number - since it's a decline"). Display-side
+            sign only; current_drawdown itself stays the plain
+            non-negative magnitude the color logic below already keys
+            off. */}
+        <StatCard title="Daily Drawdown" value={`${stats?.current_drawdown ? '-' : ''}$${stats?.current_drawdown?.toFixed(2) ?? '0.00'}`} subtitle="Decline from today's high" icon={<TrendingDown size={20} />} color={(stats?.current_drawdown ?? 0) > 0 ? 'amber' : 'blue'} />
         <StatCard title="Active Trades" value={stats?.active_trades ?? 0} subtitle="Currently in market" icon={<Target size={20} />} color="purple">
           <ActivePositionsMetrics trades={activeTrades} />
         </StatCard>
