@@ -19,7 +19,24 @@ def to_ccxt_symbol(symbol: str) -> str:
     "BTCUSDT" (TradingView/BotConfig convention, no separator) ->
     "BTC/USDT" (ccxt convention, required). A symbol that already has a
     "/" is returned unchanged.
+
+    ".P" (TradingView's own perpetual-futures suffix — e.g. "BTCUSDT.P",
+    the exact symbol format every active bot's BotConfig.symbols uses,
+    same convention order_flow.py's _resolve_market strips before its
+    own Binance calls) maps to ccxt's own unified symbol for a linear
+    perpetual swap: "BASE/QUOTE:QUOTE" — e.g. "BTC/USDT:USDT". This is
+    what actually routes a ccxt call to the futures/swap market instead
+    of spot; passing "BTCUSDT.P" through unchanged (the bug this fixes)
+    made every market-scanner candle fetch for a futures bot fail with
+    "binance does not have market symbol BTCUSDT.P", so autonomous
+    scanning never had any real candles to run strategies against.
     """
+    if symbol.upper().endswith(".P"):
+        base_symbol = to_ccxt_symbol(symbol[:-2])
+        if "/" in base_symbol:
+            quote = base_symbol.split("/", 1)[1]
+            return f"{base_symbol}:{quote}"
+        return base_symbol
     if "/" in symbol:
         return symbol.upper()
     symbol = symbol.upper()
