@@ -159,7 +159,13 @@ class Settings(BaseSettings):
     # to real exchanges every cycle even in "paper" mode, so it's an
     # opt-in once you're ready to test it, not a silent default.
     MARKET_SCANNER_ENABLED: bool = False
-    MARKET_SCANNER_INTERVAL_SECONDS: int = 300
+    # 3 minutes — by direct request after weighing "every 1 minute,
+    # 1000 candles" against the default 5 min/200 candles: 200 candles
+    # already covers as much history as the current strategies use, so
+    # only the interval was worth tightening (faster reaction on the
+    # 15M/1H timeframes) without the ~25x extra Binance API load 1
+    # min/1000 candles would have cost for no real benefit.
+    MARKET_SCANNER_INTERVAL_SECONDS: int = 180
     MARKET_SCANNER_DEFAULT_EXCHANGE: str = "binance"
     # Used only for position-sizing math when a bot has no live broker
     # balance to read (paper mode, or no credential configured yet).
