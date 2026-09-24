@@ -72,6 +72,41 @@ class MarketDataIngestion:
     def __init__(self):
         self.active_streams: Dict[str, asyncio.Task] = {}
         self.candle_buffer: Dict[str, List[Candle]] = {}
+        # One long-lived ccxt exchange instance per exchange id, reused
+        # across every call — by direct report ("confirm my five bots
+        # are active ... I have received no recommendation ... fix").
+        # Root cause: this used to create a FRESH exchange_class(...)
+        # instance (and `await ex.close()` it) on every single
+        # fetch_historical_ccxt call — 5 timeframes x every scan cycle,
+        # every ~3 minutes, forever. Two real costs to that: (1) a
+        # fresh instance's first fetch_ohlcv call also triggers a full
+        # loadMarkets() (Binance's whole exchangeInfo, a heavy request)
+        # EVERY time instead of once, and (2) `enableRateLimit: True`
+        # only self-paces requests using state kept ON that instance —
+        # a fresh instance every call means that pacing has no memory
+        # of how recently the last request went out, so it can't
+        # actually prevent bursting. Both together are exactly what
+        # produced the real, observed failure: Binance's own IP-ban
+        # error (HTTP 418, "Way too many requests ... banned until
+        # ...") on this exact (exchange="binance", symbol="BTCUSDT.P")
+        # scan group, confirmed directly from production logs — not a
+        # bad symbol/market lookup (that separate bug, "does not have
+        # market symbol BTCUSDT.P", was already fixed — see
+        # to_ccxt_symbol's own docstring). While banned, every scan
+        # cycle fails for every bot, which is the actual reason no bot
+        # ever produced a recommendation: zero real candle data ever
+        # reached BotOrchestrator to analyze.
+        self._exchange_clients: Dict[str, object] = {}
+
+    def _get_exchange_client(self, exchange: str):
+        if exchange not in self._exchange_clients:
+            import ccxt.async_support as ccxt_async
+            try:
+                exchange_class = getattr(ccxt_async, exchange)
+            except AttributeError:
+                raise ValueError(f"Unknown ccxt exchange id: {exchange!r}")
+            self._exchange_clients[exchange] = exchange_class({'enableRateLimit': True})
+        return self._exchange_clients[exchange]
 
     async def fetch_historical_ccxt(self,
                                     exchange: str,
@@ -98,14 +133,7 @@ class MarketDataIngestion:
         stripped "/" rather than inserting one). ccxt requires
         "BTC/USDT", not "BTCUSDT"; see to_ccxt_symbol() above.
         """
-        import ccxt.async_support as ccxt_async
-
-        try:
-            exchange_class = getattr(ccxt_async, exchange)
-        except AttributeError:
-            raise ValueError(f"Unknown ccxt exchange id: {exchange!r}")
-
-        ex = exchange_class({'enableRateLimit': True})
+        ex = self._get_exchange_client(exchange)
         try:
             ccxt_symbol = to_ccxt_symbol(symbol)
             since_ms = int(since.timestamp() * 1000) if since else None
@@ -133,8 +161,9 @@ class MarketDataIngestion:
 
         except Exception as e:
             raise Exception(f"Failed to fetch from {exchange}: {str(e)}")
-        finally:
-            await ex.close()
+        # No `finally: await ex.close()` any more — this client is now
+        # long-lived (cached in self._exchange_clients), not a
+        # one-shot resource. It's cleaned up when the process exits.
 
     async def fetch_historical_yahoo(self,
                                      symbol: str,
