@@ -1,6 +1,6 @@
 
 import axios from 'axios';
-import { Trade, BotConfig, BotPerformance, BotMetricsUpdate, DashboardStats, SignalPreview, PerformanceSummary, TradeBreakdown, TradeBreakdownPeriod, ExchangeMetaResponse, TraderBrokerConnection, AvailableBot, TraderBotSubscription, OutboundIpsResponse, FeeSettings, FeeLedgerEntry, MyFeesResponse, FeeGateStatus, FeeCheckoutSession, FeeCheckoutProvider, FeeVerifyResult } from '../types';
+import { Trade, BotConfig, BotPerformance, BotMetricsUpdate, DashboardStats, SignalPreview, PerformanceSummary, TradeBreakdown, TradeBreakdownPeriod, ExchangeMetaResponse, TraderBrokerConnection, AvailableBot, TraderBotSubscription, OutboundIpsResponse, FeeSettings, FeeLedgerEntry, MyFeesResponse, FeeGateStatus, FeeCheckoutSession, FeeCheckoutProvider, FeeVerifyResult, DeployStateResponse } from '../types';
 import { useAuthStore } from '../hooks/useAuth';
 import { triggerAccessExpired } from '../components/AccessExpiredGate';
 import { triggerFeesOwed } from '../components/TradingFeeGate';
@@ -228,10 +228,16 @@ export const exchangeConnectionsApi = {
   list: () => api.get<TraderBrokerConnection[]>('/exchange-connections').then(r => r.data),
   connect: (body: { exchange: string; api_key: string; api_secret?: string; account_id?: string; label?: string; mode?: string }) =>
     api.post<TraderBrokerConnection>('/exchange-connections', body).then(r => r.data),
-  update: (id: string, body: Partial<{ label: string; mode: string; is_active: boolean; api_key: string; api_secret: string; account_id: string }>) =>
+  update: (id: string, body: Partial<{ label: string; mode: string; is_active: boolean; api_key: string; api_secret: string; account_id: string; auto_undeploy_minutes: number }>) =>
     api.patch<TraderBrokerConnection>(`/exchange-connections/${id}`, body).then(r => r.data),
   remove: (id: string) => api.delete(`/exchange-connections/${id}`).then(r => r.data),
   test: (id: string) => api.post<{ success: boolean; status: string; error?: string }>(`/exchange-connections/${id}/test`).then(r => r.data),
+  // MetaApi (MT4/MT5) only — manual deploy/undeploy + a live state read,
+  // the trader-facing half of the auto-undeploy-when-idle feature (the
+  // background sweep is server-side only, see metaapi_lifecycle.py).
+  deploy: (id: string) => api.post<DeployStateResponse>(`/exchange-connections/${id}/deploy`).then(r => r.data),
+  undeploy: (id: string) => api.post<DeployStateResponse>(`/exchange-connections/${id}/undeploy`).then(r => r.data),
+  deployState: (id: string) => api.get<DeployStateResponse>(`/exchange-connections/${id}/deploy-state`).then(r => r.data),
   availableBots: () => api.get<AvailableBot[]>('/exchange-connections/available-bots').then(r => r.data),
   mySubscriptions: () => api.get<TraderBotSubscription[]>('/exchange-connections/bots').then(r => r.data),
   subscribeBot: (connectionId: string, botId: string, riskPerTrade?: number, copyMode: 'auto' | 'manual' = 'manual') =>

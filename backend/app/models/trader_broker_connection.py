@@ -28,7 +28,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, Enum, Float, ForeignKey, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Enum, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 
 from app.database import Base
@@ -100,6 +100,25 @@ class TraderBrokerConnection(Base):
 
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # MetaApi (MT4/MT5) only — everything below is a no-op for the other
+    # 5 exchanges, whose accounts have no deploy/undeploy concept and
+    # bill nothing while idle. By direct request ("$9/month is high and
+    # a waste of not used ... develop an auto engine that auto-undeploys
+    # when not in use"): MetaApi bills for hosting time WHILE DEPLOYED,
+    # not per API call, so leaving an account deployed 24/7 to cover a
+    # trader's actual ~8 hours/day of real use wastes roughly two-thirds
+    # of that cost. See services/metaapi_lifecycle.py for the background
+    # sweep that reads these two fields.
+    last_activity_at = Column(DateTime, nullable=True)
+    # Minutes of no activity before the sweep auto-undeploys this
+    # connection; NULL disables auto-undeploy for it entirely (a trader
+    # who wants it always-on can opt out). Defaults to 30 for a NEW
+    # metatrader connection (see routers/trader_broker_connections.py's
+    # own connect_exchange) — deliberately not a platform-wide constant,
+    # since one trader's "actually needed" cadence differs from
+    # another's.
+    auto_undeploy_minutes = Column(Integer, nullable=True)
 
 
 class TraderBotSubscription(Base):

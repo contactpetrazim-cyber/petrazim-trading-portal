@@ -187,6 +187,19 @@ class Settings(BaseSettings):
     POSITION_MONITOR_ENABLED: bool = True
     POSITION_MONITOR_INTERVAL_SECONDS: int = 20
 
+    # MetaApi idle-undeploy sweep (services/metaapi_lifecycle.py) — by
+    # direct request ("$9/month is high and a waste of not used ...
+    # develop an auto engine that auto-undeploys when not in use").
+    # On by default: unlike MARKET_SCANNER_ENABLED this makes no trading
+    # decisions and touches no order — it only ever calls MetaApi's
+    # undeploy (never deploy) on a connection nobody has traded through
+    # recently, and skips any connection with an ACTIVE trade regardless
+    # of idle time. Interval is coarse (10 min) since the cost being
+    # saved is measured in cents/hour, not something that needs
+    # second-level precision.
+    METAAPI_IDLE_UNDEPLOY_ENABLED: bool = True
+    METAAPI_IDLE_UNDEPLOY_INTERVAL_SECONDS: int = 600
+
     # Per-bot broker credentials (models/broker_credential.py) are
     # encrypted at rest with this key rather than the JWT SECRET_KEY,
     # so rotating one doesn't affect the other. Generate with:

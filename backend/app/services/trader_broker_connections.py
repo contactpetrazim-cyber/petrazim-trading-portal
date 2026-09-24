@@ -9,6 +9,7 @@ credential for this app," not two.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import select
@@ -166,3 +167,51 @@ async def test_connection(connection: TraderBrokerConnection) -> dict:
     if not result.get("success"):
         return {"success": False, "error": result.get("error") or "Could not authenticate with these credentials."}
     return {"success": True}
+
+
+# =============================================================================
+# MetaApi (MT4/MT5) deploy lifecycle — "auto-undeploys when not in use"
+# =============================================================================
+# Every other exchange here is a normal always-on API key: no concept of
+# "deployed," nothing billed while idle. MetaApi is the one exception —
+# it bills for hosting time while an account is DEPLOYED (roughly
+# $0.0126/account/hour on the current plan), not per API call, so a
+# trader who only actually trades a few hours a day pays for the other
+# ~16 hours doing nothing unless something explicitly undeploys it. See
+# services/metaapi_lifecycle.py for the background sweep that calls
+# these; routers/trader_broker_connections.py's own POST .../deploy and
+# .../undeploy expose the same two calls for a trader to trigger by hand.
+
+async def mark_connection_activity(db: AsyncSession, connection: TraderBrokerConnection) -> None:
+    """Call this every time a connection is genuinely used for a real
+    order — see execution_engine.py's metatrader dispatch. This is the
+    ONLY thing that resets the idle clock the auto-undeploy sweep reads;
+    a connection nobody has traded through in `auto_undeploy_minutes`
+    gets undeployed regardless of when it was last deployed."""
+    connection.last_activity_at = datetime.utcnow()
+    await db.commit()
+
+
+async def deploy_metatrader_connection(connection: TraderBrokerConnection) -> dict:
+    """Starts MetaApi hosting for this connection and marks activity
+    (a trader who just clicked Deploy is, by definition, about to use
+    it) so the idle sweep doesn't immediately undeploy something that
+    was only just switched on."""
+    if connection.exchange != "metatrader":
+        return {"success": False, "error": "Deploy/undeploy only applies to MetaApi (MT4/MT5) connections."}
+    client = build_client_from_connection(connection)
+    return await client.deploy_account()
+
+
+async def undeploy_metatrader_connection(connection: TraderBrokerConnection) -> dict:
+    if connection.exchange != "metatrader":
+        return {"success": False, "error": "Deploy/undeploy only applies to MetaApi (MT4/MT5) connections."}
+    client = build_client_from_connection(connection)
+    return await client.undeploy_account()
+
+
+async def get_metatrader_deploy_state(connection: TraderBrokerConnection) -> dict:
+    if connection.exchange != "metatrader":
+        return {"success": False, "error": "Deploy state only applies to MetaApi (MT4/MT5) connections."}
+    client = build_client_from_connection(connection)
+    return await client.get_account_state()
