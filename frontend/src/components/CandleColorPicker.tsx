@@ -66,10 +66,16 @@ export function CandleColorPicker({ dark = false, colors, chartStyle, onChangeLo
     <div className="relative">
       <button
         onClick={() => setOpen((o) => !o)}
-        aria-label="Chart colors and type"
+        aria-label="Candle colors and type"
+        title="Candle colors and type"
         className={`p-1.5 rounded-md flex items-center gap-1.5 text-xs font-medium ${dark ? 'text-white/50 hover:text-white/80 bg-white/5' : 'text-gray-500 hover:text-gray-700 bg-black/5'}`}
       >
-        <Palette size={13} /> Chart
+        {/* Renamed from "Chart" to "Candle" — by direct request
+            ("update the name of tool that changes the candle colour
+            from 'chart' to 'Candle' that is more specific and removes
+            ambiguity"): "Chart" was ambiguous next to an actual "Chart
+            O" button and the chart itself. */}
+        <Palette size={13} /> Candle
       </button>
       {open && (
         <>
@@ -93,7 +99,7 @@ export function CandleColorPicker({ dark = false, colors, chartStyle, onChangeLo
                 : 'Every chart across the portal switches to this, and it stays saved on this device.'}
             </p>
 
-            <div className={`text-[11px] font-semibold uppercase tracking-wide mb-2 ${dark ? 'text-white/30' : 'text-gray-400'}`}>Chart Type</div>
+            <div className={`text-[11px] font-semibold uppercase tracking-wide mb-2 ${dark ? 'text-white/30' : 'text-gray-400'}`}>Candle Type</div>
             <div className="grid grid-cols-2 gap-1 mb-3">
               {CHART_STYLES.map((s) => (
                 <button

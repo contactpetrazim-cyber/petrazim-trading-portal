@@ -7,26 +7,41 @@ import { PositionManager } from './PositionManager';
 import { FoldedCard } from './FoldedCard';
 import { PairsPanel } from './PairsPanel';
 import { useQuickPairsStore } from '../hooks/useQuickPairs';
-import { orderFlowApi } from '../services/api';
+import { orderFlowApi, oandaApi } from '../services/api';
 import { formatApiError } from '../lib/apiError';
 import { useQuickPrice } from '../hooks/useQuickPrice';
 import type { Trade } from '../types';
 
 const LIVE_PRICE_REFRESH_MS = 15_000;
 
-// Mirrors order_flow.py's own ALLOWED_SYMBOLS exactly — this chart's
-// candles come from that endpoint alone (a small, fixed Binance
-// allow-list), unlike the TradingView-backed main charts elsewhere in
-// the app that can show forex/indices/stocks too. Passed as Pairs'
-// `symbolFilter` so switching pairs here only ever offers instruments
-// this chart can actually render, instead of a pick that immediately
-// errors with "Unsupported symbol". Strips a trailing ".P" (Binance
-// perpetual futures, same suffix convention as the main chart) before
-// checking, matching that endpoint's own _resolve_market.
-const ONCHART_ALLOWED_SYMBOLS = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT', 'DOGEUSDT'];
+// Widened from a tiny 6-symbol hardcoded list to every recognizable
+// crypto quote-currency suffix (Binance, via order_flow.py's own
+// live-fetched _get_all_instruments, ~2000 pairs) PLUS OANDA's own
+// BASE_QUOTE naming convention (e.g. EUR_USD, NAS100_USD, XAU_USD) —
+// by direct request ("significantly increase all the pairs that can
+// be displayed in the on chart - from Binance, Oanda ... great").
+// Restored/extended after the original crypto widening (PR #149) was
+// accidentally reverted by an unrelated PR merge built on an older
+// copy of this file. This client-side check can't do a live lookup
+// inside a synchronous filter predicate, so it's a permissive
+// heuristic instead of an exact match — the backend's own live check
+// (order_flow.py's _resolve_market for Binance, routers/oanda.py for
+// OANDA) is still the real authority; a symbol that slips through
+// this heuristic but isn't genuinely listed gets a clear "Unsupported
+// symbol" error from the chart's own fetch, not a silent failure.
+const CRYPTO_QUOTE_SUFFIXES = ['USDT', 'USDC', 'BUSD', 'FDUSD', 'BTC', 'ETH', 'BNB', 'TRY', 'EUR'];
 function isOnChartSupportedSymbol(tradeSymbol: string): boolean {
-  const base = tradeSymbol.toUpperCase().endsWith('.P') ? tradeSymbol.slice(0, -2).toUpperCase() : tradeSymbol.toUpperCase();
-  return ONCHART_ALLOWED_SYMBOLS.includes(base);
+  const clean = tradeSymbol.toUpperCase().endsWith('.P') ? tradeSymbol.slice(0, -2).toUpperCase() : tradeSymbol.toUpperCase();
+  if (isOandaStyleSymbol(clean)) return true;
+  return CRYPTO_QUOTE_SUFFIXES.some((q) => clean.endsWith(q) && clean.length > q.length);
+}
+
+// OANDA's own instrument naming is always BASE_QUOTE (EUR_USD,
+// NAS100_USD, XAU_USD, ...) — genuinely distinct from every Binance
+// symbol format (no underscore, ever), so this single check reliably
+// tells the two data sources apart without needing a live lookup.
+function isOandaStyleSymbol(symbol: string): boolean {
+  return symbol.includes('_');
 }
 
 type KlineInterval = '1m' | '5m' | '15m' | '30m' | '1h' | '4h' | '1d' | '1w';
@@ -858,7 +873,16 @@ export function PositionOnChartModal({
     // above just re-slice it client-side with zero extra requests.
     setVisibleCount(DEFAULT_VISIBLE);
     setPanOffset(0);
-    orderFlowApi.getKlines(activeSymbol, interval, POOL_SIZE)
+    // Routes to OANDA (forex/NAS100) or Binance (crypto) by symbol
+    // shape — see isOandaStyleSymbol above. Both return the same
+    // { candles: { time_ms, open, high, low, close }[] } shape, so the
+    // mapping into CandleChart's own Candle type is identical either
+    // way — by direct request ("significantly increase all the pairs
+    // that can be displayed in the on chart - from Binance, Oanda...").
+    const fetchCandles = isOandaStyleSymbol(activeSymbol)
+      ? oandaApi.candles(activeSymbol, interval, POOL_SIZE).then((candles) => ({ candles }))
+      : orderFlowApi.getKlines(activeSymbol, interval, POOL_SIZE);
+    fetchCandles
       .then((res) => {
         if (cancelled) return;
         setAllCandles(res.candles.map((c) => ({ time: c.time_ms, open: c.open, high: c.high, low: c.low, close: c.close })));
