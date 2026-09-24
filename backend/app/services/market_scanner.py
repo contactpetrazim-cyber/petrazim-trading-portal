@@ -30,6 +30,8 @@ import structlog
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from datetime import datetime
+
 from app.config import get_settings
 from app.core.bot_strategies import BotOrchestrator, Candle
 from app.database import AsyncSessionLocal
@@ -116,10 +118,14 @@ class MarketScanner:
                     market_data = await self._fetch_market_data(exchange, symbol)
                 except Exception as e:
                     logger.error("market_scan_fetch_failed", exchange=exchange, symbol=symbol, error=str(e))
+                    await self._record_scan_result(db, bots_here, error=str(e))
                     continue
 
                 if len(market_data) <= 1:  # only "symbol" key, no candles at all
+                    await self._record_scan_result(db, bots_here, error="No candle data returned for any timeframe — see recent market_scan_timeframe_fetch_failed logs.")
                     continue
+
+                await self._record_scan_result(db, bots_here, error=None)
 
                 signals = self.orchestrator.run_all(market_data, settings.MARKET_SCANNER_DEFAULT_ACCOUNT_BALANCE)
                 if not signals:
@@ -144,6 +150,25 @@ class MarketScanner:
                         bot_id=signal.bot_id, symbol=symbol, exchange=exchange,
                         mode=mode, result=exec_result.get("status", exec_result.get("success")),
                     )
+
+    async def _record_scan_result(self, db: AsyncSession, bots: List[BotConfig], error: str | None) -> None:
+        """Writes BotConfig.last_run/last_scan_error for every bot in
+        this scan group — by direct report ("confirm my five bots are
+        active and are looking for trade opportunities ... I have
+        received no recommendation ... fix"). Before this, last_run/
+        last_scan_error existed as columns but nothing ever wrote to
+        them, so there was no way to tell "is the scanner even running
+        for my bots" from "it's running but every fetch keeps failing"
+        without reading raw logs — this is that visibility, and the
+        Bots page's own botHealth() already reads these two fields.
+        Called after EVERY fetch attempt for this (exchange, symbol)
+        group, success or failure, so last_run always reflects the most
+        recent attempt regardless of outcome."""
+        now = datetime.utcnow()
+        for bot in bots:
+            bot.last_run = now
+            bot.last_scan_error = error
+        await db.commit()
 
     async def _fetch_market_data(self, exchange: str, symbol: str) -> Dict[str, List[Candle] | str]:
         market_data: Dict = {"symbol": symbol}
