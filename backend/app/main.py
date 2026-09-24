@@ -45,6 +45,7 @@ from app.services.position_monitor import PositionMonitor
 from app.services.pending_order_monitor import PendingOrderMonitor
 from app.services.outbound_ip_detector import OutboundIpDetector
 from app.services.metaapi_lifecycle import MetaApiIdleUndeployer
+from app.services.memory_watchdog import MemoryWatchdog
 
 settings = get_settings()
 logger = structlog.get_logger()
@@ -196,6 +197,14 @@ async def lifespan(app: FastAPI):
         metaapi_idle_undeployer = MetaApiIdleUndeployer()
         metaapi_idle_undeployer.start()
 
+    # Memory watchdog — see memory_watchdog.py's own module docstring
+    # for why this is proactive-GC-and-log, not a second self-restart
+    # mechanism competing with Render's own.
+    memory_watchdog = None
+    if settings.MEMORY_WATCHDOG_ENABLED:
+        memory_watchdog = MemoryWatchdog()
+        memory_watchdog.start()
+
     yield
 
     if scanner is not None:
@@ -208,6 +217,8 @@ async def lifespan(app: FastAPI):
         await outbound_ip_detector.stop()
     if metaapi_idle_undeployer is not None:
         await metaapi_idle_undeployer.stop()
+    if memory_watchdog is not None:
+        await memory_watchdog.stop()
 
     logger.info("app_shutdown")
     await engine.dispose()

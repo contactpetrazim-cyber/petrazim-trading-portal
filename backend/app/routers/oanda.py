@@ -43,14 +43,29 @@ router = APIRouter(prefix="/oanda", tags=["oanda"])
 logger = structlog.get_logger()
 settings = get_settings()
 
+# A single, long-lived OandaBroker (and the httpx.AsyncClient/connection
+# pool inside it) for the life of the process — the same module-level-
+# singleton convention order_flow.py's own Binance clients already use,
+# not a fresh one per request. Constructing a fresh httpx.AsyncClient on
+# every request (the previous version of this file) leaks: nothing ever
+# called .aclose() on the old one, so its connection pool just
+# accumulated for the life of the process — a real, if slow, contributor
+# to memory growth under sustained traffic. Built lazily (not at import
+# time) since OANDA_API_TOKEN/ACCOUNT_ID may not be set yet when this
+# module loads.
+_platform_client_instance: Optional[OandaBroker] = None
+
 
 def _platform_client() -> OandaBroker:
+    global _platform_client_instance
     if not settings.OANDA_API_TOKEN or not settings.OANDA_ACCOUNT_ID:
         raise HTTPException(
             status_code=503,
             detail="OANDA isn't configured on this platform yet — an Admin needs to set OANDA_API_TOKEN and OANDA_ACCOUNT_ID.",
         )
-    return OandaBroker(settings.OANDA_API_TOKEN, settings.OANDA_ACCOUNT_ID)
+    if _platform_client_instance is None:
+        _platform_client_instance = OandaBroker(settings.OANDA_API_TOKEN, settings.OANDA_ACCOUNT_ID)
+    return _platform_client_instance
 
 
 class OandaInstrument(BaseModel):
