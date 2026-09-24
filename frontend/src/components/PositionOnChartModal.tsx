@@ -32,16 +32,32 @@ const LIVE_PRICE_REFRESH_MS = 15_000;
 const CRYPTO_QUOTE_SUFFIXES = ['USDT', 'USDC', 'BUSD', 'FDUSD', 'BTC', 'ETH', 'BNB', 'TRY', 'EUR'];
 function isOnChartSupportedSymbol(tradeSymbol: string): boolean {
   const clean = tradeSymbol.toUpperCase().endsWith('.P') ? tradeSymbol.slice(0, -2).toUpperCase() : tradeSymbol.toUpperCase();
-  if (isOandaStyleSymbol(clean)) return true;
+  if (toOandaSymbol(clean) !== null) return true;
   return CRYPTO_QUOTE_SUFFIXES.some((q) => clean.endsWith(q) && clean.length > q.length);
 }
 
-// OANDA's own instrument naming is always BASE_QUOTE (EUR_USD,
-// NAS100_USD, XAU_USD, ...) — genuinely distinct from every Binance
-// symbol format (no underscore, ever), so this single check reliably
-// tells the two data sources apart without needing a live lookup.
-function isOandaStyleSymbol(symbol: string): boolean {
-  return symbol.includes('_');
+// OANDA's own instrument naming is always BASE_QUOTE with an
+// underscore (EUR_USD, NAS100_USD, XAU_USD, ...) — but that's NOT how
+// this symbol usually arrives here: TradingView's own unified search
+// (what Pairs itself queries), the default quick-pairs list, and
+// anything a trader free-types all use the no-underscore convention
+// (EURUSD, XAUUSD, NAS100USD) instead — by direct bug report ("I still
+// don't have a lot of pairs in the 'On Chart' — see uploaded image
+// showing the Pairs search from on chart", where "EURUSD" — genuinely
+// listed by Pairs' own TradingView search — got rejected with
+// "Unsupported symbol" because neither the Binance suffix check above
+// nor a bare underscore check matched it). Returns the OANDA-API-ready
+// underscored form (or the symbol unchanged if it already has one), or
+// null if this isn't a recognizable OANDA-shaped symbol at all.
+const FOREX_QUOTE_CODES = ['USD', 'EUR', 'GBP', 'JPY', 'CHF', 'AUD', 'CAD', 'NZD'];
+function toOandaSymbol(symbol: string): string | null {
+  if (symbol.includes('_')) return symbol;
+  for (const q of FOREX_QUOTE_CODES) {
+    if (symbol.endsWith(q) && symbol.length > q.length) {
+      return `${symbol.slice(0, -q.length)}_${q}`;
+    }
+  }
+  return null;
 }
 
 type KlineInterval = '1m' | '5m' | '15m' | '30m' | '1h' | '4h' | '1d' | '1w';
@@ -874,13 +890,17 @@ export function PositionOnChartModal({
     setVisibleCount(DEFAULT_VISIBLE);
     setPanOffset(0);
     // Routes to OANDA (forex/NAS100) or Binance (crypto) by symbol
-    // shape — see isOandaStyleSymbol above. Both return the same
-    // { candles: { time_ms, open, high, low, close }[] } shape, so the
-    // mapping into CandleChart's own Candle type is identical either
-    // way — by direct request ("significantly increase all the pairs
-    // that can be displayed in the on chart - from Binance, Oanda...").
-    const fetchCandles = isOandaStyleSymbol(activeSymbol)
-      ? oandaApi.candles(activeSymbol, interval, POOL_SIZE).then((candles) => ({ candles }))
+    // shape — see toOandaSymbol above, which also normalizes a
+    // no-underscore forex symbol (EURUSD) into OANDA's own required
+    // underscored form (EUR_USD) before the real API call. Both
+    // sources return the same { candles: { time_ms, open, high, low,
+    // close }[] } shape, so the mapping into CandleChart's own Candle
+    // type is identical either way — by direct request ("significantly
+    // increase all the pairs that can be displayed in the on chart -
+    // from Binance, Oanda...").
+    const oandaSymbol = toOandaSymbol(activeSymbol.toUpperCase());
+    const fetchCandles = oandaSymbol !== null
+      ? oandaApi.candles(oandaSymbol, interval, POOL_SIZE).then((candles) => ({ candles }))
       : orderFlowApi.getKlines(activeSymbol, interval, POOL_SIZE);
     fetchCandles
       .then((res) => {
@@ -1144,17 +1164,14 @@ export function PositionOnChartModal({
               </div>
             )}
           </div>
-          {/* Chart O — a real, free OANDA-backed chart, by direct
-              request ("ADD to all charts without exception"), styled
-              to match Pairs exactly — by direct follow-up request
-              ("remove the blue style ... too obvious ... inconsistent
-              in the style") — rather than the standalone blue button
-              first shipped. */}
+          {/* Oanda (was "Chart O") — a real, free OANDA-backed chart,
+              by direct request ("Change the name of 'Chart O' to
+              'Oanda' everywhere on the platform"). */}
           <Link
             to="/chart-o"
             className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium ${chromeMutedCls} ${toggleWrapCls}`}
           >
-            <Globe2 size={13} /> Chart O
+            <Globe2 size={13} /> Oanda
           </Link>
           <button onClick={onClose} aria-label="Close" className={`flex items-center gap-1.5 text-xs ${chromeMutedCls}`}>
             <X size={16} /> Close

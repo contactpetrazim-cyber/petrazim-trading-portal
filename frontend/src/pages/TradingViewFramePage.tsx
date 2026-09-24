@@ -333,19 +333,16 @@ export function TradingViewFramePage() {
               </button>
             )}
 
-            {/* Chart O — a real, free OANDA-backed chart (forex/
-                NAS100), by direct request ("ADD to all charts without
-                exception"), styled to match the Pairs/Position toolbar
-                buttons around it — by direct follow-up request
-                ("remove the blue style ... too obvious ... inconsistent
-                in the style") — rather than the standalone blue button
-                first shipped. Not gated on `mode` since it's pure
-                navigation, harmless in every mode. */}
+            {/* Oanda (was "Chart O") — a real, free OANDA-backed chart
+                (forex/NAS100), by direct request ("Change the name of
+                'Chart O' to 'Oanda' everywhere on the platform"). Not
+                gated on `mode` since it's pure navigation, harmless in
+                every mode. */}
             <button
               onClick={() => navigate('/chart-o')}
               className={`p-1.5 rounded-md flex items-center gap-1.5 text-xs font-medium ${frameDark ? 'bg-white/5 text-white/60 hover:text-white' : 'bg-black/5 text-[#141a33]/60 hover:text-[#141a33]'}`}
             >
-              <Globe2 size={13} /> Chart O
+              <Globe2 size={13} /> Oanda
             </button>
 
             {mode !== 'external' && (
