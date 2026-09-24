@@ -28,6 +28,7 @@ rules. The only manual-specific pieces are the three toggles:
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -36,7 +37,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
-from app.models.platform_setting import PlatformSetting, TRADING_PAPER_ENFORCED_KEY
+from app.models.platform_setting import GLOBAL_RISK_DEFAULTS_KEY, PlatformSetting, TRADING_PAPER_ENFORCED_KEY
 from app.models.trade import ManualTradingSettings, Trade, TradeDirection, TradeStatus
 
 
@@ -66,17 +67,60 @@ class EffectiveRiskLimits:
     min_rr_ratio: float
 
 
-def effective_limits(settings_row: Optional[ManualTradingSettings]) -> EffectiveRiskLimits:
+@dataclass
+class GlobalRiskDefaults:
+    risk_per_trade: float
+    max_daily_trades: int
+    max_portfolio_exposure: float
+    min_rr_ratio: float
+
+
+async def get_global_risk_defaults(db: AsyncSession) -> GlobalRiskDefaults:
+    """The platform's own "global" risk numbers every
+    use_global_defaults=True trader resolves to — an Admin-set
+    override (see GLOBAL_RISK_DEFAULTS_KEY's own comment) if one
+    exists, otherwise config.py's static DEFAULT_RISK_PERCENT/
+    MAX_DAILY_TRADES/MAX_PORTFOLIO_EXPOSURE/DEFAULT_RR_RATIO,
+    unchanged from before this override existed."""
+    platform = get_settings()
+    fallback = GlobalRiskDefaults(
+        risk_per_trade=platform.DEFAULT_RISK_PERCENT,
+        max_daily_trades=platform.MAX_DAILY_TRADES,
+        max_portfolio_exposure=platform.MAX_PORTFOLIO_EXPOSURE,
+        min_rr_ratio=platform.DEFAULT_RR_RATIO,
+    )
+    row = (await db.execute(
+        select(PlatformSetting).where(PlatformSetting.key == GLOBAL_RISK_DEFAULTS_KEY)
+    )).scalar_one_or_none()
+    if not row:
+        return fallback
+    try:
+        data = json.loads(row.value)
+        return GlobalRiskDefaults(
+            risk_per_trade=float(data["risk_per_trade"]),
+            max_daily_trades=int(data["max_daily_trades"]),
+            max_portfolio_exposure=float(data["max_portfolio_exposure"]),
+            min_rr_ratio=float(data["min_rr_ratio"]),
+        )
+    except (ValueError, KeyError, TypeError):
+        # A malformed row (should never happen — only ever written by
+        # the one PATCH endpoint below, which validates first) must
+        # never break every trader's own order form; fall back rather
+        # than 500.
+        return fallback
+
+
+async def effective_limits(db: AsyncSession, settings_row: Optional[ManualTradingSettings]) -> EffectiveRiskLimits:
     """settings_row is None only for a brand-new user with no row yet
     (same as use_global_defaults=True would give)."""
-    platform = get_settings()
     if settings_row is None or settings_row.use_global_defaults:
+        g = await get_global_risk_defaults(db)
         return EffectiveRiskLimits(
-            risk_per_trade=platform.DEFAULT_RISK_PERCENT,
-            max_daily_trades=platform.MAX_DAILY_TRADES,
-            max_concurrent_trades=5,   # no global equivalent exists in config.py; a sane fixed default
-            max_portfolio_exposure=platform.MAX_PORTFOLIO_EXPOSURE,
-            min_rr_ratio=platform.DEFAULT_RR_RATIO,
+            risk_per_trade=g.risk_per_trade,
+            max_daily_trades=g.max_daily_trades,
+            max_concurrent_trades=5,   # no global equivalent exists; a sane fixed default
+            max_portfolio_exposure=g.max_portfolio_exposure,
+            min_rr_ratio=g.min_rr_ratio,
         )
     return EffectiveRiskLimits(
         risk_per_trade=settings_row.risk_per_trade,
