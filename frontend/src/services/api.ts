@@ -206,6 +206,21 @@ export const oandaApi = {
   instruments: () => api.get<OandaInstrument[]>('/oanda/instruments').then(r => r.data),
   candles: (symbol: string, interval: string = '1h', count: number = 200) =>
     api.get<KlineBar[]>('/oanda/candles', { params: { symbol, interval, count } }).then(r => r.data),
+  // Free, no-credential live price via the platform's own OANDA
+  // account — the Oanda/Chart O page's own "Price" display.
+  price: (symbol: string) => api.get<{ symbol: string; price: number }>(`/oanda/price/${encodeURIComponent(symbol)}`).then(r => r.data),
+};
+
+// MT5 chart — by direct request ("For MT5 create it's own MT5 chart
+// like Oanda - name it MT5"). Unlike oandaApi above, every call here
+// uses the CURRENT TRADER's own connected MetaApi account (routers/
+// metatrader.py) — MT5 has no free/public data source, so there's no
+// platform-level account this can fall back to. A 503 here means
+// "connect your MT4/MT5 account first."
+export const metatraderApi = {
+  candles: (symbol: string, interval: string = '1h', count: number = 200) =>
+    api.get<KlineBar[]>('/metatrader/candles', { params: { symbol, interval, count } }).then(r => r.data),
+  price: (symbol: string) => api.get<{ symbol: string; price: number }>(`/metatrader/price/${encodeURIComponent(symbol)}`).then(r => r.data),
 };
 
 export interface TraderBotSummary {

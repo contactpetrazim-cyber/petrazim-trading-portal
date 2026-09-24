@@ -12,7 +12,7 @@ import { formatApiError } from '../lib/apiError';
 import { LoadingIndicator } from '../components/LoadingIndicator';
 import { tradesApi, botsApi } from '../services/api';
 import { PairsPanel } from '../components/PairsPanel';
-import { useQuickPairsStore, pairFromResult } from '../hooks/useQuickPairs';
+import { useQuickPairsStore, pairFromResult, pairFromTradeSymbol } from '../hooks/useQuickPairs';
 import type { Trade } from '../types';
 
 
@@ -687,9 +687,22 @@ export function ManualTradingPage() {
    * is turned on if it was off, and the form itself opens if it was
    * folded, so the result of confirming a Quick Trade is immediately
    * visible rather than a silent state change behind a closed panel. */
-  function handleQuickTrade({ direction: dir, entryPrice: entry, stopLoss: sl, takeProfit: tp }: {
-    direction: 'long' | 'short'; entryPrice: number; stopLoss: number; takeProfit: number;
+  function handleQuickTrade({ symbol: dragSymbol, direction: dir, entryPrice: entry, stopLoss: sl, takeProfit: tp }: {
+    symbol: string; direction: 'long' | 'short'; entryPrice: number; stopLoss: number; takeProfit: number;
   }) {
+    // Sync this form's OWN symbol too, by direct bug report ("Quick
+    // trade disappears after switching from an Oanda instrument pairs
+    // displayed") — a drag on a symbol Pairs had switched On Chart to
+    // (different from `quickSymbol`, this form's current pick) used to
+    // silently draft against whatever symbol the form already showed
+    // instead. Same tv-construction fallback as ChartWithPairs.tsx's
+    // own handleQuickTradeNavigate.
+    if (dragSymbol !== quickSymbol.trade) {
+      const pair = pairs.find((p) => p.trade === dragSymbol)
+        ?? pairFromTradeSymbol(dragSymbol, dragSymbol.includes('_') ? 'oanda' : undefined);
+      if (!pairs.some((p) => p.tv === pair.tv)) addPair(pair);
+      setSelectedTv(pair.tv);
+    }
     setDirection(dir);
     setSlMode('price');
     setTpMode('price');
@@ -713,7 +726,10 @@ export function ManualTradingPage() {
     const qtStop = params.get('qtStop');
     const qtTarget = params.get('qtTarget');
     if ((qtDirection === 'long' || qtDirection === 'short') && qtEntry && qtStop && qtTarget) {
-      handleQuickTrade({ direction: qtDirection, entryPrice: Number(qtEntry), stopLoss: Number(qtStop), takeProfit: Number(qtTarget) });
+      // Symbol is already correct here (set via preselectPair/`tv=`
+      // above before this effect runs) — passed through anyway so
+      // handleQuickTrade's own sync check is a no-op, not skipped.
+      handleQuickTrade({ symbol: quickSymbol.trade, direction: qtDirection, entryPrice: Number(qtEntry), stopLoss: Number(qtStop), takeProfit: Number(qtTarget) });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

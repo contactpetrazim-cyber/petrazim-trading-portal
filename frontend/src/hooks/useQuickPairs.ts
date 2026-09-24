@@ -100,7 +100,7 @@ export const useQuickPairsStore = create<QuickPairsState>()(
 // through to the INSTRUMENT_CATALOGUE guess below instead of guessing
 // wrong here.
 const BROKER_TV_EXCHANGE: Record<string, string> = {
-  binance: 'BINANCE', bybit: 'BYBIT', bingx: 'BINGX', mexc: 'MEXC',
+  binance: 'BINANCE', bybit: 'BYBIT', bingx: 'BINGX', mexc: 'MEXC', oanda: 'OANDA', metatrader: 'OANDA',
 };
 
 /**

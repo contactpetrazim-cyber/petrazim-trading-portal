@@ -162,7 +162,7 @@ export function PairsPanel({
               if (e.key === 'Enter') pickTyped(query);
               if (e.key === 'Escape') { setSearching(false); setQuery(''); }
             }}
-            className={`w-full rounded-lg px-3 py-2 text-sm outline-none border ${dark ? 'bg-corporate-nav-dark border-corporate-border-dark text-white' : 'bg-white border-gray-200'}`}
+            className={`w-full rounded-lg px-3 py-2 text-sm outline-none border ${dark ? 'bg-corporate-nav-dark border-corporate-border-dark text-white' : 'bg-white border-gray-200 text-corporate-text-on-bg'}`}
           />
           <div className="mt-2 max-h-56 overflow-y-auto divide-y divide-black/5">
             {filteredResults.map((r) => (

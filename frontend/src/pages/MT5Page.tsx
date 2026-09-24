@@ -6,17 +6,10 @@ import { FoldedCard } from '../components/FoldedCard';
 import { CandleChart, CHART_LAYOUT, computeChartRange, type Candle, type DrawnSegment, type OverlaySeries, type ChartZone } from '../components/CandleChart';
 import { PositionManager } from '../components/PositionManager';
 import { NoPositionCard, PositionLoadingCard } from '../components/ChartPanel';
-import { oandaApi, tradesApi, type OandaInstrument } from '../services/api';
+import { metatraderApi, tradesApi } from '../services/api';
 import { useThemeStore } from '../hooks/useTheme';
 import type { Trade } from '../types';
 
-// Same idea as PositionOnChartModal's own COLOR_PRESETS (and the same
-// reason it's a small local copy, not the shared CandleColorPicker
-// component): CandleColorPicker also offers a chart TYPE row for the
-// TradingView widget's own override system, which this page's
-// CandleChart has no way to honor — it only ever draws classic filled
-// candlesticks. Offering that row here would be a control that
-// visibly does nothing when touched.
 const COLOR_PRESETS: { label: string; up: string; down: string }[] = [
   { label: 'Classic', up: '#22c55e', down: '#ef4444' },
   { label: 'TradingView', up: '#26a69a', down: '#ef5350' },
@@ -26,40 +19,6 @@ const COLOR_PRESETS: { label: string; up: string; down: string }[] = [
 
 const CHART_HEIGHT = 420;
 
-/**
- * Oanda (was "Chart O") — a genuine, free OANDA-backed chart, the
- * direct counterpart to /tradingview's own TradingView-backed one.
- * Renamed by direct request ("Change the name of 'Chart O' to 'Oanda'
- * everywhere on the platform").
- *
- * Unlike the TradingView embed (an iframe showing TradingView's OWN
- * data), this draws real candles this app fetched itself from
- * routers/oanda.py — the same CandleChart primitive PositionOnChartModal
- * already uses for order_flow.py's Binance-backed klines, reused here
- * for OANDA's forex/index candles instead of built twice.
- *
- * Symbol search is a plain client-side filter over the platform
- * account's own real instrument list (GET /oanda/instruments) — OANDA
- * only has ~120 tradeable instruments total, small enough that a
- * server-side search endpoint (like the TradingView-backed unified
- * Pairs search elsewhere) would be pure overhead here.
- *
- * Drawing tools (Line/Box) + MA, by direct request ("Include drawing
- * tools in the Oanda chart" / "Put all the tools ... into the Chart O
- * - like Chart colour, pairs, position, price etc"). This page has no
- * pan/zoom (unlike PositionOnChartModal's POOL_SIZE+visibleCount+
- * panOffset system) — it always shows the one flat 200-candle window
- * routers/oanda.py's own /candles returns — so the pointer-to-chart
- * math here is simpler than that modal's own (no visibleStart offset
- * to add): candle index IS the array index, always. Honest on scope,
- * same as that modal's own tracking note: Position and Price are not
- * included in this pass — Position needs real OANDA trade-tracking
- * infrastructure that doesn't exist yet (this page isn't tied to any
- * specific trader's connection or trade), and Price would risk hitting
- * an endpoint that doesn't recognize OANDA's own symbol format; the
- * chart's own last-candle close is already visible as its price axis
- * label in the meantime.
- */
 const INTERVALS: { label: string; value: string }[] = [
   { label: '1m', value: '1m' },
   { label: '5m', value: '5m' },
@@ -71,19 +30,31 @@ const INTERVALS: { label: string; value: string }[] = [
   { label: 'W', value: '1w' },
 ];
 
-export function ChartOPage() {
+/**
+ * MT5 — the direct MetaApi-backed counterpart to the Oanda page, by
+ * direct request ("For MT5 create it's own MT5 chart like Oanda -
+ * name it MT5"). Same feature set (search/pick instrument, drawing
+ * tools, MA, Price, Position, Quick Trade), but a genuinely different
+ * data-source shape: unlike OANDA/Binance, MT5 has NO free/public data
+ * — every call here uses YOUR OWN connected MetaApi account
+ * (Settings → Add Exchange), the same one execution_engine.py already
+ * routes real orders through. No instrument-list dropdown either
+ * (unlike Oanda's /oanda/instruments) — MetaApi's own symbols-list
+ * endpoint wasn't verified against live docs in this pass, so this
+ * takes a typed symbol directly (standard MT5 naming — EURUSD,
+ * XAUUSD, no underscore) rather than guess its shape.
+ */
+export function MT5Page() {
   const { theme } = useThemeStore();
   const dark = theme === 'dark';
   const navigate = useNavigate();
 
-  const [instruments, setInstruments] = useState<OandaInstrument[]>([]);
-  const [instrumentsError, setInstrumentsError] = useState<string | null>(null);
-  const [query, setQuery] = useState('');
-  const [showResults, setShowResults] = useState(false);
-  const [symbol, setSymbol] = useState('NAS100_USD');
+  const [symbolInput, setSymbolInput] = useState('EURUSD');
+  const [symbol, setSymbol] = useState('EURUSD');
   const [interval, setInterval_] = useState('1h');
   const [candles, setCandles] = useState<Candle[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notConnected, setNotConnected] = useState(false);
   const [bullColor, setBullColor] = useState(COLOR_PRESETS[0].up);
   const [bearColor, setBearColor] = useState(COLOR_PRESETS[0].down);
   const [colorPickerOpen, setColorPickerOpen] = useState(false);
@@ -96,12 +67,6 @@ export function ChartOPage() {
   const chartBoxRef = useRef<HTMLDivElement>(null);
   const quickTradeAnchorRef = useRef<{ index: number; price: number } | null>(null);
 
-  // Quick Trade — by direct request ("add the quick trade tool to
-  // Oanda"). Same drag-to-set-Entry+Stop mechanic PositionOnChartModal
-  // already has, hands off to Manual Trading via the same qt*-param
-  // URL handoff ChartWithPairs.tsx's own handleQuickTradeNavigate
-  // uses — no inline order form built on this page, consistent with
-  // the Order button above.
   const [quickTradeDraft, setQuickTradeDraft] = useState<{ entryIndex: number; entryPrice: number; stopLoss: number; takeProfit: number; direction: 'long' | 'short' } | null>(null);
   const [quickTradeRR, setQuickTradeRR] = useState(2);
   const [customRRText, setCustomRRText] = useState('');
@@ -125,16 +90,8 @@ export function ChartOPage() {
     setCustomRRText('');
   }
 
-  // Position — by direct request ("Position/Price inside the Oanda
-  // page"). Reuses the exact same Trade lookup + PositionManager/
-  // NoPositionCard pattern TradingViewFramePage.tsx's own "Position"
-  // toggle already uses — no new trade-tracking infrastructure needed,
-  // since a trader's own OANDA connection (Settings → Add Exchange)
-  // already routes real orders through execution_engine.py's
-  // _execute_oanda, so Trade rows for OANDA already exist the same way
-  // every other broker's do. Paper vs live is already universal here
-  // too — the SAME Paper Trading toggle every other manual order
-  // already respects, nothing OANDA-specific to build for that.
+  // Position — same Trade lookup + PositionManager/NoPositionCard
+  // pattern the Oanda page uses, filtered to broker_name === 'metatrader'.
   const [positionOpen, setPositionOpen] = useState(false);
   const [positionLoading, setPositionLoading] = useState(true);
   const [openPositionTrade, setOpenPositionTrade] = useState<Trade | null>(null);
@@ -147,24 +104,18 @@ export function ChartOPage() {
       tradesApi.getActiveTrades(),
       tradesApi.getTrades({ status: 'pending' }),
     ]).then(([active, pending]) => {
-      const isThisOne = (t: Trade) => t.symbol === symbol && t.broker_name === 'oanda';
+      const isThisOne = (t: Trade) => t.symbol === symbol && t.broker_name === 'metatrader';
       setOpenPositionTrade(active.find((t) => isThisOne(t) && t.entry_price != null) ?? null);
       setPendingOrderTrade(pending.find((t) => isThisOne(t) && t.entry_price != null) ?? null);
       const bySymbol = new Map<string, Trade>();
-      active.filter((t) => !isThisOne(t) && t.broker_name === 'oanda' && t.entry_price != null).forEach((t) => bySymbol.set(t.symbol, t));
-      pending.filter((t) => !isThisOne(t) && t.broker_name === 'oanda' && t.entry_price != null).forEach((t) => { if (!bySymbol.has(t.symbol)) bySymbol.set(t.symbol, t); });
+      active.filter((t) => !isThisOne(t) && t.broker_name === 'metatrader' && t.entry_price != null).forEach((t) => bySymbol.set(t.symbol, t));
+      pending.filter((t) => !isThisOne(t) && t.broker_name === 'metatrader' && t.entry_price != null).forEach((t) => { if (!bySymbol.has(t.symbol)) bySymbol.set(t.symbol, t); });
       setOtherOpenTrades(Array.from(bySymbol.values()));
     }).catch(() => { setOpenPositionTrade(null); setPendingOrderTrade(null); setOtherOpenTrades([]); })
       .finally(() => setPositionLoading(false));
   }, [symbol]);
   useEffect(() => { setPositionLoading(true); loadPosition(); }, [loadPosition]);
 
-  // Price — free, no-credential live price via the platform's own
-  // OANDA account (routers/oanda.py's new /price/{symbol}), refreshed
-  // every 15s while open — same cadence PositionOnChartModal's own
-  // live-price poll uses. Deliberately NOT manual_trading.py's own
-  // /quick-price (explicitly crypto-only, no platform-level account to
-  // call on a trader's behalf for forex).
   const [priceOpen, setPriceOpen] = useState(false);
   const [livePrice, setLivePrice] = useState<number | null>(null);
   const [priceError, setPriceError] = useState<string | null>(null);
@@ -172,7 +123,7 @@ export function ChartOPage() {
     if (!priceOpen) return;
     let cancelled = false;
     function refresh() {
-      oandaApi.price(symbol)
+      metatraderApi.price(symbol)
         .then((r) => { if (!cancelled) { setLivePrice(r.price); setPriceError(null); } })
         .catch((err) => { if (!cancelled) setPriceError(err?.response?.data?.detail || 'No live price right now.'); });
     }
@@ -182,33 +133,28 @@ export function ChartOPage() {
   }, [priceOpen, symbol]);
 
   useEffect(() => {
-    oandaApi.instruments()
-      .then(setInstruments)
-      .catch((err) => setInstrumentsError(err?.response?.data?.detail || 'Could not load the OANDA instrument list.'));
-  }, []);
-
-  useEffect(() => {
     let cancelled = false;
     setCandles(null);
     setError(null);
+    setNotConnected(false);
     setDrawings([]);
     setInProgressDraw(null);
-    oandaApi.candles(symbol, interval, 200)
+    metatraderApi.candles(symbol, interval, 200)
       .then((bars) => {
         if (cancelled) return;
         setCandles(bars.map((b) => ({ time: b.time_ms, open: b.open, high: b.high, low: b.low, close: b.close })));
       })
       .catch((err) => {
         if (cancelled) return;
-        setError(err?.response?.data?.detail || `Could not load OANDA candles for ${symbol}.`);
+        if (err?.response?.status === 503) setNotConnected(true);
+        setError(err?.response?.data?.detail || `Could not load MT5 candles for ${symbol}.`);
       });
     return () => { cancelled = true; };
   }, [symbol, interval]);
 
-  // Pointer -> chart-space conversion, and the drag-to-draw handlers
-  // themselves — the same technique PositionOnChartModal's own
-  // pixelToChartLive uses, simplified: no visibleStart/panOffset to
-  // add, since this page never pans or zooms.
+  // Pointer -> chart-space conversion, identical to the Oanda page's
+  // own (no pan/zoom here either — always the one flat 200-candle
+  // window /metatrader/candles returns).
   useEffect(() => {
     const el = chartPaneRef.current;
     if (!el || !candles || !drawShape) return;
@@ -227,10 +173,6 @@ export function ChartOPage() {
       const index = Math.round(Math.max(0, Math.min(candles.length - 1, idx)));
       const relY = ((clientY - rect.top) / rect.height) * CHART_HEIGHT;
       const priceFrac = (relY - padTop) / plotHeight;
-      // Must match CandleChart's own computeChartRange exactly (it
-      // adds an 8% price margin) — a hand-rolled min/max here would
-      // silently misalign every drawn line/box from where you actually
-      // dragged.
       const { yTop, yBottom } = computeChartRange(candles);
       const price = yTop - priceFrac * (yTop - yBottom);
       return { index, price };
@@ -261,8 +203,6 @@ export function ChartOPage() {
     function onPointerUp() {
       if (drawShape === 'position') {
         quickTradeAnchorRef.current = null;
-        // A click with no real drag has zero risk to size a trade off
-        // — discard rather than leave a degenerate confirm card up.
         setQuickTradeDraft((d) => (d && d.stopLoss !== d.entryPrice ? d : null));
         return;
       }
@@ -291,9 +231,6 @@ export function ChartOPage() {
     return list;
   }, [drawings, inProgressDraw]);
 
-  /** The Quick Trade draft's risk (red, entry->SL) and reward (green,
-   * entry->TP) brackets — spans from the entry candle out to the right
-   * edge, same as PositionOnChartModal's own quickTradeZones. */
   const quickTradeZones: ChartZone[] = useMemo(() => {
     if (!quickTradeDraft || !candles || candles.length === 0) return [];
     const rightEdge = candles.length - 1;
@@ -305,11 +242,6 @@ export function ChartOPage() {
     ];
   }, [quickTradeDraft, candles]);
 
-  /** Simple moving average(s) — by direct request ("Include drawing
-   * tools"), same SMA(20)/SMA(50) pair PositionOnChartModal's own MA
-   * button computes, one point per candle (no slicing needed here,
-   * since there's no visible-window concept distinct from `candles`
-   * itself). */
   const maSeries: OverlaySeries[] = useMemo(() => {
     if (!showMA || !candles || candles.length === 0) return [];
     const closes = candles.map((c) => c.close);
@@ -327,20 +259,7 @@ export function ChartOPage() {
     ];
   }, [showMA, candles]);
 
-  const results = useMemo(() => {
-    if (!query.trim()) return instruments.slice(0, 20);
-    const q = query.trim().toUpperCase();
-    return instruments.filter((i) => i.name.includes(q) || i.display_name.toUpperCase().includes(q)).slice(0, 20);
-  }, [instruments, query]);
-
-  // The bug: light mode never set an explicit text color, so the
-  // typed/placeholder text inherited whatever ambient default applied
-  // and read as invisible — by direct bug report ("The search is not
-  // showing the instrument pairs - invisible"). Every other input in
-  // this codebase (e.g. ConnectExchangePage.tsx's own inputCls)
-  // explicitly sets text-corporate-text-on-bg for light mode; this one
-  // just never did.
-  const inputCls = `w-full pl-8 pr-3 py-2 text-sm rounded-lg border ${
+  const inputCls = `w-full pl-8 pr-3 py-2 text-sm rounded-lg border uppercase ${
     dark ? 'bg-smc-dark border-smc-border text-white placeholder:text-white/30' : 'bg-white border-corporate-bg text-corporate-text-on-bg'
   }`;
   const toolBtnCls = (active: boolean) =>
@@ -350,35 +269,21 @@ export function ChartOPage() {
 
   return (
     <div>
-      <PageHeader title="Oanda" subtitle="A real, free OANDA chart — forex majors, NAS100, and other indices, fetched live." />
+      <PageHeader title="MT5" subtitle="Your own connected MT4/MT5 account's real chart — deploy it in Settings first." />
 
-      <FoldedCard title="Oanda" summary={symbol} icon={<LineChart size={19} />} dark={dark} defaultOpen>
-        <div className="relative mb-3">
+      <FoldedCard title="MT5" summary={symbol} icon={<LineChart size={19} />} dark={dark} defaultOpen>
+        <form
+          onSubmit={(e) => { e.preventDefault(); if (symbolInput.trim()) setSymbol(symbolInput.trim().toUpperCase()); }}
+          className="relative mb-3"
+        >
           <Search size={14} className={`absolute left-2.5 top-1/2 -translate-y-1/2 ${dark ? 'text-white/40' : 'text-gray-400'}`} />
           <input
-            value={query}
-            onChange={(e) => { setQuery(e.target.value); setShowResults(true); }}
-            onFocus={() => setShowResults(true)}
-            onBlur={() => window.setTimeout(() => setShowResults(false), 150)}
-            placeholder="Search instruments — EUR_USD, NAS100_USD, XAU_USD..."
+            value={symbolInput}
+            onChange={(e) => setSymbolInput(e.target.value)}
+            placeholder="Type a symbol — EURUSD, XAUUSD, GBPJPY..."
             className={inputCls}
           />
-          {showResults && results.length > 0 && (
-            <div className={`absolute z-10 mt-1 w-full max-h-64 overflow-y-auto rounded-lg border shadow-lg ${dark ? 'bg-smc-dark border-smc-border' : 'bg-white border-corporate-bg'}`}>
-              {results.map((i) => (
-                <button
-                  key={i.name}
-                  onMouseDown={() => { setSymbol(i.name); setQuery(''); setShowResults(false); }}
-                  className={`w-full text-left px-3 py-2 text-sm flex items-center justify-between gap-2 ${dark ? 'hover:bg-white/5 text-white' : 'hover:bg-black/5 text-corporate-text-on-bg'}`}
-                >
-                  <span className="font-medium">{i.display_name}</span>
-                  <span className={`text-[11px] ${dark ? 'text-white/40' : 'text-gray-400'}`}>{i.type}</span>
-                </button>
-              ))}
-            </div>
-          )}
-          {instrumentsError && <p className="text-xs text-red-600 mt-1.5">{instrumentsError}</p>}
-        </div>
+        </form>
 
         <div className="flex items-center justify-between gap-1.5 mb-3 flex-wrap">
           <div className="flex items-center gap-1.5 flex-wrap">
@@ -396,9 +301,6 @@ export function ChartOPage() {
               </button>
             ))}
           </div>
-          {/* Candle colors — renamed to "Candle" site-wide (see
-              CandleColorPicker.tsx), so this matches that same name
-              rather than reintroducing the "Chart" ambiguity here. */}
           <div className="relative">
             <button
               onClick={() => setColorPickerOpen((o) => !o)}
@@ -439,13 +341,6 @@ export function ChartOPage() {
           </div>
         </div>
 
-        {/* Price / Position / Order — by direct request ("Position/
-            Price inside the Oanda page"). Order links out to Manual
-            Trading (pre-filled with this instrument) rather than a
-            second, duplicate order-entry form on this page — the
-            Paper Trading toggle there already covers "paper then
-            live" for OANDA the same as every other broker, nothing
-            new to build for that. */}
         <div className="flex items-center gap-1.5 mb-3 flex-wrap">
           <button onClick={() => setPriceOpen((o) => !o)} aria-label={priceOpen ? 'Hide live price' : 'Show live price'} className={toolBtnCls(priceOpen)}>
             <Zap size={13} /> Price
@@ -453,10 +348,7 @@ export function ChartOPage() {
           <button onClick={() => setPositionOpen((o) => !o)} aria-label={positionOpen ? 'Hide position management' : 'Review or manage this position'} className={toolBtnCls(positionOpen)}>
             <Target size={13} /> Position
           </button>
-          <Link
-            to={`/trade/manual?tv=OANDA:${encodeURIComponent(symbol)}`}
-            className={toolBtnCls(false)}
-          >
+          <Link to={`/trade/manual?tv=OANDA:${encodeURIComponent(symbol)}`} className={toolBtnCls(false)}>
             <Receipt size={13} /> Order
           </Link>
           {priceOpen && (
@@ -468,7 +360,7 @@ export function ChartOPage() {
           )}
         </div>
 
-        {positionOpen && (
+        {positionOpen && !notConnected && (
           <div className="mb-3">
             {positionLoading && !position
               ? <PositionLoadingCard dark={dark} />
@@ -478,11 +370,6 @@ export function ChartOPage() {
           </div>
         )}
 
-        {/* Drawing tools — MA overlay, trend Line, Box, and Clear —
-            by direct request ("Include drawing tools in the Oanda
-            chart"). Same scope note as PositionOnChartModal's own:
-            classic candlesticks + lines/boxes only, no Fibonacci/text/
-            per-shape selection. */}
         {candles && (
           <div className={`flex items-center gap-1 mb-2 rounded-lg p-1 w-fit ${dark ? 'bg-white/5' : 'bg-black/5'}`}>
             <button onClick={() => setShowMA((v) => !v)} aria-label={showMA ? 'Hide moving averages' : 'Show moving averages (SMA 20 / SMA 50)'} title="SMA 20 / SMA 50" className={toolBtnCls(showMA)}>
@@ -505,8 +392,16 @@ export function ChartOPage() {
           </div>
         )}
 
-        {error && <p className="text-sm text-red-600 py-4">{error}</p>}
-        {!error && !candles && <p className={`text-sm py-4 ${dark ? 'text-white/50' : 'text-gray-500'}`}>Loading…</p>}
+        {notConnected && (
+          <div className={`text-sm py-6 text-center space-y-2 ${dark ? 'text-white/60' : 'text-gray-500'}`}>
+            <p>Connect your MT4/MT5 account first — MetaApi has no free public data, so this chart uses your own connection.</p>
+            <Link to="/exchange-connections" className="inline-block text-xs font-semibold px-3 py-1.5 rounded-lg bg-corporate-hero text-white">
+              Settings → Add Exchange
+            </Link>
+          </div>
+        )}
+        {!notConnected && error && <p className="text-sm text-red-600 py-4">{error}</p>}
+        {!notConnected && !error && !candles && <p className={`text-sm py-4 ${dark ? 'text-white/50' : 'text-gray-500'}`}>Loading…</p>}
         {!error && candles && (
           <div ref={chartPaneRef} className="relative" style={{ touchAction: 'none', cursor: drawShape ? 'crosshair' : undefined }}>
             <div ref={chartBoxRef}>

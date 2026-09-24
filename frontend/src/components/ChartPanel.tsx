@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Maximize2, Minimize2, Sun, Moon, TrendingUp, X, Zap, Receipt, Target, LineChart, Search, Globe2 } from 'lucide-react';
+import { Maximize2, Minimize2, Sun, Moon, TrendingUp, X, Zap, Receipt, Target, LineChart, Search, Globe2, MonitorSmartphone } from 'lucide-react';
 import { TradingViewChart, type ChartPosition } from './TradingViewChart';
 import { CandleColorPicker } from './CandleColorPicker';
 import { PositionManager } from './PositionManager';
@@ -330,7 +330,7 @@ export function ChartPanel({
    * TradingView widget itself. Omit on a page with no order form
    * (Dashboard, Insights, Tools) and the tool button simply doesn't
    * render there, same convention as onQuickFill/onToggleOrderForm. */
-  onQuickTrade?: (trade: { direction: 'long' | 'short'; entryPrice: number; stopLoss: number; takeProfit: number }) => void;
+  onQuickTrade?: (trade: { symbol: string; direction: 'long' | 'short'; entryPrice: number; stopLoss: number; takeProfit: number }) => void;
 
 }) {
   const navigate = useNavigate();
@@ -458,6 +458,15 @@ export function ChartPanel({
           className={`p-1.5 rounded-md flex items-center gap-1.5 text-xs font-medium ${containerDark ? 'text-white/50 hover:text-white/80 bg-white/5' : 'text-gray-500 hover:text-gray-700 bg-black/5'}`}
         >
           <Globe2 size={13} /> Oanda
+        </Link>
+        {/* MT5 — the MetaApi-backed counterpart, by direct request
+            ("add the quick trade tool to Oanda and MT5 ... For MT5
+            create it's own MT5 chart like Oanda - name it MT5"). */}
+        <Link
+          to="/mt5"
+          className={`p-1.5 rounded-md flex items-center gap-1.5 text-xs font-medium ${containerDark ? 'text-white/50 hover:text-white/80 bg-white/5' : 'text-gray-500 hover:text-gray-700 bg-black/5'}`}
+        >
+          <MonitorSmartphone size={13} /> MT5
         </Link>
         <CandleColorPicker
           dark={containerDark}

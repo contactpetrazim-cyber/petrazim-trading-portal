@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Sun, Moon, Save, Trash2, FolderOpen, X, TrendingUp, Target, LineChart, Search, Globe2 } from 'lucide-react';
+import { Sun, Moon, Save, Trash2, FolderOpen, X, TrendingUp, Target, LineChart, Search, Globe2, MonitorSmartphone } from 'lucide-react';
 import { TradingViewChart } from '../components/TradingViewChart';
 import { CandleColorPicker } from '../components/CandleColorPicker';
 import { PositionManager } from '../components/PositionManager';
@@ -11,7 +11,7 @@ import { OpenInTradingView } from '../components/OpenInTradingView';
 import { PetrazimLogo } from '../components/PetrazimLogo';
 import { FoldedCard } from '../components/FoldedCard';
 import { PairsPanel } from '../components/PairsPanel';
-import { useQuickPairsStore } from '../hooks/useQuickPairs';
+import { useQuickPairsStore, pairFromTradeSymbol } from '../hooks/useQuickPairs';
 import { useAuth } from '../hooks/useAuth';
 import { apiFetch } from '../components/AccessExpiredGate';
 import { tradesApi } from '../services/api';
@@ -134,9 +134,15 @@ export function TradingViewFramePage() {
   // handoff shape: this page has no inline order form of its own
   // either, so a drafted Quick Trade goes to Manual Trading exactly
   // like ChartWithPairs's own does.
-  function handleQuickTradeNavigate(trade: { direction: 'long' | 'short'; entryPrice: number; stopLoss: number; takeProfit: number }) {
+  function handleQuickTradeNavigate(trade: { symbol: string; direction: 'long' | 'short'; entryPrice: number; stopLoss: number; takeProfit: number }) {
+    // Same fix as ChartWithPairs.tsx's own handleQuickTradeNavigate —
+    // trade.symbol may differ from selectedPair once Pairs has
+    // switched this chart elsewhere (by direct bug report: "Quick
+    // trade disappears after switching from an Oanda instrument pairs
+    // displayed").
+    const tv = trade.symbol === selectedPair.trade ? selectedPair.tv : pairFromTradeSymbol(trade.symbol, trade.symbol.includes('_') ? 'oanda' : undefined).tv;
     const params = new URLSearchParams({
-      tv: selectedPair.tv,
+      tv,
       qtDirection: trade.direction,
       qtEntry: String(trade.entryPrice),
       qtStop: String(trade.stopLoss),
@@ -343,6 +349,15 @@ export function TradingViewFramePage() {
               className={`p-1.5 rounded-md flex items-center gap-1.5 text-xs font-medium ${frameDark ? 'bg-white/5 text-white/60 hover:text-white' : 'bg-black/5 text-[#141a33]/60 hover:text-[#141a33]'}`}
             >
               <Globe2 size={13} /> Oanda
+            </button>
+            {/* MT5 — the MetaApi-backed counterpart, by direct request
+                ("For MT5 create it's own MT5 chart like Oanda - name
+                it MT5"). */}
+            <button
+              onClick={() => navigate('/mt5')}
+              className={`p-1.5 rounded-md flex items-center gap-1.5 text-xs font-medium ${frameDark ? 'bg-white/5 text-white/60 hover:text-white' : 'bg-black/5 text-[#141a33]/60 hover:text-[#141a33]'}`}
+            >
+              <MonitorSmartphone size={13} /> MT5
             </button>
 
             {mode !== 'external' && (

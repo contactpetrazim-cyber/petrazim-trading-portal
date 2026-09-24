@@ -122,3 +122,25 @@ async def get_candles(
     if not result["success"]:
         raise HTTPException(status_code=502, detail=result.get("error") or f"Could not load OANDA candles for {symbol}.")
     return [OandaCandle(**c) for c in result["candles"]]
+
+
+class OandaPriceResponse(BaseModel):
+    symbol: str
+    price: float
+
+
+@router.get("/price/{symbol}", response_model=OandaPriceResponse)
+async def get_price(symbol: str, _user: User = Depends(get_current_user)):
+    """A free, no-credential live price for the Oanda/Chart O page's
+    own "Price" display — by direct request ("Position/Price inside
+    the Oanda page"). Unlike manual_trading.py's own /quick-price
+    (explicitly crypto-only, since it has no platform-level account to
+    call on a trader's behalf), this can genuinely serve forex/metals
+    prices for free because routers/oanda.py already has its own
+    platform-level OANDA account for exactly this — the same account
+    /instruments and /candles above already use."""
+    client = _platform_client()
+    result = await client.get_ticker_price(symbol.upper())
+    if not result["success"]:
+        raise HTTPException(status_code=502, detail=result.get("error") or f"Could not load OANDA price for {symbol}.")
+    return OandaPriceResponse(symbol=symbol.upper(), price=result["price"])
