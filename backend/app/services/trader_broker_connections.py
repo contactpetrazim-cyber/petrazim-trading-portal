@@ -19,7 +19,7 @@ from app.config import get_settings
 from app.models.trader_broker_connection import ConnectionMode, ConnectionStatus, TraderBrokerConnection
 from app.services.broker_credentials import decrypt_secret, encrypt_secret  # noqa: F401 — re-exported for routers
 from app.services.broker_integrations import (
-    BingXBroker, BinanceBroker, BybitBroker, MexcBroker, TradeLockerBroker, MetaApiBroker,
+    BingXBroker, BinanceBroker, BybitBroker, MexcBroker, TradeLockerBroker, MetaApiBroker, OandaBroker,
 )
 
 settings = get_settings()
@@ -31,6 +31,7 @@ _BROKER_CLASSES = {
     "mexc": MexcBroker,
     "tradelocker": TradeLockerBroker,
     "metatrader": MetaApiBroker,
+    "oanda": OandaBroker,
 }
 
 # Same static-IP proxy convention as broker_credentials.py's per-bot
@@ -82,6 +83,10 @@ EXCHANGE_META = {
         "label": "MT4 / MT5 (via MetaApi.cloud)", "fields": ["api_key", "account_id"],
         "instructions": "Create a free MetaApi.cloud account, add your real MT4/5 login there as a trading account, and wait for it to show 'deployed'. api_key here is your MetaApi API token; account_id is the trading account ID MetaApi gives you — your MT4/5 password itself is never entered here.",
     },
+    "oanda": {
+        "label": "OANDA", "fields": ["api_key", "account_id"],
+        "instructions": "Sign up for a free OANDA practice (demo) account at oanda.com, then generate a Personal Access Token from your account's API Access page. api_key here is that token; account_id is your OANDA account ID (starts with '101-' for practice, '001-' for live — this determines which OANDA server every call goes to). No separate deploy/hosting step, unlike MetaApi — OANDA's API is free and always-on.",
+    },
 }
 
 
@@ -127,6 +132,10 @@ def build_client_from_connection(connection: TraderBrokerConnection):
     if connection.exchange == "metatrader":
         account_id = decrypt_secret(connection.account_id_encrypted) if connection.account_id_encrypted else None
         return broker_cls(api_key, account_id, settings.METAAPI_REGION or "new-york")
+
+    if connection.exchange == "oanda":
+        account_id = decrypt_secret(connection.account_id_encrypted) if connection.account_id_encrypted else None
+        return broker_cls(api_key, account_id)
 
     api_secret = decrypt_secret(connection.api_secret_encrypted) if connection.api_secret_encrypted else ""
     if connection.exchange == "tradelocker":

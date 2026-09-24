@@ -71,6 +71,22 @@ class Settings(BaseSettings):
     METAAPI_ACCOUNT_ID: str = ""
     METAAPI_REGION: str = "new-york"
 
+    # OANDA (broker_integrations.py::OandaBroker) — by direct request,
+    # added as a genuinely free (no deploy/hosting billing, unlike
+    # MetaApi) NAS100/forex data + broker option. These two are the
+    # PLATFORM's own account, used only to power the public "Chart O"
+    # endpoint (routers/oanda.py) so any signed-in user can view an
+    # OANDA-fed chart without needing their own OANDA connection —
+    # exactly like nobody needs personal TradingView credentials to see
+    # a TradingView chart. A trader who wants OANDA to actually EXECUTE
+    # their own trades still connects their own account separately via
+    # Settings → Add Exchange (TraderBrokerConnection), unaffected by
+    # these two. Blank by default — Chart O returns a clear "not
+    # configured" error rather than failing oddly until an admin sets
+    # them.
+    OANDA_API_TOKEN: str = ""
+    OANDA_ACCOUNT_ID: str = ""
+
     # Fixie static-IP proxies — most exchanges require whitelisting a
     # fixed IP for a trading-enabled API key, which a free PaaS host's
     # own (dynamic) egress IP can't satisfy. Each exchange's private

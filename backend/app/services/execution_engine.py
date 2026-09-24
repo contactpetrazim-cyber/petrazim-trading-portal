@@ -815,6 +815,8 @@ class ExecutionEngine:
                 return await self._execute_mexc(trade, client)
             elif broker == "metatrader" and client is not None:
                 return await self._execute_metatrader(trade, client)
+            elif broker == "oanda" and client is not None:
+                return await self._execute_oanda(trade, client)
             else:
                 return {
                     "success": True,
@@ -1077,6 +1079,33 @@ class ExecutionEngine:
                 "order_id": result["order_id"],
                 "broker": "metatrader",
                 "message": f"MT4/5 order placed: {result['status']}"
+            }
+        return result
+
+    async def _execute_oanda(self, trade: Dict, broker) -> Dict:
+        """Execute via OANDA (broker_integrations.py::OandaBroker) — by
+        direct request, added alongside MetaApi as a second forex/index
+        broker option, mainly for its free data (see routers/oanda.py's
+        own Chart O), with real order placement here as a genuine but
+        secondary capability."""
+        side = "buy" if trade["direction"] == "long" else "sell"
+        order_type = {"limit": "limit", "stop": "stop"}.get(trade.get("entry_type"), "market")
+
+        result = await broker.place_order(
+            symbol=trade["symbol"],
+            side=side,
+            order_type=order_type,
+            quantity=trade["lot_size"],
+            price=trade.get("entry_price"),
+            stop_loss=trade.get("stop_loss"),
+            take_profit=trade.get("take_profit")
+        )
+        if result["success"]:
+            return {
+                "success": True,
+                "order_id": result["order_id"],
+                "broker": "oanda",
+                "message": f"OANDA order placed: {result['status']}"
             }
         return result
 
