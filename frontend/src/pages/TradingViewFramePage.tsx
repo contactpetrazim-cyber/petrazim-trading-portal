@@ -335,14 +335,15 @@ export function TradingViewFramePage() {
 
             {/* Chart O — a real, free OANDA-backed chart (forex/
                 NAS100), by direct request ("ADD to all charts without
-                exception ... use blue button and not link"). A real
-                blue button, same shape as ChartPanel's own, so it's
-                genuinely visible against this toolbar's muted-icon
-                siblings — not gated on `mode` since it's pure
+                exception"), styled to match the Pairs/Position toolbar
+                buttons around it — by direct follow-up request
+                ("remove the blue style ... too obvious ... inconsistent
+                in the style") — rather than the standalone blue button
+                first shipped. Not gated on `mode` since it's pure
                 navigation, harmless in every mode. */}
             <button
               onClick={() => navigate('/chart-o')}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-bold text-white bg-blue-600 hover:bg-blue-700"
+              className={`p-1.5 rounded-md flex items-center gap-1.5 text-xs font-medium ${frameDark ? 'bg-white/5 text-white/60 hover:text-white' : 'bg-black/5 text-[#141a33]/60 hover:text-[#141a33]'}`}
             >
               <Globe2 size={13} /> Chart O
             </button>
