@@ -443,18 +443,19 @@ export function ChartPanel({
           <LineChart size={13} /> On Chart
         </button>
         {/* Chart O — a real, free OANDA-backed chart (forex/NAS100),
-            by direct request ("ADD to all charts without exception -
-            I could not see the button - use blue button and not
-            link"). Placed here, in ChartPanel's own shared toolbar,
-            rather than as a page-level text link on just a few pages —
-            every page that renders a chart through ChartPanel/
-            ChartWithPairs gets this automatically, with no per-page
-            wiring to miss. A real blue button (not a muted toolbar
-            toggle like its neighbors) so it's genuinely visible, not
-            just another same-colored icon in the row. */}
+            by direct request ("ADD to all charts without exception").
+            Placed here, in ChartPanel's own shared toolbar, rather
+            than as a page-level text link on just a few pages — every
+            page that renders a chart through ChartPanel/ChartWithPairs
+            gets this automatically, with no per-page wiring to miss.
+            Styled to match Pairs exactly, by direct follow-up request
+            ("look like exactly like the 'Pairs' formatting everywhere
+            - remove the blue style ... too obvious ... inconsistent
+            in the style") — the earlier blue button read as visually
+            inconsistent with every other toolbar button around it. */}
         <Link
           to="/chart-o"
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-bold text-white bg-blue-600 hover:bg-blue-700"
+          className={`p-1.5 rounded-md flex items-center gap-1.5 text-xs font-medium ${containerDark ? 'text-white/50 hover:text-white/80 bg-white/5' : 'text-gray-500 hover:text-gray-700 bg-black/5'}`}
         >
           <Globe2 size={13} /> Chart O
         </Link>

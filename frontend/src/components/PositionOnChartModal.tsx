@@ -1121,13 +1121,14 @@ export function PositionOnChartModal({
             )}
           </div>
           {/* Chart O — a real, free OANDA-backed chart, by direct
-              request ("ADD to all charts without exception ... use
-              blue button and not link"). A real blue button, matching
-              ChartPanel's own, distinct from this toolbar's muted
-              toggle buttons. */}
+              request ("ADD to all charts without exception"), styled
+              to match Pairs exactly — by direct follow-up request
+              ("remove the blue style ... too obvious ... inconsistent
+              in the style") — rather than the standalone blue button
+              first shipped. */}
           <Link
             to="/chart-o"
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold text-white bg-blue-600 hover:bg-blue-700"
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium ${chromeMutedCls} ${toggleWrapCls}`}
           >
             <Globe2 size={13} /> Chart O
           </Link>
