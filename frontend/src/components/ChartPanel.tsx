@@ -442,22 +442,22 @@ export function ChartPanel({
         >
           <LineChart size={13} /> On Chart
         </button>
-        {/* Chart O — a real, free OANDA-backed chart (forex/NAS100),
-            by direct request ("ADD to all charts without exception").
-            Placed here, in ChartPanel's own shared toolbar, rather
-            than as a page-level text link on just a few pages — every
-            page that renders a chart through ChartPanel/ChartWithPairs
-            gets this automatically, with no per-page wiring to miss.
-            Styled to match Pairs exactly, by direct follow-up request
-            ("look like exactly like the 'Pairs' formatting everywhere
-            - remove the blue style ... too obvious ... inconsistent
-            in the style") — the earlier blue button read as visually
-            inconsistent with every other toolbar button around it. */}
+        {/* Oanda (was "Chart O") — a real, free OANDA-backed chart
+            (forex/NAS100), by direct request ("ADD to all charts
+            without exception" ... "Change the name of 'Chart O' to
+            'Oanda' everywhere on the platform"). Placed here, in
+            ChartPanel's own shared toolbar, rather than as a page-
+            level text link on just a few pages — every page that
+            renders a chart through ChartPanel/ChartWithPairs gets this
+            automatically, with no per-page wiring to miss. Styled to
+            match Pairs exactly, by direct follow-up request ("look
+            like exactly like the 'Pairs' formatting everywhere -
+            remove the blue style"). */}
         <Link
           to="/chart-o"
           className={`p-1.5 rounded-md flex items-center gap-1.5 text-xs font-medium ${containerDark ? 'text-white/50 hover:text-white/80 bg-white/5' : 'text-gray-500 hover:text-gray-700 bg-black/5'}`}
         >
-          <Globe2 size={13} /> Chart O
+          <Globe2 size={13} /> Oanda
         </Link>
         <CandleColorPicker
           dark={containerDark}

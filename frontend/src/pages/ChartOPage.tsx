@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Search, LineChart, Palette } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Search, LineChart, Palette, TrendingUp, PenLine, Square, Eraser } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
 import { FoldedCard } from '../components/FoldedCard';
-import { CandleChart, type Candle } from '../components/CandleChart';
+import { CandleChart, CHART_LAYOUT, computeChartRange, type Candle, type DrawnSegment, type OverlaySeries } from '../components/CandleChart';
 import { oandaApi, type OandaInstrument } from '../services/api';
 import { useThemeStore } from '../hooks/useTheme';
 
@@ -20,12 +20,13 @@ const COLOR_PRESETS: { label: string; up: string; down: string }[] = [
   { label: 'Monochrome (light)', up: '#111827', down: '#9ca3af' },
 ];
 
+const CHART_HEIGHT = 420;
+
 /**
- * Chart O — a genuine, free OANDA-backed chart, the direct counterpart
- * to /tradingview's own TradingView-backed one. By direct request:
- * "OANDA is great news ... I get to use their data for free ...
- * Make sure there is a button for oanda charts just like tradingview.
- * Call the Oanda charts 'Chart O'."
+ * Oanda (was "Chart O") — a genuine, free OANDA-backed chart, the
+ * direct counterpart to /tradingview's own TradingView-backed one.
+ * Renamed by direct request ("Change the name of 'Chart O' to 'Oanda'
+ * everywhere on the platform").
  *
  * Unlike the TradingView embed (an iframe showing TradingView's OWN
  * data), this draws real candles this app fetched itself from
@@ -38,6 +39,22 @@ const COLOR_PRESETS: { label: string; up: string; down: string }[] = [
  * only has ~120 tradeable instruments total, small enough that a
  * server-side search endpoint (like the TradingView-backed unified
  * Pairs search elsewhere) would be pure overhead here.
+ *
+ * Drawing tools (Line/Box) + MA, by direct request ("Include drawing
+ * tools in the Oanda chart" / "Put all the tools ... into the Chart O
+ * - like Chart colour, pairs, position, price etc"). This page has no
+ * pan/zoom (unlike PositionOnChartModal's POOL_SIZE+visibleCount+
+ * panOffset system) — it always shows the one flat 200-candle window
+ * routers/oanda.py's own /candles returns — so the pointer-to-chart
+ * math here is simpler than that modal's own (no visibleStart offset
+ * to add): candle index IS the array index, always. Honest on scope,
+ * same as that modal's own tracking note: Position and Price are not
+ * included in this pass — Position needs real OANDA trade-tracking
+ * infrastructure that doesn't exist yet (this page isn't tied to any
+ * specific trader's connection or trade), and Price would risk hitting
+ * an endpoint that doesn't recognize OANDA's own symbol format; the
+ * chart's own last-candle close is already visible as its price axis
+ * label in the meantime.
  */
 const INTERVALS: { label: string; value: string }[] = [
   { label: '1m', value: '1m' },
@@ -66,6 +83,13 @@ export function ChartOPage() {
   const [bearColor, setBearColor] = useState(COLOR_PRESETS[0].down);
   const [colorPickerOpen, setColorPickerOpen] = useState(false);
 
+  const [showMA, setShowMA] = useState(false);
+  const [drawShape, setDrawShape] = useState<'line' | 'box' | null>(null);
+  const [drawings, setDrawings] = useState<DrawnSegment[]>([]);
+  const [inProgressDraw, setInProgressDraw] = useState<DrawnSegment | null>(null);
+  const chartPaneRef = useRef<HTMLDivElement>(null);
+  const chartBoxRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     oandaApi.instruments()
       .then(setInstruments)
@@ -76,6 +100,8 @@ export function ChartOPage() {
     let cancelled = false;
     setCandles(null);
     setError(null);
+    setDrawings([]);
+    setInProgressDraw(null);
     oandaApi.candles(symbol, interval, 200)
       .then((bars) => {
         if (cancelled) return;
@@ -87,6 +113,94 @@ export function ChartOPage() {
       });
     return () => { cancelled = true; };
   }, [symbol, interval]);
+
+  // Pointer -> chart-space conversion, and the drag-to-draw handlers
+  // themselves — the same technique PositionOnChartModal's own
+  // pixelToChartLive uses, simplified: no visibleStart/panOffset to
+  // add, since this page never pans or zooms.
+  useEffect(() => {
+    const el = chartPaneRef.current;
+    if (!el || !candles || !drawShape) return;
+
+    function pixelToChart(clientX: number, clientY: number): { index: number; price: number } | null {
+      const box = chartBoxRef.current;
+      if (!box || !candles || candles.length === 0) return null;
+      const rect = box.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) return null;
+      const { padLeft, padRight, padTop, padBottom, width } = CHART_LAYOUT;
+      const plotWidth = width - padLeft - padRight;
+      const plotHeight = CHART_HEIGHT - padTop - padBottom;
+      const relX = ((clientX - rect.left) / rect.width) * width;
+      const slotWidth = plotWidth / candles.length;
+      const idx = (relX - padLeft) / slotWidth - 0.5;
+      const index = Math.round(Math.max(0, Math.min(candles.length - 1, idx)));
+      const relY = ((clientY - rect.top) / rect.height) * CHART_HEIGHT;
+      const priceFrac = (relY - padTop) / plotHeight;
+      // Must match CandleChart's own computeChartRange exactly (it
+      // adds an 8% price margin) — a hand-rolled min/max here would
+      // silently misalign every drawn line/box from where you actually
+      // dragged.
+      const { yTop, yBottom } = computeChartRange(candles);
+      const price = yTop - priceFrac * (yTop - yBottom);
+      return { index, price };
+    }
+
+    function onPointerDown(e: PointerEvent) {
+      el!.setPointerCapture(e.pointerId);
+      const pt = pixelToChart(e.clientX, e.clientY);
+      if (pt) setInProgressDraw({ id: 'preview', index1: pt.index, price1: pt.price, index2: pt.index, price2: pt.price, shape: drawShape! });
+    }
+    function onPointerMove(e: PointerEvent) {
+      const pt = pixelToChart(e.clientX, e.clientY);
+      if (pt) setInProgressDraw((prev) => (prev ? { ...prev, index2: pt.index, price2: pt.price } : prev));
+    }
+    function onPointerUp() {
+      setInProgressDraw((prev) => {
+        if (prev && (prev.index1 !== prev.index2 || prev.price1 !== prev.price2)) {
+          const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+          setDrawings((ds) => [...ds, { ...prev, id }]);
+        }
+        return null;
+      });
+    }
+
+    el.addEventListener('pointerdown', onPointerDown);
+    el.addEventListener('pointermove', onPointerMove);
+    el.addEventListener('pointerup', onPointerUp);
+    return () => {
+      el.removeEventListener('pointerdown', onPointerDown);
+      el.removeEventListener('pointermove', onPointerMove);
+      el.removeEventListener('pointerup', onPointerUp);
+    };
+  }, [candles, drawShape]);
+
+  const visibleDrawings: DrawnSegment[] = useMemo(() => {
+    const list = [...drawings];
+    if (inProgressDraw) list.push({ ...inProgressDraw, color: '#2563eb', id: 'preview' });
+    return list;
+  }, [drawings, inProgressDraw]);
+
+  /** Simple moving average(s) — by direct request ("Include drawing
+   * tools"), same SMA(20)/SMA(50) pair PositionOnChartModal's own MA
+   * button computes, one point per candle (no slicing needed here,
+   * since there's no visible-window concept distinct from `candles`
+   * itself). */
+  const maSeries: OverlaySeries[] = useMemo(() => {
+    if (!showMA || !candles || candles.length === 0) return [];
+    const closes = candles.map((c) => c.close);
+    function sma(period: number): (number | null)[] {
+      return closes.map((_, i) => {
+        if (i < period - 1) return null;
+        let sum = 0;
+        for (let k = i - period + 1; k <= i; k++) sum += closes[k];
+        return sum / period;
+      });
+    }
+    return [
+      { points: sma(20), color: '#a855f7', label: 'SMA 20' },
+      { points: sma(50), color: '#f97316', label: 'SMA 50' },
+    ];
+  }, [showMA, candles]);
 
   const results = useMemo(() => {
     if (!query.trim()) return instruments.slice(0, 20);
@@ -104,12 +218,16 @@ export function ChartOPage() {
   const inputCls = `w-full pl-8 pr-3 py-2 text-sm rounded-lg border ${
     dark ? 'bg-smc-dark border-smc-border text-white placeholder:text-white/30' : 'bg-white border-corporate-bg text-corporate-text-on-bg'
   }`;
+  const toolBtnCls = (active: boolean) =>
+    `flex items-center gap-1 px-2 py-1.5 rounded-md text-[11px] font-medium ${
+      active ? 'bg-corporate-hero text-white' : dark ? 'text-white/50 hover:text-white/80 bg-white/5' : 'text-gray-500 hover:text-gray-700 bg-black/5'
+    }`;
 
   return (
     <div>
-      <PageHeader title="Chart O" subtitle="A real, free OANDA chart — forex majors, NAS100, and other indices, fetched live." />
+      <PageHeader title="Oanda" subtitle="A real, free OANDA chart — forex majors, NAS100, and other indices, fetched live." />
 
-      <FoldedCard title="Chart O" summary={symbol} icon={<LineChart size={19} />} dark={dark} defaultOpen>
+      <FoldedCard title="Oanda" summary={symbol} icon={<LineChart size={19} />} dark={dark} defaultOpen>
         <div className="relative mb-3">
           <Search size={14} className={`absolute left-2.5 top-1/2 -translate-y-1/2 ${dark ? 'text-white/40' : 'text-gray-400'}`} />
           <input
@@ -153,12 +271,9 @@ export function ChartOPage() {
               </button>
             ))}
           </div>
-          {/* Candle colors — by direct request ("Put all the tools and
-              update of the 'Chart' into the Chart O - like Chart
-              colour, pairs, position, price etc"). Renamed to "Candle"
-              site-wide (see CandleColorPicker.tsx), so this matches
-              that same name rather than reintroducing the "Chart"
-              ambiguity here. */}
+          {/* Candle colors — renamed to "Candle" site-wide (see
+              CandleColorPicker.tsx), so this matches that same name
+              rather than reintroducing the "Chart" ambiguity here. */}
           <div className="relative">
             <button
               onClick={() => setColorPickerOpen((o) => !o)}
@@ -199,9 +314,39 @@ export function ChartOPage() {
           </div>
         </div>
 
+        {/* Drawing tools — MA overlay, trend Line, Box, and Clear —
+            by direct request ("Include drawing tools in the Oanda
+            chart"). Same scope note as PositionOnChartModal's own:
+            classic candlesticks + lines/boxes only, no Fibonacci/text/
+            per-shape selection. */}
+        {candles && (
+          <div className={`flex items-center gap-1 mb-2 rounded-lg p-1 w-fit ${dark ? 'bg-white/5' : 'bg-black/5'}`}>
+            <button onClick={() => setShowMA((v) => !v)} aria-label={showMA ? 'Hide moving averages' : 'Show moving averages (SMA 20 / SMA 50)'} title="SMA 20 / SMA 50" className={toolBtnCls(showMA)}>
+              <TrendingUp size={13} /> MA
+            </button>
+            <button onClick={() => setDrawShape((v) => (v === 'line' ? null : 'line'))} aria-label={drawShape === 'line' ? 'Stop drawing' : 'Draw a trend line'} title={drawShape === 'line' ? 'Drawing a line — drag to add one; click again to stop' : 'Draw a trend line'} className={toolBtnCls(drawShape === 'line')}>
+              <PenLine size={13} /> Line
+            </button>
+            <button onClick={() => setDrawShape((v) => (v === 'box' ? null : 'box'))} aria-label={drawShape === 'box' ? 'Stop drawing' : 'Draw a box'} title={drawShape === 'box' ? 'Drawing a box — drag to add one; click again to stop' : 'Draw a box'} className={toolBtnCls(drawShape === 'box')}>
+              <Square size={13} /> Box
+            </button>
+            {drawings.length > 0 && (
+              <button onClick={() => setDrawings([])} aria-label="Clear all drawn lines and boxes" title="Clear all drawn lines and boxes" className={`p-1.5 rounded-md ${dark ? 'text-white/50 hover:text-white/80' : 'text-gray-500 hover:text-gray-700'}`}>
+                <Eraser size={14} />
+              </button>
+            )}
+          </div>
+        )}
+
         {error && <p className="text-sm text-red-600 py-4">{error}</p>}
         {!error && !candles && <p className={`text-sm py-4 ${dark ? 'text-white/50' : 'text-gray-500'}`}>Loading…</p>}
-        {!error && candles && <CandleChart candles={candles} height={420} dark={dark} bullColor={bullColor} bearColor={bearColor} />}
+        {!error && candles && (
+          <div ref={chartPaneRef} style={{ touchAction: 'none', cursor: drawShape ? 'crosshair' : undefined }}>
+            <div ref={chartBoxRef}>
+              <CandleChart candles={candles} height={CHART_HEIGHT} dark={dark} bullColor={bullColor} bearColor={bearColor} overlaySeries={maSeries} drawings={visibleDrawings} />
+            </div>
+          </div>
+        )}
       </FoldedCard>
     </div>
   );
