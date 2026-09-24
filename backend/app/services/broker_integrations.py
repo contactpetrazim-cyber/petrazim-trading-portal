@@ -1459,6 +1459,10 @@ class MetaApiBroker:
         self.token = token
         self.account_id = account_id
         self.base_url = f"https://mt-client-api-v1.{region}.agiliumtrade.ai/users/current/accounts/{account_id}"
+        # Historical candles live on a DIFFERENT host than the trading/
+        # account client API above — confirmed against MetaApi's own
+        # live docs (Read historical candles), not guessed.
+        self.market_data_base_url = f"https://mt-market-data-client-api-v1.{region}.agiliumtrade.ai/users/current/accounts/{account_id}"
         self.paper = paper
         self.client = httpx.AsyncClient(timeout=30.0)
 
@@ -1550,6 +1554,35 @@ class MetaApiBroker:
             mid = (price_data.get("bid", 0) + price_data.get("ask", 0)) / 2
             return {"success": True, "price": mid}
         return result
+
+    async def get_candles(self, symbol: str, timeframe: str = "1h", limit: int = 200) -> Dict:
+        """Historical OHLCV — by direct request ("For MT5 create it's
+        own MT5 chart like Oanda"). MetaApi's own timeframe codes
+        (1m/5m/15m/30m/1h/4h/1d/1w, ...) already match this app's own
+        short interval codes used everywhere else, so no translation
+        table is needed the way OandaBroker's GRANULARITIES is — passed
+        straight through. Uses market_data_base_url (a different host
+        than every other call in this class — see __init__)."""
+        headers = {"auth-token": self.token}
+        url = f"{self.market_data_base_url}/historical-market-data/symbols/{symbol}/timeframes/{timeframe}/candles"
+        try:
+            response = await self.client.get(url, headers=headers, params={"limit": limit})
+            data = response.json() if response.content else {}
+            if response.status_code >= 400:
+                logger.error("metaapi_candles_error", status=response.status_code, error=data)
+                return {"success": False, "error": data.get("message", str(data))}
+            candles = [
+                {
+                    "time_ms": int(datetime.fromisoformat(c["time"].replace("Z", "+00:00")).timestamp() * 1000),
+                    "open": float(c["open"]), "high": float(c["high"]), "low": float(c["low"]), "close": float(c["close"]),
+                    "volume": int(c.get("tickVolume", 0)),
+                }
+                for c in data
+            ]
+            return {"success": True, "candles": candles}
+        except Exception as e:
+            logger.error("metaapi_candles_request_failed", error=str(e))
+            return {"success": False, "error": str(e)}
 
     async def place_order(self,
                          symbol: str,

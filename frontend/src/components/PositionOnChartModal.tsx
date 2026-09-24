@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { X, Loader2, RotateCcw, Sun, Moon, Palette, Target, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Maximize2, Crosshair, TrendingUp, PenLine, Square, Eraser, Zap, Search, Receipt, Eye, EyeOff, Globe2 } from 'lucide-react';
+import { X, Loader2, RotateCcw, Sun, Moon, Palette, Target, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Maximize2, Crosshair, TrendingUp, PenLine, Square, Eraser, Zap, Search, Receipt, Eye, EyeOff, Globe2, MonitorSmartphone } from 'lucide-react';
 import { CandleChart, CHART_LAYOUT, computeChartRange, type Candle, type ChartLine, type ChartZone, type OverlaySeries, type DrawnSegment } from './CandleChart';
 import { formatSignedMoney, type ChartPosition } from './TradingViewChart';
 import { PositionManager } from './PositionManager';
@@ -286,8 +286,18 @@ export function PositionOnChartModal({
    * tool button simply doesn't render, same convention as ChartPanel's
    * own optional onQuickFill/onToggleOrderForm. Called once, when the
    * trader taps "Use in Order Ticket" on the confirm card — this
-   * modal then closes itself so they land back on the now-filled form. */
-  onQuickTrade?: (trade: { direction: 'long' | 'short'; entryPrice: number; stopLoss: number; takeProfit: number }) => void;
+   * modal then closes itself so they land back on the now-filled form.
+   * `symbol` is the instrument ACTUALLY being charted when the drag
+   * happened (activeSymbol, not necessarily the position's own
+   * `symbol` prop) — by direct bug report ("THE Quick trade disappears
+   * after switching from an Oanda instrument pairs displayed"): Quick
+   * Trade used to only render while isOriginalSymbol was true, exactly
+   * to avoid silently drafting a trade against the wrong instrument
+   * once Pairs switched this chart elsewhere. Carrying the real symbol
+   * here instead lets the caller sync the order form's OWN symbol at
+   * the same time, so Quick Trade can work on whatever you're actually
+   * looking at. */
+  onQuickTrade?: (trade: { symbol: string; direction: 'long' | 'short'; entryPrice: number; stopLoss: number; takeProfit: number }) => void;
 }) {
   const [interval, setInterval] = useState<KlineInterval>(mapTvIntervalToKlines(initialInterval));
   // The symbol actually being CHARTED — starts as the caller's own
@@ -1173,6 +1183,15 @@ export function PositionOnChartModal({
           >
             <Globe2 size={13} /> Oanda
           </Link>
+          {/* MT5 — the MetaApi-backed counterpart, by direct request
+              ("For MT5 create it's own MT5 chart like Oanda - name it
+              MT5"). */}
+          <Link
+            to="/mt5"
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium ${chromeMutedCls} ${toggleWrapCls}`}
+          >
+            <MonitorSmartphone size={13} /> MT5
+          </Link>
           <button onClick={onClose} aria-label="Close" className={`flex items-center gap-1.5 text-xs ${chromeMutedCls}`}>
             <X size={16} /> Close
           </button>
@@ -1293,16 +1312,17 @@ export function PositionOnChartModal({
           </button>
           {/* Quick Trade — Long/Short position tool, only rendered when
               the caller wired an order form up to receive it (see this
-              component's own QUICK TRADE / onQuickTrade docstrings) AND
-              you're viewing the position's own symbol — onQuickTrade's
-              own callback doesn't carry a symbol, so it always applies
-              to whatever the order form is already set to; offering it
-              while "Pairs" has switched this chart to a different
-              instrument would silently draft a trade against the wrong
-              one. Own accent color (not the shared corporate-hero pill)
-              so it reads as distinct from the annotation tools next to
-              it — this one places a real order draft, not a drawing. */}
-          {onQuickTrade && isOriginalSymbol && (
+              component's own QUICK TRADE / onQuickTrade docstrings).
+              By direct bug report ("Quick trade disappears after
+              switching from an Oanda instrument pairs displayed"):
+              this used to ALSO require isOriginalSymbol — onQuickTrade
+              now carries the real activeSymbol, so it's safe to offer
+              on any browsed instrument, not just the one this modal
+              originally opened with. Own accent color (not the shared
+              corporate-hero pill) so it reads as distinct from the
+              annotation tools next to it — this one places a real
+              order draft, not a drawing. */}
+          {onQuickTrade && (
             <button
               onClick={togglePositionTool}
               aria-label={drawShape === 'position' ? 'Stop Quick Trade' : 'Quick Trade — drag from entry to stop'}
@@ -1502,6 +1522,7 @@ export function PositionOnChartModal({
                 <button
                   onClick={() => {
                     onQuickTrade({
+                      symbol: activeSymbol,
                       direction: quickTradeDraft.direction,
                       entryPrice: quickTradeDraft.entryPrice,
                       stopLoss: quickTradeDraft.stopLoss,

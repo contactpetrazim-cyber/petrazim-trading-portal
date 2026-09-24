@@ -30,6 +30,7 @@ from app.routers.curriculum import router as curriculum_router
 from app.routers.practise import router as practise_router
 from app.routers.order_flow import router as order_flow_router
 from app.routers.oanda import router as oanda_router
+from app.routers.metatrader import router as metatrader_router
 from app.routers.tools import router as tools_router
 from app.routers.community_broadcast import router as community_broadcast_router
 from app.routers.manual_trading import router as manual_trading_router
@@ -264,6 +265,7 @@ app.include_router(curriculum_router)
 app.include_router(practise_router)
 app.include_router(order_flow_router)
 app.include_router(oanda_router)
+app.include_router(metatrader_router)
 app.include_router(tools_router)
 app.include_router(community_broadcast_router)
 app.include_router(manual_trading_router)

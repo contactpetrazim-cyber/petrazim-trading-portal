@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ChartPanel } from './ChartPanel';
 import { PairsPanel } from './PairsPanel';
-import { useQuickPairsStore, type QuickPair } from '../hooks/useQuickPairs';
+import { useQuickPairsStore, pairFromTradeSymbol, type QuickPair } from '../hooks/useQuickPairs';
 import { useAuth } from '../hooks/useAuth';
 import { tradesApi } from '../services/api';
 import type { Trade } from '../types';
@@ -87,9 +87,16 @@ export function ChartWithPairs({
   // no local order form to fill here, so instead it navigates to
   // Manual Trading with the drafted trade in the URL (?qt*), which
   // reads and applies it once on mount (see that page's own effect).
-  function handleQuickTradeNavigate(trade: { direction: 'long' | 'short'; entryPrice: number; stopLoss: number; takeProfit: number }) {
+  function handleQuickTradeNavigate(trade: { symbol: string; direction: 'long' | 'short'; entryPrice: number; stopLoss: number; takeProfit: number }) {
+    // trade.symbol is whatever was ACTUALLY on screen when the drag
+    // happened — may differ from `selected` if Pairs switched this
+    // chart elsewhere first (by direct bug report: "Quick trade
+    // disappears after switching from an Oanda instrument pairs
+    // displayed"). oandaStyle detection (underscore) picks the right
+    // TradingView exchange prefix either way.
+    const tv = trade.symbol === selected.trade ? selected.tv : pairFromTradeSymbol(trade.symbol, trade.symbol.includes('_') ? 'oanda' : undefined).tv;
     const params = new URLSearchParams({
-      tv: selected.tv,
+      tv,
       qtDirection: trade.direction,
       qtEntry: String(trade.entryPrice),
       qtStop: String(trade.stopLoss),
