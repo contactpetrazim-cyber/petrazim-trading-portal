@@ -216,6 +216,23 @@ class Settings(BaseSettings):
     METAAPI_IDLE_UNDEPLOY_ENABLED: bool = True
     METAAPI_IDLE_UNDEPLOY_INTERVAL_SECONDS: int = 600
 
+    # Memory watchdog (services/memory_watchdog.py) — by direct request
+    # after a real Render "exceeded its memory limit" alert: "create an
+    # auto engine to fix this." On by default — it only ever reads its
+    # own memory and calls Python's own (always-safe) gc.collect(),
+    # never restarts anything itself (Render's own platform already
+    # does that on a genuine OOM). LIMIT_BYTES is the fallback used only
+    # when the container's own cgroup memory cap can't be read — this
+    # service's actual current Render free-tier limit is 512MB,
+    # confirmed via its own metrics at the time this was added; update
+    # this if the plan changes and cgroup limits stay unreadable in
+    # your environment.
+    MEMORY_WATCHDOG_ENABLED: bool = True
+    MEMORY_WATCHDOG_INTERVAL_SECONDS: int = 60
+    MEMORY_WATCHDOG_WARN_PERCENT: float = 0.70
+    MEMORY_WATCHDOG_GC_PERCENT: float = 0.85
+    MEMORY_WATCHDOG_LIMIT_BYTES: int = 512 * 1024 * 1024
+
     # Per-bot broker credentials (models/broker_credential.py) are
     # encrypted at rest with this key rather than the JWT SECRET_KEY,
     # so rotating one doesn't affect the other. Generate with:
