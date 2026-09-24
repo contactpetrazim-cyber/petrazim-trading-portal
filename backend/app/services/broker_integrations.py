@@ -1686,3 +1686,192 @@ class MetaApiBroker:
                 "available_balance": float(info.get("freeMargin", 0)),
             }
         return result
+
+
+# =============================================================================
+# OANDA BROKER INTEGRATION (REST v20)
+# =============================================================================
+
+class OandaBroker:
+    """
+    OANDA REST v20 client — https://developer.oanda.com/rest-live-v20/
+
+    Added by direct request as the genuinely free (zero hosting/deploy
+    billing, unlike MetaApi — see metaapi_lifecycle.py's own docstring
+    for that cost) data + broker option: "OANDA is great news ... add
+    Oanda to my list of brokers ... So update the platform so that
+    Oanda can be added in just like Binance or BingX etc." The user's
+    own stated intent is registering an account mainly for its free
+    data (Chart O — see routers/oanda.py), with real order placement
+    only a minimum, occasional afterthought — this class still
+    implements a genuine place/cancel/close so "just like Binance" is
+    actually true, not a data-only stub.
+
+    Endpoint shapes confirmed against OANDA's own live docs (Account
+    Summary, Instruments, Orders) and the well-established, stable
+    Candles response shape used consistently across OANDA's own SDKs —
+    not guessed.
+
+    Unlike every crypto broker above, `account_id` here is REQUIRED
+    (OANDA has no concept of a keyless default account) and doubles as
+    the practice-vs-live switch: OANDA's own convention is a practice
+    account id starts "101-", a live one starts "001-" — auto-detected
+    from that prefix rather than a separate form field, so the connect
+    form stays the same 2 fields (api_key + account_id) as MetaApi/
+    TradeLocker.
+    """
+
+    def __init__(self, token: str, account_id: str, paper: bool = False):
+        self.token = token
+        self.account_id = account_id
+        practice = not account_id.startswith("001-")
+        self.base_url = "https://api-fxpractice.oanda.com" if practice else "https://api-fxtrade.oanda.com"
+        self.paper = paper
+        self.client = httpx.AsyncClient(timeout=30.0)
+
+    async def _request(self, method: str, path: str, json_body: Dict = None, params: Dict = None) -> Dict:
+        headers = {"Authorization": f"Bearer {self.token}", "Content-Type": "application/json"}
+        url = f"{self.base_url}{path}"
+        try:
+            if method == "GET":
+                response = await self.client.get(url, headers=headers, params=params)
+            elif method == "POST":
+                response = await self.client.post(url, headers=headers, json=json_body)
+            elif method == "PUT":
+                response = await self.client.put(url, headers=headers, json=json_body)
+            else:
+                raise ValueError(f"Unsupported method: {method}")
+
+            data = response.json() if response.content else {}
+            if response.status_code >= 400:
+                logger.error("oanda_error", status=response.status_code, error=data)
+                return {"success": False, "error": data.get("errorMessage") or str(data)}
+            return {"success": True, "data": data}
+        except Exception as e:
+            logger.error("oanda_request_failed", error=str(e))
+            return {"success": False, "error": str(e)}
+
+    async def get_balance(self) -> Dict:
+        result = await self._request("GET", f"/v3/accounts/{self.account_id}/summary")
+        if result["success"]:
+            acc = result["data"].get("account", {})
+            return {
+                "success": True,
+                "balance": float(acc.get("balance", 0)),
+                "equity": float(acc.get("NAV", 0)),
+                "available_balance": float(acc.get("marginAvailable", 0)),
+            }
+        return result
+
+    async def get_instruments(self) -> Dict:
+        """Every instrument this account can trade/chart — powers Chart
+        O's symbol picker (routers/oanda.py) with OANDA's own real,
+        account-scoped list rather than a hand-maintained allow-list."""
+        result = await self._request("GET", f"/v3/accounts/{self.account_id}/instruments")
+        if result["success"]:
+            return {"success": True, "instruments": result["data"].get("instruments", [])}
+        return result
+
+    async def get_ticker_price(self, symbol: str) -> Dict:
+        result = await self._request("GET", f"/v3/accounts/{self.account_id}/pricing", params={"instruments": symbol})
+        if result["success"]:
+            prices = result["data"].get("prices", [])
+            if not prices:
+                return {"success": False, "error": f"No price returned for {symbol} — check the instrument name (OANDA format, e.g. EUR_USD, NAS100_USD)."}
+            p = prices[0]
+            bid = float(p["bids"][0]["price"]) if p.get("bids") else None
+            ask = float(p["asks"][0]["price"]) if p.get("asks") else None
+            mid = (bid + ask) / 2 if bid is not None and ask is not None else (bid if bid is not None else ask)
+            return {"success": True, "price": mid}
+        return result
+
+    async def get_candles(self, symbol: str, granularity: str = "H1", count: int = 200) -> Dict:
+        """OHLCV candles — the actual point of adding OANDA: real, free,
+        legitimate historical/near-real-time data for NAS100/forex,
+        powering Chart O (routers/oanda.py) and, later, bot scanning.
+        `granularity` is OANDA's own code (M1/M5/M15/M30/H1/H4/D, ...),
+        not a ccxt-style timeframe string. Incomplete (still-forming)
+        candles are dropped, same convention data_ingestion.py already
+        uses for Binance."""
+        result = await self._request(
+            "GET", f"/v3/instruments/{symbol}/candles",
+            params={"granularity": granularity, "count": count, "price": "M"},
+        )
+        if result["success"]:
+            # `time_ms` (epoch milliseconds), not OANDA's own ISO8601
+            # `time` string — matches order_flow.py's own KlineBar
+            # convention exactly, so the frontend's CandleChart mapping
+            # is identical for both data sources rather than each
+            # needing its own time-parsing branch.
+            candles = [
+                {
+                    "time_ms": int(datetime.fromisoformat(c["time"].replace("Z", "+00:00")).timestamp() * 1000),
+                    "open": float(c["mid"]["o"]), "high": float(c["mid"]["h"]),
+                    "low": float(c["mid"]["l"]), "close": float(c["mid"]["c"]), "volume": c.get("volume", 0),
+                }
+                for c in result["data"].get("candles", []) if c.get("complete")
+            ]
+            return {"success": True, "candles": candles}
+        return result
+
+    async def place_order(self,
+                         symbol: str,
+                         side: str,  # buy or sell
+                         order_type: str,  # market, limit, or stop
+                         quantity: float,
+                         price: Optional[float] = None,
+                         stop_loss: Optional[float] = None,
+                         take_profit: Optional[float] = None) -> Dict:
+        """OANDA has no separate `side` field — direction lives entirely
+        in the sign of `units` (positive buys, negative sells)."""
+        if self.paper:
+            return await _paper_place_order(self, symbol, order_type, price)
+        units = quantity if side.lower() in ("buy", "long") else -quantity
+        order = {
+            "instrument": symbol,
+            "units": str(units),
+            "type": {"market": "MARKET", "limit": "LIMIT", "stop": "STOP"}.get(order_type.lower(), "MARKET"),
+            "timeInForce": "FOK" if order_type.lower() == "market" else "GTC",
+            "positionFill": "DEFAULT",
+        }
+        if order_type.lower() in ("limit", "stop") and price:
+            order["price"] = str(price)
+        if stop_loss:
+            order["stopLossOnFill"] = {"price": str(stop_loss)}
+        if take_profit:
+            order["takeProfitOnFill"] = {"price": str(take_profit)}
+
+        result = await self._request("POST", f"/v3/accounts/{self.account_id}/orders", json_body={"order": order})
+        if result["success"]:
+            data = result["data"]
+            fill = data.get("orderFillTransaction") or data.get("orderCreateTransaction") or {}
+            logger.info("oanda_order_placed", symbol=symbol, side=side, order_id=fill.get("id"))
+            return {
+                "success": True,
+                "order_id": fill.get("id") or data.get("lastTransactionID"),
+                "symbol": symbol,
+                "status": "FILLED" if data.get("orderFillTransaction") else "PENDING",
+            }
+        return result
+
+    async def cancel_order(self, symbol: str, order_id: str, is_stop: bool = False) -> Dict:
+        if self.paper:
+            return _paper_cancel_order(order_id)
+        result = await self._request("PUT", f"/v3/accounts/{self.account_id}/orders/{order_id}/cancel")
+        if result["success"]:
+            return {"success": True, "order_id": order_id, "status": "CANCELLED"}
+        return result
+
+    async def close_position(self, symbol: str, side: str, quantity: Optional[float] = None) -> Dict:
+        """OANDA's close endpoint is keyed by long/short units on the
+        instrument itself, not a position id — `longUnits`/`shortUnits`
+        of "ALL" for a full close, or a specific size for partial."""
+        if self.paper:
+            return {"success": True, "order_id": f"PAPER-CLOSE-{uuid.uuid4().hex[:10]}", "status": "FILLED", "paper": True}
+        is_long = side.lower() in ("buy", "long")
+        key = "longUnits" if is_long else "shortUnits"
+        body = {key: str(quantity) if quantity else "ALL"}
+        result = await self._request("PUT", f"/v3/accounts/{self.account_id}/positions/{symbol}/close", json_body=body)
+        if result["success"]:
+            return {"success": True, "order_id": symbol, "status": "CLOSED"}
+        return result

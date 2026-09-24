@@ -49,7 +49,7 @@ from app.services.outbound_ip_detector import get_effective_outbound_ips_with_so
 router = APIRouter(prefix="/exchange-connections", tags=["trader-broker-connections"])
 admin_router = APIRouter(prefix="/admin/exchange-connections", tags=["trader-broker-connections-admin"])
 
-ExchangeName = Literal["bingx", "binance", "bybit", "mexc", "tradelocker", "metatrader"]
+ExchangeName = Literal["bingx", "binance", "bybit", "mexc", "tradelocker", "metatrader", "oanda"]
 
 
 # =============================================================================

@@ -23,6 +23,7 @@ const AdminExchangeConnectionsPage = lazy(() => import('./pages/AdminExchangeCon
 const AdminFeeSettingsPage = lazy(() => import('./pages/AdminFeeSettingsPage').then((module) => ({ default: module.AdminFeeSettingsPage })));
 const OnboardingPage = lazy(() => import('./pages/OnboardingPage').then((module) => ({ default: module.OnboardingPage })));
 const TradingViewFramePage = lazy(() => import('./pages/TradingViewFramePage').then((module) => ({ default: module.TradingViewFramePage })));
+const ChartOPage = lazy(() => import('./pages/ChartOPage').then((module) => ({ default: module.ChartOPage })));
 const ChartPage = lazy(() => import('./pages/ChartPage').then((module) => ({ default: module.ChartPage })));
 const SiteMapPage = lazy(() => import('./pages/SiteMapPage').then((module) => ({ default: module.SiteMapPage })));
 const PoliciesPage = lazy(() => import('./pages/PoliciesPage').then((module) => ({ default: module.PoliciesPage })));
@@ -247,6 +248,7 @@ function App() {
         {/* Corporate-nav pages (TopNav shell) */}
         <Route path="/home" element={<CorporateLayout><CorporateHomePage /></CorporateLayout>} />
         <Route path="/tradingview" element={<CorporateLayout><TradingViewFramePage /></CorporateLayout>} />
+        <Route path="/chart-o" element={<CorporateLayout><ChartOPage /></CorporateLayout>} />
         <Route path="/chart" element={<CorporateLayout><ChartPage /></CorporateLayout>} />
         <Route path="/sitemap" element={<CorporateLayout><SiteMapPage /></CorporateLayout>} />
         <Route path="/policies" element={<CorporateLayout><PoliciesPage /></CorporateLayout>} />

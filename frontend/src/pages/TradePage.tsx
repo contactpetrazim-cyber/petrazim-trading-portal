@@ -34,6 +34,9 @@ export function TradePage() {
         <Link to="/tradingview" className={`text-xs font-medium mt-2 inline-block ${dark ? 'text-white/50' : 'text-corporate-hero'}`}>
           Open the full Trading Frame (more symbols, My Workspace, drawing tools) →
         </Link>
+        <Link to="/chart-o" className={`text-xs font-medium mt-2 ml-4 inline-block ${dark ? 'text-white/50' : 'text-corporate-hero'}`}>
+          Chart O — free OANDA forex/NAS100 chart →
+        </Link>
       </FoldedCard>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 my-6">

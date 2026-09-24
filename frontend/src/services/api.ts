@@ -188,6 +188,26 @@ export const orderFlowApi = {
     ).then(r => r.data),
 };
 
+export interface OandaInstrument {
+  name: string;
+  display_name: string;
+  type: string;
+}
+
+// "Chart O" — real, free OANDA candle data (forex + indices, including
+// NAS100_USD), by direct request ("Make sure there is a button for
+// oanda charts just like tradingview. Call the Oanda charts 'Chart
+// O'"). Backed by the platform's own OANDA account (routers/oanda.py),
+// not a per-trader connection — same "no personal credentials needed
+// to view a chart" shape as TradingView itself. Same KlineBar shape as
+// orderFlowApi.getKlines above (both use time_ms) so ChartOPage.tsx's
+// candle mapping is identical to PositionOnChartModal's.
+export const oandaApi = {
+  instruments: () => api.get<OandaInstrument[]>('/oanda/instruments').then(r => r.data),
+  candles: (symbol: string, interval: string = '1h', count: number = 200) =>
+    api.get<KlineBar[]>('/oanda/candles', { params: { symbol, interval, count } }).then(r => r.data),
+};
+
 export interface TraderBotSummary {
   bot_id: string;
   bot_name: string;
