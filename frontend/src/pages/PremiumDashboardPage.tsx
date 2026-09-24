@@ -9,6 +9,7 @@ import { StatCard } from '../components/StatCard';
 import { TodayTradeBreakdownPills } from '../components/TodayTradeBreakdownPills';
 import { PnlDrawdownPeriodPills } from '../components/PnlDrawdownPeriodPills';
 import { ActivePositionsMetrics } from '../components/ActivePositionsMetrics';
+import { RiskSettingsCard } from '../components/RiskSettingsCard';
 import { TradeRow } from '../components/TradeRow';
 import { FoldedCard } from '../components/FoldedCard';
 import { ChartWithPairs } from '../components/ChartWithPairs';
@@ -213,6 +214,13 @@ export function PremiumDashboardPage() {
           Open My Workspace (saved views, drawing tools) →
         </Link>
       </FoldedCard>
+
+      {/* Risk Settings — by direct request ("Provide an option to
+          adjust the global risk settings in the trader Dashboard -
+          Risk settings areas ... with a global risk settings override
+          in the Admin portal"). Same card Dashboard.tsx (the other
+          Trader-facing dashboard) now has. */}
+      <RiskSettingsCard dark={dark} />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2">

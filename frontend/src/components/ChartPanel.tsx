@@ -5,6 +5,7 @@ import { TradingViewChart, type ChartPosition } from './TradingViewChart';
 import { CandleColorPicker } from './CandleColorPicker';
 import { PositionManager } from './PositionManager';
 import { PositionOnChartModal } from './PositionOnChartModal';
+import { FoldedCard } from './FoldedCard';
 import { useEffectiveChartColors } from '../hooks/useCandleColors';
 import { useQuickPrice } from '../hooks/useQuickPrice';
 import { pairFromTradeSymbol } from '../hooks/useQuickPairs';
@@ -25,6 +26,49 @@ export function tradeToChartPosition(trade: Trade): ChartPosition {
     unrealizedPnl: trade.unrealized_pnl,
     pending: trade.status === 'pending',
   };
+}
+
+/** Renders `position` plus every entry in `otherSamePairPositions` —
+ * by direct request ("Position feature in the charts ... should show
+ * all current live positions as individual position cards - similar
+ * to the trade management area"). When there's only ever been the one
+ * (the overwhelmingly common case), this renders EXACTLY as before —
+ * a bare PositionManager, no extra fold wrapper — so nothing about
+ * existing single-position pages changes. The per-card folding
+ * (default folded, per direct follow-up request) only kicks in once
+ * there's genuinely more than one position to tell apart. */
+function PositionGroup({
+  position, otherSamePairPositions, dark, onPositionChanged, otherOpenTrades,
+}: {
+  position?: Trade | null;
+  otherSamePairPositions?: Trade[];
+  dark: boolean;
+  onPositionChanged?: () => void;
+  otherOpenTrades?: Trade[];
+}) {
+  const extras = otherSamePairPositions ?? [];
+  if (!position) return <NoPositionCard dark={dark} otherTrades={otherOpenTrades} />;
+  if (extras.length === 0) return <PositionManager trade={position} dark={dark} onChanged={onPositionChanged} />;
+
+  const all = [position, ...extras];
+  return (
+    <div className="space-y-2">
+      <div className={`text-xs font-semibold px-1 ${dark ? 'text-white/50' : 'text-gray-500'}`}>
+        {all.length} positions on {position.symbol}
+      </div>
+      {all.map((t, i) => (
+        <FoldedCard
+          key={t.trade_id}
+          title={`${t.direction === 'long' ? 'Long' : 'Short'} — ${t.status === 'pending' ? 'Pending' : 'Active'}`}
+          summary={t.entry_price != null ? `Entry ${t.entry_price.toFixed(2)}` : 'No entry price yet'}
+          dark={dark}
+          defaultOpen={i === 0}
+        >
+          <PositionManager trade={t} dark={dark} onChanged={onPositionChanged} />
+        </FoldedCard>
+      ))}
+    </div>
+  );
 }
 
 /** What the folded "Position" card shows when Position/On Chart are
@@ -179,6 +223,7 @@ export function ChartPanel({
   position,
   onPositionChanged,
   otherOpenTrades,
+  otherSamePairPositions,
   positionLoading,
   onQuickTrade,
 
@@ -254,6 +299,19 @@ export function ChartPanel({
    * doesn't track this (the empty state then just doesn't mention it,
    * same as before). */
   otherOpenTrades?: Trade[];
+  /** Every OTHER trade on this SAME symbol, beyond `position` itself —
+   * by direct request ("Show option to show multiple live trades on
+   * the same pair in the 'On Chart' ... Position feature in the
+   * charts ... should show all current live positions as individual
+   * position cards"). A trader can genuinely hold more than one
+   * independent position on the same symbol at once (two manual
+   * entries, or a bot position alongside a manual one). Additive and
+   * optional: omit it and everything behaves exactly as before
+   * (single-position display) — only ChartWithPairs computes and
+   * passes it today. Each entry gets its own folded PositionManager
+   * card, same as `position` itself, and its own selectable line set
+   * inside On Chart (see PositionOnChartModal's own docstring). */
+  otherSamePairPositions?: Trade[];
   /** True only until the caller's OWN position poll has resolved for
    * the very first time — see PositionLoadingCard's own docstring for
    * the lag this fixes. Omit if the caller doesn't track this; the
@@ -424,9 +482,10 @@ export function ChartPanel({
           <div className="mb-2">
             {positionLoading && !position
               ? <PositionLoadingCard dark />
-              : position
-                ? <PositionManager trade={position} dark onChanged={onPositionChanged} />
-                : <NoPositionCard dark otherTrades={otherOpenTrades} />}
+              : <PositionGroup
+                  position={position} otherSamePairPositions={otherSamePairPositions}
+                  dark onPositionChanged={onPositionChanged} otherOpenTrades={otherOpenTrades}
+                />}
           </div>
         )}
         <div className="flex-1 min-h-0 rounded-lg overflow-hidden">
@@ -437,6 +496,7 @@ export function ChartPanel({
         {onChartOpen && resolvedTradeSymbol && (
           <PositionOnChartModal
             position={position ? tradeToChartPosition(position) : undefined} trade={position} symbol={resolvedTradeSymbol}
+            otherSamePairPositions={otherSamePairPositions}
             bullColor={colors.upColor} bearColor={colors.downColor} initialInterval={interval}
             onClose={() => setOnChartOpen(false)} onChanged={onPositionChanged} onQuickTrade={onQuickTrade}
           />
@@ -453,9 +513,10 @@ export function ChartPanel({
         <div className="mb-2">
           {positionLoading && !position
             ? <PositionLoadingCard dark={containerDark} />
-            : position
-              ? <PositionManager trade={position} dark={containerDark} onChanged={onPositionChanged} />
-              : <NoPositionCard dark={containerDark} otherTrades={otherOpenTrades} />}
+            : <PositionGroup
+                position={position} otherSamePairPositions={otherSamePairPositions}
+                dark={containerDark} onPositionChanged={onPositionChanged} otherOpenTrades={otherOpenTrades}
+              />}
         </div>
       )}
       <div className={`rounded-lg overflow-hidden ${chartDark ? '' : 'border border-gray-200'}`} style={{ height }}>
@@ -466,6 +527,7 @@ export function ChartPanel({
       {onChartOpen && resolvedTradeSymbol && (
         <PositionOnChartModal
           position={position ? tradeToChartPosition(position) : undefined} trade={position} symbol={resolvedTradeSymbol}
+          otherSamePairPositions={otherSamePairPositions}
           bullColor={colors.upColor} bearColor={colors.downColor} initialInterval={interval}
           onClose={() => setOnChartOpen(false)} onChanged={onPositionChanged} onQuickTrade={onQuickTrade}
         />

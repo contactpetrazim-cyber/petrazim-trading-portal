@@ -61,3 +61,22 @@ FIREFLIES_ENABLED_KEY = "fireflies.enabled"
 # capability is deployed, same fail-open shape FIREFLIES_ENABLED_KEY
 # uses, since Admin explicitly asked for it to be on.
 MARKET_SCANNER_ENABLED_KEY = "bots.market_scanner_enabled"
+
+# Super Admin's platform-wide override of the "global" risk defaults
+# every trader's own ManualTradingSettings.use_global_defaults=True
+# resolves to (services/manual_trading.py's effective_limits) — by
+# direct request ("Provide an option to adjust the global risk
+# settings in the trader Dashboard ... with a global risk settings
+# override in the Admin portal"). Used to be config.py's
+# DEFAULT_RISK_PERCENT/DEFAULT_RR_RATIO/MAX_DAILY_TRADES/
+# MAX_PORTFOLIO_EXPOSURE — real values, but only changeable by editing
+# an env var and redeploying, same gap every other PlatformSetting
+# above this one already closed for its own toggle. Value is a JSON
+# object ({"risk_per_trade": 1.0, "max_daily_trades": 10,
+# "max_portfolio_exposure": 5.0, "min_rr_ratio": 3.0}) rather than 4
+# separate keys, so one write updates all 4 atomically — a trader
+# switching between them mid-edit could otherwise see a genuinely
+# inconsistent mix of old and new defaults. Defaults to unset (falls
+# back to config.py's own static values, unchanged behavior) until an
+# Admin explicitly sets an override.
+GLOBAL_RISK_DEFAULTS_KEY = "trading.global_risk_defaults"
