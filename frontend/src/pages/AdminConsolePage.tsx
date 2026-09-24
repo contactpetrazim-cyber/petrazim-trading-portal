@@ -4,6 +4,7 @@ import { ShieldAlert, Users, Link2, Percent, ArrowRight, Bot } from 'lucide-reac
 import { FoldedCard } from '../components/FoldedCard';
 import { RoleBadge } from '../components/RoleBadge';
 import { RosterPanel } from '../components/RosterPanel';
+import { AllUsersCard } from '../components/AllUsersCard';
 import { AccessCodesPanel } from '../components/AccessCodesPanel';
 import { TraderOversightPanel } from '../components/TraderOversightPanel';
 import { LearningDashboardPanel } from '../components/LearningDashboardPanel';
@@ -517,6 +518,7 @@ export function AdminConsolePage() {
       <div className="space-y-4 mb-4">
         <LearningDashboardPanel dark={dark} />
         <RosterPanel dark={dark} />
+        <AllUsersCard dark={dark} />
         <TraderOversightPanel dark={dark} />
         <AccessCodesPanel dark={dark} />
         <EverythingIncludedPanel tier="admin" dark={dark} />
