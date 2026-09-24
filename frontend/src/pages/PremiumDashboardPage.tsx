@@ -213,9 +213,6 @@ export function PremiumDashboardPage() {
         <Link to="/tradingview" className={`mt-2 inline-block text-xs font-medium ${dark ? 'text-white/50' : 'text-corporate-hero'}`}>
           Open My Workspace (saved views, drawing tools) →
         </Link>
-        <Link to="/chart-o" className={`mt-2 ml-4 inline-block text-xs font-medium ${dark ? 'text-white/50' : 'text-corporate-hero'}`}>
-          Chart O — free OANDA forex/NAS100 chart →
-        </Link>
       </FoldedCard>
 
       {/* Risk Settings — by direct request ("Provide an option to

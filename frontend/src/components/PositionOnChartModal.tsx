@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { X, Loader2, RotateCcw, Sun, Moon, Palette, Target, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Maximize2, Crosshair, TrendingUp, PenLine, Square, Eraser, Zap, CandlestickChart, Eye, EyeOff } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { X, Loader2, RotateCcw, Sun, Moon, Palette, Target, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Maximize2, Crosshair, TrendingUp, PenLine, Square, Eraser, Zap, Search, Receipt, Eye, EyeOff, Globe2 } from 'lucide-react';
 import { CandleChart, CHART_LAYOUT, computeChartRange, type Candle, type ChartLine, type ChartZone, type OverlaySeries, type DrawnSegment } from './CandleChart';
 import { formatSignedMoney, type ChartPosition } from './TradingViewChart';
 import { PositionManager } from './PositionManager';
@@ -1033,11 +1034,32 @@ export function PositionOnChartModal({
           <button
             onClick={() => setPairsOpen((o) => !o)}
             aria-label={pairsOpen ? 'Hide pairs and exchanges' : 'Show pairs and exchanges'}
-            title={pairsOpen ? 'Hide pairs and exchanges' : 'Pairs and exchanges'}
+            title={pairsOpen ? 'Hide pairs and exchanges' : 'Search instrument pairs'}
             className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium ${pairsOpen ? 'bg-corporate-hero text-white' : `${chromeMutedCls} ${toggleWrapCls}`}`}
           >
-            <CandlestickChart size={13} /> Pairs
+            {/* Search (magnifying glass) — matches ChartPanel.tsx's own
+                Pairs button exactly ("the search icon in the chart is
+                missing ... TradingView search icon for pairs instrument
+                pairs"): CandlestickChart read as a chart-type toggle,
+                not a search affordance. */}
+            <Search size={13} /> Pairs
           </button>
+          {/* Order — a direct link to place a real order on this
+              instrument, by direct request ("Add Pairs (with search
+              icon), position and order to all charts — including the
+              'On Chart'"). This modal has no inline order form of its
+              own (unlike ChartPanel, which toggles one in-place), so
+              this navigates out to Manual Trading pre-filled with the
+              symbol rather than toggling a panel that doesn't exist
+              here. */}
+          <Link
+            to={`/trade/manual?tv=${encodeURIComponent(selectedPair.tv)}`}
+            aria-label="Place an order on this instrument"
+            title="Open Manual Trading for this instrument"
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium ${chromeMutedCls} ${toggleWrapCls}`}
+          >
+            <Receipt size={13} /> Order
+          </Link>
           {/* "Position" — edit/cancel/partial-close this trade right
               here, by direct request ("in addition to seeing the entry,
               SL and TP levels ... you can edit or manage your trade
@@ -1098,6 +1120,17 @@ export function PositionOnChartModal({
               </div>
             )}
           </div>
+          {/* Chart O — a real, free OANDA-backed chart, by direct
+              request ("ADD to all charts without exception ... use
+              blue button and not link"). A real blue button, matching
+              ChartPanel's own, distinct from this toolbar's muted
+              toggle buttons. */}
+          <Link
+            to="/chart-o"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold text-white bg-blue-600 hover:bg-blue-700"
+          >
+            <Globe2 size={13} /> Chart O
+          </Link>
           <button onClick={onClose} aria-label="Close" className={`flex items-center gap-1.5 text-xs ${chromeMutedCls}`}>
             <X size={16} /> Close
           </button>

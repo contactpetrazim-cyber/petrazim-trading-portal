@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Sun, Moon, Save, Trash2, FolderOpen, X, TrendingUp, Target, LineChart, Search } from 'lucide-react';
+import { Sun, Moon, Save, Trash2, FolderOpen, X, TrendingUp, Target, LineChart, Search, Globe2 } from 'lucide-react';
 import { TradingViewChart } from '../components/TradingViewChart';
 import { CandleColorPicker } from '../components/CandleColorPicker';
 import { PositionManager } from '../components/PositionManager';
@@ -123,6 +123,27 @@ export function TradingViewFramePage() {
   // "no order" that then visibly flipped once the real answer arrived.
   const [positionLoading, setPositionLoading] = useState(true);
   const [positionOpen, setPositionOpen] = useState(false);
+
+  // Quick Trade on this page's own On Chart modal, by direct request
+  // ("the Quick trade tool is also missing from the On Chart - fix and
+  // finish all the on chart work earlier assigned"): this page never
+  // wired onQuickTrade up at all, unlike ChartWithPairs.tsx (which
+  // does exactly this same navigate-to-Manual-Trading handoff) — so
+  // the button never rendered here specifically (PositionOnChartModal
+  // only shows it when a caller actually passes onQuickTrade). Same
+  // handoff shape: this page has no inline order form of its own
+  // either, so a drafted Quick Trade goes to Manual Trading exactly
+  // like ChartWithPairs's own does.
+  function handleQuickTradeNavigate(trade: { direction: 'long' | 'short'; entryPrice: number; stopLoss: number; takeProfit: number }) {
+    const params = new URLSearchParams({
+      tv: selectedPair.tv,
+      qtDirection: trade.direction,
+      qtEntry: String(trade.entryPrice),
+      qtStop: String(trade.stopLoss),
+      qtTarget: String(trade.takeProfit),
+    });
+    navigate(`/trade/manual?${params.toString()}`);
+  }
   const [onChartOpen, setOnChartOpen] = useState(false);
   const loadOpenPosition = useCallback(() => {
     return Promise.all([
@@ -312,6 +333,20 @@ export function TradingViewFramePage() {
               </button>
             )}
 
+            {/* Chart O — a real, free OANDA-backed chart (forex/
+                NAS100), by direct request ("ADD to all charts without
+                exception ... use blue button and not link"). A real
+                blue button, same shape as ChartPanel's own, so it's
+                genuinely visible against this toolbar's muted-icon
+                siblings — not gated on `mode` since it's pure
+                navigation, harmless in every mode. */}
+            <button
+              onClick={() => navigate('/chart-o')}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-bold text-white bg-blue-600 hover:bg-blue-700"
+            >
+              <Globe2 size={13} /> Chart O
+            </button>
+
             {mode !== 'external' && (
               <button
                 onClick={() => navigate(`/trade/manual?symbol=${encodeURIComponent(symbol.tradeSymbol)}`)}
@@ -457,7 +492,7 @@ export function TradingViewFramePage() {
         <PositionOnChartModal
           position={position ? tradeToChartPosition(position) : undefined} trade={position} symbol={position?.symbol ?? symbol.tradeSymbol}
           bullColor={colors.upColor} bearColor={colors.downColor} initialInterval={interval.value}
-          onClose={() => setOnChartOpen(false)} onChanged={loadOpenPosition}
+          onClose={() => setOnChartOpen(false)} onChanged={loadOpenPosition} onQuickTrade={handleQuickTradeNavigate}
         />
       )}
 
