@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Maximize2, Minimize2, Sun, Moon, TrendingUp, X, Zap, Receipt, Target, LineChart, Search } from 'lucide-react';
+import { Maximize2, Minimize2, Sun, Moon, TrendingUp, X, Zap, Receipt, Target, LineChart, Search, Globe2 } from 'lucide-react';
 import { TradingViewChart, type ChartPosition } from './TradingViewChart';
 import { CandleColorPicker } from './CandleColorPicker';
 import { PositionManager } from './PositionManager';
@@ -442,6 +442,22 @@ export function ChartPanel({
         >
           <LineChart size={13} /> On Chart
         </button>
+        {/* Chart O — a real, free OANDA-backed chart (forex/NAS100),
+            by direct request ("ADD to all charts without exception -
+            I could not see the button - use blue button and not
+            link"). Placed here, in ChartPanel's own shared toolbar,
+            rather than as a page-level text link on just a few pages —
+            every page that renders a chart through ChartPanel/
+            ChartWithPairs gets this automatically, with no per-page
+            wiring to miss. A real blue button (not a muted toolbar
+            toggle like its neighbors) so it's genuinely visible, not
+            just another same-colored icon in the row. */}
+        <Link
+          to="/chart-o"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-bold text-white bg-blue-600 hover:bg-blue-700"
+        >
+          <Globe2 size={13} /> Chart O
+        </Link>
         <CandleColorPicker
           dark={containerDark}
           colors={colors} chartStyle={chartStyle}
