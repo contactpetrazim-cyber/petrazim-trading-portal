@@ -40,7 +40,10 @@ from app.database import get_db
 from app.models.bot import BotConfig
 from app.models.trader_broker_connection import ConnectionMode, ConnectionStatus, SubscriptionCopyMode, TraderBotSubscription, TraderBrokerConnection
 from app.models.user import User, UserRole
-from app.services.trader_broker_connections import EXCHANGE_META, encrypt_secret, test_connection
+from app.services.trader_broker_connections import (
+    EXCHANGE_META, encrypt_secret, test_connection,
+    deploy_metatrader_connection, undeploy_metatrader_connection, get_metatrader_deploy_state,
+)
 from app.services.outbound_ip_detector import get_effective_outbound_ips_with_source, refresh_and_persist, set_manual_outbound_ips
 
 router = APIRouter(prefix="/exchange-connections", tags=["trader-broker-connections"])
@@ -104,6 +107,11 @@ class ConnectionResponse(BaseModel):
     # Admin listing only — which trader owns this connection.
     trader_email: Optional[str] = None
     trader_name: Optional[str] = None
+    # MetaApi (MT4/MT5) only — null/meaningless for the other 5
+    # exchanges. See models/trader_broker_connection.py's own comment
+    # on these two fields for why they exist.
+    last_activity_at: Optional[datetime] = None
+    auto_undeploy_minutes: Optional[int] = None
 
 
 def _to_response(c: TraderBrokerConnection, trader: Optional[User] = None) -> ConnectionResponse:
@@ -112,6 +120,7 @@ def _to_response(c: TraderBrokerConnection, trader: Optional[User] = None) -> Co
         is_active=c.is_active, api_key_preview=_preview(c.api_key_encrypted),
         last_verified_at=c.last_verified_at, last_error=c.last_error, created_at=c.created_at,
         trader_email=trader.email if trader else None, trader_name=trader.full_name if trader else None,
+        last_activity_at=c.last_activity_at, auto_undeploy_minutes=c.auto_undeploy_minutes,
     )
 
 
@@ -142,6 +151,12 @@ async def connect_exchange(
         api_secret_encrypted=encrypt_secret(req.api_secret) if req.api_secret else None,
         account_id_encrypted=encrypt_secret(req.account_id) if req.account_id else None,
         mode=ConnectionMode(req.mode),
+        # Default ON for a new MetaApi connection — by direct request
+        # ("$9/month is high and a waste of not used ... auto engine
+        # that auto-undeploys when not in use"). A trader can raise this
+        # or turn it off entirely (PATCH auto_undeploy_minutes=null) if
+        # they'd rather keep it always deployed.
+        auto_undeploy_minutes=30 if req.exchange == "metatrader" else None,
     )
     db.add(connection)
     await db.commit()
@@ -175,6 +190,10 @@ class UpdateConnectionRequest(BaseModel):
     api_key: Optional[str] = None
     api_secret: Optional[str] = None
     account_id: Optional[str] = None
+    # MetaApi (MT4/MT5) only. 0 means "disable auto-undeploy" (stored as
+    # NULL) rather than a real 0-minute threshold, which would be
+    # meaningless — omit this field entirely to leave it unchanged.
+    auto_undeploy_minutes: Optional[int] = None
 
 
 @router.patch("/{connection_id}", response_model=ConnectionResponse)
@@ -199,6 +218,8 @@ async def update_connection(
     if req.account_id is not None:
         row.account_id_encrypted = encrypt_secret(req.account_id)
         credentials_changed = True
+    if req.auto_undeploy_minutes is not None:
+        row.auto_undeploy_minutes = req.auto_undeploy_minutes if req.auto_undeploy_minutes > 0 else None
     if credentials_changed:
         # A rotated/edited key hasn't been re-verified yet — back to
         # PENDING rather than leaving a stale VERIFIED badge on
@@ -243,6 +264,55 @@ async def test_my_connection(
     row.last_error = None if result["success"] else result.get("error")
     await db.commit()
     return TestConnectionResponse(success=result["success"], status=row.status.value, error=row.last_error)
+
+
+class DeployStateResponse(BaseModel):
+    success: bool
+    state: Optional[str] = None
+    connection_status: Optional[str] = None
+    error: Optional[str] = None
+
+
+@router.post("/{connection_id}/deploy", response_model=DeployStateResponse)
+async def deploy_my_connection(
+    connection_id: str, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user),
+):
+    """MetaApi (MT4/MT5) only — starts hosting for this account. By
+    direct request ("run the test for about 2-4 hours ... then undeploy
+    again ... until a time it is actually needed"): this is the manual
+    "wake it up" half of that workflow; see POST .../undeploy for the
+    other half and metaapi_lifecycle.py for the automatic idle version
+    of the same undeploy call."""
+    row = await _get_own_connection(db, user, connection_id)
+    result = await deploy_metatrader_connection(row)
+    if result["success"]:
+        row.last_activity_at = datetime.utcnow()
+        await db.commit()
+    return DeployStateResponse(success=result["success"], error=result.get("error"))
+
+
+@router.post("/{connection_id}/undeploy", response_model=DeployStateResponse)
+async def undeploy_my_connection(
+    connection_id: str, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user),
+):
+    row = await _get_own_connection(db, user, connection_id)
+    result = await undeploy_metatrader_connection(row)
+    return DeployStateResponse(success=result["success"], error=result.get("error"))
+
+
+@router.get("/{connection_id}/deploy-state", response_model=DeployStateResponse)
+async def get_my_connection_deploy_state(
+    connection_id: str, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user),
+):
+    """A live read against MetaApi itself (state/connectionStatus) —
+    lets the Settings UI show Draft/Deploying/Deployed/Undeployed
+    accurately instead of only the last Test Connection result."""
+    row = await _get_own_connection(db, user, connection_id)
+    result = await get_metatrader_deploy_state(row)
+    return DeployStateResponse(
+        success=result["success"], state=result.get("state"),
+        connection_status=result.get("connection_status"), error=result.get("error"),
+    )
 
 
 # =============================================================================

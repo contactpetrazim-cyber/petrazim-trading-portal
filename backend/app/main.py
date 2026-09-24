@@ -43,6 +43,7 @@ from app.services.market_scanner import MarketScanner
 from app.services.position_monitor import PositionMonitor
 from app.services.pending_order_monitor import PendingOrderMonitor
 from app.services.outbound_ip_detector import OutboundIpDetector
+from app.services.metaapi_lifecycle import MetaApiIdleUndeployer
 
 settings = get_settings()
 logger = structlog.get_logger()
@@ -185,6 +186,15 @@ async def lifespan(app: FastAPI):
         outbound_ip_detector = OutboundIpDetector()
         outbound_ip_detector.start()
 
+    # MetaApi idle-undeploy sweep — see metaapi_lifecycle.py's own
+    # module docstring for why this is on by default (it only ever
+    # undeploys, never trades, and skips anything with an open
+    # position).
+    metaapi_idle_undeployer = None
+    if settings.METAAPI_IDLE_UNDEPLOY_ENABLED:
+        metaapi_idle_undeployer = MetaApiIdleUndeployer()
+        metaapi_idle_undeployer.start()
+
     yield
 
     if scanner is not None:
@@ -195,6 +205,8 @@ async def lifespan(app: FastAPI):
         await pending_order_monitor.stop()
     if outbound_ip_detector is not None:
         await outbound_ip_detector.stop()
+    if metaapi_idle_undeployer is not None:
+        await metaapi_idle_undeployer.stop()
 
     logger.info("app_shutdown")
     await engine.dispose()

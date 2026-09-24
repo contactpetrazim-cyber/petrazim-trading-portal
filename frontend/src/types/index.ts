@@ -176,6 +176,16 @@ export interface TraderBrokerConnection {
   created_at: string;
   trader_email?: string | null;
   trader_name?: string | null;
+  // MetaApi (MT4/MT5) only — null/meaningless for the other 5 exchanges.
+  last_activity_at?: string | null;
+  auto_undeploy_minutes?: number | null;
+}
+
+export interface DeployStateResponse {
+  success: boolean;
+  state?: string | null;
+  connection_status?: string | null;
+  error?: string | null;
 }
 
 export interface AvailableBot {

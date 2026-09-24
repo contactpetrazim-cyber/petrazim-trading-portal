@@ -594,9 +594,17 @@ class ExecutionEngine:
                 # module load (trader_broker_connections.py doesn't
                 # import this file, but keeps this dependency scoped to
                 # only where it's actually used).
-                from app.services.trader_broker_connections import build_client_from_connection, get_connection
+                from app.services.trader_broker_connections import build_client_from_connection, get_connection, mark_connection_activity
                 connection = await get_connection(db, user_id, broker)
                 if connection is not None:
+                    if connection.exchange == "metatrader":
+                        # Every real place/cancel/close/SL-TP-update
+                        # call routes through here — this is the single
+                        # choke point that resets the idle clock
+                        # metaapi_lifecycle.py's auto-undeploy sweep
+                        # reads, so it covers all of those, not just a
+                        # fresh order.
+                        await mark_connection_activity(db, connection)
                     return build_client_from_connection(connection)
             except Exception as e:
                 logger.error("trader_connection_lookup_failed", user_id=str(user_id), broker=broker, error=str(e))

@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Link2, Plus, RefreshCw, Trash2, CheckCircle2, XCircle, Clock, Ban, Bot, Percent, CreditCard, Coins } from 'lucide-react';
+import { Link2, Plus, RefreshCw, Trash2, CheckCircle2, XCircle, Clock, Ban, Bot, Percent, CreditCard, Coins, Power, PowerOff } from 'lucide-react';
 import { FoldedCard } from '../components/FoldedCard';
 import { exchangeConnectionsApi, feesApi } from '../services/api';
-import { ExchangeInfo, TraderBrokerConnection, AvailableBot, TraderBotSubscription, MyFeesResponse, FeeCheckoutProvider } from '../types';
+import { ExchangeInfo, TraderBrokerConnection, AvailableBot, TraderBotSubscription, MyFeesResponse, FeeCheckoutProvider, DeployStateResponse } from '../types';
 import { useThemeStore } from '../hooks/useTheme';
 import { rememberPendingFeeCheckout, readPendingFeeCheckout, clearPendingFeeCheckout } from '../lib/pendingFeeCheckout';
 
@@ -57,6 +57,13 @@ export function ConnectExchangePage() {
   const [payError, setPayError] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
   const [pendingCheckout, setPendingCheckout] = useState(readPendingFeeCheckout());
+  // MetaApi (MT4/MT5) only — a live state read per connection (Draft/
+  // Deploying/Deployed/Undeployed + broker connectionStatus), keyed by
+  // connection id. Fetched separately from the main load() below since
+  // it's a live call to MetaApi itself, not something our own DB has
+  // cached — see routers/trader_broker_connections.py's own
+  // GET .../deploy-state.
+  const [deployStates, setDeployStates] = useState<Record<string, DeployStateResponse>>({});
 
   const [showForm, setShowForm] = useState(false);
   const [formExchange, setFormExchange] = useState('');
@@ -84,6 +91,7 @@ export function ConnectExchangePage() {
       setBots(availableBots);
       setSubscriptions(subs);
       setFees(myFees);
+      refreshDeployStates(conns);
     } catch {
       setError('Could not load your exchange connections.');
     } finally {
@@ -91,6 +99,48 @@ export function ConnectExchangePage() {
     }
   }
   useEffect(() => { load(); }, []);
+
+  // MetaApi's own state is genuinely live (MetaApi can deploy/undeploy
+  // on its own timeline, or our idle-sweep can undeploy it between page
+  // loads) — fetched per metatrader connection rather than trusted from
+  // our own DB, which only knows the last Test Connection result.
+  async function refreshDeployStates(conns: TraderBrokerConnection[]) {
+    const metatraderConns = conns.filter((c) => c.exchange === 'metatrader');
+    if (metatraderConns.length === 0) return;
+    const results = await Promise.all(
+      metatraderConns.map((c) => exchangeConnectionsApi.deployState(c.id).catch(() => null)),
+    );
+    setDeployStates((prev) => {
+      const next = { ...prev };
+      metatraderConns.forEach((c, i) => { if (results[i]) next[c.id] = results[i] as DeployStateResponse; });
+      return next;
+    });
+  }
+
+  async function deployConn(id: string) {
+    setBusyId(id);
+    try {
+      await exchangeConnectionsApi.deploy(id);
+    } finally {
+      setBusyId(null);
+      await refreshDeployStates(connections);
+    }
+  }
+
+  async function undeployConn(id: string) {
+    setBusyId(id);
+    try {
+      await exchangeConnectionsApi.undeploy(id);
+    } finally {
+      setBusyId(null);
+      await refreshDeployStates(connections);
+    }
+  }
+
+  async function updateAutoUndeploy(id: string, minutes: number) {
+    await exchangeConnectionsApi.update(id, { auto_undeploy_minutes: minutes });
+    await load();
+  }
 
   const selectedMeta = exchanges.find((e) => e.exchange === formExchange);
 
@@ -381,6 +431,42 @@ export function ConnectExchangePage() {
                       <Trash2 size={12} /> Remove
                     </button>
                   </div>
+
+                  {c.exchange === 'metatrader' && (
+                    <div className="mt-3 pt-3 border-t border-black/10">
+                      <div className="text-xs font-semibold opacity-70 mb-1.5 flex items-center gap-1">
+                        <Power size={13} /> Hosting
+                        {deployStates[c.id]?.state && (
+                          <span className="ml-1 font-normal opacity-70">
+                            — {deployStates[c.id].state}{deployStates[c.id].connection_status ? ` · ${deployStates[c.id].connection_status}` : ''}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11px] opacity-50 mb-2">
+                        MetaApi bills only while this is deployed — deploy it when you're about to trade, undeploy when you're done.
+                        Auto-undeploy after inactivity is on by default (30 min) so this isn't left running unattended.
+                      </p>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <button onClick={() => deployConn(c.id)} disabled={busyId === c.id} className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-emerald-600 text-white disabled:opacity-50">
+                          <Power size={12} /> Deploy
+                        </button>
+                        <button onClick={() => undeployConn(c.id)} disabled={busyId === c.id} className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1.5 rounded-lg border disabled:opacity-50">
+                          <PowerOff size={12} /> Undeploy
+                        </button>
+                        <label className="flex items-center gap-1.5 text-[11px] opacity-70 ml-1">
+                          Auto-undeploy after
+                          <input
+                            type="number" min={0} step={5}
+                            defaultValue={c.auto_undeploy_minutes ?? 0}
+                            onBlur={(e) => updateAutoUndeploy(c.id, Number(e.target.value))}
+                            className={`w-16 text-xs px-1.5 py-1 rounded border ${dark ? 'bg-smc-dark border-smc-border text-white' : 'bg-white'}`}
+                          />
+                          min idle (0 = off)
+                        </label>
+                      </div>
+                      {deployStates[c.id]?.error && <p className="text-[11px] text-red-600 mt-1.5">{deployStates[c.id].error}</p>}
+                    </div>
+                  )}
 
                   {(c.mode === 'bot' || c.mode === 'both') && (
                     <div className="mt-3 pt-3 border-t border-black/10">

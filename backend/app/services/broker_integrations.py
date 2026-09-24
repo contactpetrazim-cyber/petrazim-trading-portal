@@ -1446,6 +1446,15 @@ class MetaApiBroker:
     the crypto exchanges use.
     """
 
+    # MetaApi's provisioning API (deploy/undeploy/read account state) is
+    # a SEPARATE host from the region-specific client/trading API
+    # above — confirmed against MetaApi's own live docs (deployAccount/
+    # undeployAccount/readAccount), not guessed. It isn't region-scoped
+    # in its own URL the way mt-client-api-v1 is; the account's region
+    # only affects where its trading terminal actually runs, not where
+    # you ask MetaApi to start/stop it.
+    PROVISIONING_BASE_URL = "https://mt-provisioning-api-v1.agiliumtrade.agiliumtrade.ai/users/current/accounts"
+
     def __init__(self, token: str, account_id: str, region: str = "new-york", paper: bool = False):
         self.token = token
         self.account_id = account_id
@@ -1472,6 +1481,66 @@ class MetaApiBroker:
         except Exception as e:
             logger.error("metaapi_request_failed", error=str(e))
             return {"success": False, "error": str(e)}
+
+    async def _provisioning_request(self, method: str, path: str = "") -> Dict:
+        """Same shape as _request above, but against PROVISIONING_BASE_URL
+        (deploy/undeploy/read-state) instead of the region-specific
+        client API — a 204 (deploy/undeploy's real success response)
+        has no JSON body to parse, unlike every other call this class
+        makes."""
+        headers = {"auth-token": self.token, "Content-Type": "application/json"}
+        url = f"{self.PROVISIONING_BASE_URL}/{self.account_id}{path}"
+        try:
+            if method == "GET":
+                response = await self.client.get(url, headers=headers)
+            elif method == "POST":
+                response = await self.client.post(url, headers=headers)
+            else:
+                raise ValueError(f"Unsupported method: {method}")
+
+            if response.status_code == 204:
+                return {"success": True}
+            data = response.json() if response.content else {}
+            if response.status_code >= 400:
+                logger.error("metaapi_provisioning_error", status=response.status_code, error=data)
+                return {"success": False, "error": data.get("message", str(data))}
+            return {"success": True, "data": data}
+        except Exception as e:
+            logger.error("metaapi_provisioning_request_failed", error=str(e))
+            return {"success": False, "error": str(e)}
+
+    async def deploy_account(self) -> Dict:
+        """Starts MetaApi's hosted server + broker-terminal bridge for
+        this account — the "wake up" half of the auto-undeploy-when-idle
+        pair (see services/metaapi_lifecycle.py). MetaApi bills for
+        deployed-hosting time regardless of how much you actually call
+        the API while deployed, which is exactly why this exists as its
+        own explicit action rather than something Test Connection does
+        implicitly."""
+        return await self._provisioning_request("POST", "/deploy")
+
+    async def undeploy_account(self) -> Dict:
+        """Stops the hosted server. Does NOT touch anything at the
+        broker itself — an already-open position with a broker-side
+        stop-loss/take-profit still closes normally server-side even
+        while this account sits undeployed; only OUR ability to
+        query/trade it through MetaApi pauses until it's redeployed.
+        See metaapi_lifecycle.py's own safety check for why the
+        automatic idle-undeploy sweep refuses to run this while a trade
+        on this connection is still ACTIVE."""
+        return await self._provisioning_request("POST", "/undeploy")
+
+    async def get_account_state(self) -> Dict:
+        """Reads MetaApi's own state (DRAFT/DEPLOYING/DEPLOYED/
+        UNDEPLOYING/UNDEPLOYED) and connectionStatus (CONNECTED/
+        DISCONNECTED) for this account — lets Settings show a real
+        Deployed/Undeployed badge instead of only the binary pass/fail
+        Test Connection gives."""
+        result = await self._provisioning_request("GET")
+        if result["success"]:
+            data = result.get("data", {})
+            return {"success": True, "state": data.get("state"), "connection_status": data.get("connectionStatus")}
+        return result
 
     async def get_ticker_price(self, symbol: str) -> Dict:
         """Public-ish (still auth-token'd) current bid/ask for a symbol."""
