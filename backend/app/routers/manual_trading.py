@@ -19,6 +19,7 @@ ever reaches a real broker.
 
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import datetime
 from typing import List, Literal, Optional
@@ -34,12 +35,12 @@ from app.core.auth import get_current_user, require_super_admin
 from app.core.fee_gate import raise_if_fees_owed
 from app.core.idempotency import idempotency_guard
 from app.database import get_db
-from app.models.platform_setting import PlatformSetting, TRADING_PAPER_ENFORCED_KEY
+from app.models.platform_setting import GLOBAL_RISK_DEFAULTS_KEY, PlatformSetting, TRADING_PAPER_ENFORCED_KEY
 from app.models.trade import EntryType, ExitType, ManualTradingSettings, Trade, TradeDirection, TradeLog, TradeStatus, TradingMode
 from app.models.user import User
 from app.services.execution_engine import ExecutionEngine
 from app.services.live_price import get_crypto_price
-from app.services.manual_trading import check_manual_trade_risk, compute_lot_size, compute_r_multiple, effective_limits, get_master_paper_enforced
+from app.services.manual_trading import check_manual_trade_risk, compute_lot_size, compute_r_multiple, effective_limits, get_global_risk_defaults, get_master_paper_enforced
 from app.services.performance_fees import apply_performance_fee
 
 router = APIRouter(prefix="/manual-trading", tags=["manual-trading"])
@@ -90,6 +91,70 @@ async def set_master_mode(
     return MasterModeResponse(paper_enforced=req.paper_enforced)
 
 
+class GlobalRiskDefaultsResponse(BaseModel):
+    risk_per_trade: float
+    max_daily_trades: int
+    max_portfolio_exposure: float
+    min_rr_ratio: float
+    # True once an Admin has actually set an override; False means
+    # these are still config.py's own static values — lets the Admin
+    # console show "not customized yet" instead of implying someone
+    # already dialed these in.
+    is_override: bool
+
+
+@router.get("/global-risk-defaults", response_model=GlobalRiskDefaultsResponse)
+async def get_global_risk_defaults_route(db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+    """Any authenticated user can read this — every trader's own
+    Risk Settings area shows it as "the global default" they can opt
+    into, same "everyone sees the resolved state, only Super Admin
+    changes it" shape as /master-mode above."""
+    g = await get_global_risk_defaults(db)
+    row = (await db.execute(
+        select(PlatformSetting).where(PlatformSetting.key == GLOBAL_RISK_DEFAULTS_KEY)
+    )).scalar_one_or_none()
+    return GlobalRiskDefaultsResponse(
+        risk_per_trade=g.risk_per_trade, max_daily_trades=g.max_daily_trades,
+        max_portfolio_exposure=g.max_portfolio_exposure, min_rr_ratio=g.min_rr_ratio,
+        is_override=row is not None,
+    )
+
+
+class SetGlobalRiskDefaultsRequest(BaseModel):
+    risk_per_trade: float = Field(gt=0, le=100)
+    max_daily_trades: int = Field(ge=1)
+    max_portfolio_exposure: float = Field(gt=0, le=100)
+    min_rr_ratio: float = Field(ge=0)
+
+
+@router.patch("/global-risk-defaults", response_model=GlobalRiskDefaultsResponse)
+async def set_global_risk_defaults(
+    req: SetGlobalRiskDefaultsRequest, db: AsyncSession = Depends(get_db), admin: User = Depends(require_super_admin),
+):
+    """Super Admin only — by direct request ("with a global risk
+    settings override in the Admin portal"). Takes effect immediately
+    for every trader whose own ManualTradingSettings.use_global_defaults
+    is True (the common case for a brand-new account) — no redeploy,
+    unlike editing config.py's own DEFAULT_RISK_PERCENT etc. directly."""
+    value = json.dumps({
+        "risk_per_trade": req.risk_per_trade, "max_daily_trades": req.max_daily_trades,
+        "max_portfolio_exposure": req.max_portfolio_exposure, "min_rr_ratio": req.min_rr_ratio,
+    })
+    row = (await db.execute(
+        select(PlatformSetting).where(PlatformSetting.key == GLOBAL_RISK_DEFAULTS_KEY)
+    )).scalar_one_or_none()
+    if row:
+        row.value = value
+    else:
+        db.add(PlatformSetting(key=GLOBAL_RISK_DEFAULTS_KEY, value=value))
+    await db.commit()
+    return GlobalRiskDefaultsResponse(
+        risk_per_trade=req.risk_per_trade, max_daily_trades=req.max_daily_trades,
+        max_portfolio_exposure=req.max_portfolio_exposure, min_rr_ratio=req.min_rr_ratio,
+        is_override=True,
+    )
+
+
 async def _get_or_create_settings(db: AsyncSession, user_id) -> ManualTradingSettings:
     row = (await db.execute(
         select(ManualTradingSettings).where(ManualTradingSettings.user_id == user_id)
@@ -118,8 +183,8 @@ class SettingsResponse(BaseModel):
     effective_min_rr_ratio: float
 
 
-def _to_response(row: ManualTradingSettings) -> SettingsResponse:
-    eff = effective_limits(row)
+async def _to_response(db: AsyncSession, row: ManualTradingSettings) -> SettingsResponse:
+    eff = await effective_limits(db, row)
     return SettingsResponse(
         use_global_defaults=row.use_global_defaults, trading_mode=row.trading_mode.value,
         paper_trading_enabled=row.paper_trading_enabled,
@@ -144,7 +209,7 @@ def _to_response(row: ManualTradingSettings) -> SettingsResponse:
 # as an error.
 @router.get("/settings", response_model=SettingsResponse)
 async def get_settings_route(db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
-    return _to_response(await _get_or_create_settings(db, user.id))
+    return await _to_response(db, await _get_or_create_settings(db, user.id))
 
 
 class SettingsUpdateRequest(BaseModel):
@@ -171,7 +236,7 @@ async def update_settings(
     row.updated_at = datetime.utcnow()
     await db.commit()
     await db.refresh(row)
-    return _to_response(row)
+    return await _to_response(db, row)
 
 
 class ManualOrderRequest(BaseModel):
@@ -214,7 +279,7 @@ async def place_manual_order(
             return guard.cached
 
         settings_row = await _get_or_create_settings(db, user.id)
-        limits = effective_limits(settings_row)
+        limits = await effective_limits(db, settings_row)
 
         # Paper Trading is its own, permanent toggle — independent of
         # Test/Live — by direct request ("provide a test vs live toggle

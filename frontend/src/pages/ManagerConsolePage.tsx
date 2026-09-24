@@ -1,5 +1,6 @@
 import { RoleBadge } from '../components/RoleBadge';
 import { RosterPanel } from '../components/RosterPanel';
+import { AllUsersCard } from '../components/AllUsersCard';
 import { AccessCodesPanel } from '../components/AccessCodesPanel';
 import { TraderOversightPanel } from '../components/TraderOversightPanel';
 import { LearningDashboardPanel } from '../components/LearningDashboardPanel';
@@ -47,6 +48,7 @@ export function ManagerConsolePage() {
 
       <LearningDashboardPanel dark={dark} />
       <RosterPanel dark={dark} />
+      <AllUsersCard dark={dark} />
       <TraderOversightPanel dark={dark} />
       <AccessCodesPanel dark={dark} />
       <EverythingIncludedPanel tier="fund_manager" dark={dark} />

@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { X, Loader2, RotateCcw, Sun, Moon, Palette, Target, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Maximize2, Crosshair, TrendingUp, PenLine, Square, Eraser, Zap, Search, Receipt } from 'lucide-react';
+import { X, Loader2, RotateCcw, Sun, Moon, Palette, Target, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Maximize2, Crosshair, TrendingUp, PenLine, Square, Eraser, Zap, Search, Receipt, Eye, EyeOff } from 'lucide-react';
 import { CandleChart, CHART_LAYOUT, computeChartRange, type Candle, type ChartLine, type ChartZone, type OverlaySeries, type DrawnSegment } from './CandleChart';
 import { formatSignedMoney, type ChartPosition } from './TradingViewChart';
 import { PositionManager } from './PositionManager';
+import { FoldedCard } from './FoldedCard';
 import { PairsPanel } from './PairsPanel';
 import { useQuickPairsStore } from '../hooks/useQuickPairs';
 import { orderFlowApi } from '../services/api';
@@ -211,6 +212,7 @@ const COLOR_PRESETS: { label: string; up: string; down: string }[] = [
 export function PositionOnChartModal({
   position,
   trade,
+  otherSamePairPositions,
   symbol,
   bullColor,
   bearColor,
@@ -232,6 +234,18 @@ export function PositionOnChartModal({
    * doesn't render, same as ChartPanel's own Position/On Chart toggles
    * already do when there's no trade to manage. */
   trade?: Trade | null;
+  /** Every OTHER trade on this SAME symbol, beyond `trade` itself — by
+   * direct request ("Show option to show multiple live trades on the
+   * same pair in the 'On Chart' - you can select which Position or
+   * positions or all to display" / "each position should be shown as
+   * an individual card - default folded ... each position should be
+   * able to trigger close or Partial, SL to BreakEven individually").
+   * Additive and optional: omit it and this behaves exactly as before
+   * (single-position display). When present, every position (trade +
+   * these) gets its own folded PositionManager card AND its own
+   * toggleable Entry/SL/TP line set on the chart, defaulting to all
+   * shown. */
+  otherSamePairPositions?: Trade[];
   /** Exchange-format symbol, e.g. "BTCUSDT" — same format order_flow.py's /klines expects. */
   symbol: string;
   /** The calling chart's own up/down candle colors (useCandleColors),
@@ -874,33 +888,35 @@ export function PositionOnChartModal({
     return () => { cancelled = true; };
   }, [activeSymbol, interval, retryTick]);
 
-  const dirLabel = position?.direction === 'long' ? 'LONG' : 'SHORT';
-  // Second line under the Entry price — by direct request ("the
-  // current entry line is too long - let's break into two lines /
-  // Entry price / Short or Long (Pending/Live) / The live will show
-  // then current PL as the position progresses"): direction and
-  // Pending-vs-Live status, plus the SAME live unrealized P&L already
-  // shown elsewhere once the position is actually Live — updates on
-  // its own as `position.unrealizedPnl` refreshes from the caller.
-  // The P&L figure itself gets its own green/profit or red/loss color
-  // (label2Suffix), by further direct request ("put the live PL in
-  // colours green for profit and red for loss") — same green/red pair
-  // (#22c55e/#ef4444) this file already uses for every other SL/TP-
-  // style line, rather than inheriting the Entry line's own blue.
-  const entryStatusLabel = position?.pending ? `${dirLabel} (Pending)` : `${dirLabel} (Live)`;
-  const entryPnlSuffix = !position?.pending && position?.unrealizedPnl != null
-    ? { text: formatSignedMoney(position.unrealizedPnl), color: position.unrealizedPnl >= 0 ? '#22c55e' : '#ef4444' }
-    : undefined;
   // Every price drawn on this chart — by direct request ("make all
   // prices text max of two decimal points"): the raw values here carry
   // whatever precision the backend computed them at (position sizing
   // etc. can produce e.g. "81982.92169386141"), which is real data but
   // unreadable as a line label crowding the chart pane.
   const fmtPrice = (p: number) => p.toFixed(2);
-  // Position-derived lines (and the Quick Trade draft) only ever
-  // describe `symbol` — the position's own instrument — so they're
-  // hidden the moment "Pairs" points this chart at a different one;
-  // see `isOriginalSymbol`'s own comment above `activeSymbol`.
+
+  // Every position on THIS symbol — `trade` (the primary one) plus
+  // every entry in `otherSamePairPositions` — by direct request ("Show
+  // option to show multiple live trades on the same pair in the 'On
+  // Chart' ... each position should be shown as an individual card").
+  // Stable order/identity (trade.trade_id) regardless of which are
+  // toggled visible, so "#2" never silently becomes "#1" just because
+  // #1 got hidden.
+  const allPositionTrades: Trade[] = (isOriginalSymbol && trade) ? [trade, ...(otherSamePairPositions ?? [])] : [];
+  // Which of the above draw their Entry/SL/TP lines on the chart right
+  // now — by direct request ("you can select which Position or
+  // positions or all to display"). Defaults to every position shown
+  // (opt OUT of one, not opt in), so the single-position case — still
+  // by far the common one — looks exactly as it always did.
+  const [hiddenPositionIds, setHiddenPositionIds] = useState<Set<string>>(new Set());
+  function togglePositionVisible(id: string) {
+    setHiddenPositionIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
   // Vivid Blue/Red/Green — by direct request ("Make the dash lines for
   // entry, SL and TP more visible ..... Blue, Red and Green Dash
   // lines"), replacing TradingView's own muted palette (#2962FF/
@@ -911,12 +927,39 @@ export function PositionOnChartModal({
   const ENTRY_LINE_COLOR = '#2563eb';
   const SL_LINE_COLOR = '#ef4444';
   const TP_LINE_COLOR = '#22c55e';
+
+  /** One position's own Entry/SL/TP1-3 line set — same two-line Entry
+   * label (price, then direction+status+live P&L) every single-position
+   * chart already had, just now parameterized per-trade instead of
+   * reading the module-level `position` prop directly. `tag` (" #2"
+   * etc.) only appears once there's genuinely more than one position on
+   * this symbol, so a single position's labels are byte-identical to
+   * before this feature existed. */
+  function positionLines(t: Trade, tag: string): ChartLine[] {
+    const isLong = t.direction === 'long';
+    const pending = t.status === 'pending';
+    const dirLabel = isLong ? 'LONG' : 'SHORT';
+    const entryStatusLabel = `${dirLabel} (${pending ? 'Pending' : 'Live'})${tag}`;
+    const entryPnlSuffix = !pending && t.unrealized_pnl != null
+      ? { text: formatSignedMoney(t.unrealized_pnl), color: t.unrealized_pnl >= 0 ? '#22c55e' : '#ef4444' }
+      : undefined;
+    const out: ChartLine[] = [];
+    if (t.entry_price != null) out.push({ price: t.entry_price, color: ENTRY_LINE_COLOR, dashed: true, label: fmtPrice(t.entry_price), label2: entryStatusLabel, label2Suffix: entryPnlSuffix });
+    if (t.stop_loss != null) out.push({ price: t.stop_loss, color: SL_LINE_COLOR, dashed: true, label: `SL${tag} ${fmtPrice(t.stop_loss)}` });
+    if (t.take_profit != null) out.push({ price: t.take_profit, color: TP_LINE_COLOR, dashed: true, label: `TP1${tag} ${fmtPrice(t.take_profit)}` });
+    if (t.take_profit_2 != null) out.push({ price: t.take_profit_2, color: TP_LINE_COLOR, dashed: true, label: `TP2${tag} ${fmtPrice(t.take_profit_2)}` });
+    if (t.take_profit_3 != null) out.push({ price: t.take_profit_3, color: TP_LINE_COLOR, dashed: true, label: `TP3${tag} ${fmtPrice(t.take_profit_3)}` });
+    return out;
+  }
+
+  // Position-derived lines (and the Quick Trade draft) only ever
+  // describe `symbol` — the position's own instrument — so they're
+  // hidden the moment "Pairs" points this chart at a different one;
+  // see `isOriginalSymbol`'s own comment above `activeSymbol`.
   const lines: ChartLine[] = [
-    ...(position && isOriginalSymbol ? [{ price: position.entryPrice, color: ENTRY_LINE_COLOR, dashed: true, label: fmtPrice(position.entryPrice), label2: entryStatusLabel, label2Suffix: entryPnlSuffix }] : []),
-    ...(position?.stopLoss != null && isOriginalSymbol ? [{ price: position.stopLoss, color: SL_LINE_COLOR, dashed: true, label: `SL ${fmtPrice(position.stopLoss)}` }] : []),
-    ...(position?.takeProfit1 != null && isOriginalSymbol ? [{ price: position.takeProfit1, color: TP_LINE_COLOR, dashed: true, label: `TP1 ${fmtPrice(position.takeProfit1)}` }] : []),
-    ...(position?.takeProfit2 != null && isOriginalSymbol ? [{ price: position.takeProfit2, color: TP_LINE_COLOR, dashed: true, label: `TP2 ${fmtPrice(position.takeProfit2)}` }] : []),
-    ...(position?.takeProfit3 != null && isOriginalSymbol ? [{ price: position.takeProfit3, color: TP_LINE_COLOR, dashed: true, label: `TP3 ${fmtPrice(position.takeProfit3)}` }] : []),
+    ...allPositionTrades.flatMap((t, i) =>
+      hiddenPositionIds.has(t.trade_id) ? [] : positionLines(t, allPositionTrades.length > 1 ? ` #${i + 1}` : '')
+    ),
     // Solid (not dashed) and a distinct amber, so it's unmistakably
     // "where price is right this second" versus the dashed reference
     // levels above — refreshes every 15s while this stays open. Not
@@ -1116,8 +1159,59 @@ export function PositionOnChartModal({
         </div>
       )}
       {positionOpen && trade && isOriginalSymbol && (
-        <div className="mb-3">
-          <PositionManager trade={trade} dark={localDark} onChanged={onChanged} />
+        <div className="mb-3 space-y-2">
+          {allPositionTrades.length > 1 && (
+            <div>
+              {/* Which position(s) draw their lines on the chart — by
+                  direct request ("you can select which Position or
+                  positions or all to display"). Toggling here only
+                  affects the CHART lines; every card below still shows
+                  and manages independently regardless of this. */}
+              <div className={`text-[11px] font-medium mb-1.5 ${chromeMutedCls}`}>
+                {allPositionTrades.length} positions on {trade.symbol} — shown on chart:
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {allPositionTrades.map((t, i) => {
+                  const visible = !hiddenPositionIds.has(t.trade_id);
+                  return (
+                    <button
+                      key={t.trade_id}
+                      onClick={() => togglePositionVisible(t.trade_id)}
+                      className={`flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-full ${
+                        visible ? 'bg-corporate-hero text-white' : `${toggleWrapCls} ${chromeMutedCls}`
+                      }`}
+                    >
+                      {visible ? <Eye size={11} /> : <EyeOff size={11} />}
+                      #{i + 1} {t.direction === 'long' ? 'Long' : 'Short'}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          {allPositionTrades.length <= 1 ? (
+            <PositionManager trade={trade} dark={localDark} onChanged={onChanged} />
+          ) : (
+            // Each position its own individually-managed, default-
+            // folded card — by direct request ("each position should be
+            // shown as an individual card - default folded ... each
+            // position should be able to trigger close or Partial, SL
+            // to BreakEven individually even if they are positions on
+            // the same pair"). PositionManager is already fully
+            // per-trade (trade.trade_id-addressed), so nothing about
+            // close/partial/SL-to-breakeven needed to change — only
+            // the surrounding "one card per position" layout is new.
+            allPositionTrades.map((t, i) => (
+              <FoldedCard
+                key={t.trade_id}
+                title={`#${i + 1} ${t.direction === 'long' ? 'Long' : 'Short'} — ${t.status === 'pending' ? 'Pending' : 'Active'}`}
+                summary={t.entry_price != null ? `Entry ${t.entry_price.toFixed(2)}` : 'No entry price yet'}
+                dark={localDark}
+              >
+                <PositionManager trade={t} dark={localDark} onChanged={onChanged} />
+              </FoldedCard>
+            ))
+          )}
         </div>
       )}
       {/* Zoom/pan toolbar — by direct request ("add feature to resize
