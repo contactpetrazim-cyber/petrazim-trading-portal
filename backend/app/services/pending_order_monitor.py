@@ -110,6 +110,25 @@ class PendingOrderMonitor:
                     Trade.status == TradeStatus.PENDING,
                     Trade.is_test == True,  # noqa: E712
                     Trade.entry_type.in_([EntryType.LIMIT, EntryType.STOP]),
+                    # Real bug fix, by direct report ("how can I have
+                    # active trades if I have not approved any
+                    # recommendations yet"): this monitor was built for
+                    # a TRADER's own manually-placed resting paper order
+                    # (see this file's own module docstring) — it never
+                    # checked requires_approval, so a bot's
+                    # Human-in-the-Loop draft (ALSO stored as PENDING +
+                    # LIMIT/STOP, awaiting a person's decision, never
+                    # touched by execution_engine.py's own approve_trade
+                    # until a human calls it) got silently "filled" the
+                    # moment live price reached its entry — completely
+                    # bypassing approval. Confirmed directly from
+                    # production data: every wrongly-ACTIVE trade had
+                    # approved_at IS NULL, proving none were ever
+                    # actually approved. A trader's own manual order
+                    # never sets requires_approval=True in the first
+                    # place, so this exclusion only ever removes exactly
+                    # the rows it should.
+                    Trade.requires_approval.isnot(True),
                 )
             )
             pending_orders = result.scalars().all()

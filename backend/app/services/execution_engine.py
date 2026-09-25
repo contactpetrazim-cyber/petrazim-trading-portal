@@ -154,6 +154,40 @@ class ExecutionEngine:
         every bot shares the single global-key broker per exchange,
         which still works fine for a single-account setup).
         """
+        # Dedup — by direct report ("bots are having repeating the same
+        # trade opportunities - same entry, SL and TP ... instead of
+        # maybe two completely isolated or independent trades ... I
+        # shows more than 20"). market_scanner.py's own strategy check
+        # re-detects the SAME still-valid setup on every scan cycle
+        # (nothing invalidated it yet), and nothing here ever asked "do
+        # I already have one of these awaiting a decision" before
+        # drafting another — one bot piled up 20+ identical PENDING
+        # signals for the same symbol in under an hour. A genuinely
+        # DIFFERENT setup on the same symbol (different entry/SL/TP)
+        # still gets skipped by this — deliberately: with one already
+        # PENDING (awaiting your decision) or ACTIVE (already a real
+        # position) on this bot+symbol, piling on a second before you've
+        # acted on the first isn't "two independent trades" in any
+        # useful sense, it's the same bot doubling down on itself.
+        # Clears itself automatically next cycle once you approve/
+        # reject the existing one (or it closes).
+        if db is not None:
+            from sqlalchemy import select as _dedup_select
+            from app.models.trade import Trade, TradeStatus
+            existing = (await db.execute(
+                _dedup_select(Trade.id).where(
+                    Trade.bot_id == signal.bot_id,
+                    Trade.symbol == signal.symbol,
+                    Trade.status.in_([TradeStatus.PENDING, TradeStatus.ACTIVE]),
+                ).limit(1)
+            )).first()
+            if existing:
+                logger.info("market_scan_signal_deduped", bot_id=signal.bot_id, symbol=signal.symbol)
+                return {
+                    "success": True, "status": "deduped",
+                    "message": f"Skipped — {signal.bot_id} already has a pending or active trade on {signal.symbol}.",
+                }
+
         # Computed once, up front, so it's baked into trade_data before
         # _persist_trade writes the Trade row below — a Human-in-the-
         # Loop signal doesn't execute until approve_trade, sometimes
