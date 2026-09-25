@@ -157,6 +157,15 @@ export const botsApi = {
   renameBot: (botId: string, botName: string) =>
     api.patch<BotConfig>(`/bots/${botId}/name`, { bot_name: botName }).then(r => r.data),
   deleteBot: (botId: string) => api.delete(`/bots/${botId}`).then(r => r.data),
+  // Sleep — pauses this bot's scanning for `hours`; hours=null wakes
+  // it up right now (the "Reset" action). By direct request.
+  setBotSleep: (botId: string, hours: number | null) =>
+    api.patch<BotConfig>(`/bots/${botId}/sleep`, { hours }).then(r => r.data),
+  // Sub-Auto Mode — pre-approved autonomous execution up to a total
+  // AND a daily trade cap. enabled=false is the "Reset" action. By
+  // direct request.
+  setBotSubAuto: (botId: string, update: { enabled: boolean; total_cap?: number; daily_cap?: number }) =>
+    api.patch<BotConfig>(`/bots/${botId}/sub-auto`, update).then(r => r.data),
   // Real, live-searchable Binance instrument list — by direct request
   // ("a search instrument space that searches the instrument - exactly
   // like the one on the chart ... removing errors"). Reuses the same

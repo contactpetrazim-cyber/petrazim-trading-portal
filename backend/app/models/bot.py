@@ -1,5 +1,5 @@
 
-from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, JSON, Enum, ForeignKey
+from sqlalchemy import Column, Integer, String, Float, DateTime, Date, Boolean, JSON, Enum, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID
 from app.database import Base
 from app.models.trade import TradingMode
@@ -112,3 +112,54 @@ class BotConfig(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     last_run = Column(DateTime)
+    # Real bug, found while adding Sleep/Sub-Auto below: market_scanner.py's
+    # own _record_scan_result has been writing bot.last_scan_error on
+    # every scan since PR #161, but this column never existed on the
+    # model — SQLAlchemy silently accepts an unmapped attribute
+    # assignment as a plain Python attribute, so it was never actually
+    # persisted (and never surfaced by any API response either). This
+    # closes that gap for real.
+    last_scan_error = Column(String(500), nullable=True)
+
+    # Sleep — pauses this bot's scanning for a set window, by direct
+    # request ("Makes the bot to pause operations for a set time
+    # defined ... Bot operations resume after pause or sleep time
+    # window to same settings originally"). Deliberately just a
+    # timestamp gate, not a status change or settings snapshot: nothing
+    # about the bot's own config is ever touched, so "resume to the
+    # same settings" is automatically true — there's nothing to
+    # restore. market_scanner.py's scan_once skips a sleeping bot
+    # entirely (no wasted candle fetch); execution_engine.py's
+    # process_signal enforces it too, for the webhook path which
+    # bypasses scan_once's own bot list. A bot wakes up the moment
+    # `now` passes this timestamp — no background job needed.
+    sleep_until = Column(DateTime, nullable=True)
+
+    # Sub-Auto Mode — pre-approved autonomous execution up to a
+    # trader-set TOTAL trade count and a max trades PER DAY, both
+    # pre-approved, by direct request ("bot has pre-approval to trade a
+    # certain number of trades in total and also a certain max number
+    # of trades per day - both with pre approval ... Bot resumes
+    # original settings after completing the pre-approved
+    # activities"). While active, execution_engine.py's process_signal
+    # forces every signal for this bot to execute exactly like Fully
+    # Autonomous — no per-trade human approval — as long as neither cap
+    # is exhausted. Hitting the daily cap just skips the rest of today
+    # (same "resumes automatically" semantics as max_daily_trades);
+    # hitting the total cap turns Sub-Auto off and restores
+    # execution_mode from the snapshot below, right after that final
+    # trade executes.
+    sub_auto_active = Column(Boolean, default=False)
+    sub_auto_total_cap = Column(Integer, nullable=True)
+    sub_auto_daily_cap = Column(Integer, nullable=True)
+    # Reset to 0 every time Sub-Auto is freshly engaged (see
+    # routers/bots.py's own set_sub_auto) — a running count across the
+    # CURRENT engagement only, not lifetime.
+    sub_auto_trades_executed = Column(Integer, default=0)
+    sub_auto_daily_count = Column(Integer, default=0)
+    sub_auto_daily_date = Column(Date, nullable=True)
+    # Snapshot of execution_mode from the moment Sub-Auto was engaged —
+    # what both the total-cap completion above and the Reset endpoint
+    # restore to, so "original settings" really means whatever this
+    # bot was actually set to before, not a hardcoded default.
+    pre_sub_auto_execution_mode = Column(Enum(ExecutionMode), nullable=True)

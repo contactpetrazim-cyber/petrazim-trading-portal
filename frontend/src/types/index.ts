@@ -67,6 +67,21 @@ export interface BotConfig {
   paper_trading_enabled?: boolean;
   user_id?: string | null;
   created_at: string;
+  /** Real bot health — by direct request ("confirm my five bots are
+   * active and are looking for trade opportunities"). */
+  last_run?: string | null;
+  last_scan_error?: string | null;
+  /** Sleep — set while this bot's scanning is paused for a window; see
+   * BotConfig.sleep_until's own backend comment. */
+  sleep_until?: string | null;
+  /** Sub-Auto Mode — pre-approved autonomous execution up to a total
+   * AND daily cap; see BotConfig.sub_auto_active's own backend
+   * comment. */
+  sub_auto_active?: boolean;
+  sub_auto_total_cap?: number | null;
+  sub_auto_daily_cap?: number | null;
+  sub_auto_trades_executed?: number;
+  sub_auto_daily_count?: number;
 }
 
 export interface BotPerformance {

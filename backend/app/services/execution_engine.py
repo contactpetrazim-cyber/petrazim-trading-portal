@@ -213,6 +213,22 @@ class ExecutionEngine:
                 _dedup_select(BotConfig).where(BotConfig.bot_id == signal.bot_id)
             )).scalar_one_or_none()
             if bot_cfg is not None:
+                # Sleep — by direct request ("Makes the bot to pause
+                # operations for a set time defined"). See
+                # BotConfig.sleep_until's own comment for why this is
+                # just a timestamp gate with nothing to restore.
+                # market_scanner.py's scan_once already skips a
+                # sleeping bot before it ever gets here (no wasted
+                # candle fetch) — this is the real enforcement point,
+                # covering the webhook path too (a manual TradingView
+                # alert for a specific bot bypasses scan_once entirely).
+                if bot_cfg.sleep_until and bot_cfg.sleep_until > datetime.utcnow():
+                    logger.info("bot_asleep_signal_skipped", bot_id=signal.bot_id, symbol=signal.symbol, sleep_until=bot_cfg.sleep_until.isoformat())
+                    return {
+                        "success": True, "status": "asleep",
+                        "message": f"Skipped — {signal.bot_id} is asleep until {bot_cfg.sleep_until.isoformat()}.",
+                    }
+
                 today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
                 today_count = (await db.execute(
                     _dedup_select(_cap_func.count(Trade.id)).where(
@@ -242,6 +258,30 @@ class ExecutionEngine:
                         "success": True, "status": "capped",
                         "message": f"Skipped — {signal.bot_id} already has {bot_cfg.max_concurrent_trades} pending/active trades open.",
                     }
+
+                # Sub-Auto Mode — pre-approved autonomous execution up to
+                # a trader-set TOTAL and DAILY cap, by direct request
+                # ("bot has pre-approval to trade a certain number of
+                # trades in total and also a certain max number of
+                # trades per day - both with pre approval"). Forces
+                # THIS signal to execute exactly like Fully Autonomous
+                # regardless of the bot's own stored execution_mode, as
+                # long as today's Sub-Auto cap isn't already exhausted;
+                # hitting today's cap just skips for the rest of today
+                # (resumes automatically tomorrow — same semantics as
+                # the daily cap above). The TOTAL cap is enforced after
+                # execution below, once a trade count can actually be
+                # known — see BotConfig.sub_auto_active's own comment.
+                if bot_cfg.sub_auto_active:
+                    today = datetime.utcnow().date()
+                    daily_so_far = bot_cfg.sub_auto_daily_count if bot_cfg.sub_auto_daily_date == today else 0
+                    if bot_cfg.sub_auto_daily_cap and daily_so_far >= bot_cfg.sub_auto_daily_cap:
+                        logger.info("sub_auto_daily_capped", bot_id=signal.bot_id, symbol=signal.symbol, cap=bot_cfg.sub_auto_daily_cap)
+                        return {
+                            "success": True, "status": "sub_auto_daily_capped",
+                            "message": f"Skipped — {signal.bot_id} already hit today's Sub-Auto cap ({bot_cfg.sub_auto_daily_cap}); resumes tomorrow.",
+                        }
+                    mode = "fully_autonomous"
 
         # Computed once, up front, so it's baked into trade_data before
         # _persist_trade writes the Trade row below — a Human-in-the-
@@ -316,6 +356,25 @@ class ExecutionEngine:
                 self.daily_trade_count += 1
                 if db is not None:
                     await self._update_trade_after_execution(db, trade_data["trade_id"], result)
+                    if bot_cfg is not None and bot_cfg.sub_auto_active:
+                        today = datetime.utcnow().date()
+                        if bot_cfg.sub_auto_daily_date == today:
+                            bot_cfg.sub_auto_daily_count = (bot_cfg.sub_auto_daily_count or 0) + 1
+                        else:
+                            bot_cfg.sub_auto_daily_date = today
+                            bot_cfg.sub_auto_daily_count = 1
+                        bot_cfg.sub_auto_trades_executed = (bot_cfg.sub_auto_trades_executed or 0) + 1
+                        if bot_cfg.sub_auto_total_cap and bot_cfg.sub_auto_trades_executed >= bot_cfg.sub_auto_total_cap:
+                            # Completed its full pre-approved allotment —
+                            # by direct request ("Bot resumes original
+                            # settings after completing the pre-approved
+                            # activities").
+                            from app.models.bot import ExecutionMode as _ExecutionMode
+                            bot_cfg.sub_auto_active = False
+                            bot_cfg.execution_mode = bot_cfg.pre_sub_auto_execution_mode or _ExecutionMode.HUMAN_IN_LOOP
+                            bot_cfg.pre_sub_auto_execution_mode = None
+                            logger.info("sub_auto_completed", bot_id=signal.bot_id, total=bot_cfg.sub_auto_trades_executed)
+                        await db.commit()
             elif db is not None:
                 # Real bug fixed here, found during a trade-execution
                 # audit: a fully-autonomous bot's Trade row is inserted

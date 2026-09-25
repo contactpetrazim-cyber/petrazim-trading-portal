@@ -190,6 +190,21 @@ class BotConfigResponse(BaseModel):
     paper_trading_enabled: bool = False
     user_id: Optional[UUID] = None
     created_at: datetime
+    # Real bot health, by direct request ("confirm my five bots are
+    # active and are looking for trade opportunities") — both columns
+    # already existed and were being written by market_scanner.py, just
+    # never surfaced here before (last_scan_error, in fact, was never
+    # even a real column until now — see BotConfig's own comment).
+    last_run: Optional[datetime] = None
+    last_scan_error: Optional[str] = None
+    # Sleep / Sub-Auto Mode — both by direct request, see BotConfig's
+    # own comments for what each actually does.
+    sleep_until: Optional[datetime] = None
+    sub_auto_active: bool = False
+    sub_auto_total_cap: Optional[int] = None
+    sub_auto_daily_cap: Optional[int] = None
+    sub_auto_trades_executed: int = 0
+    sub_auto_daily_count: int = 0
 
     class Config:
         from_attributes = True
@@ -197,6 +212,22 @@ class BotConfigResponse(BaseModel):
 class BotToggle(BaseModel):
     bot_id: str
     active: bool
+
+class BotSleepUpdate(BaseModel):
+    """PATCH /bots/{bot_id}/sleep body — hours=None wakes the bot up
+    immediately (the "Reset" action); a positive number puts it to
+    sleep for that many hours from now. See BotConfig.sleep_until's
+    own comment."""
+    hours: Optional[float] = Field(default=None, gt=0, le=24 * 30)
+
+class BotSubAutoUpdate(BaseModel):
+    """PATCH /bots/{bot_id}/sub-auto body — see
+    BotConfig.sub_auto_active's own comment. enabled=False is the
+    "Reset" action (also used to interrupt an active engagement early);
+    total_cap/daily_cap are required when enabling."""
+    enabled: bool
+    total_cap: Optional[int] = Field(default=None, ge=1, le=10_000)
+    daily_cap: Optional[int] = Field(default=None, ge=1, le=1000)
 
 class BotTradingModeUpdate(BaseModel):
     """PATCH /bots/{bot_id}/trading-mode body — mirrors
