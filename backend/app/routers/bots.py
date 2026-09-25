@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List
+from datetime import datetime, timedelta
 from app.database import get_db
 from app.models.bot import BotConfig, BotStatus, ExecutionMode
 from app.models.user import User, UserRole
@@ -15,7 +16,7 @@ from app.services.roster_access import user_can_manage_trader
 from app.services.market_scanner import get_market_scanner_runtime_enabled
 from app.models.trade import TradingMode
 from app.config import get_settings
-from app.schemas import BotConfigCreate, BotConfigResponse, BotToggle, BotExchangeUpdate, BotMetricsUpdate, BotRename, BotTradingModeUpdate
+from app.schemas import BotConfigCreate, BotConfigResponse, BotToggle, BotExchangeUpdate, BotMetricsUpdate, BotRename, BotTradingModeUpdate, BotSleepUpdate, BotSubAutoUpdate
 import structlog
 
 router = APIRouter(prefix="/bots", tags=["bots"])
@@ -227,6 +228,60 @@ async def rename_bot(
     identifier trades/webhooks reference) is untouched."""
     bot = await _get_owned_bot(bot_id, user, db)
     bot.bot_name = rename.bot_name.strip()
+    await db.commit()
+    await db.refresh(bot)
+    return bot
+
+@router.patch("/{bot_id}/sleep", response_model=BotConfigResponse)
+async def set_bot_sleep(
+    bot_id: str, update: BotSleepUpdate,
+    db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access),
+):
+    """Pause this bot's scanning for a set window (or wake it up right
+    now — the "Reset" action) — by direct request. See
+    BotConfig.sleep_until's own comment for why nothing else about the
+    bot's settings is ever touched: it always resumes to exactly what
+    it was already set to."""
+    bot = await _get_owned_bot(bot_id, user, db)
+    bot.sleep_until = (datetime.utcnow() + timedelta(hours=update.hours)) if update.hours else None
+    await db.commit()
+    await db.refresh(bot)
+    return bot
+
+@router.patch("/{bot_id}/sub-auto", response_model=BotConfigResponse)
+async def set_bot_sub_auto(
+    bot_id: str, update: BotSubAutoUpdate,
+    db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access),
+):
+    """Engage or reset Sub-Auto Mode — pre-approved autonomous
+    execution up to a total AND a daily trade cap, by direct request.
+    See BotConfig.sub_auto_active's own comment for the full
+    enforcement (execution_engine.py's process_signal) and how it
+    auto-reverts once the total cap is reached. Reset (enabled=False)
+    can also interrupt an engagement early, at any point — same
+    "restore whatever this bot was actually set to before" behavior
+    either way."""
+    bot = await _get_owned_bot(bot_id, user, db)
+    if update.enabled:
+        if not update.total_cap or not update.daily_cap:
+            raise HTTPException(status_code=400, detail="total_cap and daily_cap are both required to engage Sub-Auto Mode.")
+        if not bot.sub_auto_active:
+            # Only snapshot on a fresh False→True engage — re-saving new
+            # caps while already active must never clobber the ORIGINAL
+            # pre-Sub-Auto mode with "fully_autonomous" (what it's
+            # already been forced to for this engagement).
+            bot.pre_sub_auto_execution_mode = bot.execution_mode
+        bot.sub_auto_active = True
+        bot.sub_auto_total_cap = update.total_cap
+        bot.sub_auto_daily_cap = update.daily_cap
+        bot.sub_auto_trades_executed = 0
+        bot.sub_auto_daily_count = 0
+        bot.sub_auto_daily_date = None
+        bot.execution_mode = ExecutionMode.FULLY_AUTONOMOUS
+    else:
+        bot.sub_auto_active = False
+        bot.execution_mode = bot.pre_sub_auto_execution_mode or bot.execution_mode
+        bot.pre_sub_auto_execution_mode = None
     await db.commit()
     await db.refresh(bot)
     return bot

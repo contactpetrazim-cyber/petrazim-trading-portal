@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { Bot, Play, Pause, Settings, TrendingUp, Save, Plus, X, Pencil, Trash2, ChevronDown } from 'lucide-react';
 import { botsApi } from '../services/api';
+import { BotSleepAndSubAuto } from '../components/BotSleepAndSubAuto';
 import { BotConfig, BotPerformance, BotMetricsUpdate } from '../types';
 import { useThemeStore } from '../hooks/useTheme';
 import { formatApiError } from '../lib/apiError';
@@ -443,6 +444,9 @@ export function BotsPage() {
                       Paper Trading: {bot.paper_trading_enabled ? 'On' : 'Off'}
                     </button>
                   </div>
+
+                  {/* Sleep / Sub-Auto Mode — by direct request. */}
+                  <BotSleepAndSubAuto bot={bot} dark={dark} onChanged={loadBots} />
 
                   {/* Delete — by direct request ("also to delete
                       bots"). Two-step inline confirm rather than a

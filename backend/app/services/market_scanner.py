@@ -101,6 +101,13 @@ class MarketScanner:
 
             result = await db.execute(select(BotConfig).where(BotConfig.status == BotStatus.ACTIVE))
             active_bots = result.scalars().all()
+            # Sleeping bots are skipped here (not just in
+            # execution_engine.process_signal) purely as an
+            # optimization — no point spending a candle-fetch/rate-limit
+            # budget on a bot that's about to get skipped anyway. See
+            # BotConfig.sleep_until's own comment.
+            now = datetime.utcnow()
+            active_bots = [b for b in active_bots if not (b.sleep_until and b.sleep_until > now)]
             if not active_bots:
                 return
 
