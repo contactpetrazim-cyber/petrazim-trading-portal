@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { X, Loader2, RotateCcw, Sun, Moon, Palette, Target, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Maximize2, Crosshair, TrendingUp, PenLine, Square, Eraser, Zap, Search, Receipt, Eye, EyeOff, Globe2, MonitorSmartphone, Check, Clock3, RefreshCw } from 'lucide-react';
+import { X, Loader2, RotateCcw, Sun, Moon, Palette, Target, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Maximize2, Crosshair, TrendingUp, PenLine, Square, Eraser, Zap, Search, Receipt, Eye, EyeOff, Globe2, MonitorSmartphone, Check, Clock3, RefreshCw, Ban } from 'lucide-react';
 import { CandleChart, CHART_LAYOUT, computeChartRange, type Candle, type ChartLine, type ChartZone, type OverlaySeries, type DrawnSegment } from './CandleChart';
 import { formatSignedMoney, type ChartPosition } from './TradingViewChart';
 import { PositionManager } from './PositionManager';
@@ -237,6 +237,8 @@ export function PositionOnChartModal({
   onApprove,
   onReject,
   onDefer,
+  onReanalyze,
+  reanalyzing,
 }: {
   /** Omit entirely to open "On Chart" with no open/pending order on
    * this symbol — by direct request ("make 'Position' and 'On Chart'
@@ -1197,6 +1199,48 @@ export function PositionOnChartModal({
               </div>
             )}
           </div>
+          {/* Approve/Not Approve/Defer/Re-Analyse — the "Approval
+              Chart" toolset, by direct request ("copy the On Chart
+              with all its tools etc ... that way I can easily analyse
+              and approve or Not approve or Defer - even from the
+              Approval Chart"). Each button only renders when the
+              Pending Approvals page actually passes its handler — zero
+              effect on every other On Chart/Oanda/MT5 usage. */}
+          {onReanalyze && (
+            <button
+              onClick={onReanalyze}
+              disabled={reanalyzing}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium disabled:opacity-50 ${chromeMutedCls} ${toggleWrapCls}`}
+              title="Re-run this bot's strategy against current market data"
+            >
+              <RefreshCw size={13} className={reanalyzing ? 'animate-spin' : ''} /> {reanalyzing ? 'Re-Analysing…' : 'Re-Analyse'}
+            </button>
+          )}
+          {onDefer && (
+            <button
+              onClick={onDefer}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium ${chromeMutedCls} ${toggleWrapCls}`}
+              title="Decide later — leaves this trade pending, unchanged"
+            >
+              <Clock3 size={13} /> Defer
+            </button>
+          )}
+          {onReject && (
+            <button
+              onClick={onReject}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-red-500/15 text-red-400 hover:bg-red-500/25"
+            >
+              <Ban size={13} /> Not Approve
+            </button>
+          )}
+          {onApprove && (
+            <button
+              onClick={onApprove}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25"
+            >
+              <Check size={13} /> Approve
+            </button>
+          )}
           {/* Oanda (was "Chart O") — a real, free OANDA-backed chart,
               by direct request ("Change the name of 'Chart O' to
               'Oanda' everywhere on the platform"). */}

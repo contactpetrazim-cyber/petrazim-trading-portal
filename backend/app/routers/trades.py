@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, func
 from typing import Dict, List, Optional
 from datetime import datetime, timedelta
+from app.config import get_settings
 from app.database import get_db
 from app.models.trade import Trade, TradeLog, TradeStatus, TradeDirection
 from app.models.user import User, UserRole
@@ -19,6 +20,7 @@ import structlog
 router = APIRouter(prefix="/trades", tags=["trades"])
 logger = structlog.get_logger()
 engine = ExecutionEngine()
+settings_module = get_settings()
 
 # Same principle as bots.py/roster.py: Admin/Super Admin see every
 # trade, everyone else only their own (a trade's owner is the Trader
@@ -480,6 +482,77 @@ async def set_trade_deleted(
     for why this stays a soft delete."""
     trade = await _get_owned_trade(trade_id, user, db)
     trade.is_deleted = update.deleted
+    await db.commit()
+    await db.refresh(trade)
+    return trade
+
+@router.post("/{trade_id}/reanalyze", response_model=TradeResponse)
+async def reanalyze_trade(trade_id: str, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+    """Re-run this trade's own bot strategy against CURRENT market data
+    — by direct request ("for each recommendation trader position of a
+    time window has past ... there should be a 'Revisit' or
+    'Re-Analyse' ... to propose new Entry, SL, TP ... solve the time
+    lapse of approval problem and the vintage issue"). Surfaced on the
+    Approval Chart's own "Re-Analyse" button.
+
+    Only a still-PENDING trade can be re-analysed — an ACTIVE/CLOSED
+    trade has already been decided on, and re-analysing it would be
+    meaningless. Reuses the EXACT same dispatch market_scanner.py's own
+    scan_once uses (BotOrchestrator.run_all against freshly-fetched
+    candles for every timeframe any of the 5 bot strategies needs),
+    filtered down to just this trade's own bot_id — so "re-analyse" is
+    never anything other than "what would this bot actually signal on
+    this symbol right now," the same logic that drafted the original
+    recommendation.
+
+    Either updates entry/SL/TP in place with a fresh signal — status
+    stays PENDING, so the SAME Approve/Reject/Defer decision on the
+    Approval Chart applies to it again — or marks it CANCELLED with a
+    clear note if the bot's own strategy no longer produces a signal
+    for this symbol at all (the setup is no longer valid)."""
+    trade = await _get_owned_trade(trade_id, user, db)
+    if trade.status != TradeStatus.PENDING:
+        raise HTTPException(status_code=400, detail="Only a still-pending trade can be re-analysed.")
+
+    from app.models.bot import BotConfig
+    from app.models.trade import TradeDirection
+    from app.services.data_ingestion import MarketDataIngestion
+    from app.core.bot_strategies import BotOrchestrator
+
+    bot = (await db.execute(select(BotConfig).where(BotConfig.bot_id == trade.bot_id))).scalar_one_or_none()
+    if bot is None:
+        raise HTTPException(status_code=404, detail="This trade's bot no longer exists.")
+
+    # Same 5-timeframe fetch as market_scanner.py's own _fetch_market_data
+    # — kept as its own short-lived MarketDataIngestion instance (one
+    # re-analysis is a single manual, human-triggered action, not a
+    # recurring background loop, so this doesn't reintroduce the
+    # per-call-client rate-limit risk PR #161 fixed for the scanner).
+    ingestion = MarketDataIngestion()
+    exchange = bot.exchange or settings_module.MARKET_SCANNER_DEFAULT_EXCHANGE
+    market_data: Dict = {"symbol": trade.symbol}
+    for tf_key, ccxt_tf in {"1D": "1d", "4H": "4h", "1H": "1h", "15M": "15m", "5M": "5m"}.items():
+        try:
+            candles = await ingestion.fetch_historical_ccxt(exchange=exchange, symbol=trade.symbol, timeframe=ccxt_tf, limit=200)
+            if candles:
+                market_data[tf_key] = candles
+        except Exception:
+            continue  # one timeframe failing shouldn't block the others — same tolerance as the scanner
+
+    signals = BotOrchestrator({}).run_all(market_data, settings_module.MARKET_SCANNER_DEFAULT_ACCOUNT_BALANCE)
+    fresh = next((s for s in signals if s.bot_id == trade.bot_id), None)
+
+    stamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+    prior_log = (trade.reasoning_log + "\n\n") if trade.reasoning_log else ""
+    if fresh is None:
+        trade.status = TradeStatus.CANCELLED
+        trade.reasoning_log = prior_log + f"[Re-Analysed {stamp}] No longer valid — {bot.bot_name}'s own strategy produces no signal for {trade.symbol} against current market data."
+    else:
+        trade.direction = TradeDirection.LONG if fresh.direction == "long" else TradeDirection.SHORT
+        trade.entry_price = fresh.entry_price
+        trade.stop_loss = fresh.stop_loss
+        trade.take_profit_1 = fresh.take_profit
+        trade.reasoning_log = prior_log + f"[Re-Analysed {stamp}] Updated — {fresh.reasoning}"
     await db.commit()
     await db.refresh(trade)
     return trade
