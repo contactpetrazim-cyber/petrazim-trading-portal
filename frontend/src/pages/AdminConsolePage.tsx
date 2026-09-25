@@ -143,6 +143,22 @@ export function AdminConsolePage() {
     ]).catch(() => setTogglesError(true));
   }
 
+  // Global Risk Defaults had the exact same "stuck on Loading… forever"
+  // gap as the four toggles above (a bare `.catch(() => {})` swallowing
+  // a genuine failure with nothing to ever move riskDefaults off its
+  // initial `null`) — this card just hadn't been folded into
+  // loadAdminToggles/togglesError yet. Same shape, kept separate since
+  // this card's own retry shouldn't re-run the unrelated toggle fetches
+  // above it (or vice versa).
+  const [riskError, setRiskError] = useState(false);
+  function loadRiskDefaults() {
+    setRiskError(false);
+    apiFetch(`${API_URL}/manual-trading/global-risk-defaults`, { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error('global-risk-defaults failed'))))
+      .then((d) => { setRiskDefaults(d); setRiskDraft(d); })
+      .catch(() => setRiskError(true));
+  }
+
   useEffect(() => {
     async function load() {
       try {
@@ -159,15 +175,7 @@ export function AdminConsolePage() {
     }
     load();
     loadAdminToggles();
-    // Global Risk Defaults isn't one of the four toggles loadAdminToggles
-    // tracks with togglesError/retry — it has its own "Loading…" state
-    // (riskDefaults === null) inside its own card, so a fetch failure here
-    // just leaves that card showing its loading state rather than tripping
-    // the shared togglesError flag for the unrelated toggle cards above it.
-    apiFetch(`${API_URL}/manual-trading/global-risk-defaults`, { headers: { Authorization: `Bearer ${token}` } })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (d) { setRiskDefaults(d); setRiskDraft(d); } })
-      .catch(() => {});
+    loadRiskDefaults();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
@@ -514,13 +522,16 @@ export function AdminConsolePage() {
       {isSuperAdmin && (
         <FoldedCard
           title="Global Risk Defaults"
-          summary={riskDefaults === null ? 'Loading…' : riskDefaults.is_override ? 'Customized' : 'Platform defaults (not customized)'}
+          summary={riskDefaults === null ? (riskError ? 'Could not load' : 'Loading…') : riskDefaults.is_override ? 'Customized' : 'Platform defaults (not customized)'}
           icon={<ShieldAlert size={18} />} accent="#f59e0b" dark={dark} defaultOpen
         >
           <p className="text-xs text-gray-500 mb-3">
             Every trader whose own Risk Settings are set to "Global defaults" resolves to these 4 numbers — changing
             them here takes effect immediately, platform-wide, with no redeploy.
           </p>
+          {!riskDraft && (riskError
+            ? <button type="button" onClick={loadRiskDefaults} className="text-xs text-red-500 underline">Could not load — try again</button>
+            : <span className="text-xs text-gray-500">Loading…</span>)}
           {riskDraft && (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               {([
