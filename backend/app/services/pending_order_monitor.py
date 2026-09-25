@@ -129,6 +129,12 @@ class PendingOrderMonitor:
                     # place, so this exclusion only ever removes exactly
                     # the rows it should.
                     Trade.requires_approval.isnot(True),
+                    # A deleted duplicate (see Trade.is_deleted's own
+                    # comment) is still PENDING/LIMIT-or-STOP in the DB
+                    # — without this it would silently come back ACTIVE
+                    # the moment price touched it, defeating the point
+                    # of deleting it.
+                    Trade.is_deleted.isnot(True),
                 )
             )
             pending_orders = result.scalars().all()

@@ -179,6 +179,12 @@ class ExecutionEngine:
                     Trade.bot_id == signal.bot_id,
                     Trade.symbol == signal.symbol,
                     Trade.status.in_([TradeStatus.PENDING, TradeStatus.ACTIVE]),
+                    # A trader who deletes a stale duplicate (see
+                    # Trade.is_deleted's own comment) still leaves it
+                    # PENDING in the DB — without this it would go on
+                    # blocking every future signal for this bot+symbol
+                    # forever, defeating the whole point of deleting it.
+                    Trade.is_deleted == False,  # noqa: E712
                 ).limit(1)
             )).first()
             if existing:
@@ -187,6 +193,55 @@ class ExecutionEngine:
                     "success": True, "status": "deduped",
                     "message": f"Skipped — {signal.bot_id} already has a pending or active trade on {signal.symbol}.",
                 }
+
+            # Per-bot daily/concurrent caps — by direct bug report ("how
+            # can I have 17 executed when the global limit is 10").
+            # That "global" cap (services/manual_trading.py's own
+            # check_manual_trade_risk) only ever scoped to
+            # strategy_type == "manual" — nothing anywhere checked a
+            # BOT's own BotConfig.max_daily_trades/max_concurrent_trades
+            # before this, even though both are real, editable settings
+            # on every bot (Bots/Risk Management pages). With 5 bots
+            # each free to draft as many signals as the scanner found,
+            # the real total could run arbitrarily past any configured
+            # limit. Scoped honestly to counting toward the SAME bot
+            # that generated this signal — one bot hitting its own cap
+            # never blocks another bot's signals.
+            from app.models.bot import BotConfig
+            from sqlalchemy import func as _cap_func
+            bot_cfg = (await db.execute(
+                _dedup_select(BotConfig).where(BotConfig.bot_id == signal.bot_id)
+            )).scalar_one_or_none()
+            if bot_cfg is not None:
+                today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+                today_count = (await db.execute(
+                    _dedup_select(_cap_func.count(Trade.id)).where(
+                        Trade.bot_id == signal.bot_id,
+                        Trade.created_at >= today_start,
+                        Trade.status.notin_([TradeStatus.CANCELLED, TradeStatus.ERROR]),
+                        Trade.is_deleted == False,  # noqa: E712
+                    )
+                )).scalar() or 0
+                if today_count >= bot_cfg.max_daily_trades:
+                    logger.info("market_scan_signal_capped_daily", bot_id=signal.bot_id, symbol=signal.symbol, cap=bot_cfg.max_daily_trades)
+                    return {
+                        "success": True, "status": "capped",
+                        "message": f"Skipped — {signal.bot_id} already hit its daily trade cap ({bot_cfg.max_daily_trades}).",
+                    }
+
+                concurrent_count = (await db.execute(
+                    _dedup_select(_cap_func.count(Trade.id)).where(
+                        Trade.bot_id == signal.bot_id,
+                        Trade.status.in_([TradeStatus.PENDING, TradeStatus.ACTIVE]),
+                        Trade.is_deleted == False,  # noqa: E712
+                    )
+                )).scalar() or 0
+                if concurrent_count >= bot_cfg.max_concurrent_trades:
+                    logger.info("market_scan_signal_capped_concurrent", bot_id=signal.bot_id, symbol=signal.symbol, cap=bot_cfg.max_concurrent_trades)
+                    return {
+                        "success": True, "status": "capped",
+                        "message": f"Skipped — {signal.bot_id} already has {bot_cfg.max_concurrent_trades} pending/active trades open.",
+                    }
 
         # Computed once, up front, so it's baked into trade_data before
         # _persist_trade writes the Trade row below — a Human-in-the-

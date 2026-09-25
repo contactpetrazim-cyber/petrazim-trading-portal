@@ -81,7 +81,7 @@ export const dashboardApi = {
 };
 
 export const tradesApi = {
-  getTrades: (params?: { status?: string; bot_id?: string; symbol?: string; direction?: string; source?: string; archived?: boolean; limit?: number; offset?: number }) =>
+  getTrades: (params?: { status?: string; bot_id?: string; symbol?: string; direction?: string; source?: string; archived?: boolean; deleted?: boolean; limit?: number; offset?: number }) =>
     api.get<Trade[]>('/trades/', { params }).then(r => r.data),
   getPendingApprovals: () => api.get<Trade[]>('/trades/pending-approvals').then(r => r.data),
   approveTrade: (tradeId: string, approved: boolean, notes?: string) =>
@@ -115,6 +115,12 @@ export const tradesApi = {
   // trades to a new archive trades card").
   archiveTrade: (tradeId: string, archived: boolean) =>
     api.patch<Trade>(`/trades/${tradeId}/archive`, { archived }).then(r => r.data),
+  // Moves a trade into/out of the "Deleted Trades" card — by direct
+  // request ("include a delete option ... a Delete card where all the
+  // deleted trades are stored for future reference"). deleted=false
+  // restores it.
+  deleteTrade: (tradeId: string, deleted: boolean) =>
+    api.patch<Trade>(`/trades/${tradeId}/delete`, { deleted }).then(r => r.data),
 };
 
 export const botsApi = {

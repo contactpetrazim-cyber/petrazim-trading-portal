@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { X, Loader2, RotateCcw, Sun, Moon, Palette, Target, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Maximize2, Crosshair, TrendingUp, PenLine, Square, Eraser, Zap, Search, Receipt, Eye, EyeOff, Globe2, MonitorSmartphone } from 'lucide-react';
+import { X, Loader2, RotateCcw, Sun, Moon, Palette, Target, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Maximize2, Crosshair, TrendingUp, PenLine, Square, Eraser, Zap, Search, Receipt, Eye, EyeOff, Globe2, MonitorSmartphone, Check, Clock3, RefreshCw } from 'lucide-react';
 import { CandleChart, CHART_LAYOUT, computeChartRange, type Candle, type ChartLine, type ChartZone, type OverlaySeries, type DrawnSegment } from './CandleChart';
 import { formatSignedMoney, type ChartPosition } from './TradingViewChart';
 import { PositionManager } from './PositionManager';
@@ -234,6 +234,9 @@ export function PositionOnChartModal({
   onClose,
   onChanged,
   onQuickTrade,
+  onApprove,
+  onReject,
+  onDefer,
 }: {
   /** Omit entirely to open "On Chart" with no open/pending order on
    * this symbol — by direct request ("make 'Position' and 'On Chart'
@@ -279,6 +282,26 @@ export function PositionOnChartModal({
    * including the lines drawn on this very chart once the caller's
    * refreshed `position` prop flows back down. */
   onChanged?: () => void;
+  /** Approve/Reject buttons in this chart's own toolbar — by direct
+   * request, for the Pending Approvals page's "Approval Chart" ("even
+   * from the Approval Chart" you should be able to approve, reject, or
+   * defer). Both omitted (as on every other On Chart caller) and
+   * neither button renders — this is purely additive, zero effect on
+   * existing usages. `onDefer` just closes this modal without acting
+   * (the trade stays PENDING, unchanged) — there's no backend "defer"
+   * state, it's simply "decide later." */
+  onApprove?: () => void;
+  onReject?: () => void;
+  onDefer?: () => void;
+  /** "Re-Analyse" — by direct request ("there should be a 'Revisit' or
+   * 'Re-Analyse' ... to propose new Entry, SL, TP ... solve the time
+   * lapse of approval problem and the vintage issue"). Re-runs this
+   * trade's own bot strategy against CURRENT market data; the caller
+   * re-fetches the (now possibly updated, or cancelled-as-invalid)
+   * trade afterward and this chart's own lines update from that fresh
+   * prop, same as any other onChanged-driven refresh. */
+  onReanalyze?: () => void;
+  reanalyzing?: boolean;
   /** Wire this to your own order form's setters (direction/entry/SL/TP)
    * to enable the "Quick Trade" drag tool in the toolbar below — see
    * this component's own QUICK TRADE docstring above. Omitted (as on

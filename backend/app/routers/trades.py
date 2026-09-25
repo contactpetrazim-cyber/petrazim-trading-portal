@@ -11,7 +11,7 @@ from app.models.trade import Trade, TradeLog, TradeStatus, TradeDirection
 from app.models.user import User, UserRole
 from app.core.auth import get_current_user
 from app.core.access_gate import require_active_access, has_active_access, _raise_if_access_expired
-from app.schemas import TradeCreate, TradeResponse, TradeApproval, TradeArchiveUpdate
+from app.schemas import TradeCreate, TradeResponse, TradeApproval, TradeArchiveUpdate, TradeDeleteUpdate
 from app.services.execution_engine import ExecutionEngine
 from app.services.live_price import get_crypto_price
 import structlog
@@ -119,6 +119,13 @@ async def list_trades(
     # existed; the Archive Trades card is the one place that passes
     # archived=true explicitly.
     archived: bool = Query(False, description="False (default) hides archived trades, True shows only archived trades"),
+    # Powers the new "Deleted Trades" card — same on/off shape as
+    # `archived` above, by direct request ("a Delete card where all the
+    # deleted trades are stored for future reference"). When True this
+    # ignores `archived` entirely and returns is_deleted rows
+    # regardless of their archived state (a trade can be deleted
+    # straight from either Recent or Archive).
+    deleted: bool = Query(False, description="False (default) hides deleted trades, True shows only deleted trades (ignores `archived`)"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
@@ -128,7 +135,11 @@ async def list_trades(
     Not gated on active access at the dependency level any more — see
     _visible_trades above for why (a Paper Trading trader must be able
     to list their own free practice trades regardless)."""
-    query = _scope_to_owner(select(Trade), user).where(Trade.is_archived == archived)
+    query = _scope_to_owner(select(Trade), user)
+    if deleted:
+        query = query.where(Trade.is_deleted == True)  # noqa: E712
+    else:
+        query = query.where(Trade.is_deleted == False, Trade.is_archived == archived)  # noqa: E712
     query = _apply_source_filter(query, source)
 
     # Real bug, found while wiring TradeSpecsPanel's "?status=active"
@@ -168,7 +179,8 @@ async def pending_approvals(db: AsyncSession = Depends(get_db), user: User = Dep
     query = _scope_to_owner(select(Trade), user).where(
         and_(
             Trade.status == TradeStatus.PENDING,
-            Trade.requires_approval == True
+            Trade.requires_approval == True,
+            Trade.is_deleted == False,
         )
     ).order_by(Trade.created_at.desc())
 
@@ -197,7 +209,7 @@ async def active_trades(db: AsyncSession = Depends(get_db), user: User = Depends
     as list_trades above — a Paper Trading position must stay visible
     regardless of access status."""
     query = _scope_to_owner(select(Trade), user).where(
-        Trade.status == TradeStatus.ACTIVE
+        Trade.status == TradeStatus.ACTIVE, Trade.is_deleted == False,  # noqa: E712
     ).order_by(Trade.created_at.desc())
     result = await db.execute(query)
     trades = result.scalars().all()
@@ -218,6 +230,7 @@ async def today_stats(db: AsyncSession = Depends(get_db), user: User = Depends(r
     query = _scope_to_owner(select(Trade), user).where(
         Trade.created_at >= today_start,
         Trade.status.notin_([TradeStatus.CANCELLED, TradeStatus.ERROR]),
+        Trade.is_deleted == False,  # noqa: E712
     )
     result = await db.execute(query)
     trades = result.scalars().all()
@@ -257,7 +270,9 @@ async def analytics_summary(
     actually back. Daily Summary reports realized PnL per day instead
     — real, not invented.
     """
-    query = _scope_to_owner(select(Trade), user).where(Trade.status == TradeStatus.CLOSED)
+    query = _scope_to_owner(select(Trade), user).where(
+        Trade.status == TradeStatus.CLOSED, Trade.is_deleted == False,  # noqa: E712
+    )
     if bot_id:
         query = query.where(Trade.bot_id == bot_id)
     query = _apply_source_filter(query, source)
@@ -380,7 +395,9 @@ async def analytics_detail(
     client-side from real timestamps/prices/PnL rather than fabricated
     per chart.
     """
-    query = _scope_to_owner(select(Trade), user).where(Trade.status == TradeStatus.CLOSED)
+    query = _scope_to_owner(select(Trade), user).where(
+        Trade.status == TradeStatus.CLOSED, Trade.is_deleted == False,  # noqa: E712
+    )
     if bot_id:
         query = query.where(Trade.bot_id == bot_id)
     query = _apply_source_filter(query, source)
@@ -444,6 +461,25 @@ async def set_trade_archived(
     analytics — see Trade.is_archived's own comment."""
     trade = await _get_owned_trade(trade_id, user, db)
     trade.is_archived = update.archived
+    await db.commit()
+    await db.refresh(trade)
+    return trade
+
+@router.patch("/{trade_id}/delete", response_model=TradeResponse)
+async def set_trade_deleted(
+    trade_id: str,
+    update: TradeDeleteUpdate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Move a trade into/out of the "Deleted" card — by direct request
+    ("include a delete option ... a Delete card where all the deleted
+    trades are stored for future reference"). Same reversible-flag
+    shape as set_trade_archived above (deleted=false restores it), so
+    nothing is ever actually lost — see Trade.is_deleted's own comment
+    for why this stays a soft delete."""
+    trade = await _get_owned_trade(trade_id, user, db)
+    trade.is_deleted = update.deleted
     await db.commit()
     await db.refresh(trade)
     return trade

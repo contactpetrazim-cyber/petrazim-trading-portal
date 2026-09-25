@@ -162,6 +162,20 @@ class Trade(Base):
     # filter on this), it's just hidden from the default trade list.
     is_archived = Column(Boolean, nullable=False, default=False, index=True)
 
+    # Soft-delete for a bot-signal recommendation the trader never
+    # wants to see again — by direct request ("clean up and delete all
+    # the extra and duplicate recommendations ... include a delete
+    # option ... a Delete card where all the deleted trades are stored
+    # for future reference"). Deliberately a flag, not a real DELETE:
+    # the row (and its full reasoning/entry/SL/TP history) stays
+    # queryable in the "Deleted" card exactly like Archive does for
+    # is_archived, just hidden from every normal list/pending-approvals/
+    # active query by default. A deleted trade is excluded from
+    # analytics (unlike an archived one) since these are overwhelmingly
+    # the duplicate/erroneous signals this flag exists to clear out,
+    # not real trading history.
+    is_deleted = Column(Boolean, nullable=False, default=False, index=True)
+
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
