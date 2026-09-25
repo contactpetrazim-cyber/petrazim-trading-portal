@@ -4,6 +4,11 @@ export interface Candle {
   high: number;
   low: number;
   close: number;
+  /** Real Binance trade volume, when the source has it (OANDA/forex
+   * has none — see order_flow.py's own KlineBar comment). Optional and
+   * unused by CandleChart's own rendering; PositionOnChartModal reads
+   * it directly for its Volume Profile tool. */
+  volume?: number;
 }
 
 export interface ChartZone {
@@ -69,7 +74,14 @@ export interface OverlaySeries {
  * the same way `lines`/`zones`/`markers` already work. `shape` is
  * optional and defaults to `'line'` so a segment drawn and persisted
  * before this field existed (localStorage, per symbol) still renders
- * exactly as it always did rather than needing a migration. */
+ * exactly as it always did rather than needing a migration.
+ * 'fib' (Fibonacci retracement) reuses the exact same two-corner drag
+ * as 'line'/'box' — renders here as a plain diagonal guide line (the
+ * `else` branch below), same as an unrecognized shape always has; the
+ * actual horizontal retracement levels are computed by the CALLER
+ * (PositionOnChartModal) as ordinary `ChartLine[]` entries, the same
+ * way Entry/SL/TP lines already work, rather than adding a second
+ * rendering path here. */
 export interface DrawnSegment {
   id: string;
   index1: number;
@@ -77,7 +89,7 @@ export interface DrawnSegment {
   index2: number;
   price2: number;
   color?: string;
-  shape?: 'line' | 'box';
+  shape?: 'line' | 'box' | 'fib';
 }
 
 /** The fixed viewBox layout CandleChart's coordinate math uses —

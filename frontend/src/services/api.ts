@@ -190,6 +190,9 @@ export interface KlineBar {
   high: number;
   low: number;
   close: number;
+  /** Real Binance trade volume — 0 for the rare CoinGecko-fallback
+   * candle, and for OANDA's own KlineBar shape (forex has none). */
+  volume?: number;
 }
 
 export const orderFlowApi = {

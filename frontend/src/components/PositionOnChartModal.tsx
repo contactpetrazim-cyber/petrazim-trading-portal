@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { X, Loader2, RotateCcw, Sun, Moon, Palette, Target, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Maximize2, Crosshair, TrendingUp, PenLine, Square, Eraser, Zap, Search, Receipt, Eye, EyeOff, Globe2, MonitorSmartphone, Check, Clock3, RefreshCw, Ban } from 'lucide-react';
+import { X, Loader2, RotateCcw, Sun, Moon, Palette, Target, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Maximize2, Crosshair, TrendingUp, PenLine, Square, Eraser, Zap, Search, Receipt, Eye, EyeOff, Globe2, MonitorSmartphone, Check, Clock3, RefreshCw, Ban, Percent, ArrowUpCircle, ArrowDownCircle, BarChart3 } from 'lucide-react';
 import { CandleChart, CHART_LAYOUT, computeChartRange, type Candle, type ChartLine, type ChartZone, type OverlaySeries, type DrawnSegment } from './CandleChart';
 import { formatSignedMoney, type ChartPosition } from './TradingViewChart';
 import { PositionManager } from './PositionManager';
@@ -440,9 +440,20 @@ export function PositionOnChartModal({
   // single on/off toggle. 'position' is the Quick Trade Long/Short
   // tool below — a third mode, not persisted into `drawings` (see
   // this component's own QUICK TRADE docstring).
-  const [drawShape, setDrawShape] = useState<'line' | 'box' | 'position' | null>(null);
+  const [drawShape, setDrawShape] = useState<'line' | 'box' | 'fib' | 'position' | null>(null);
   const [drawings, setDrawings] = useState<DrawnSegment[]>([]);
   const [inProgressDraw, setInProgressDraw] = useState<DrawnSegment | null>(null);
+  // Volume Profile — by direct request ("Add additional tools as
+  // appropriate for quick analysis fix volume profile tool"). A
+  // right-edge histogram of REAL volume (order_flow.py's own KlineBar.
+  // volume — Binance's real per-candle trade volume, row[5] of its own
+  // kline array) bucketed by price across the currently-visible
+  // candles — a genuine, honest simplification of the full tick-level
+  // footprint tool OrderFlowChartTool.tsx already has (that one needs
+  // its own heavier /footprint-chart fetch; this reuses the SAME
+  // candles already on screen, zero extra requests). Off by default,
+  // toggled from the toolbar.
+  const [volumeProfileOpen, setVolumeProfileOpen] = useState(false);
   // Switching pairs mid-draw would leave an active tool pointed at
   // candles that just got replaced out from under it — clear the
   // active tool and fold the Position card on every symbol change
@@ -528,6 +539,23 @@ export function PositionOnChartModal({
   function togglePositionTool() {
     setDrawShape((v) => (v === 'position' ? null : 'position'));
     setQuickTradeDraft(null);
+    setCustomRRText('');
+  }
+
+  /** Long / Short — one-click Quick Trade at the current price, by
+   * direct request ("Quick Trade and Long and Short Tools"). A 1%
+   * default stop distance (adjustable via the confirm card's own R:R
+   * buttons afterward, same as a dragged draft) rather than requiring
+   * a drag first, matching TradingView's own separate Long/Short
+   * Position buttons alongside its generic drag tool. */
+  function armDirectionalQuickTrade(direction: 'long' | 'short') {
+    const entryPrice = livePrice ?? (candles && candles.length > 0 ? candles[candles.length - 1].close : null);
+    if (entryPrice == null || !candles || candles.length === 0) return;
+    const stopLoss = direction === 'long' ? entryPrice * 0.99 : entryPrice * 1.01;
+    const risk = Math.abs(entryPrice - stopLoss);
+    const takeProfit = direction === 'long' ? entryPrice + risk * quickTradeRR : entryPrice - risk * quickTradeRR;
+    setDrawShape('position');
+    setQuickTradeDraft({ entryIndex: visibleStart + candles.length - 1, entryPrice, stopLoss, takeProfit, direction });
     setCustomRRText('');
   }
 
@@ -787,6 +815,35 @@ export function PositionOnChartModal({
     return list;
   }, [drawings, inProgressDraw, visibleStart]);
 
+  /** Fibonacci retracement — by direct request ("Include drawing
+   * tools ... Fib ... on Pending Approval Chart and also the On
+   * Chart"). Reuses the SAME two-corner drag as Line/Box (see
+   * DrawnSegment.shape's own comment) — the drag itself renders as a
+   * plain guide line via CandleChart's existing else-branch; these are
+   * the 7 standard horizontal retracement levels, computed here and
+   * merged into `lines` below, the exact same way every other
+   * reference line (Entry/SL/TP/Live) already renders. Full-width
+   * (not clipped to the drag's own horizontal span) — deliberately:
+   * checking a retracement level for confluence against price action
+   * elsewhere on the chart is the whole point of leaving it extended.
+   */
+  const FIB_RATIOS = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
+  const fibLines: ChartLine[] = useMemo(() => {
+    const segs = [...drawings, ...(inProgressDraw ? [inProgressDraw] : [])].filter((d) => d.shape === 'fib');
+    return segs.flatMap((d) => {
+      const high = Math.max(d.price1, d.price2);
+      const low = Math.min(d.price1, d.price2);
+      const range = high - low;
+      if (range <= 0) return [];
+      return FIB_RATIOS.map((r) => ({
+        price: high - range * r,
+        label: `${(r * 100).toFixed(1)}%`,
+        color: '#a855f7',
+        dashed: r !== 0 && r !== 1,
+      }));
+    });
+  }, [drawings, inProgressDraw]);
+
   /** The Quick Trade draft's risk (red, entry->SL) and reward (green,
    * entry->TP) brackets — same visible-relative conversion as
    * visibleDrawings above, spanning from the entry candle out to the
@@ -940,7 +997,7 @@ export function PositionOnChartModal({
     fetchCandles
       .then((res) => {
         if (cancelled) return;
-        setAllCandles(res.candles.map((c) => ({ time: c.time_ms, open: c.open, high: c.high, low: c.low, close: c.close })));
+        setAllCandles(res.candles.map((c) => ({ time: c.time_ms, open: c.open, high: c.high, low: c.low, close: c.close, volume: c.volume })));
       })
       .catch((err) => {
         if (cancelled) return;
@@ -1035,7 +1092,42 @@ export function PositionOnChartModal({
       { price: quickTradeDraft.stopLoss, color: '#ef4444', dashed: true, label: `SL ${fmtPrice(quickTradeDraft.stopLoss)}` },
       { price: quickTradeDraft.takeProfit, color: '#22c55e', dashed: true, label: `TP ${fmtPrice(quickTradeDraft.takeProfit)}` },
     ] : []),
+    ...fibLines,
   ];
+
+  /** Volume Profile bins — see `volumeProfileOpen`'s own comment.
+   * Buckets the CURRENTLY VISIBLE candles' real volume into 24 equal
+   * price bins spanning the same price range CandleChart itself is
+   * drawing against (computeChartRange — the identical range every
+   * other overlay here already uses), distributing each candle's
+   * volume evenly across the bins its own high-low range touches (a
+   * candle with a wide range legitimately contributes to more price
+   * levels than a narrow one). All-zero (every candle's volume is 0 —
+   * OANDA/forex, or the CoinGecko fallback) returns no bins at all, so
+   * the toggle shows an honest "not available" state rather than a
+   * flat, meaningless bar chart. */
+  const VOLUME_PROFILE_BINS = 24;
+  const volumeProfile = useMemo(() => {
+    if (!candles || candles.length === 0) return null;
+    const hasVolume = candles.some((c) => (c.volume ?? 0) > 0);
+    if (!hasVolume) return null;
+    const { yTop, yBottom } = computeChartRange(candles, quickTradeZones, lines, []);
+    const range = yTop - yBottom;
+    if (range <= 0) return null;
+    const binSize = range / VOLUME_PROFILE_BINS;
+    const bins = new Array(VOLUME_PROFILE_BINS).fill(0);
+    for (const c of candles) {
+      const vol = c.volume ?? 0;
+      if (vol <= 0) continue;
+      const loBin = Math.max(0, Math.min(VOLUME_PROFILE_BINS - 1, Math.floor((yTop - c.high) / binSize)));
+      const hiBin = Math.max(0, Math.min(VOLUME_PROFILE_BINS - 1, Math.floor((yTop - c.low) / binSize)));
+      const span = hiBin - loBin + 1;
+      for (let b = loBin; b <= hiBin; b++) bins[b] += vol / span;
+    }
+    const maxVol = Math.max(...bins, 1e-9);
+    const pocBin = bins.indexOf(maxVol);
+    return { bins, maxVol, pocBin, yTop, yBottom, binSize };
+  }, [candles, quickTradeZones, lines]);
 
   // Same shared quick-links store every other chart's Pairs panel
   // reads/writes — a pair picked here shows up everywhere else too.
@@ -1390,14 +1482,40 @@ export function PositionOnChartModal({
               annotation tools next to it — this one places a real
               order draft, not a drawing. */}
           {onQuickTrade && (
-            <button
-              onClick={togglePositionTool}
-              aria-label={drawShape === 'position' ? 'Stop Quick Trade' : 'Quick Trade — drag from entry to stop'}
-              title={drawShape === 'position' ? 'Quick Trade — drag from your entry price down (long) or up (short) to your stop; release to review' : 'Quick Trade — drag on the chart to set Entry + Stop, auto-computes Take Profit'}
-              className={`flex items-center gap-1 px-2 py-1.5 rounded-md text-[11px] font-medium ${drawShape === 'position' ? 'bg-emerald-600 text-white' : chromeMutedCls}`}
-            >
-              <Zap size={13} /> Quick Trade
-            </button>
+            <>
+              {/* Long / Short — one-click quick-launch of the SAME
+                  Quick Trade tool right above, pre-armed at the
+                  current live price with a sensible default stop
+                  (1% away) instead of requiring a drag first — by
+                  direct request ("Quick Trade and Long and Short
+                  Tools"), TradingView's own separate Long/Short
+                  Position buttons rather than only the drag-to-imply-
+                  direction gesture Quick Trade already had. Still
+                  fully adjustable afterward via the confirm card's
+                  R:R buttons, same as a dragged draft. */}
+              <button
+                onClick={() => armDirectionalQuickTrade('long')}
+                title="Long — one-click draft at the current price, 1% default stop"
+                className="flex items-center gap-1 px-2 py-1.5 rounded-md text-[11px] font-medium bg-emerald-500/15 text-emerald-500 hover:bg-emerald-500/25"
+              >
+                <ArrowUpCircle size={13} /> Long
+              </button>
+              <button
+                onClick={() => armDirectionalQuickTrade('short')}
+                title="Short — one-click draft at the current price, 1% default stop"
+                className="flex items-center gap-1 px-2 py-1.5 rounded-md text-[11px] font-medium bg-red-500/15 text-red-400 hover:bg-red-500/25"
+              >
+                <ArrowDownCircle size={13} /> Short
+              </button>
+              <button
+                onClick={togglePositionTool}
+                aria-label={drawShape === 'position' ? 'Stop Quick Trade' : 'Quick Trade — drag from entry to stop'}
+                title={drawShape === 'position' ? 'Quick Trade — drag from your entry price down (long) or up (short) to your stop; release to review' : 'Quick Trade — drag on the chart to set Entry + Stop, auto-computes Take Profit'}
+                className={`flex items-center gap-1 px-2 py-1.5 rounded-md text-[11px] font-medium ${drawShape === 'position' ? 'bg-emerald-600 text-white' : chromeMutedCls}`}
+              >
+                <Zap size={13} /> Quick Trade
+              </button>
+            </>
           )}
           <button
             onClick={() => setDrawShape((v) => (v === 'line' ? null : 'line'))}
@@ -1414,6 +1532,22 @@ export function PositionOnChartModal({
             className={`flex items-center gap-1 px-2 py-1.5 rounded-md text-[11px] font-medium ${drawShape === 'box' ? 'bg-corporate-hero text-white' : chromeMutedCls}`}
           >
             <Square size={13} /> Box
+          </button>
+          <button
+            onClick={() => setDrawShape((v) => (v === 'fib' ? null : 'fib'))}
+            aria-label={drawShape === 'fib' ? 'Stop drawing' : 'Draw a Fibonacci retracement'}
+            title={drawShape === 'fib' ? 'Drawing a Fib retracement — drag from swing high to swing low; click again to stop' : 'Fibonacci retracement — drag from swing high to swing low'}
+            className={`flex items-center gap-1 px-2 py-1.5 rounded-md text-[11px] font-medium ${drawShape === 'fib' ? 'bg-corporate-hero text-white' : chromeMutedCls}`}
+          >
+            <Percent size={13} /> Fib
+          </button>
+          <button
+            onClick={() => setVolumeProfileOpen((v) => !v)}
+            aria-label={volumeProfileOpen ? 'Hide Volume Profile' : 'Show Volume Profile'}
+            title="Volume Profile — volume distribution by price for the currently visible candles, derived from the same OHLCV data on screen"
+            className={`flex items-center gap-1 px-2 py-1.5 rounded-md text-[11px] font-medium ${volumeProfileOpen ? 'bg-corporate-hero text-white' : chromeMutedCls}`}
+          >
+            <BarChart3 size={13} /> Vol Profile
           </button>
           {drawings.length > 0 && (
             <button onClick={clearDrawings} aria-label="Clear all drawn lines and boxes" title="Clear all drawn lines and boxes" className={`p-1.5 rounded-md ${chromeMutedCls}`}>
@@ -1449,11 +1583,41 @@ export function PositionOnChartModal({
           </div>
         ) : (
           <>
-            <div ref={chartBoxRef}>
+            <div ref={chartBoxRef} className="relative">
               <CandleChart
                 candles={candles} lines={lines} zones={quickTradeZones} overlaySeries={maSeries} drawings={visibleDrawings}
                 height={CHART_HEIGHT} dark={localDark} bullColor={localBull} bearColor={localBear} rightMargin={rightMargin}
               />
+              {/* Volume Profile — a right-edge histogram, classic
+                  placement, drawn as a plain HTML overlay (same
+                  technique CandleChart's own label overlay uses)
+                  rather than inside its SVG, so this stays a pure
+                  additive layer with zero changes to that shared
+                  component. */}
+              {volumeProfileOpen && (
+                volumeProfile ? (
+                  <div className="absolute inset-y-0 right-0 pointer-events-none" style={{ width: '30%' }}>
+                    {volumeProfile.bins.map((v, i) => {
+                      const topPct = (i / VOLUME_PROFILE_BINS) * 100;
+                      const heightPct = (1 / VOLUME_PROFILE_BINS) * 100;
+                      const widthPct = Math.max(1, (v / volumeProfile.maxVol) * 100);
+                      const isPoc = i === volumeProfile.pocBin;
+                      return (
+                        <div
+                          key={i}
+                          className={`absolute right-0 ${isPoc ? 'bg-amber-400/50' : 'bg-sky-400/25'}`}
+                          style={{ top: `${topPct}%`, height: `${heightPct}%`, width: `${widthPct}%` }}
+                          title={isPoc ? 'Point of Control — most traded price in this window' : undefined}
+                        />
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className={`absolute top-2 right-2 text-[10px] px-2 py-1 rounded ${localDark ? 'bg-black/60 text-white/60' : 'bg-white/80 text-gray-500'}`}>
+                    No volume data for this instrument
+                  </div>
+                )
+              )}
             </div>
             {/* Right-margin drag handle — by direct request ("provide a
                 drag line that can define the limit of the candle

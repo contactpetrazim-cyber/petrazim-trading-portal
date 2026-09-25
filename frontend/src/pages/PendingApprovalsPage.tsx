@@ -1,7 +1,7 @@
 
 import { useEffect, useState } from 'react';
 import { formatDistanceToNow } from 'date-fns';
-import { ArrowUpRight, ArrowDownRight, Check, Ban, Clock3, RefreshCw, Bot, ChevronDown, ChevronUp } from 'lucide-react';
+import { ArrowUpRight, ArrowDownRight, Check, Ban, Clock3, RefreshCw, Bot, ChevronDown, ChevronUp, AlertTriangle, X } from 'lucide-react';
 import { LoadingIndicator } from '../components/LoadingIndicator';
 import { PositionOnChartModal } from '../components/PositionOnChartModal';
 import { tradeToChartPosition } from '../components/ChartPanel';
@@ -46,6 +46,14 @@ export function PendingApprovalsPage() {
   const [chartTradeId, setChartTradeId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [reanalyzing, setReanalyzing] = useState(false);
+  // A Re-Analyse that finds the setup no longer valid moves the trade
+  // OFF pending (CANCELLED) — which would otherwise make it vanish
+  // from this list (and its reasoning with it) the instant `load()`
+  // re-fetches, before you ever get to read why. By direct bug report
+  // ("the reasoning and context ... disappear after the Re-Analyse -
+  // it shouldn't"): keep it visible here, in its own distinct card,
+  // until explicitly dismissed.
+  const [invalidated, setInvalidated] = useState<Record<string, Trade>>({});
 
   async function load() {
     try {
@@ -66,7 +74,18 @@ export function PendingApprovalsPage() {
   }, []);
 
   const visible = trades.filter((t) => !deferredIds.has(t.trade_id));
-  const chartTrade = chartTradeId ? trades.find((t) => t.trade_id === chartTradeId) ?? null : null;
+  const chartTrade = chartTradeId
+    ? trades.find((t) => t.trade_id === chartTradeId) ?? invalidated[chartTradeId] ?? null
+    : null;
+
+  function dismissInvalidated(tradeId: string) {
+    setInvalidated((prev) => {
+      const next = { ...prev };
+      delete next[tradeId];
+      return next;
+    });
+    if (chartTradeId === tradeId) setChartTradeId(null);
+  }
 
   async function handleApprove(tradeId: string) {
     setBusyId(tradeId);
@@ -104,8 +123,14 @@ export function PendingApprovalsPage() {
   async function handleReanalyze(tradeId: string) {
     setReanalyzing(true);
     try {
-      await tradesApi.reanalyzeTrade(tradeId);
+      const updated = await tradesApi.reanalyzeTrade(tradeId);
       setError(null);
+      if (updated.status !== 'pending') {
+        // No longer valid — keep it visible with its full reasoning
+        // (original + the new context note) rather than letting it
+        // silently vanish; see `invalidated`'s own comment above.
+        setInvalidated((prev) => ({ ...prev, [tradeId]: updated }));
+      }
       await load();
     } catch (e: any) {
       setError(formatApiError(e?.response?.data?.detail, 'Could not re-analyse — try again in a moment.'));
@@ -235,6 +260,42 @@ export function PendingApprovalsPage() {
         })}
       </div>
 
+      {/* Re-Analysed as no longer valid — kept visible (not silently
+          dropped) with its full reasoning history until dismissed. */}
+      {Object.values(invalidated).length > 0 && (
+        <div className="space-y-3">
+          <h3 className="text-sm font-semibold text-gray-400">No Longer Valid — Re-Analysed</h3>
+          {Object.values(invalidated).map((t) => (
+            <div key={t.trade_id} className={`rounded-xl border overflow-hidden opacity-75 ${dark ? 'bg-smc-card border-amber-500/30' : 'bg-white border-amber-300'}`}>
+              <div className="p-4">
+                <div className="flex items-start justify-between gap-3 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <span className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-sm font-medium bg-amber-500/10 text-amber-500">
+                      <AlertTriangle size={14} /> No longer valid
+                    </span>
+                    <div>
+                      <div className={`font-bold ${dark ? 'text-white' : 'text-corporate-text-on-bg'}`}>{t.symbol}</div>
+                      <div className="text-xs text-gray-400 flex items-center gap-1">
+                        <Bot size={11} /> {t.bot_name || t.bot_id}
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => dismissInvalidated(t.trade_id)}
+                    className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium ${dark ? 'bg-white/5 text-white/60 hover:text-white' : 'bg-gray-100 text-gray-600 hover:text-corporate-text-on-bg'}`}
+                  >
+                    <X size={13} /> Dismiss
+                  </button>
+                </div>
+                {t.reasoning_log && (
+                  <p className={`mt-2 text-xs whitespace-pre-wrap ${dark ? 'text-gray-400' : 'text-gray-500'}`}>{t.reasoning_log}</p>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Approval Chart — the On Chart tool, reused verbatim, pre-loaded
           with the selected card's own Entry/SL/TP and its own
           Approve/Not Approve/Defer/Re-Analyse toolbar buttons wired to
@@ -248,10 +309,15 @@ export function PendingApprovalsPage() {
           bearColor={colors.downColor}
           onClose={() => setChartTradeId(null)}
           onChanged={load}
-          onApprove={() => handleApprove(chartTrade.trade_id)}
-          onReject={() => handleReject(chartTrade.trade_id)}
-          onDefer={() => handleDefer(chartTrade.trade_id)}
-          onReanalyze={() => handleReanalyze(chartTrade.trade_id)}
+          // Approve/Reject only make sense while the trade is still
+          // genuinely PENDING — a Re-Analyse that just invalidated it
+          // (status now CANCELLED) omits both, offering only Dismiss
+          // (repurposing Defer) instead of a nonsensical "approve an
+          // already-cancelled trade" action.
+          onApprove={chartTrade.status === 'pending' ? () => handleApprove(chartTrade.trade_id) : undefined}
+          onReject={chartTrade.status === 'pending' ? () => handleReject(chartTrade.trade_id) : undefined}
+          onDefer={chartTrade.status === 'pending' ? () => handleDefer(chartTrade.trade_id) : () => dismissInvalidated(chartTrade.trade_id)}
+          onReanalyze={chartTrade.status === 'pending' ? () => handleReanalyze(chartTrade.trade_id) : undefined}
           reanalyzing={reanalyzing}
         />
       )}

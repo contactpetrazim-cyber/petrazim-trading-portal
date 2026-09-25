@@ -447,6 +447,16 @@ class KlineBar(BaseModel):
     high: float
     low: float
     close: float
+    # Real Binance trade volume for this candle (row[5] of its own
+    # kline array — always present there, just never parsed out before
+    # this) — powers On Chart/Approval Chart's own client-side Volume
+    # Profile, by direct request ("Add additional tools as appropriate
+    # for quick analysis fix volume profile tool"). Defaults to 0.0 so
+    # the CoinGecko fallback below (which has no per-candle volume of
+    # its own) still validates — Volume Profile simply has nothing to
+    # show for those candles, same honest-scope pattern as everywhere
+    # else in this router.
+    volume: float = 0.0
 
 
 class KlinesResponse(BaseModel):
@@ -546,7 +556,10 @@ async def get_klines(
     try:
         resp = await _binance_get("/klines", {"symbol": symbol, "interval": interval, "limit": limit}, futures=futures)
         candles = [
-            KlineBar(time_ms=int(row[0]), open=float(row[1]), high=float(row[2]), low=float(row[3]), close=float(row[4]))
+            KlineBar(
+                time_ms=int(row[0]), open=float(row[1]), high=float(row[2]), low=float(row[3]), close=float(row[4]),
+                volume=float(row[5]),
+            )
             for row in resp.json()
         ]
     except HTTPException:
