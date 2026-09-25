@@ -12,6 +12,7 @@ import { useInstallPromptStore } from './hooks/useInstallPrompt';
 const DashboardPage = lazy(() => import('./pages/Dashboard').then((module) => ({ default: module.DashboardPage })));
 const AnalyticsPage = lazy(() => import('./pages/AnalyticsPage').then((module) => ({ default: module.AnalyticsPage })));
 const TradesPage = lazy(() => import('./pages/Trades').then((module) => ({ default: module.TradesPage })));
+const PendingApprovalsPage = lazy(() => import('./pages/PendingApprovalsPage').then((module) => ({ default: module.PendingApprovalsPage })));
 const BotsPage = lazy(() => import('./pages/Bots').then((module) => ({ default: module.BotsPage })));
 const RiskPage = lazy(() => import('./pages/RiskPage').then((module) => ({ default: module.RiskPage })));
 const LoginPage = lazy(() => import('./pages/LoginPage').then((module) => ({ default: module.LoginPage })));
@@ -188,6 +189,11 @@ function App() {
         <Route path="/trades" element={
           <ProtectedRoute allowedRoles={TRADER_CONSOLE_ROLES}>
             <Layout><TradesPage /></Layout>
+          </ProtectedRoute>
+        } />
+        <Route path="/pending-approvals" element={
+          <ProtectedRoute allowedRoles={TRADER_CONSOLE_ROLES}>
+            <Layout><PendingApprovalsPage /></Layout>
           </ProtectedRoute>
         } />
         <Route path="/bots" element={

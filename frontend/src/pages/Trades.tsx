@@ -1,5 +1,6 @@
 
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { TradeRow } from '../components/TradeRow';
 import { LoadingIndicator } from '../components/LoadingIndicator';
 import { FoldedCard } from '../components/FoldedCard';
@@ -7,7 +8,7 @@ import { SourceToggle, type TradeSource } from '../components/TradeAnalytics';
 import { tradesApi } from '../services/api';
 import { Trade } from '../types';
 import { useThemeStore } from '../hooks/useTheme';
-import { Filter, Search, Download, RefreshCw, Archive, Trash2 } from 'lucide-react';
+import { Filter, Search, Download, RefreshCw, Archive, Trash2, ClipboardCheck, ArrowRight } from 'lucide-react';
 import { formatApiError } from '../lib/apiError';
 
 // Live unrealized PnL only means something if it's actually kept
@@ -84,6 +85,20 @@ export function TradesPage() {
     });
   }
 
+  // "Recent Trades should show what is Executed or Closed after
+  // Execution" — by direct request, now that bot recommendations
+  // awaiting a decision have their own home (the Pending Approvals
+  // page). Only strips those out of the default "All" view — the
+  // explicit "Pending" quick filter above still shows every pending
+  // trade, including these, and a trader's own manual resting order
+  // (PENDING but requires_approval=false — never a recommendation to
+  // begin with) is never touched.
+  const [pendingApprovalCount, setPendingApprovalCount] = useState(0);
+  function excludeAwaitingApproval(list: Trade[]): Trade[] {
+    if (filter !== 'all') return list;
+    return list.filter((t) => !(t.status === 'pending' && t.requires_approval));
+  }
+
   async function loadTrades() {
     setLoading(true);
     setError(null);
@@ -94,7 +109,8 @@ export function TradesPage() {
         tradesApi.getTrades({ ...params, archived: true }),
         tradesApi.getTrades({ ...params, deleted: true }),
       ]);
-      setTrades(applyOutcomeFilter(recent));
+      setPendingApprovalCount(recent.filter((t) => t.status === 'pending' && t.requires_approval).length);
+      setTrades(excludeAwaitingApproval(applyOutcomeFilter(recent)));
       setArchivedTrades(applyOutcomeFilter(archived));
       setDeletedTrades(applyOutcomeFilter(deleted));
     } catch (e: any) {
@@ -136,7 +152,7 @@ export function TradesPage() {
   useEffect(() => {
     if (!trades.some((t) => t.status === 'active')) return;
     const id = setInterval(() => {
-      tradesApi.getTrades({ ...buildParams(), archived: false }).then((r) => setTrades(applyOutcomeFilter(r))).catch(() => {});
+      tradesApi.getTrades({ ...buildParams(), archived: false }).then((r) => setTrades(excludeAwaitingApproval(applyOutcomeFilter(r)))).catch(() => {});
     }, LIVE_PNL_POLL_MS);
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -244,11 +260,33 @@ export function TradesPage() {
         <div className="py-2"><LoadingIndicator phase="loading" dark={dark} /></div>
       )}
 
+      {/* Banner to the new Pending Approvals page — by direct request
+          ("ensure a clear link ... Recent Trades should show what is
+          Executed or Closed after Execution"). Only shown for the
+          default "All" filter, where those trades are now excluded
+          from the list below. */}
+      {filter === 'all' && pendingApprovalCount > 0 && (
+        <Link
+          to="/pending-approvals"
+          className={`flex items-center justify-between gap-3 p-4 rounded-xl border transition-colors ${
+            dark ? 'bg-amber-500/10 border-amber-500/20 hover:bg-amber-500/15' : 'bg-amber-50 border-amber-200 hover:bg-amber-100'
+          }`}
+        >
+          <span className="flex items-center gap-2 text-sm font-medium text-amber-500">
+            <ClipboardCheck size={16} />
+            {pendingApprovalCount} recommendation{pendingApprovalCount === 1 ? '' : 's'} waiting on your decision
+          </span>
+          <span className="flex items-center gap-1 text-xs text-amber-500">Review now <ArrowRight size={14} /></span>
+        </Link>
+      )}
+
       {/* Recent Trades / Archive Trades — two cards, by direct request
           ("create an option to move individual trades to a new
           archive trades card ... So two cards: Recent Trades, Archive
           Trades"). Recent stays open (it's the primary working view);
-          Archive is folded by default (FoldedCard's own default). */}
+          Archive is folded by default (FoldedCard's own default).
+          Pending bot recommendations excluded from this list by
+          direct request — see excludeAwaitingApproval above. */}
       <FoldedCard title="Recent Trades" summary={`${trades.length} trade${trades.length === 1 ? '' : 's'}`} defaultOpen dark={dark}>
         <div className="space-y-2">
           {trades.map((trade) => (

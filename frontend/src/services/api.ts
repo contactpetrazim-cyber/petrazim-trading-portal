@@ -121,6 +121,10 @@ export const tradesApi = {
   // restores it.
   deleteTrade: (tradeId: string, deleted: boolean) =>
     api.patch<Trade>(`/trades/${tradeId}/delete`, { deleted }).then(r => r.data),
+  // Re-runs this trade's own bot strategy against current market data
+  // — the Approval Chart's "Re-Analyse" button, by direct request.
+  reanalyzeTrade: (tradeId: string) =>
+    api.post<Trade>(`/trades/${tradeId}/reanalyze`).then(r => r.data),
 };
 
 export const botsApi = {

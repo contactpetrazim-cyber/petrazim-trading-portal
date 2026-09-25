@@ -12,6 +12,7 @@ import {
   Activity,
   Shield,
   Link2,
+  ClipboardCheck,
   LucideIcon,
 } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
@@ -32,6 +33,11 @@ export interface NavItem {
 const TRADER_NAV_ITEMS: NavItem[] = [
   { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { path: '/trades', label: 'Trades', icon: TrendingUp },
+  // Under Trades — by direct request ("why have you not put the new
+  // 'Pending Approvals' page here in the traders dashboard menu ...
+  // Please put it under Trades"). Card-per-recommendation Approve/Not
+  // Approve/Defer view — see PendingApprovalsPage.tsx.
+  { path: '/pending-approvals', label: 'Pending Approvals', icon: ClipboardCheck },
   { path: '/bots', label: 'Bots', icon: Bot },
   { path: '/analytics', label: 'Analytics', icon: Activity },
   { path: '/risk', label: 'Risk Management', icon: Shield },
@@ -172,7 +178,7 @@ export function Layout({ children, navItems = TRADER_NAV_ITEMS }: { children: Re
               >
                 <Icon size={18} />
                 <span className="font-medium">{item.label}</span>
-                {item.label === 'Trades' && stats && stats.pending_approvals > 0 && (
+                {item.label === 'Pending Approvals' && stats && stats.pending_approvals > 0 && (
                   <span className="ml-auto bg-smc-danger text-white text-xs px-2 py-0.5 rounded-full">
                     {stats.pending_approvals}
                   </span>
