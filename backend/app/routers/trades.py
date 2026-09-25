@@ -542,17 +542,42 @@ async def reanalyze_trade(trade_id: str, db: AsyncSession = Depends(get_db), use
     signals = BotOrchestrator({}).run_all(market_data, settings_module.MARKET_SCANNER_DEFAULT_ACCOUNT_BALANCE)
     fresh = next((s for s in signals if s.bot_id == trade.bot_id), None)
 
+    # Original reasoning is ALWAYS kept — by direct request ("the
+    # reasoning and context for the bot recommendations disappear
+    # after the Re-Analyse - it shouldn't ... original reasoning
+    # should always stay"). Every branch below PREPENDS prior_log,
+    # never replaces reasoning_log outright.
     stamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
     prior_log = (trade.reasoning_log + "\n\n") if trade.reasoning_log else ""
+    old_direction = trade.direction  # captured before any overwrite below
     if fresh is None:
         trade.status = TradeStatus.CANCELLED
-        trade.reasoning_log = prior_log + f"[Re-Analysed {stamp}] No longer valid — {bot.bot_name}'s own strategy produces no signal for {trade.symbol} against current market data."
+        trade.reasoning_log = prior_log + (
+            f"[Re-Analysed {stamp}] NOT VALID — {bot.bot_name}'s own strategy no longer confirms this setup "
+            f"for {trade.symbol} against current market data. Lower chance of success at current conditions; "
+            f"recommend Not Approve or Defer."
+        )
     else:
-        trade.direction = TradeDirection.LONG if fresh.direction == "long" else TradeDirection.SHORT
+        new_direction = TradeDirection.LONG if fresh.direction == "long" else TradeDirection.SHORT
+        # Real, grounded context — never fabricated: a direction flip
+        # between the ORIGINAL signal and this re-analysis is the one
+        # honest signal available for "who's in control now" (Trade
+        # never persisted the original signal's confidence score to
+        # compare against — see BotSignal.confidence's own gap), by
+        # direct request ("Buyers now active or sellers now active ...
+        # something that explains current context").
+        if new_direction != old_direction:
+            context_note = (
+                f"Context has SHIFTED — {'buyers' if new_direction == TradeDirection.LONG else 'sellers'} now active, "
+                f"opposite of the original {old_direction.value.upper()} thesis. This is now a {new_direction.value.upper()} setup instead."
+            )
+        else:
+            context_note = f"Still {old_direction.value.upper()} — same directional thesis holds at current market conditions."
+        trade.direction = new_direction
         trade.entry_price = fresh.entry_price
         trade.stop_loss = fresh.stop_loss
         trade.take_profit_1 = fresh.take_profit
-        trade.reasoning_log = prior_log + f"[Re-Analysed {stamp}] Updated — {fresh.reasoning}"
+        trade.reasoning_log = prior_log + f"[Re-Analysed {stamp}] VALID — {context_note} {fresh.reasoning}"
     await db.commit()
     await db.refresh(trade)
     return trade
