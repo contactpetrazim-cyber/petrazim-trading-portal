@@ -5,6 +5,7 @@ import { StatCard } from '../components/StatCard';
 import { TodayTradeBreakdownPills } from '../components/TodayTradeBreakdownPills';
 import { PnlDrawdownPeriodPills } from '../components/PnlDrawdownPeriodPills';
 import { ActivePositionsMetrics } from '../components/ActivePositionsMetrics';
+import { PendingApprovalsList } from '../components/PendingApprovalsList';
 import { RiskSettingsCard } from '../components/RiskSettingsCard';
 import { TradeRow } from '../components/TradeRow';
 import { FoldedCard } from '../components/FoldedCard';
@@ -228,7 +229,9 @@ export function DashboardPage() {
           subtitle="Human-in-the-Loop"
           icon={<AlertCircle size={20} />}
           color="amber" dark={dark}
-        />
+        >
+          <PendingApprovalsList trades={pending} />
+        </StatCard>
       </div>
 
       {/* Free Chart + My Workspace — by direct request, right on the
