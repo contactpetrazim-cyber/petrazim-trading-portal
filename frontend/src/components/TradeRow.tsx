@@ -1,7 +1,7 @@
 
 import { useState } from 'react';
 import { Trade } from '../types';
-import { ArrowUpRight, ArrowDownRight, Clock, CheckCircle, XCircle, AlertCircle, Ban, Settings2, ChevronDown, Archive, ArchiveRestore, Trash2, RotateCcw } from 'lucide-react';
+import { ArrowUpRight, ArrowDownRight, Clock, CheckCircle, XCircle, AlertCircle, Ban, Settings2, ChevronDown, Archive, ArchiveRestore, Trash2, RotateCcw, Bot, User } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { useThemeStore } from '../hooks/useTheme';
 import { PositionManager } from './PositionManager';
@@ -37,6 +37,12 @@ export function TradeRow({ trade, onApprove, onReject, onCancel, onChanged, onAr
   // click into ever mounts.
   const [managing, setManaging] = useState(false);
   const isLong = trade.direction === 'long';
+  // Manual vs Bot origin watermark — by direct request ("introduce a
+  // watermark that shows whether it's a manual or Bot ... so at a
+  // glance a user knows the origin"). Same bot_id convention
+  // routers/trades.py's own _apply_source_filter already uses to tell
+  // the two apart ("manual_{user_id}" vs a real bot's own id).
+  const isManual = trade.bot_id?.startsWith('manual_') ?? false;
 
   // Win / Loss / Breakeven — by direct request ("provide details of
   // the trade - Entry, SL, TP, Closed price, Win, Loss or BE for every
@@ -82,7 +88,18 @@ export function TradeRow({ trade, onApprove, onReject, onCancel, onChanged, onAr
 
           {/* Symbol & Details */}
           <div>
-            <div className={`font-bold ${dark ? 'text-white' : 'text-corporate-text-on-bg'}`}>{trade.symbol}</div>
+            <div className={`flex items-center gap-1.5 font-bold ${dark ? 'text-white' : 'text-corporate-text-on-bg'}`}>
+              {trade.symbol}
+              <span
+                title={isManual ? 'Placed manually' : `Placed by ${trade.bot_name || 'a bot'}`}
+                className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide ${
+                  isManual ? 'bg-sky-500/15 text-sky-400' : 'bg-violet-500/15 text-violet-400'
+                }`}
+              >
+                {isManual ? <User size={10} /> : <Bot size={10} />}
+                {isManual ? 'Manual' : 'Bot'}
+              </span>
+            </div>
             <div className="text-xs text-gray-400">{trade.strategy_type}</div>
           </div>
 

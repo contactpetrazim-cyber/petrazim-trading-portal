@@ -45,7 +45,21 @@ export function TradesPage() {
   const [deletedTrades, setDeletedTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [filter, setFilter] = useState('all');
+  // Quick filters — extended past the original 4 status filters to
+  // also cover a closed trade's real OUTCOME (Won/Loss/BreakEven), by
+  // direct request ("introduce a filter for Won, Loss, BreakEven,
+  // Cancelled, Closed in addition to other quick filters already
+  // existing"). Won/Loss/BreakEven aren't a stored `status` — see
+  // TradeRow's own `outcome` derivation (realized_pnl sign) — so those
+  // three resolve to status=closed server-side and get narrowed
+  // further client-side by applyOutcomeFilter below.
+  type QuickFilter = 'all' | 'active' | 'pending' | 'closed' | 'cancelled' | 'won' | 'loss' | 'breakeven';
+  const OUTCOME_FILTERS: QuickFilter[] = ['won', 'loss', 'breakeven'];
+  const FILTER_LABELS: Record<QuickFilter, string> = {
+    all: 'All', active: 'Active', pending: 'Pending', closed: 'Closed', cancelled: 'Cancelled',
+    won: 'Won', loss: 'Loss', breakeven: 'BreakEven',
+  };
+  const [filter, setFilter] = useState<QuickFilter>('all');
   const [search, setSearch] = useState('');
   // Bots vs Manual — by direct request ("all visuals or analytics
   // should be differentiated by a toggle bots vs Manual trades").
@@ -54,10 +68,20 @@ export function TradesPage() {
 
   function buildParams(): { status?: string; symbol?: string; source?: string } {
     const params: { status?: string; symbol?: string; source?: string } = {};
-    if (filter !== 'all') params.status = filter;
+    if (OUTCOME_FILTERS.includes(filter)) params.status = 'closed';
+    else if (filter !== 'all') params.status = filter;
     if (search) params.symbol = search.toUpperCase();
     if (source !== 'all') params.source = source;
     return params;
+  }
+
+  function applyOutcomeFilter(list: Trade[]): Trade[] {
+    if (!OUTCOME_FILTERS.includes(filter)) return list;
+    return list.filter((t) => {
+      if (filter === 'won') return t.realized_pnl > 0;
+      if (filter === 'loss') return t.realized_pnl < 0;
+      return t.realized_pnl === 0; // breakeven
+    });
   }
 
   async function loadTrades() {
@@ -70,9 +94,9 @@ export function TradesPage() {
         tradesApi.getTrades({ ...params, archived: true }),
         tradesApi.getTrades({ ...params, deleted: true }),
       ]);
-      setTrades(recent);
-      setArchivedTrades(archived);
-      setDeletedTrades(deleted);
+      setTrades(applyOutcomeFilter(recent));
+      setArchivedTrades(applyOutcomeFilter(archived));
+      setDeletedTrades(applyOutcomeFilter(deleted));
     } catch (e: any) {
       setError('Could not load trades.');
     } finally {
@@ -112,7 +136,7 @@ export function TradesPage() {
   useEffect(() => {
     if (!trades.some((t) => t.status === 'active')) return;
     const id = setInterval(() => {
-      tradesApi.getTrades({ ...buildParams(), archived: false }).then(setTrades).catch(() => {});
+      tradesApi.getTrades({ ...buildParams(), archived: false }).then((r) => setTrades(applyOutcomeFilter(r))).catch(() => {});
     }, LIVE_PNL_POLL_MS);
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -193,9 +217,9 @@ export function TradesPage() {
 
         <SourceToggle value={source} onChange={setSource} dark={dark} />
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <Filter size={16} className="text-gray-400" />
-          {['all', 'active', 'pending', 'closed'].map((f) => (
+          {(Object.keys(FILTER_LABELS) as QuickFilter[]).map((f) => (
             <button
               key={f}
               onClick={() => setFilter(f)}
@@ -205,7 +229,7 @@ export function TradesPage() {
                   : dark ? 'bg-smc-card border-smc-border text-gray-400 hover:text-white' : 'bg-white border-corporate-bg text-gray-500 hover:text-corporate-text-on-bg'
               }`}
             >
-              {f.charAt(0).toUpperCase() + f.slice(1)}
+              {FILTER_LABELS[f]}
             </button>
           ))}
         </div>
