@@ -1,7 +1,7 @@
 
 import { useState } from 'react';
 import { Trade } from '../types';
-import { ArrowUpRight, ArrowDownRight, Clock, CheckCircle, XCircle, AlertCircle, Ban, Settings2, ChevronDown, Archive, ArchiveRestore } from 'lucide-react';
+import { ArrowUpRight, ArrowDownRight, Clock, CheckCircle, XCircle, AlertCircle, Ban, Settings2, ChevronDown, Archive, ArchiveRestore, Trash2, RotateCcw } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { useThemeStore } from '../hooks/useTheme';
 import { PositionManager } from './PositionManager';
@@ -18,9 +18,14 @@ interface TradeRowProps {
   /** Moves this trade into/out of the folded "Archive Trades" card —
    * omitted (button hidden) on rows that don't support archiving. */
   onArchive?: (tradeId: string, archived: boolean) => void;
+  /** Moves this trade into/out of the "Deleted Trades" card — by
+   * direct request ("include a delete option ... a Delete card where
+   * all the deleted trades are stored for future reference"). Same
+   * reversible on/off shape as onArchive. */
+  onDelete?: (tradeId: string, deleted: boolean) => void;
 }
 
-export function TradeRow({ trade, onApprove, onReject, onCancel, onChanged, onArchive }: TradeRowProps) {
+export function TradeRow({ trade, onApprove, onReject, onCancel, onChanged, onArchive, onDelete }: TradeRowProps) {
   const { theme } = useThemeStore();
   const dark = theme === 'dark';
   // "Copy exchange style trade order management setup and dashboard
@@ -186,6 +191,22 @@ export function TradeRow({ trade, onApprove, onReject, onCancel, onChanged, onAr
             >
               {trade.is_archived ? <ArchiveRestore size={13} /> : <Archive size={13} />}
               {trade.is_archived ? 'Unarchive' : 'Archive'}
+            </button>
+          )}
+
+          {/* Delete/Restore — moves this row into/out of the "Deleted
+              Trades" card, by direct request ("include a delete option
+              ... so we have a clean slate"). Soft delete only — see
+              Trade.is_deleted's own backend comment; "Restore" brings
+              it right back exactly where it was. */}
+          {onDelete && (
+            <button
+              onClick={() => onDelete(trade.trade_id, !trade.is_deleted)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500/15 text-red-400 rounded-lg text-sm font-medium hover:bg-red-500/25 transition-colors"
+              title={trade.is_deleted ? 'Restore this trade' : 'Delete this trade'}
+            >
+              {trade.is_deleted ? <RotateCcw size={13} /> : <Trash2 size={13} />}
+              {trade.is_deleted ? 'Restore' : 'Delete'}
             </button>
           )}
 

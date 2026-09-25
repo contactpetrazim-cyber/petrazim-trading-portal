@@ -7,7 +7,7 @@ import { SourceToggle, type TradeSource } from '../components/TradeAnalytics';
 import { tradesApi } from '../services/api';
 import { Trade } from '../types';
 import { useThemeStore } from '../hooks/useTheme';
-import { Filter, Search, Download, RefreshCw, Archive } from 'lucide-react';
+import { Filter, Search, Download, RefreshCw, Archive, Trash2 } from 'lucide-react';
 import { formatApiError } from '../lib/apiError';
 
 // Live unrealized PnL only means something if it's actually kept
@@ -38,6 +38,11 @@ export function TradesPage() {
   // archive trades card ... So two cards: Recent Trades, Archive
   // Trades").
   const [archivedTrades, setArchivedTrades] = useState<Trade[]>([]);
+  // Deleted trades — a third card ("Deleted Trades", folded by
+  // default), by direct request ("include a delete option ... a
+  // Delete card where all the deleted trades are stored for future
+  // reference"). Same shape as archivedTrades above.
+  const [deletedTrades, setDeletedTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState('all');
@@ -60,12 +65,14 @@ export function TradesPage() {
     setError(null);
     try {
       const params = buildParams();
-      const [recent, archived] = await Promise.all([
+      const [recent, archived, deleted] = await Promise.all([
         tradesApi.getTrades({ ...params, archived: false }),
         tradesApi.getTrades({ ...params, archived: true }),
+        tradesApi.getTrades({ ...params, deleted: true }),
       ]);
       setTrades(recent);
       setArchivedTrades(archived);
+      setDeletedTrades(deleted);
     } catch (e: any) {
       setError('Could not load trades.');
     } finally {
@@ -80,6 +87,16 @@ export function TradesPage() {
       loadTrades();
     } catch (e: any) {
       setError(formatApiError(e?.response?.data?.detail, 'Could not update the archive — try again in a moment.'));
+    }
+  }
+
+  async function handleDelete(tradeId: string, deleted: boolean) {
+    try {
+      await tradesApi.deleteTrade(tradeId, deleted);
+      setError(null);
+      loadTrades();
+    } catch (e: any) {
+      setError(formatApiError(e?.response?.data?.detail, 'Could not update — try again in a moment.'));
     }
   }
 
@@ -122,9 +139,9 @@ export function TradesPage() {
   }
 
   function exportCsv() {
-    const header = 'trade_id,symbol,direction,status,entry_price,stop_loss,take_profit,lot_size,realized_pnl,unrealized_pnl,bot_id,created_at,archived';
-    const rows = [...trades, ...archivedTrades].map((t) =>
-      [t.trade_id, t.symbol, t.direction, t.status, t.entry_price, t.stop_loss, t.take_profit, t.lot_size, t.realized_pnl, t.unrealized_pnl, t.bot_id, t.created_at, t.is_archived ?? false].join(',')
+    const header = 'trade_id,symbol,direction,status,entry_price,stop_loss,take_profit,lot_size,realized_pnl,unrealized_pnl,bot_id,created_at,archived,deleted';
+    const rows = [...trades, ...archivedTrades, ...deletedTrades].map((t) =>
+      [t.trade_id, t.symbol, t.direction, t.status, t.entry_price, t.stop_loss, t.take_profit, t.lot_size, t.realized_pnl, t.unrealized_pnl, t.bot_id, t.created_at, t.is_archived ?? false, t.is_deleted ?? false].join(',')
     );
     const blob = new Blob([[header, ...rows].join('\n')], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
@@ -148,7 +165,7 @@ export function TradesPage() {
           </button>
           <button
             onClick={exportCsv}
-            disabled={trades.length === 0 && archivedTrades.length === 0}
+            disabled={trades.length === 0 && archivedTrades.length === 0 && deletedTrades.length === 0}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors disabled:opacity-40 ${
               dark ? 'bg-smc-accent/10 text-smc-accent hover:bg-smc-accent/20' : 'bg-corporate-hero/10 text-corporate-hero hover:bg-corporate-hero/20'
             }`}
@@ -199,7 +216,7 @@ export function TradesPage() {
       {/* By direct request ("for loading area put the loading
           indicator to help user wait") — only for the initial/manual
           load, not the silent background live-PnL refresh above. */}
-      {loading && trades.length === 0 && archivedTrades.length === 0 && (
+      {loading && trades.length === 0 && archivedTrades.length === 0 && deletedTrades.length === 0 && (
         <div className="py-2"><LoadingIndicator phase="loading" dark={dark} /></div>
       )}
 
@@ -211,7 +228,7 @@ export function TradesPage() {
       <FoldedCard title="Recent Trades" summary={`${trades.length} trade${trades.length === 1 ? '' : 's'}`} defaultOpen dark={dark}>
         <div className="space-y-2">
           {trades.map((trade) => (
-            <TradeRow key={trade.trade_id} trade={trade} onApprove={handleApprove} onReject={handleReject} onCancel={handleCancel} onChanged={loadTrades} onArchive={handleArchive} />
+            <TradeRow key={trade.trade_id} trade={trade} onApprove={handleApprove} onReject={handleReject} onCancel={handleCancel} onChanged={loadTrades} onArchive={handleArchive} onDelete={handleDelete} />
           ))}
         </div>
 
@@ -230,12 +247,32 @@ export function TradesPage() {
       >
         <div className="space-y-2">
           {archivedTrades.map((trade) => (
-            <TradeRow key={trade.trade_id} trade={trade} onApprove={handleApprove} onReject={handleReject} onCancel={handleCancel} onChanged={loadTrades} onArchive={handleArchive} />
+            <TradeRow key={trade.trade_id} trade={trade} onApprove={handleApprove} onReject={handleReject} onCancel={handleCancel} onChanged={loadTrades} onArchive={handleArchive} onDelete={handleDelete} />
           ))}
         </div>
 
         {!loading && archivedTrades.length === 0 && (
           <div className="text-center py-8 text-gray-400">No archived trades — use "Archive" on a trade above to move it here.</div>
+        )}
+      </FoldedCard>
+
+      {/* Deleted Trades — by direct request ("include a delete option
+          ... a Delete card where all the deleted trades are stored for
+          future reference"). Folded by default, same as Archive. */}
+      <FoldedCard
+        title="Deleted Trades"
+        summary={`${deletedTrades.length} deleted trade${deletedTrades.length === 1 ? '' : 's'}`}
+        icon={<Trash2 size={18} />}
+        dark={dark}
+      >
+        <div className="space-y-2">
+          {deletedTrades.map((trade) => (
+            <TradeRow key={trade.trade_id} trade={trade} onChanged={loadTrades} onDelete={handleDelete} />
+          ))}
+        </div>
+
+        {!loading && deletedTrades.length === 0 && (
+          <div className="text-center py-8 text-gray-400">No deleted trades — use "Delete" on a trade above to move it here.</div>
         )}
       </FoldedCard>
     </div>

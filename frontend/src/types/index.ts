@@ -34,6 +34,15 @@ export interface Trade {
    * tradesApi.archiveTrade) — a pure declutter flag, unrelated to
    * status/PnL. */
   is_archived?: boolean;
+  /** Both surfaced by direct request, for the Pending Approvals
+   * page's cards ("complete with all the details"). */
+  bot_name?: string | null;
+  reasoning_log?: string | null;
+  /** True once moved into the "Deleted Trades" card (see
+   * tradesApi.deleteTrade) — same reversible declutter flag as
+   * is_archived, just for trades the trader wants out of every normal
+   * view entirely (e.g. duplicate bot signals). */
+  is_deleted?: boolean | null;
 }
 
 export interface BotConfig {

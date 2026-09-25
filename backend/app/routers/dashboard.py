@@ -23,7 +23,13 @@ STAFF_ROLES = (UserRole.ADMIN, UserRole.SUPER_ADMIN)
 def _scope_trades(query, user: User):
     if user.role not in STAFF_ROLES:
         query = query.where(Trade.user_id == user.id)
-    return query
+    # A deleted trade (see Trade.is_deleted's own comment — mostly
+    # duplicate/erroneous bot signals) has never actually been a real
+    # trade the dashboard should reflect, in any of its stats/breakdown/
+    # performance views. This is the one choke point every dashboard
+    # query already runs through, so filtering here covers all of them
+    # at once rather than repeating it at each call site.
+    return query.where(Trade.is_deleted == False)  # noqa: E712
 
 
 def _scope_bots(query, user: User):

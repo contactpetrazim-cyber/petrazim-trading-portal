@@ -81,12 +81,26 @@ class TradeResponse(BaseModel):
     # repair step backfills existing rows to False, but a legacy row
     # mid-migration shouldn't 500 the whole list.
     is_archived: Optional[bool] = False
+    # By direct request ("Each trade recommendations is listed as a
+    # card complete with all the details"), for the new Pending
+    # Approvals page — both columns already existed on Trade (set at
+    # draft time by execution_engine.py's own process_signal), just
+    # never surfaced here before.
+    bot_name: Optional[str] = None
+    reasoning_log: Optional[str] = None
+    # Same tolerant-Optional pattern as is_archived above — see
+    # Trade.is_deleted's own comment for what this powers (the new
+    # "Deleted" card).
+    is_deleted: Optional[bool] = False
 
     class Config:
         from_attributes = True
 
 class TradeArchiveUpdate(BaseModel):
     archived: bool
+
+class TradeDeleteUpdate(BaseModel):
+    deleted: bool
 
 class TradeApproval(BaseModel):
     trade_id: str
