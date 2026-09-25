@@ -113,6 +113,36 @@ export function AdminConsolePage() {
 
   const isSuperAdmin = user?.role === 'super_admin';
 
+  // By direct bug report, with screenshot ("Fix the continuous loading
+  // issue for the above uploaded pic - fix - important"): the Bot
+  // Market Scanner card (and, identically, Payments Mode/Trading
+  // Master Control/Fireflies above it) could get stuck on "Loading…"
+  // forever. Root cause: each of these four GETs ended in a bare
+  // `.catch(() => {})` — a genuine failure (a cold Render free-tier
+  // start taking longer than apiFetch's own 20s timeout, a dropped
+  // connection, ...) was silently swallowed, and since the swallowed
+  // branch never sets the toggle's own state away from its initial
+  // `null`, the card had no way to ever leave "Loading…" short of a
+  // full page refresh landing on a healthy backend. Now tracked with
+  // one shared error flag and a real "Try again" affordance, pulled
+  // into its own function (loadAdminToggles) so a retry only re-runs
+  // these four fetches, not the separate users-list load above.
+  const [togglesError, setTogglesError] = useState(false);
+  function loadAdminToggles() {
+    setTogglesError(false);
+    Promise.all([
+      apiFetch(`${API_URL}/payments/mode`, { headers: { Authorization: `Bearer ${token}` } })
+        .then((r) => (r.ok ? r.json() : Promise.reject(new Error('payments/mode failed')))).then((d) => setPaymentsMode(d.mode)),
+      apiFetch(`${API_URL}/manual-trading/master-mode`, { headers: { Authorization: `Bearer ${token}` } })
+        .then((r) => (r.ok ? r.json() : Promise.reject(new Error('master-mode failed')))).then((d) => setPaperEnforced(d.paper_enforced)),
+      apiFetch(`${API_URL}/meetings/fireflies-setting`, { headers: { Authorization: `Bearer ${token}` } })
+        .then((r) => (r.ok ? r.json() : Promise.reject(new Error('fireflies-setting failed')))).then((d) => setFirefliesEnabled(d.enabled)),
+      apiFetch(`${API_URL}/bots/market-scanner-mode`, { headers: { Authorization: `Bearer ${token}` } })
+        .then((r) => (r.ok ? r.json() : Promise.reject(new Error('market-scanner-mode failed'))))
+        .then((d) => { setScannerCapabilityEnabled(d.capability_enabled); setScannerRuntimeEnabled(d.runtime_enabled); }),
+    ]).catch(() => setTogglesError(true));
+  }
+
   useEffect(() => {
     async function load() {
       try {
@@ -128,20 +158,17 @@ export function AdminConsolePage() {
       }
     }
     load();
-    apiFetch(`${API_URL}/payments/mode`, { headers: { Authorization: `Bearer ${token}` } })
-      .then((r) => (r.ok ? r.json() : null)).then((d) => d && setPaymentsMode(d.mode)).catch(() => {});
-    apiFetch(`${API_URL}/manual-trading/master-mode`, { headers: { Authorization: `Bearer ${token}` } })
-      .then((r) => (r.ok ? r.json() : null)).then((d) => d && setPaperEnforced(d.paper_enforced)).catch(() => {});
-    apiFetch(`${API_URL}/meetings/fireflies-setting`, { headers: { Authorization: `Bearer ${token}` } })
-      .then((r) => (r.ok ? r.json() : null)).then((d) => d && setFirefliesEnabled(d.enabled)).catch(() => {});
-    apiFetch(`${API_URL}/bots/market-scanner-mode`, { headers: { Authorization: `Bearer ${token}` } })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (d) { setScannerCapabilityEnabled(d.capability_enabled); setScannerRuntimeEnabled(d.runtime_enabled); } })
-      .catch(() => {});
+    loadAdminToggles();
+    // Global Risk Defaults isn't one of the four toggles loadAdminToggles
+    // tracks with togglesError/retry — it has its own "Loading…" state
+    // (riskDefaults === null) inside its own card, so a fetch failure here
+    // just leaves that card showing its loading state rather than tripping
+    // the shared togglesError flag for the unrelated toggle cards above it.
     apiFetch(`${API_URL}/manual-trading/global-risk-defaults`, { headers: { Authorization: `Bearer ${token}` } })
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => { if (d) { setRiskDefaults(d); setRiskDraft(d); } })
       .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
   async function saveRiskDefaults() {
@@ -320,7 +347,9 @@ export function AdminConsolePage() {
             >
               Live
             </button>
-            {paymentsMode === null && <span className="text-xs text-gray-500">Loading…</span>}
+            {paymentsMode === null && (togglesError
+              ? <button type="button" onClick={loadAdminToggles} className="text-xs text-red-500 underline">Could not load — try again</button>
+              : <span className="text-xs text-gray-500">Loading…</span>)}
           </div>
         </FoldedCard>
       )}
@@ -362,7 +391,9 @@ export function AdminConsolePage() {
             >
               Off — respect individual settings
             </button>
-            {paperEnforced === null && <span className="text-xs text-gray-500">Loading…</span>}
+            {paperEnforced === null && (togglesError
+              ? <button type="button" onClick={loadAdminToggles} className="text-xs text-red-500 underline">Could not load — try again</button>
+              : <span className="text-xs text-gray-500">Loading…</span>)}
           </div>
         </FoldedCard>
       )}
@@ -406,7 +437,9 @@ export function AdminConsolePage() {
             >
               Off
             </button>
-            {firefliesEnabled === null && <span className="text-xs text-gray-500">Loading…</span>}
+            {firefliesEnabled === null && (togglesError
+              ? <button type="button" onClick={loadAdminToggles} className="text-xs text-red-500 underline">Could not load — try again</button>
+              : <span className="text-xs text-gray-500">Loading…</span>)}
           </div>
         </FoldedCard>
       )}
@@ -424,7 +457,7 @@ export function AdminConsolePage() {
           summary={
             scannerCapabilityEnabled === null ? 'Loading…'
               : !scannerCapabilityEnabled ? 'Not deployed'
-              : scannerRuntimeEnabled ? 'On — scanning every 5 min' : 'Paused'
+              : scannerRuntimeEnabled ? 'On — scanning every 3 min' : 'Paused'
           }
           icon={<Bot size={18} />} accent="#f59e0b" dark={dark} defaultOpen
         >
@@ -463,7 +496,9 @@ export function AdminConsolePage() {
             >
               Off
             </button>
-            {scannerRuntimeEnabled === null && <span className="text-xs text-gray-500">Loading…</span>}
+            {scannerRuntimeEnabled === null && (togglesError
+              ? <button type="button" onClick={loadAdminToggles} className="text-xs text-red-500 underline">Could not load — try again</button>
+              : <span className="text-xs text-gray-500">Loading…</span>)}
           </div>
         </FoldedCard>
       )}
