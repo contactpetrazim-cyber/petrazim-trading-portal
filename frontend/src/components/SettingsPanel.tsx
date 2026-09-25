@@ -113,12 +113,15 @@ export function SettingsPanel({
 
   const items: { icon: typeof CreditCard; label: string; detail: string; to?: string; onClick?: () => void }[] = [
     { icon: Home, label: 'Home', detail: 'Back to the dashboard', to: '/home' },
+    { icon: CreditCard, label: 'Select Access and Pay', detail: 'Choose a tier or duration pass', to: '/payments' },
     // Embedded here too, by direct request ("Add and embed 'Traders
     // Dashboard' link to the settings icon") — Home (above) goes to
     // the main site's CorporateHomePage; this is the actual Trader
     // Console (stats, equity curve, pending approvals) at /dashboard.
+    // Ordered after Select Access and Pay by direct follow-up request
+    // ("Trader Dashboard would come after Select and Pay in
+    // arrangement in the Settings icon").
     { icon: Activity, label: 'Traders Dashboard', detail: 'Your trading console — stats, equity curve, pending approvals', to: '/dashboard' },
-    { icon: CreditCard, label: 'Select Access and Pay', detail: 'Choose a tier or duration pass', to: '/payments' },
     { icon: GraduationCap, label: 'Ask Trading Coach', detail: 'Open Trade AI', onClick: openTradeAI },
     { icon: CalendarClock, label: 'Facilitator Sessions', detail: 'Book time with a Manager or Partner (Tier 2/3)', to: '/meetings' },
     // Connect a real exchange account — embedded here too (by direct
