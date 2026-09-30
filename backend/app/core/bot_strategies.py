@@ -1,5 +1,4 @@
 
-"""
 Five Distinct SMC Bot Trading Styles
 Grounded in: Mark Douglas, Wyckoff, Dalton, Damir, Brooks, ICT, Photon, Jeafx
 """
@@ -7,12 +6,15 @@ Grounded in: Mark Douglas, Wyckoff, Dalton, Damir, Brooks, ICT, Photon, Jeafx
 from typing import Dict, List, Optional, Literal
 from dataclasses import dataclass
 from datetime import datetime
+import structlog
 from app.core.smc_algorithms import (
     MarketStructureDetector, ZoneDetector, FVGDetector, 
     LiquidityDetector, EntryExitEngine, RiskManager,
     Candle, SwingPoint, Zone, FairValueGap, LiquidityPool
 )
 from app.core.mtf_engine import MTFAlignmentEngine, AlignmentSignal, TimeframeState, Bias, Timeframe
+
+logger = structlog.get_logger()
 
 @dataclass
 class BotSignal:
@@ -29,9 +31,9 @@ class BotSignal:
     reasoning: str
     timestamp: datetime
     # Which exchange to execute this signal on — see BotConfig.exchange
-    # and execution_engine.py's _check_price_deviation. Optional so the
-    # five bot classes above (which don't set it) keep working; None
-    # falls back to execution_engine's symbol-based guess.
+    # and execution_engine.py\'s _check_price_deviation. Optional so the
+    # five bot classes above (which don\'t set it) keep working; None
+    # falls back to execution_engine\'s symbol-based guess.
     preferred_broker: Optional[str] = None
 
 # =============================================================================
@@ -92,9 +94,9 @@ class MacroSwingStructureBot:
         # Determine macro trend
         recent_swings = sorted(swings_1d, key=lambda x: x.timestamp)[-4:]
         # (the `s.structure_type == SwingPoint.structure_type` clause this
-        # line used to also check was comparing an instance's field
+        # line used to also check was comparing an instance\'s field
         # against the same name looked up on the class itself, which
-        # doesn't exist as a class attribute — SwingPoint.structure_type
+        # doesn\'t exist as a class attribute — SwingPoint.structure_type
         # is a per-instance dataclass field, not a class-level default.
         # AttributeError, every single call, confirmed live via the
         # market scanner — the real filter was always just this half.)
@@ -179,7 +181,7 @@ class MacroSwingStructureBot:
             take_profit=targets["tp2"],  # Primary target
             lot_size=lots["lot_size"],
             risk_percent=risk,
-            reasoning=f"Macro swing {direction}. 1D trend confirmed. 4H BOS at {last_bos['structure_level']}. "
+            reasoning=f"Macro swing {direction}. 1D trend confirmed. 4H BOS at {last_bos["structure_level"]}. "
                      f"Entry at 4H OB mean. SL beyond swing {sl_swing.price}. Target 5R.",
             timestamp=datetime.utcnow()
         )
@@ -737,7 +739,7 @@ class JeafxSMCBot:
         }
 
         # Step 9: High R:R target (4-6R)
-        # Real bug, found while authoring this bot's curriculum: `entry`
+        # Real bug, found while authoring this bot\'s curriculum: `entry`
         # was never assigned anywhere in this function (only entry_price,
         # a bare float) — calculate_targets() requires a dict with an
         # "entry_price" key (see EntryExitEngine.calculate_targets in
@@ -764,7 +766,7 @@ class JeafxSMCBot:
             take_profit=targets["tp2"],
             lot_size=lots["lot_size"],
             risk_percent=risk,
-            reasoning=f"SMC BOT {direction}. 1H fresh zone. 15M {last_sweep['type']}. "
+            reasoning=f"SMC BOT {direction}. 1H fresh zone. 15M {last_sweep["type"]}. "
                      f"5M confirmation candle + FVG: {valid_fvg is not None}. "
                      f"Entry at 50%. Strict SL beyond purge. 5R target.",
             timestamp=datetime.utcnow()
@@ -774,6 +776,42 @@ class JeafxSMCBot:
 # =============================================================================
 # BOT ORCHESTRATOR
 # =============================================================================
+
+def _signal_risk_is_valid(signal: "BotSignal") -> bool:
+    """A stop_loss must sit on the PROTECTIVE side of entry_price for
+    this signal\'s own direction — a long\'s stop must be BELOW entry
+    (it loses money as price falls further), a short\'s stop must be
+    ABOVE entry (it loses money as price rises further). Anything else
+    isn\'t a real risk-managed trade, whatever produced it.
+
+    Real bug, found via direct report ("some of those trades got
+    closed and labeled \'STOP_LOSS\' at the exact moment price was
+    actually moving in their favor — that\'s a separate bug worth
+    investigating"). Confirmed directly from production data: several
+    of JeafxSMCBot\'s (Bot 5) own SHORT trades had stop_loss BELOW
+    entry_price. Root cause: entry_price (from an FVG/confirmation-
+    candle midpoint) and stop_loss (from an independently-detected
+    liquidity-sweep extreme, offset by a buffer) come from two
+    completely unrelated calculations with nothing ever checking they
+    land on the correct relative sides. When entry happened to fall
+    past where the stop would be, the result was a "stop" already on
+    the PROFITABLE side of entry — pending_order_monitor.py\'s own
+    SL-hit check is a pure price-level comparison with no awareness
+    that a stop could be geometrically backwards, so it fired the
+    moment price moved favorably, closing what should have kept
+    running as a winning position and mislabeling it "STOP_LOSS".
+
+    OrderBlockReversalBot (Bot 2) computes entry (from an Order Block)
+    and its own sweep-extreme stop_loss the same independent way — no
+    production trade has hit it yet, but nothing rules it out. Checked
+    centrally here, in run_all, rather than patched into one bot\'s own
+    analyze() — every bot\'s signal is protected by the same guard,
+    including any future strategy that computes entry/stop from
+    independent sources this same way."""
+    if signal.direction == "long":
+        return signal.stop_loss < signal.entry_price
+    return signal.stop_loss > signal.entry_price  # "short"
+
 
 class BotOrchestrator:
     """Manages all 5 bots and routes signals to execution."""
@@ -788,6 +826,20 @@ class BotOrchestrator:
         }
         self.active_signals: List[BotSignal] = []
 
+    def _collect(self, signals: List[BotSignal], sig: Optional[BotSignal]) -> None:
+        """Every signal any bot produces passes through here before
+        being trusted — see _signal_risk_is_valid\'s own comment for
+        what this actually guards against and why it\'s centralized."""
+        if not sig:
+            return
+        if not _signal_risk_is_valid(sig):
+            logger.warning(
+                "bot_signal_invalid_risk_geometry", bot_id=sig.bot_id, symbol=sig.symbol,
+                direction=sig.direction, entry_price=sig.entry_price, stop_loss=sig.stop_loss,
+            )
+            return
+        signals.append(sig)
+
     def run_all(self, market_data: Dict, account_balance: float) -> List[BotSignal]:
         """Run all active bots against current market data."""
         signals = []
@@ -795,11 +847,10 @@ class BotOrchestrator:
         # Bot 1: Needs 1D + 4H
         if "1D" in market_data and "4H" in market_data:
             sig = self.bots["bot_1"].analyze(
-                market_data["1D"], market_data["4H"], 
+                market_data["1D"], market_data["4H"],
                 account_balance, market_data.get("symbol", "UNKNOWN")
             )
-            if sig:
-                signals.append(sig)
+            self._collect(signals, sig)
 
         # Bot 2: Needs 4H + 1H + 15M
         if all(k in market_data for k in ["4H", "1H", "15M"]):
@@ -807,8 +858,7 @@ class BotOrchestrator:
                 market_data["4H"], market_data["1H"], market_data["15M"],
                 account_balance, market_data.get("symbol", "UNKNOWN")
             )
-            if sig:
-                signals.append(sig)
+            self._collect(signals, sig)
 
         # Bot 3: Needs 1H + 15M
         if "1H" in market_data and "15M" in market_data:
@@ -816,8 +866,7 @@ class BotOrchestrator:
                 market_data["1H"], market_data["15M"],
                 account_balance, market_data.get("symbol", "UNKNOWN")
             )
-            if sig:
-                signals.append(sig)
+            self._collect(signals, sig)
 
         # Bot 4: Needs 4H + 1H
         if "4H" in market_data and "1H" in market_data:
@@ -825,8 +874,7 @@ class BotOrchestrator:
                 market_data["4H"], market_data["1H"],
                 account_balance, market_data.get("symbol", "UNKNOWN")
             )
-            if sig:
-                signals.append(sig)
+            self._collect(signals, sig)
 
         # Bot 5: Needs 1H + 15M + 5M
         if all(k in market_data for k in ["1H", "15M", "5M"]):
@@ -834,8 +882,7 @@ class BotOrchestrator:
                 market_data["1H"], market_data["15M"], market_data["5M"],
                 account_balance, market_data.get("symbol", "UNKNOWN")
             )
-            if sig:
-                signals.append(sig)
+            self._collect(signals, sig)
 
         self.active_signals = signals
         return signals
