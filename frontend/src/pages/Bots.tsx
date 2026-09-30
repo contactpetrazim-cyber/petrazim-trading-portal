@@ -7,6 +7,16 @@ import { BotConfig, BotPerformance, BotMetricsUpdate } from '../types';
 import { useThemeStore } from '../hooks/useTheme';
 import { formatApiError } from '../lib/apiError';
 
+// The real reference balance every bot's own signal-sizing math is
+// actually computed against — config.py's MARKET_SCANNER_DEFAULT_
+// ACCOUNT_BALANCE (market_scanner.py's scan_once, and routers/
+// trades.py's own reanalyze_trade both pass this exact same constant
+// into BotOrchestrator.run_all's `account_balance` argument). Shown
+// here so "Risk Amount (USD)" is a real number reflecting what a bot
+// actually risks per trade, not a guess — by direct request ("let's
+// add risk amount to the bot Risk Amount (USD)").
+const REFERENCE_ACCOUNT_BALANCE_USD = 10_000;
+
 /**
  * BotsPage — "Bot Configuration". Was 5 hardcoded bots with dead
  * buttons (Start/Pause/Switch mode had no onClick at all) and no way
@@ -379,7 +389,9 @@ export function BotsPage() {
                 </div>
                 <div className={`text-center p-2 rounded-lg ${dark ? "bg-white/5" : "bg-corporate-bg"}`}>
                   <div className="text-lg font-bold">{bot.risk_per_trade}%</div>
-                  <div className="text-xs text-gray-400">Risk</div>
+                  <div className="text-xs text-gray-400">
+                    Risk — ${((bot.risk_per_trade / 100) * REFERENCE_ACCOUNT_BALANCE_USD).toFixed(2)}
+                  </div>
                 </div>
               </div>
 
@@ -489,6 +501,27 @@ export function BotsPage() {
                           type="number" step="0.1" min="0.1" max="25"
                           value={editing.risk_per_trade}
                           onChange={(e) => setEditing({ ...editing, risk_per_trade: Number(e.target.value) })}
+                          className={inputCls}
+                        />
+                      </label>
+                      {/* Same value as Risk per trade (%) above, just in
+                          dollars — against the real reference balance
+                          every bot's own signal sizing is actually
+                          computed with (see REFERENCE_ACCOUNT_BALANCE_USD's
+                          own comment). Editing either field updates the
+                          other; only risk_per_trade is ever actually
+                          saved — this is purely a $ view of the same
+                          number, by direct request ("add risk amount to
+                          the bot Risk Amount (USD)"). */}
+                      <label className="text-xs text-gray-400">
+                        Risk Amount (USD)
+                        <input
+                          type="number" step="1" min="0"
+                          value={(((editing.risk_per_trade ?? 0) / 100) * REFERENCE_ACCOUNT_BALANCE_USD).toFixed(2)}
+                          onChange={(e) => {
+                            const usd = Number(e.target.value);
+                            setEditing({ ...editing, risk_per_trade: Math.round((usd / REFERENCE_ACCOUNT_BALANCE_USD) * 100 * 100) / 100 });
+                          }}
                           className={inputCls}
                         />
                       </label>
