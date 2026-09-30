@@ -1,4 +1,3 @@
-
 """
 SMC (Smart Money Concepts) Detection Engine
 Production-grade algorithms for market structure, zones, FVGs, and liquidity.
@@ -981,26 +980,57 @@ class EntryExitEngine:
                           risk_percent: float,
                           stop_loss_distance: float,
                           pip_value: float = 10.0,
-                          contract_size: float = 100000.0) -> Dict:
+                          contract_size: float = 100000.0,
+                          is_forex: bool = False) -> Dict:
         """
         Position Sizing Formula:
         Lot Size = (Account Balance * Risk%) / Stop Loss Distance (in price units)
 
-        For FX: Adjust for pip value and contract size
-        For Crypto: Direct calculation
+        For FX (is_forex=True): adjust for pip value and contract size.
+        For Crypto (is_forex=False, the default — every bot on this
+        platform currently trades crypto perpetuals, and none of the 5
+        strategy classes' own calculate_lot_size calls pass is_forex at
+        all): direct calculation — `lot_size` IS the real quantity of
+        the base asset (e.g., BTC), which is exactly what
+        execution_engine.py passes straight through as a real broker
+        order's own `quantity` argument.
+
+        Real bug, found via direct report ("all the bots currently on
+        semi auto ... closed at BE, always at zero, no win no loss").
+        The docstring here always said "For Crypto: Direct calculation"
+        but the code below never actually branched on asset class — it
+        unconditionally divided by contract_size * pip_value (a
+        1,000,000x FX-lot conversion) even for crypto. For a real
+        BTCUSDT.P trade (~$130 risk_amount, ~$29 stop distance), that
+        produces a lot size around 0.0000045, which the final
+        round-to-0.01 step below then rounds straight down to exactly
+        0 — execution_engine.py both places real orders AND computes
+        realized_pnl as lot_size * price_move, so a lot_size of 0 made
+        every closed trade's PnL compute to exactly 0 regardless of
+        whether it actually hit its stop-loss or its take-profit,
+        masking every real win and every real loss as a fake
+        "breakeven."
         """
         risk_amount = account_balance * (risk_percent / 100)
 
         if stop_loss_distance <= 0:
             return {"lot_size": 0, "risk_amount": 0, "error": "Invalid stop loss distance"}
 
-        # Raw lot size in units
+        # Raw position size, in units of the base asset (crypto) or
+        # raw FX units before the standard-lot conversion below.
         raw_lots = risk_amount / stop_loss_distance
 
-        # For standard FX lot sizing
-        lots = raw_lots / (contract_size * pip_value)
+        # Standard FX lot sizing only when explicitly trading forex —
+        # see this method's own docstring for why crypto (the actual,
+        # only asset class any bot here trades today) must skip this.
+        lots = (raw_lots / (contract_size * pip_value)) if is_forex else raw_lots
 
-        # Normalize to standard lot sizes (0.01 increments)
+        # Normalize to standard lot sizes (0.01 increments) — this
+        # matches Binance's own typical BTC/ETH quantity step for most
+        # of this platform's symbols; a genuinely tiny result (a very
+        # wide stop against a very small account) still correctly
+        # rounds to 0 here, same honest "can't size a real position"
+        # signal as before this fix.
         normalized_lots = round(lots / 0.01) * 0.01
 
         return {
