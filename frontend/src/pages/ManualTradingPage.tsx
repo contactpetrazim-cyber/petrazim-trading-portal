@@ -371,10 +371,10 @@ export function ManualTradingPage() {
     // moment settings come back, so one click is enough.
     let effectiveSettings = settings;
     if (!effectiveSettings) {
-      setResult({ ok: false, message: 'Your trading settings haven\'t loaded yet — retrying…' });
+      setResult({ ok: false, message: 'Your trading settings haven’t loaded yet — retrying…' });
       effectiveSettings = await loadSettings();
       if (!effectiveSettings) {
-        setResult({ ok: false, message: 'Still couldn\'t load your trading settings — check your connection and try again.' });
+        setResult({ ok: false, message: 'Still couldn’t load your trading settings — check your connection and try again.' });
         return;
       }
       setResult(null);
@@ -946,7 +946,7 @@ export function ManualTradingPage() {
                   key={t}
                   onClick={() => setOrderType(t)}
                   className={`pb-2 text-sm font-semibold capitalize border-b-2 -mb-px ${
-                    orderType === t ? `border-blue-600 ${dark ? 'text-white' : 'text-gray-900'}` : `border-transparent ${dark ? 'text-white/30' : 'text-gray-400'}`}
+                    orderType === t ? `border-blue-600 ${dark ? 'text-white' : 'text-gray-900'}` : `border-transparent ${dark ? 'text-white/30' : 'text-gray-400'}`
                   }`}
                 >
                   {t}
