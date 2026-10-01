@@ -318,10 +318,35 @@ async def place_manual_order(
         if risk_dist <= 0:
             raise HTTPException(status_code=400, detail="stop_loss must differ from entry_price")
 
+        # A stop on the WRONG side of entry for this direction (e.g. a
+        # LONG's stop placed ABOVE entry) is already past the
+        # breakeven line the moment the order fills — price moving
+        # favorably would hit it immediately, and position_monitor.py's
+        # SL-hit check is a pure price-level comparison with no
+        # awareness a stop could be geometrically backwards, so it
+        # would fire right away and mislabel a winning move
+        # "STOP_LOSS". This is the exact same risk-geometry bug found
+        # and fixed for every bot strategy (bot_strategies.py's
+        # _signal_risk_is_valid/_collect) — critically reviewed here
+        # too, by direct request ("Can you confirm that all the above
+        # issues are not present for manual trading"), and found
+        # possible here as well (nothing previously stopped a trader
+        # from typing a stop on the wrong side). Rejected outright
+        # rather than silently accepted, since a human is right here to
+        # correct it.
+        stop_is_valid = (req.stop_loss < req.entry_price) if req.direction == "long" else (req.stop_loss > req.entry_price)
+        if not stop_is_valid:
+            wrong_side = "above" if req.direction == "long" else "below"
+            right_side = "below" if req.direction == "long" else "above"
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid stop-loss: a {req.direction.upper()} stop must be {right_side} entry, not {wrong_side} it.",
+            )
+
         # Risk-$ is the default sizing mode (matches a real exchange's own
         # order ticket — "Risk, USD" driving position size) — risk_percent
         # is derived from it either way, since every risk cap in this app
-        # (and the bot side of the platform) is expressed as a percentage.
+        # (and the bot side of the platform) is expressed as a percentage.)
         if req.risk_mode == "dollar":
             if req.risk_amount is None:
                 raise HTTPException(status_code=400, detail="risk_amount is required when risk_mode is 'dollar'")
@@ -831,6 +856,24 @@ async def modify_targets(
         raise HTTPException(status_code=409, detail=f"Trade is {row.status.value}, not active or pending.")
     if not row.is_test:
         await _raise_if_access_expired(db, user)
+
+    # Same risk-geometry guard as place_manual_order above, applied to
+    # whatever the EFFECTIVE entry/stop would be after this edit (the
+    # request may touch either one, or neither) — moving a stop (or, on
+    # a still-PENDING order, the entry) to the wrong side of the other
+    # is rejected before anything is written, rather than silently
+    # creating the same backwards-stop risk after the fact.
+    effective_entry = req.entry_price if (row.status == TradeStatus.PENDING and req.entry_price is not None) else row.entry_price
+    effective_stop = req.stop_loss if req.stop_loss is not None else row.stop_loss
+    if effective_entry is not None and effective_stop is not None:
+        is_long = row.direction == TradeDirection.LONG
+        stop_is_valid = (effective_stop < effective_entry) if is_long else (effective_stop > effective_entry)
+        if not stop_is_valid:
+            right_side = "below" if is_long else "above"
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid stop-loss: a {row.direction.value.upper()} stop must stay {right_side} entry.",
+            )
 
     # Logged to trade_logs (TradeLog — already existed with exactly
     # this shape, event_type "sl_update"/"tp_update", nothing wrote to
