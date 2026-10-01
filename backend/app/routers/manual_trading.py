@@ -346,7 +346,7 @@ async def place_manual_order(
         # Risk-$ is the default sizing mode (matches a real exchange's own
         # order ticket — "Risk, USD" driving position size) — risk_percent
         # is derived from it either way, since every risk cap in this app
-        # (and the bot side of the platform) is expressed as a percentage.)
+        # (and the bot side of the platform) is expressed as a percentage.
         if req.risk_mode == "dollar":
             if req.risk_amount is None:
                 raise HTTPException(status_code=400, detail="risk_amount is required when risk_mode is 'dollar'")
