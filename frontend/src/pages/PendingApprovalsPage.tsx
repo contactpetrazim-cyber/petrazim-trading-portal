@@ -1,11 +1,12 @@
 
 import { useEffect, useState } from 'react';
 import { formatDistanceToNow } from 'date-fns';
-import { ArrowUpRight, ArrowDownRight, Check, Ban, Clock3, RefreshCw, Bot, ChevronDown, ChevronUp, AlertTriangle, X } from 'lucide-react';
+import { ArrowUpRight, ArrowDownRight, Check, Ban, Clock3, RefreshCw, Bot, ChevronDown, ChevronUp, AlertTriangle, X, LineChart } from 'lucide-react';
 import { LoadingIndicator } from '../components/LoadingIndicator';
 import { PositionOnChartModal } from '../components/PositionOnChartModal';
 import { tradeToChartPosition } from '../components/ChartPanel';
 import { useEffectiveChartColors } from '../hooks/useCandleColors';
+import { useQuickPairsStore, DEFAULT_QUICK_PAIRS } from '../hooks/useQuickPairs';
 import { tradesApi } from '../services/api';
 import { Trade } from '../types';
 import { useThemeStore } from '../hooks/useTheme';
@@ -44,7 +45,20 @@ export function PendingApprovalsPage() {
   const [deferredIds, setDeferredIds] = useState<Set<string>>(new Set());
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [chartTradeId, setChartTradeId] = useState<string | null>(null);
+  // A persistent trigger ("Open Approval Chart" in the header) needs
+  // to open the chart even when there's no specific recommendation
+  // selected — and even when the list is EMPTY — by direct request
+  // ("Provide link to trigger open the approval charts in the pending
+  // Approval section - when there are pending approvals or when there
+  // are no pending approval"). `chartTradeId` alone can't express
+  // that (it's always a real trade's id); this flag opens the SAME
+  // modal with no `position`/`trade`, exactly like On Chart already
+  // supports opening with no position at all — PositionOnChartModal's
+  // own "no open or pending order on this symbol" copy already covers
+  // that state.
+  const [chartOpenBlank, setChartOpenBlank] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const { pairs: quickPairs } = useQuickPairsStore();
   const [reanalyzing, setReanalyzing] = useState(false);
   // A Re-Analyse that finds the setup no longer valid moves the trade
   // OFF pending (CANCELLED) — which would otherwise make it vanish
@@ -77,6 +91,28 @@ export function PendingApprovalsPage() {
   const chartTrade = chartTradeId
     ? trades.find((t) => t.trade_id === chartTradeId) ?? invalidated[chartTradeId] ?? null
     : null;
+  const chartOpen = chartTradeId !== null || chartOpenBlank;
+  // Opening blank (no specific recommendation picked) still needs SOME
+  // symbol to put on the chart — the first still-pending
+  // recommendation's own symbol when one exists, otherwise the same
+  // default quick-link (BTC/USDT) every other chart in the app falls
+  // back to (see ChartWithPairs's own identical fallback).
+  const chartSymbol = chartTrade?.symbol ?? visible[0]?.symbol ?? quickPairs[0]?.trade ?? DEFAULT_QUICK_PAIRS[0].trade;
+  // Every OTHER still-pending recommendation on that SAME symbol —
+  // lets the Approval Chart's position selector show/toggle multiple
+  // pending trades on one pair at once, exactly like the On Chart's
+  // own `otherSamePairPositions` (ChartWithPairs.tsx) already does for
+  // active/pending trades there. Only pending trades make sense here
+  // (there's nothing else to approve), excluding whichever one is
+  // currently the primary `chartTrade`.
+  const samePairOtherPositions = chartTrade
+    ? visible.filter((t) => t.symbol === chartTrade.symbol && t.trade_id !== chartTrade.trade_id)
+    : visible.filter((t) => t.symbol === chartSymbol);
+
+  function closeChart() {
+    setChartTradeId(null);
+    setChartOpenBlank(false);
+  }
 
   function dismissInvalidated(tradeId: string) {
     setInvalidated((prev) => {
@@ -84,7 +120,7 @@ export function PendingApprovalsPage() {
       delete next[tradeId];
       return next;
     });
-    if (chartTradeId === tradeId) setChartTradeId(null);
+    if (chartTradeId === tradeId) closeChart();
   }
 
   async function handleApprove(tradeId: string) {
@@ -141,11 +177,24 @@ export function PendingApprovalsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold">Pending Approvals</h2>
-        <p className="text-gray-400 text-sm mt-1">
-          Every bot recommendation waiting on your decision — nothing here executes until you Approve it.
-        </p>
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <h2 className="text-2xl font-bold">Pending Approvals</h2>
+          <p className="text-gray-400 text-sm mt-1">
+            Every bot recommendation waiting on your decision — nothing here executes until you Approve it.
+          </p>
+        </div>
+        {/* Persistent trigger — always here, with pending approvals or
+            without, by direct request. Each card already has its own
+            "Open Approval Chart →" link for ITS trade; this one opens
+            the same chart with no trade pre-selected (first pending
+            recommendation's symbol if any, else the default pair). */}
+        <button
+          onClick={() => { setChartTradeId(null); setChartOpenBlank(true); }}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium shrink-0 ${dark ? 'bg-smc-border text-gray-200 hover:text-white' : 'bg-gray-100 text-gray-700 hover:text-corporate-text-on-bg'}`}
+        >
+          <LineChart size={14} /> Open Approval Chart
+        </button>
       </div>
 
       {error && <div className="text-sm text-red-400">{error}</div>}
@@ -299,25 +348,31 @@ export function PendingApprovalsPage() {
       {/* Approval Chart — the On Chart tool, reused verbatim, pre-loaded
           with the selected card's own Entry/SL/TP and its own
           Approve/Not Approve/Defer/Re-Analyse toolbar buttons wired to
-          the SAME handlers as the cards above. */}
-      {chartTrade && (
+          the SAME handlers as the cards above. Opens with no
+          position/trade at all when triggered via the persistent
+          header button with nothing selected — PositionOnChartModal
+          already supports that (its own "no open or pending order on
+          this symbol" state), same as On Chart. */}
+      {chartOpen && (
         <PositionOnChartModal
-          position={tradeToChartPosition(chartTrade)}
+          position={chartTrade ? tradeToChartPosition(chartTrade) : undefined}
           trade={chartTrade}
-          symbol={chartTrade.symbol}
+          symbol={chartSymbol}
+          otherSamePairPositions={samePairOtherPositions}
           bullColor={colors.upColor}
           bearColor={colors.downColor}
-          onClose={() => setChartTradeId(null)}
+          onClose={closeChart}
           onChanged={load}
           // Approve/Reject only make sense while the trade is still
           // genuinely PENDING — a Re-Analyse that just invalidated it
           // (status now CANCELLED) omits both, offering only Dismiss
           // (repurposing Defer) instead of a nonsensical "approve an
-          // already-cancelled trade" action.
-          onApprove={chartTrade.status === 'pending' ? () => handleApprove(chartTrade.trade_id) : undefined}
-          onReject={chartTrade.status === 'pending' ? () => handleReject(chartTrade.trade_id) : undefined}
-          onDefer={chartTrade.status === 'pending' ? () => handleDefer(chartTrade.trade_id) : () => dismissInvalidated(chartTrade.trade_id)}
-          onReanalyze={chartTrade.status === 'pending' ? () => handleReanalyze(chartTrade.trade_id) : undefined}
+          // already-cancelled trade" action. With no trade selected at
+          // all (blank open), none of these make sense either.
+          onApprove={chartTrade?.status === 'pending' ? () => handleApprove(chartTrade.trade_id) : undefined}
+          onReject={chartTrade?.status === 'pending' ? () => handleReject(chartTrade.trade_id) : undefined}
+          onDefer={chartTrade ? (chartTrade.status === 'pending' ? () => handleDefer(chartTrade.trade_id) : () => dismissInvalidated(chartTrade.trade_id)) : undefined}
+          onReanalyze={chartTrade?.status === 'pending' ? () => handleReanalyze(chartTrade.trade_id) : undefined}
           reanalyzing={reanalyzing}
         />
       )}
