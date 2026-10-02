@@ -15,12 +15,22 @@ from app.core.access_gate import require_active_access, has_active_access, _rais
 from app.schemas import TradeCreate, TradeResponse, TradeApproval, TradeArchiveUpdate, TradeDeleteUpdate
 from app.services.execution_engine import ExecutionEngine
 from app.services.live_price import get_crypto_price
+from app.services.data_ingestion import MarketDataIngestion
 import structlog
 
 router = APIRouter(prefix="/trades", tags=["trades"])
 logger = structlog.get_logger()
 engine = ExecutionEngine()
 settings_module = get_settings()
+# One shared, long-lived ingestion instance for the Trade Snapshot
+# endpoint below — reusing MarketDataIngestion.__init__'s own one-
+# ccxt-client-per-exchange cache rather than constructing a fresh
+# MarketDataIngestion() (and therefore a fresh ccxt client) per
+# request. See that class's own comment for why that specific mistake
+# previously triggered a real Binance IP ban ("Way too many
+# requests"), confirmed live in production logs this same day — a
+# snapshot endpoint hit repeatedly must not repeat it.
+_snapshot_ingestion = MarketDataIngestion()
 
 # Same principle as bots.py/roster.py: Admin/Super Admin see every
 # trade, everyone else only their own (a trade's owner is the Trader
@@ -635,6 +645,80 @@ async def get_trade(trade_id: str, db: AsyncSession = Depends(get_db), user: Use
     await _enrich_live_pnl([trade])
     return trade
 
+@router.get("/{trade_id}/snapshot")
+async def trade_snapshot(
+    trade_id: str,
+    timeframe: str = Query("1h", description="'1h' or '15m'"),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Real historical candles around this trade's own entry/exit
+    window, by direct request ("Can snapshots of the trade be taken
+    and stored for 1H and 15M as quick reference ... upon close
+    snapshot for the trade showing the entry ... SL or TP ... with the
+    candles"). NOT a pre-rendered image stored at close time: a past
+    window's own OHLCV never changes, so re-fetching it live from the
+    exchange on each view genuinely IS "the snapshot" — no image-
+    rendering infra, no extra storage, no staleness to manage. The
+    frontend draws the actual candlestick chart from the real data
+    this returns.
+
+    Only crypto trades (a real ccxt exchange id in broker_name) are
+    supported — the only asset class any bot here currently trades
+    (see RiskManager.calculate_lot_size's own is_forex comment); a
+    forex/MT4-5 trade's broker_name ("metatrader"/"tradelocker") isn't
+    a ccxt exchange id at all, so that case returns a clear 501
+    instead of a confusing ccxt error.
+    """
+    trade = await _get_owned_trade(trade_id, user, db)
+    if timeframe not in ("1h", "15m"):
+        raise HTTPException(status_code=400, detail="timeframe must be '1h' or '15m'")
+    if not trade.entry_timestamp:
+        raise HTTPException(status_code=409, detail="This trade has no entry timestamp yet — nothing to snapshot.")
+
+    exchange = (trade.broker_name or "binance").lower()
+    if exchange not in ("binance", "bybit", "bingx", "mexc", "okx", "kucoin"):
+        raise HTTPException(status_code=501, detail=f"Chart snapshots aren't available for {exchange} trades yet — crypto exchanges only.")
+
+    # A buffer of lookback BEFORE entry (so the setup that led to the
+    # trade is visible, not just the trade itself) and a short window
+    # AFTER exit (or now, for a still-ACTIVE trade) so the immediate
+    # aftermath is visible too. Candle counts, not calendar time, are
+    # what actually matters for a readable chart — capped at 120 so
+    # this stays one real ccxt call, not an unbounded fetch.
+    bar_seconds = 3600 if timeframe == "1h" else 900
+    lookback_bars = 30
+    since = trade.entry_timestamp - timedelta(seconds=bar_seconds * lookback_bars)
+    end = (trade.exit_timestamp or datetime.utcnow()) + timedelta(seconds=bar_seconds * 6)
+
+    try:
+        candles = await _snapshot_ingestion.fetch_historical_ccxt(exchange, trade.symbol, timeframe, limit=120, since=since)
+    except Exception as e:
+        logger.warning("trade_snapshot_fetch_failed", trade_id=trade_id, exchange=exchange, symbol=trade.symbol, error=str(e))
+        raise HTTPException(status_code=502, detail="Could not fetch chart data right now — try again shortly.")
+
+    candles = [c for c in candles if c.timestamp <= end]
+    if not candles:
+        raise HTTPException(status_code=404, detail="No candle data available for this trade's window.")
+
+    return {
+        "trade_id": trade.trade_id,
+        "symbol": trade.symbol,
+        "timeframe": timeframe,
+        "direction": trade.direction.value,
+        "entry_price": trade.entry_price,
+        "entry_timestamp": trade.entry_timestamp,
+        "stop_loss": trade.stop_loss,
+        "take_profit_1": trade.take_profit_1,
+        "exit_price": trade.exit_price,
+        "exit_timestamp": trade.exit_timestamp,
+        "status": trade.status.value,
+        "candles": [
+            {"timestamp": c.timestamp.isoformat(), "open": c.open, "high": c.high, "low": c.low, "close": c.close}
+            for c in candles
+        ],
+    }
+
 @router.patch("/{trade_id}/archive", response_model=TradeResponse)
 async def set_trade_archived(
     trade_id: str,
@@ -705,6 +789,7 @@ async def reanalyze_trade(trade_id: str, db: AsyncSession = Depends(get_db), use
     from app.models.trade import TradeDirection
     from app.services.data_ingestion import MarketDataIngestion
     from app.core.bot_strategies import BotOrchestrator
+    from app.services.market_scanner import get_effective_account_balance
 
     bot = (await db.execute(select(BotConfig).where(BotConfig.bot_id == trade.bot_id))).scalar_one_or_none()
     if bot is None:
@@ -726,7 +811,12 @@ async def reanalyze_trade(trade_id: str, db: AsyncSession = Depends(get_db), use
         except Exception:
             continue  # one timeframe failing shouldn't block the others — same tolerance as the scanner
 
-    signals = BotOrchestrator({}).run_all(market_data, settings_module.MARKET_SCANNER_DEFAULT_ACCOUNT_BALANCE)
+    # Same effective-balance resolution as the scanner itself (master
+    # override, else this bot's own account_balance_usd, else the
+    # static default) — by direct request ("Create a master bot
+    # control for bot starting reference capital and balance").
+    account_balance = await get_effective_account_balance(db, bot)
+    signals = BotOrchestrator({}).run_all(market_data, account_balance)
     fresh = next((s for s in signals if s.bot_id == trade.bot_id), None)
 
     # Original reasoning is ALWAYS kept — by direct request ("the

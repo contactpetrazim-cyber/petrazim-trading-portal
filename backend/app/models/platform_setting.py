@@ -80,3 +80,18 @@ MARKET_SCANNER_ENABLED_KEY = "bots.market_scanner_enabled"
 # back to config.py's own static values, unchanged behavior) until an
 # Admin explicitly sets an override.
 GLOBAL_RISK_DEFAULTS_KEY = "trading.global_risk_defaults"
+
+# Super Admin's platform-wide MASTER override of every bot's own
+# Starting Reference Capital/Balance (BotConfig.account_balance_usd)
+# — by direct request ("Create a master bot control for bot starting
+# reference capital and balance ... put master in Admin portal to
+# supersede all"). Unlike GLOBAL_RISK_DEFAULTS_KEY above (a soft
+# fallback a bot only resolves to when it has no value of its own),
+# this is a hard kill-switch-style override, same shape as
+# TRADING_PAPER_ENFORCED_KEY: when enabled, its value wins over EVERY
+# bot's own setting, platform-wide, no exceptions. Value is a JSON
+# object ({"enabled": false, "value": 10000.0}) so the number survives
+# being toggled off and back on. Defaults to unset/disabled — each
+# bot's own account_balance_usd (or the static config.py default when
+# that's unset too) applies until an Admin explicitly turns this on.
+MASTER_ACCOUNT_BALANCE_KEY = "trading.master_account_balance"

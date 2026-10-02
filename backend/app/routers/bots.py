@@ -1,6 +1,6 @@
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List
@@ -10,13 +10,14 @@ from app.models.bot import BotConfig, BotStatus, ExecutionMode
 from app.models.user import User, UserRole
 from app.core.access_gate import require_active_access
 from app.core.auth import get_current_user, require_super_admin
-from app.models.platform_setting import MARKET_SCANNER_ENABLED_KEY, PlatformSetting
+from app.models.platform_setting import MARKET_SCANNER_ENABLED_KEY, MASTER_ACCOUNT_BALANCE_KEY, PlatformSetting
 from app.models.trade import Trade, TradeStatus
 from app.services.roster_access import user_can_manage_trader
-from app.services.market_scanner import get_market_scanner_runtime_enabled
+from app.services.market_scanner import get_market_scanner_runtime_enabled, get_master_account_balance
 from app.models.trade import TradingMode
 from app.config import get_settings
 from app.schemas import BotConfigCreate, BotConfigResponse, BotToggle, BotExchangeUpdate, BotMetricsUpdate, BotRename, BotTradingModeUpdate, BotSleepUpdate, BotSubAutoUpdate
+import json
 import structlog
 
 router = APIRouter(prefix="/bots", tags=["bots"])
@@ -78,6 +79,52 @@ async def set_market_scanner_mode(
         capability_enabled=get_settings().MARKET_SCANNER_ENABLED,
         runtime_enabled=req.runtime_enabled,
     )
+
+
+class MasterAccountBalanceResponse(BaseModel):
+    enabled: bool
+    value: float
+    # config.py's own static default — shown so the Admin console can
+    # display "currently resolving to $X" even while the override is
+    # off, same honesty as GlobalRiskDefaultsResponse's own is_override.
+    platform_default: float
+
+
+@router.get("/master-account-balance", response_model=MasterAccountBalanceResponse)
+async def get_master_account_balance_route(db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+    """Any authenticated user can read this — the Bots page shows it so
+    a Trader can see when their own Starting Reference Capital is being
+    overridden, same "everyone sees the resolved state, only Super
+    Admin changes it" shape as /master-mode."""
+    enabled, value = await get_master_account_balance(db)
+    return MasterAccountBalanceResponse(enabled=enabled, value=value, platform_default=get_settings().MARKET_SCANNER_DEFAULT_ACCOUNT_BALANCE)
+
+
+class SetMasterAccountBalanceRequest(BaseModel):
+    enabled: bool
+    value: float = Field(gt=0)
+
+
+@router.patch("/master-account-balance", response_model=MasterAccountBalanceResponse)
+async def set_master_account_balance(
+    req: SetMasterAccountBalanceRequest, db: AsyncSession = Depends(get_db), admin: User = Depends(require_super_admin),
+):
+    """Super Admin only — "put master in Admin portal to supersede
+    all." Turning this on forces EVERY bot's signal sizing to use this
+    ONE balance, platform-wide, regardless of what any individual
+    bot's own Starting Reference Capital says — a genuine kill-switch,
+    not a per-bot default (see get_effective_account_balance's own
+    comment for the precedence order)."""
+    row = (await db.execute(
+        select(PlatformSetting).where(PlatformSetting.key == MASTER_ACCOUNT_BALANCE_KEY)
+    )).scalar_one_or_none()
+    value = json.dumps({"enabled": req.enabled, "value": req.value})
+    if row:
+        row.value = value
+    else:
+        db.add(PlatformSetting(key=MASTER_ACCOUNT_BALANCE_KEY, value=value))
+    await db.commit()
+    return MasterAccountBalanceResponse(enabled=req.enabled, value=req.value, platform_default=get_settings().MARKET_SCANNER_DEFAULT_ACCOUNT_BALANCE)
 
 
 async def _get_owned_bot(bot_id: str, user: User, db: AsyncSession) -> BotConfig:

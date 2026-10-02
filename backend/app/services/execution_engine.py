@@ -442,6 +442,18 @@ class ExecutionEngine:
         db.add(trade)
         await db.commit()
 
+        # Push-to-phone/email alert — by direct request ("push to phone
+        # and email alerts for pending approvals"). Fires for EVERY
+        # requires_approval trade through this one choke point: the
+        # platform's own pooled Human-in-the-Loop draft above AND every
+        # subscriber's own MANUAL-copy-mode draft via
+        # _fan_out_to_subscribers. Fire-and-forget (see notifications.
+        # py's own docstring for why it opens its own DB session rather
+        # than reusing this one) — never blocks or can fail this commit.
+        if trade_data.get("requires_approval"):
+            from app.services.notifications import notify_pending_approval
+            notify_pending_approval(trade_data.get("user_id"), trade_data)
+
     async def _mark_trade_error(self, db: AsyncSession, trade_id: str, result: Dict) -> None:
         """Counterpart to _update_trade_after_execution for the failure
         case — see process_signal's own comment on why this exists."""

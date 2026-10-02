@@ -1,10 +1,11 @@
 
 import { useState } from 'react';
 import { Trade } from '../types';
-import { ArrowUpRight, ArrowDownRight, Clock, CheckCircle, XCircle, AlertCircle, Ban, Settings2, ChevronDown, Archive, ArchiveRestore, Trash2, RotateCcw, Bot, User, CheckSquare, Square } from 'lucide-react';
+import { ArrowUpRight, ArrowDownRight, Clock, CheckCircle, XCircle, AlertCircle, Ban, Settings2, ChevronDown, Archive, ArchiveRestore, Trash2, RotateCcw, Bot, User, CheckSquare, Square, Camera } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { useThemeStore } from '../hooks/useTheme';
 import { PositionManager } from './PositionManager';
+import { TradeSnapshotModal } from './TradeSnapshotModal';
 
 interface TradeRowProps {
   trade: Trade;
@@ -42,6 +43,11 @@ export function TradeRow({ trade, onApprove, onReject, onCancel, onChanged, onAr
   // different card) so only PositionManager for a row you actually
   // click into ever mounts.
   const [managing, setManaging] = useState(false);
+  // "Provide closed trade snapshot as a link or button in the card
+  // under trade" — by direct request. Only meaningful once a trade
+  // actually has entry/exit history to show, so this never shows for
+  // pending/active rows, only closed ones (see the button below).
+  const [snapshotOpen, setSnapshotOpen] = useState(false);
   const isLong = trade.direction === 'long';
   // Manual vs Bot origin watermark — by direct request ("introduce a
   // watermark that shows whether it's a manual or Bot ... so at a
@@ -306,6 +312,14 @@ export function TradeRow({ trade, onApprove, onReject, onCancel, onChanged, onAr
             <span className="text-gray-500">Result:</span>
             <span className={`font-semibold ${outcomeColorCls}`}>{outcomeLabel}</span>
           </div>
+          <div className="flex flex-col gap-0.5 col-span-2 sm:col-span-5">
+            <button
+              onClick={() => setSnapshotOpen(true)}
+              className={`self-start flex items-center gap-1.5 text-xs font-medium mt-1 ${dark ? 'text-smc-accent hover:text-white' : 'text-corporate-hero hover:text-corporate-text-on-bg'}`}
+            >
+              <Camera size={13} /> Snapshot
+            </button>
+          </div>
         </div>
       )}
 
@@ -314,6 +328,8 @@ export function TradeRow({ trade, onApprove, onReject, onCancel, onChanged, onAr
           <PositionManager trade={trade} dark={dark} onChanged={onChanged} />
         </div>
       )}
+
+      {snapshotOpen && <TradeSnapshotModal tradeId={trade.trade_id} dark={dark} onClose={() => setSnapshotOpen(false)} />}
     </div>
   );
 }
