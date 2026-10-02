@@ -142,14 +142,14 @@ export function CorporateHomePage() {
                     : `/learn/tracks/${continuePoint.track_id}`
                   : '/learn'
               }
-              className="flex items-center gap-2 bg-white text-[#0f2547] font-semibold text-sm px-5 py-3 rounded-xl transition-transform hover:scale-[1.02]"
+              className="flex items-center gap-2 border border-white/30 text-white font-semibold text-sm px-5 py-3 rounded-xl hover:bg-white/10 transition-colors"
             >
               Continue Learning →
             </Link>
             <a
               href="#start-here"
               onClick={openProgrammeSteps}
-              className="flex items-center gap-2 border border-white/30 text-white font-semibold text-sm px-5 py-3 rounded-xl hover:bg-white/10 transition-colors"
+              className="flex items-center gap-2 bg-white text-[#0f2547] font-semibold text-sm px-5 py-3 rounded-xl transition-transform hover:scale-[1.02]"
             >
               <Compass size={16} /> Start Here
             </a>
