@@ -134,6 +134,11 @@ export interface TradeSnapshot {
   exit_price: number | null;
   exit_timestamp: string | null;
   status: string;
+  /** Real bot reasoning captured at signal time — by direct request
+   * ("include a reason summary that opens when clicked on the
+   * snapshot"). Null for a manual trade or a bot signal predating this
+   * field. */
+  reasoning_log: string | null;
   candles: TradeSnapshotCandle[];
 }
 

@@ -611,6 +611,12 @@ async def trade_snapshot(
         "exit_price": trade.exit_price,
         "exit_timestamp": trade.exit_timestamp,
         "status": trade.status.value,
+        # By direct request ("include a reason summary that opens when
+        # clicked on the snapshot") — the same real reasoning_log
+        # TradeRow's own "Reason summary" fold already surfaces,
+        # exposed here too so the snapshot modal doesn't need a
+        # separate fetch for text already on the same Trade row.
+        "reasoning_log": trade.reasoning_log,
         "candles": [
             {"timestamp": c.timestamp.isoformat(), "open": c.open, "high": c.high, "low": c.low, "close": c.close}
             for c in candles
