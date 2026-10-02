@@ -33,12 +33,17 @@ direction_sign * (exit_price - entry_price) * closed_size. Not a
 second, parallel PnL formula.
 
 Multi-target trades (TP2/TP3 also set): the FIRST untriggered
-intermediate level price crosses closes an even split of the
-ORIGINAL number of targets still configured (half if TP1+TP2 only,
-a third if TP1+TP2+TP3), tracked via tp1_triggered/tp2_triggered so
-the same level never re-fires on a later poll while price sits past
-it. Whichever target is the LAST one configured (TP3 if set, else
-TP2, else TP1) closes the entire remaining position, same as the
+intermediate level price crosses closes a fraction of whatever's
+currently left — see _target_fraction for the exact math. A bot-
+placed trade uses that bot's own tp1_percent/tp2_percent/tp3_percent
+(BotConfig, 30/40/30 by default, matching the ladder
+smc_algorithms.py's calculate_targets drafted the signal against); a
+manual trade (no BotConfig row) falls back to an even split across
+however many targets remain (half if TP1+TP2 only, a third if
+TP1+TP2+TP3). Tracked via tp1_triggered/tp2_triggered so the same
+level never re-fires on a later poll while price sits past it.
+Whichever target is the LAST one configured (TP3 if set, else TP2,
+else TP1) closes the entire remaining position, same as the
 stop-loss case — there's nothing left to partially close once every
 configured target has been reached.
 """
@@ -54,6 +59,7 @@ from sqlalchemy import select
 
 from app.config import get_settings
 from app.database import AsyncSessionLocal
+from app.models.bot import BotConfig
 from app.models.trade import ExitType, Trade, TradeDirection, TradeLog, TradeStatus
 from app.services.live_price import get_crypto_price
 from app.services.manual_trading import compute_r_multiple
@@ -148,13 +154,42 @@ class PositionMonitor:
             if level == last_level:
                 await self._close(db, trade, exit_price=target_price, exit_type=exit_type, event=f"auto_take_profit_{level}_hit")
             else:
-                # An even split of however many targets remain
-                # configured from this point — e.g. TP1 of TP1+TP2+TP3
-                # closes a third, leaving two-thirds for TP2/TP3.
-                remaining_targets = len(configured) - idx
-                fraction = 1.0 / remaining_targets
+                fraction = await self._target_fraction(db, trade, idx, configured)
                 await self._partial_close(db, trade, exit_price=target_price, fraction=fraction, level=level, event=f"auto_take_profit_{level}_hit")
             return  # one trigger per trade per cycle — the next cycle re-reads the (now updated) row
+
+    async def _target_fraction(self, db, trade: Trade, idx: int, configured: list) -> float:
+        """What fraction of the CURRENT remaining lot_size to close at
+        configured[idx] (relative to what's left, not the original
+        size — e.g. 30% of the original at TP1 needs fraction=0.30
+        there, but 40%-of-original at TP2 needs fraction=40/70 of
+        what's left AFTER TP1 already took its 30%).
+
+        Defaults to an even split across whatever targets remain (e.g.
+        half if TP1+TP2 only, a third if TP1+TP2+TP3) — the original,
+        still-correct behavior for a manual trade, which has no
+        BotConfig row to read a split from. For a bot-placed trade,
+        uses that bot's own tp1_percent/tp2_percent/tp3_percent
+        (BotConfig) instead, so a multi-target close actually matches
+        the 30/40/30 allocation its own signal was drafted against
+        (smc_algorithms.py's calculate_targets) rather than silently
+        ignoring those columns for a flat even split — closing the gap
+        found alongside the TP-always-~2R bug this was fixed with.
+        """
+        remaining = len(configured) - idx
+        even = 1.0 / remaining
+        if not trade.bot_id or trade.bot_id.startswith("manual_"):
+            return even
+        bot = (await db.execute(select(BotConfig).where(BotConfig.bot_id == trade.bot_id))).scalar_one_or_none()
+        if bot is None:
+            return even
+        percents = [bot.tp1_percent or 0, bot.tp2_percent or 0, bot.tp3_percent or 0]
+        remaining_levels = [configured[i][0] for i in range(idx, len(configured))]
+        remaining_percents = [percents[level - 1] for level in remaining_levels]
+        total = sum(remaining_percents)
+        if total <= 0:
+            return even
+        return remaining_percents[0] / total
 
     async def _partial_close(self, db, trade: Trade, exit_price: float, fraction: float, level: int, event: str) -> None:
         closed_size = trade.lot_size * fraction

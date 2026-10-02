@@ -1,7 +1,7 @@
 
 import { useState } from 'react';
 import { Trade } from '../types';
-import { ArrowUpRight, ArrowDownRight, Clock, CheckCircle, XCircle, AlertCircle, Ban, Settings2, ChevronDown, Archive, ArchiveRestore, Trash2, RotateCcw, Bot, User } from 'lucide-react';
+import { ArrowUpRight, ArrowDownRight, Clock, CheckCircle, XCircle, AlertCircle, Ban, Settings2, ChevronDown, Archive, ArchiveRestore, Trash2, RotateCcw, Bot, User, CheckSquare, Square } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { useThemeStore } from '../hooks/useTheme';
 import { PositionManager } from './PositionManager';
@@ -23,9 +23,15 @@ interface TradeRowProps {
    * all the deleted trades are stored for future reference"). Same
    * reversible on/off shape as onArchive. */
   onDelete?: (tradeId: string, deleted: boolean) => void;
+  /** Multi-select for bulk Archive/Delete on TradesPage — by direct
+   * request ("Include a select option for individual trades - so user
+   * can select multiple at once for archive or delete"). Both omitted
+   * (checkbox hidden) on any usage that doesn't support bulk actions. */
+  selected?: boolean;
+  onToggleSelect?: (tradeId: string) => void;
 }
 
-export function TradeRow({ trade, onApprove, onReject, onCancel, onChanged, onArchive, onDelete }: TradeRowProps) {
+export function TradeRow({ trade, onApprove, onReject, onCancel, onChanged, onArchive, onDelete, selected, onToggleSelect }: TradeRowProps) {
   const { theme } = useThemeStore();
   const dark = theme === 'dark';
   // "Copy exchange style trade order management setup and dashboard
@@ -76,8 +82,17 @@ export function TradeRow({ trade, onApprove, onReject, onCancel, onChanged, onAr
     <div className={`border rounded-lg p-4 transition-colors ${
       dark ? 'bg-smc-card border-smc-border hover:border-smc-accent/30' : 'bg-white border-corporate-bg hover:border-corporate-hero/30'
     }`}>
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
+      <div className="flex items-center justify-between flex-wrap gap-y-2">
+        <div className="flex items-center gap-4 flex-wrap">
+          {onToggleSelect && (
+            <button
+              onClick={() => onToggleSelect(trade.trade_id)}
+              className={`shrink-0 ${selected ? (dark ? 'text-smc-accent' : 'text-corporate-hero') : 'text-gray-400 hover:text-gray-300'}`}
+              title={selected ? 'Deselect' : 'Select'}
+            >
+              {selected ? <CheckSquare size={18} /> : <Square size={18} />}
+            </button>
+          )}
           {/* Direction Badge */}
           <div className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-sm font-medium ${
             isLong ? 'bg-smc-long/10 text-smc-long' : 'bg-smc-short/10 text-smc-short'
@@ -122,7 +137,7 @@ export function TradeRow({ trade, onApprove, onReject, onCancel, onChanged, onAr
           </div>
         </div>
 
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-4 flex-wrap justify-end">
           {/* Status */}
           <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium ${statusColors[trade.status] || statusColors.pending}`}>
             <StatusIcon />
@@ -229,10 +244,16 @@ export function TradeRow({ trade, onApprove, onReject, onCancel, onChanged, onAr
 
           {/* Time — relative, plus the exact date and time underneath,
               by direct request ("include date and time ... in the
-              trades form"). */}
-          <div className="text-xs text-gray-500 hidden lg:block text-right">
-            <div>{formatDistanceToNow(new Date(trade.created_at), { addSuffix: true })}</div>
-            <div className="text-[10px] text-gray-400 font-mono mt-0.5">{new Date(trade.created_at).toLocaleString()}</div>
+              trades form"). Used to be `hidden lg:block` (invisible
+              below desktop width) — by direct follow-up request ("each
+              trade card should have a date and time info - maybe small
+              fonts ...but must be present"), now always rendered; only
+              the relative line's width shrinks via `whitespace-nowrap`
+              so it never wraps the row at narrow widths, and the exact
+              timestamp stays legible at 10px rather than disappearing. */}
+          <div className="text-xs text-gray-500 text-right shrink-0">
+            <div className="whitespace-nowrap">{formatDistanceToNow(new Date(trade.created_at), { addSuffix: true })}</div>
+            <div className="text-[10px] text-gray-400 font-mono mt-0.5 whitespace-nowrap">{new Date(trade.created_at).toLocaleString()}</div>
           </div>
         </div>
       </div>

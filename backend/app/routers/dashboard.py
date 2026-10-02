@@ -196,15 +196,21 @@ async def trade_breakdown(
 
 @router.get("/performance")
 async def performance_summary(
-    period: str = "7d",  # 1d, 7d, 30d, 90d
+    period: str = "7d",  # 1d, 3d, 7d, 14d, 30d, 90d
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_active_access),
 ) -> List[PerformanceSummary]:
     """Get performance summary for specified period."""
-    # Map period to timedelta
+    # Map period to timedelta — 3d/14d added alongside the existing
+    # 1d/7d/30d/90d, by direct request ("use consistent colour buttons
+    # for quick filter 1D, 3D, 7D, 14D, 30D, 90D"), so AnalyticsPage's
+    # own period selector can offer all 6 without the two new ones
+    # silently falling back to the 7d default below.
     period_map = {
         "1d": timedelta(days=1),
+        "3d": timedelta(days=3),
         "7d": timedelta(days=7),
+        "14d": timedelta(days=14),
         "30d": timedelta(days=30),
         "90d": timedelta(days=90)
     }

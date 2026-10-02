@@ -1,6 +1,24 @@
-
+"""
 Five Distinct SMC Bot Trading Styles
 Grounded in: Mark Douglas, Wyckoff, Dalton, Damir, Brooks, ICT, Photon, Jeafx
+
+CRITICAL: the opening triple-quote on this module docstring was found
+MISSING on main (2026-10-02) -- almost certainly lost in the PR 170
+push through the GitHub API workaround used when local git push had
+no credentials (see github-create-or-update-file-contents, a tool
+with known content-mangling flakiness, independently reproduced and
+caught the same day while pushing PR 171). A single dropped line
+silently swallowed everything from here down to the next class
+docstring into one inert string literal, which is a SyntaxError at
+module import -- confirmed directly in Render deploy logs
+("SyntaxError: invalid decimal literal", 2026-09-30 23:57:29 UTC): PR
+170 and PR 171 both show update_failed deploys, and Render had been
+silently serving PR 169 code ever since, through every merge since,
+with the site never visibly going down only because the Render
+zero-downtime deploy mechanism never cut over to a build that failed
+to import. Restoring this one line is the entire fix -- every other
+PR 170/171 change underneath was already correct and intact; only
+this file ever failed to deploy.
 """
 
 from typing import Dict, List, Optional, Literal
@@ -25,6 +43,18 @@ class BotSignal:
     confidence: float
     entry_price: float
     stop_loss: float
+    # take_profit is TP1 (1R) — take_profit_2/3 carry the rest of the
+    # 1R/2R/rr_ratio-R ladder calculate_targets() already computes for
+    # every bot that uses it. Previously every bot collapsed the whole
+    # ladder down to a single value (targets["tp2"], a flat 2R) because
+    # BotSignal had nowhere to put TP2/TP3 — so no bot-placed trade
+    # could ever realize more than ~2R even when its own signal had
+    # qualified at a genuine 3R-5R reward:risk (confirmed in production:
+    # every TP1 close across every bot landed at r_multiple≈2.0,
+    # never higher, by direct bug report "TP is always lower than 3R
+    # always"). Optional so a single-target strategy (Bot 4, whose
+    # target is a structural range level, not an R-multiple ladder)
+    # keeps working unchanged.
     take_profit: float
     lot_size: float
     risk_percent: float
@@ -35,6 +65,8 @@ class BotSignal:
     # five bot classes above (which don\'t set it) keep working; None
     # falls back to execution_engine\'s symbol-based guess.
     preferred_broker: Optional[str] = None
+    take_profit_2: Optional[float] = None
+    take_profit_3: Optional[float] = None
 
 # =============================================================================
 # BOT 1: Pure Macro Swing Structure Bot (Damir/Brooks Style)
@@ -70,11 +102,13 @@ class MacroSwingStructureBot:
         )
         self.mtf = MTFAlignmentEngine()
 
-    def analyze(self, 
+    def analyze(self,
                 candles_1d: List[Candle],
                 candles_4h: List[Candle],
                 account_balance: float,
-                symbol: str) -> Optional[BotSignal]:
+                symbol: str,
+                risk_per_trade: Optional[float] = None,
+                min_rr_ratio: Optional[float] = None) -> Optional[BotSignal]:
         """
         Macro Swing Analysis Pipeline:
         1. Detect 1D swing structure
@@ -162,10 +196,10 @@ class MacroSwingStructureBot:
         )
 
         # Step 6: Targets (5:1 for swing)
-        targets = self.entry_engine.calculate_targets(entry, sl, rr_ratio=5.0, multi_target=True)
+        targets = self.entry_engine.calculate_targets(entry, sl, rr_ratio=min_rr_ratio if min_rr_ratio is not None else 5.0, multi_target=True)
 
         # Step 7: Lot sizing
-        risk = self.risk_manager.calculate_position_risk(setup_quality=1.2)
+        risk = self.risk_manager.calculate_position_risk(setup_quality=1.2, base_risk_override=risk_per_trade)
         lots = self.entry_engine.calculate_lot_size(
             account_balance, risk, sl["sl_distance"]
         )
@@ -178,7 +212,9 @@ class MacroSwingStructureBot:
             confidence=0.85,
             entry_price=entry["entry_price"],
             stop_loss=sl["stop_loss"],
-            take_profit=targets["tp2"],  # Primary target
+            take_profit=targets["tp1"],
+            take_profit_2=targets["tp2"],
+            take_profit_3=targets["tp3"],
             lot_size=lots["lot_size"],
             risk_percent=risk,
             reasoning=f"Macro swing {direction}. 1D trend confirmed. 4H BOS at {last_bos["structure_level"]}. "
@@ -224,7 +260,9 @@ class OrderBlockReversalBot:
                 candles_1h: List[Candle],
                 candles_15m: List[Candle],
                 account_balance: float,
-                symbol: str) -> Optional[BotSignal]:
+                symbol: str,
+                risk_per_trade: Optional[float] = None,
+                min_rr_ratio: Optional[float] = None) -> Optional[BotSignal]:
 
         # Step 1: Find HTF Order Blocks (4H or 1H)
         zone_detector = ZoneDetector()
@@ -300,8 +338,8 @@ class OrderBlockReversalBot:
             sl_swing = swings_15m[-1]
             sl = self.entry_engine.calculate_stop_loss(entry, target_ob, sl_swing, "structure_swing")
 
-        targets = self.entry_engine.calculate_targets(entry, sl, rr_ratio=3.0)
-        risk = self.risk_manager.calculate_position_risk(setup_quality=1.1)
+        targets = self.entry_engine.calculate_targets(entry, sl, rr_ratio=min_rr_ratio if min_rr_ratio is not None else 3.0)
+        risk = self.risk_manager.calculate_position_risk(setup_quality=1.1, base_risk_override=risk_per_trade)
         lots = self.entry_engine.calculate_lot_size(account_balance, risk, sl["sl_distance"])
 
         return BotSignal(
@@ -312,7 +350,9 @@ class OrderBlockReversalBot:
             confidence=0.80 if has_sweep else 0.70,
             entry_price=entry["entry_price"],
             stop_loss=sl["stop_loss"],
-            take_profit=targets["tp2"],
+            take_profit=targets["tp1"],
+            take_profit_2=targets["tp2"],
+            take_profit_3=targets["tp3"],
             lot_size=lots["lot_size"],
             risk_percent=risk,
             reasoning=f"ICT OB Reversal {direction}. HTF OB active. 15M CHoCH + {'sweep' if has_sweep else 'no sweep'}. "
@@ -356,7 +396,9 @@ class FVGExpansionBot:
                 candles_1h: List[Candle],
                 candles_15m: List[Candle],
                 account_balance: float,
-                symbol: str) -> Optional[BotSignal]:
+                symbol: str,
+                risk_per_trade: Optional[float] = None,
+                min_rr_ratio: Optional[float] = None) -> Optional[BotSignal]:
 
         # Step 1: Find unmitigated FVGs on 1H
         fvg_detector = FVGDetector()
@@ -414,10 +456,10 @@ class FVGExpansionBot:
 
         targets = self.entry_engine.calculate_targets(
             {"entry_price": entry_price, "direction": direction},
-            sl, rr_ratio=4.0
+            sl, rr_ratio=min_rr_ratio if min_rr_ratio is not None else 4.0
         )
 
-        risk = self.risk_manager.calculate_position_risk(setup_quality=1.15)
+        risk = self.risk_manager.calculate_position_risk(setup_quality=1.15, base_risk_override=risk_per_trade)
         lots = self.entry_engine.calculate_lot_size(account_balance, risk, sl_distance)
 
         return BotSignal(
@@ -428,7 +470,9 @@ class FVGExpansionBot:
             confidence=0.82,
             entry_price=round(entry_price, 5),
             stop_loss=round(sl_price, 5),
-            take_profit=targets["tp2"],
+            take_profit=targets["tp1"],
+            take_profit_2=targets["tp2"],
+            take_profit_3=targets["tp3"],
             lot_size=lots["lot_size"],
             risk_percent=risk,
             reasoning=f"FVG Expansion {direction}. 1H FVG {target_fvg.gap_type} {target_fvg.mitigated_percent:.0%} mitigated. "
@@ -472,7 +516,9 @@ class VolumeLiquidityBot:
                 candles_4h: List[Candle],
                 candles_1h: List[Candle],
                 account_balance: float,
-                symbol: str) -> Optional[BotSignal]:
+                symbol: str,
+                risk_per_trade: Optional[float] = None,
+                min_rr_ratio: Optional[float] = None) -> Optional[BotSignal]:
 
         # Step 1: Identify ranging/accumulation structure on 4H
         swings_4h = self.structure_detector.detect_swing_highs(candles_4h) + \
@@ -580,7 +626,12 @@ class VolumeLiquidityBot:
 
         rr = abs(tp - entry_price) / sl_distance if sl_distance > 0 else 0
 
-        risk = self.risk_manager.calculate_position_risk(setup_quality=1.0)
+        # min_rr_ratio has no effect here — this bot's target is the
+        # OPPOSITE side of the detected range (a structural level), not
+        # an R-multiple off entry/stop, so there's no ratio input to
+        # override; `rr` just above is a derived/reported number, same
+        # as before.
+        risk = self.risk_manager.calculate_position_risk(setup_quality=1.0, base_risk_override=risk_per_trade)
         lots = self.entry_engine.calculate_lot_size(account_balance, risk, sl_distance)
 
         return BotSignal(
@@ -638,7 +689,9 @@ class JeafxSMCBot:
                 candles_15m: List[Candle],
                 candles_5m: List[Candle],
                 account_balance: float,
-                symbol: str) -> Optional[BotSignal]:
+                symbol: str,
+                risk_per_trade: Optional[float] = None,
+                min_rr_ratio: Optional[float] = None) -> Optional[BotSignal]:
 
         # Step 1: Find refined supply/demand zones on 1H
         zone_detector = ZoneDetector()
@@ -750,9 +803,9 @@ class JeafxSMCBot:
         # "direction"} dict FVGExpansionBot already builds by hand for
         # its own non-engine entry (bot_strategies.py, Bot 3) fixes it.
         entry = {"entry_price": entry_price, "direction": direction}
-        targets = self.entry_engine.calculate_targets(entry, sl, rr_ratio=5.0)
+        targets = self.entry_engine.calculate_targets(entry, sl, rr_ratio=min_rr_ratio if min_rr_ratio is not None else 5.0)
 
-        risk = self.risk_manager.calculate_position_risk(setup_quality=1.3)
+        risk = self.risk_manager.calculate_position_risk(setup_quality=1.3, base_risk_override=risk_per_trade)
         lots = self.entry_engine.calculate_lot_size(account_balance, risk, sl_distance)
 
         return BotSignal(
@@ -763,7 +816,9 @@ class JeafxSMCBot:
             confidence=0.88,
             entry_price=round(entry_price, 5),
             stop_loss=round(sl_price, 5),
-            take_profit=targets["tp2"],
+            take_profit=targets["tp1"],
+            take_profit_2=targets["tp2"],
+            take_profit_3=targets["tp3"],
             lot_size=lots["lot_size"],
             risk_percent=risk,
             reasoning=f"SMC BOT {direction}. 1H fresh zone. 15M {last_sweep["type"]}. "
@@ -840,15 +895,36 @@ class BotOrchestrator:
             return
         signals.append(sig)
 
-    def run_all(self, market_data: Dict, account_balance: float) -> List[BotSignal]:
-        """Run all active bots against current market data."""
+    def run_all(self, market_data: Dict, account_balance: float, bot_settings: Optional[Dict[str, Dict]] = None) -> List[BotSignal]:
+        """Run all active bots against current market data.
+
+        bot_settings — {"bot_1": {"risk_per_trade": ..., "min_rr_ratio":
+        ...}, ...}, read fresh from each bot's own BotConfig (and any
+        Sub-Auto-specific override) by market_scanner.py's scan_once
+        every cycle, same live-per-call shape account_balance already
+        used. Optional/omitted keeps every bot on its own prior
+        hardcoded default — found, alongside the TP-always-~2R bug,
+        that BotConfig.risk_per_trade/min_rr_ratio were NEVER actually
+        read anywhere in signal generation (this orchestrator is built
+        once with an empty config dict — see __init__ above), so a
+        trader editing either field on the Bots page had silently had
+        zero effect until this was wired through.
+        """
         signals = []
+        settings = bot_settings or {}
+
+        def _risk(bot_key: str) -> Optional[float]:
+            return settings.get(bot_key, {}).get("risk_per_trade")
+
+        def _rr(bot_key: str) -> Optional[float]:
+            return settings.get(bot_key, {}).get("min_rr_ratio")
 
         # Bot 1: Needs 1D + 4H
         if "1D" in market_data and "4H" in market_data:
             sig = self.bots["bot_1"].analyze(
                 market_data["1D"], market_data["4H"],
-                account_balance, market_data.get("symbol", "UNKNOWN")
+                account_balance, market_data.get("symbol", "UNKNOWN"),
+                risk_per_trade=_risk("bot_1"), min_rr_ratio=_rr("bot_1"),
             )
             self._collect(signals, sig)
 
@@ -856,7 +932,8 @@ class BotOrchestrator:
         if all(k in market_data for k in ["4H", "1H", "15M"]):
             sig = self.bots["bot_2"].analyze(
                 market_data["4H"], market_data["1H"], market_data["15M"],
-                account_balance, market_data.get("symbol", "UNKNOWN")
+                account_balance, market_data.get("symbol", "UNKNOWN"),
+                risk_per_trade=_risk("bot_2"), min_rr_ratio=_rr("bot_2"),
             )
             self._collect(signals, sig)
 
@@ -864,7 +941,8 @@ class BotOrchestrator:
         if "1H" in market_data and "15M" in market_data:
             sig = self.bots["bot_3"].analyze(
                 market_data["1H"], market_data["15M"],
-                account_balance, market_data.get("symbol", "UNKNOWN")
+                account_balance, market_data.get("symbol", "UNKNOWN"),
+                risk_per_trade=_risk("bot_3"), min_rr_ratio=_rr("bot_3"),
             )
             self._collect(signals, sig)
 
@@ -872,7 +950,8 @@ class BotOrchestrator:
         if "4H" in market_data and "1H" in market_data:
             sig = self.bots["bot_4"].analyze(
                 market_data["4H"], market_data["1H"],
-                account_balance, market_data.get("symbol", "UNKNOWN")
+                account_balance, market_data.get("symbol", "UNKNOWN"),
+                risk_per_trade=_risk("bot_4"), min_rr_ratio=_rr("bot_4"),
             )
             self._collect(signals, sig)
 
@@ -880,7 +959,8 @@ class BotOrchestrator:
         if all(k in market_data for k in ["1H", "15M", "5M"]):
             sig = self.bots["bot_5"].analyze(
                 market_data["1H"], market_data["15M"], market_data["5M"],
-                account_balance, market_data.get("symbol", "UNKNOWN")
+                account_balance, market_data.get("symbol", "UNKNOWN"),
+                risk_per_trade=_risk("bot_5"), min_rr_ratio=_rr("bot_5"),
             )
             self._collect(signals, sig)
 

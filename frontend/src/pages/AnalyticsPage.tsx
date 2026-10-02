@@ -10,9 +10,17 @@ import { PerformanceSummary } from '../types';
 import { useThemeStore } from '../hooks/useTheme';
 import { RETRY_DELAYS_MS, type FetchPhase } from '../lib/resilientFetch';
 
-const PERIODS: { id: '1d' | '7d' | '30d' | '90d'; label: string }[] = [
+// 3D/14D added alongside the original 1D/7D/30D/90D, by direct
+// request ("use consistent colour buttons for quick filter 1D, 3D,
+// 7D, 14D, 30D, 90D") — all 6 render through the exact same button
+// below, so there's no second, differently-styled quick-filter to
+// reconcile; the "consistent colour" ask is satisfied by there being
+// only ever this one styled set.
+const PERIODS: { id: '1d' | '3d' | '7d' | '14d' | '30d' | '90d'; label: string }[] = [
   { id: '1d', label: '1D' },
+  { id: '3d', label: '3D' },
   { id: '7d', label: '7D' },
+  { id: '14d', label: '14D' },
   { id: '30d', label: '30D' },
   { id: '90d', label: '90D' },
 ];
@@ -51,7 +59,7 @@ export function AnalyticsPage() {
   const { portalThemes } = useThemeStore();
   const theme = portalThemes.trader;
   const dark = theme === 'dark';
-  const [period, setPeriod] = useState<'1d' | '7d' | '30d' | '90d'>('7d');
+  const [period, setPeriod] = useState<'1d' | '3d' | '7d' | '14d' | '30d' | '90d'>('7d');
   const [summary, setSummary] = useState<PerformanceSummary | null>(null);
   const [allPeriods, setAllPeriods] = useState<Record<string, PerformanceSummary | null>>({});
   const [loading, setLoading] = useState(true);

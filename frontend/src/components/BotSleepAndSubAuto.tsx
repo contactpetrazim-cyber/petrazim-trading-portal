@@ -66,6 +66,17 @@ export function BotSleepAndSubAuto({ bot, dark, onChanged }: { bot: BotConfig; d
   const [customDaily, setCustomDaily] = useState('');
   const [engaging, setEngaging] = useState(false);
   const [subAutoError, setSubAutoError] = useState<string | null>(null);
+  // Sub-Auto-specific Risk Amount (USD) / RR overrides — by direct
+  // request ("provide a ( Risk Amount ) input for Semi auto mode ...
+  // and also a RR input"). Both optional: left blank, Sub-Auto trades
+  // with this bot's own risk_per_trade/min_rr_ratio, same as every
+  // other mode. Editable both before engaging AND while already
+  // active (updateOverrides below) — the backend applies either field
+  // regardless of enabled/disabled, so tightening/loosening an
+  // ongoing engagement doesn't require a full Reset + re-engage.
+  const [riskAmount, setRiskAmount] = useState('');
+  const [rrRatio, setRrRatio] = useState('');
+  const [savingOverrides, setSavingOverrides] = useState(false);
 
   async function sleepFor(hours: number) {
     setSleeping(true);
@@ -96,8 +107,13 @@ export function BotSleepAndSubAuto({ bot, dark, onChanged }: { bot: BotConfig; d
     if (!dailyValue || dailyValue < 1) { setSubAutoError('Choose a max trades per day.'); return; }
     setEngaging(true);
     try {
-      await botsApi.setBotSubAuto(bot.bot_id, { enabled: true, total_cap: totalValue, daily_cap: dailyValue });
+      await botsApi.setBotSubAuto(bot.bot_id, {
+        enabled: true, total_cap: totalValue, daily_cap: dailyValue,
+        risk_amount: riskAmount ? Number(riskAmount) : undefined,
+        min_rr_ratio: rrRatio ? Number(rrRatio) : undefined,
+      });
       setSelTotal(null); setSelDaily(null); setCustomTotal(''); setCustomDaily('');
+      setRiskAmount(''); setRrRatio('');
       onChanged();
     } catch (e: any) {
       setSubAutoError(e?.response?.data?.detail || 'Could not engage Sub-Auto Mode.');
@@ -113,6 +129,30 @@ export function BotSleepAndSubAuto({ bot, dark, onChanged }: { bot: BotConfig; d
       onChanged();
     } finally {
       setEngaging(false);
+    }
+  }
+
+  // Updates just the Risk Amount/RR override on an ALREADY-active
+  // engagement, without touching total_cap/daily_cap/the running
+  // counts — `enabled: true` here is a no-op re-affirmation (the
+  // backend only snapshots pre_sub_auto_execution_mode on a fresh
+  // False→True transition, so this can't clobber it), required only
+  // because total_cap/daily_cap are mandatory whenever enabled=true.
+  async function updateOverrides() {
+    if (!riskAmount && !rrRatio) return;
+    setSavingOverrides(true);
+    try {
+      await botsApi.setBotSubAuto(bot.bot_id, {
+        enabled: true, total_cap: bot.sub_auto_total_cap ?? undefined, daily_cap: bot.sub_auto_daily_cap ?? undefined,
+        risk_amount: riskAmount ? Number(riskAmount) : undefined,
+        min_rr_ratio: rrRatio ? Number(rrRatio) : undefined,
+      });
+      setRiskAmount(''); setRrRatio('');
+      onChanged();
+    } catch (e: any) {
+      setSubAutoError(e?.response?.data?.detail || 'Could not update the override.');
+    } finally {
+      setSavingOverrides(false);
     }
   }
 
@@ -182,6 +222,29 @@ export function BotSleepAndSubAuto({ bot, dark, onChanged }: { bot: BotConfig; d
               />
             </div>
             <p className="text-[11px] text-gray-500">Trading autonomously, pre-approved — resumes original settings once the total is reached.</p>
+            <div className="text-[11px] text-gray-500 pt-1 border-t border-dashed border-current/10">
+              Risk Amount: <span className="font-medium">{bot.sub_auto_risk_amount ? `$${bot.sub_auto_risk_amount}` : "bot default"}</span>
+              {' '}&nbsp;·&nbsp; RR: <span className="font-medium">{bot.sub_auto_min_rr_ratio ? `${bot.sub_auto_min_rr_ratio}:1` : "bot default"}</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <input
+                type="number" min={1} placeholder="Risk $" value={riskAmount}
+                onChange={(e) => setRiskAmount(e.target.value)}
+                className={`w-20 px-2 py-1.5 rounded-lg text-xs border ${dark ? 'bg-white/5 border-white/10 text-white' : 'bg-white border-gray-200'}`}
+              />
+              <input
+                type="number" min={0.1} step={0.1} placeholder="RR" value={rrRatio}
+                onChange={(e) => setRrRatio(e.target.value)}
+                className={`w-16 px-2 py-1.5 rounded-lg text-xs border ${dark ? 'bg-white/5 border-white/10 text-white' : 'bg-white border-gray-200'}`}
+              />
+              <button
+                onClick={updateOverrides}
+                disabled={savingOverrides || (!riskAmount && !rrRatio)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold disabled:opacity-40 ${dark ? 'bg-white/10 text-white' : 'bg-gray-200 text-gray-700'}`}
+              >
+                {savingOverrides ? 'Saving…' : 'Set Override'}
+              </button>
+            </div>
           </div>
         ) : (
           <div className="space-y-2">
@@ -215,6 +278,21 @@ export function BotSleepAndSubAuto({ bot, dark, onChanged }: { bot: BotConfig; d
                     className={`w-16 px-2 py-1.5 rounded-lg text-xs border ${dark ? 'bg-white/5 border-white/10 text-white' : 'bg-white border-gray-200'}`}
                   />
                 )}
+              </div>
+            </div>
+            <div>
+              <div className="text-[11px] text-gray-500 mb-1">Risk Amount (USD) &amp; RR — optional, defaults to this bot's own settings</div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <input
+                  type="number" min={1} placeholder="Risk $" value={riskAmount}
+                  onChange={(e) => setRiskAmount(e.target.value)}
+                  className={`w-20 px-2 py-1.5 rounded-lg text-xs border ${dark ? 'bg-white/5 border-white/10 text-white' : 'bg-white border-gray-200'}`}
+                />
+                <input
+                  type="number" min={0.1} step={0.1} placeholder="RR" value={rrRatio}
+                  onChange={(e) => setRrRatio(e.target.value)}
+                  className={`w-16 px-2 py-1.5 rounded-lg text-xs border ${dark ? 'bg-white/5 border-white/10 text-white' : 'bg-white border-gray-200'}`}
+                />
               </div>
             </div>
             {subAutoError && <p className="text-xs text-red-400">{subAutoError}</p>}
