@@ -217,7 +217,7 @@ class MacroSwingStructureBot:
             take_profit_3=targets["tp3"],
             lot_size=lots["lot_size"],
             risk_percent=risk,
-            reasoning=f"Macro swing {direction}. 1D trend confirmed. 4H BOS at {last_bos["structure_level"]}. "
+            reasoning=f"Macro swing {direction}. 1D trend confirmed. 4H BOS at {last_bos['structure_level']}. "
                      f"Entry at 4H OB mean. SL beyond swing {sl_swing.price}. Target 5R.",
             timestamp=datetime.utcnow()
         )
@@ -821,7 +821,7 @@ class JeafxSMCBot:
             take_profit_3=targets["tp3"],
             lot_size=lots["lot_size"],
             risk_percent=risk,
-            reasoning=f"SMC BOT {direction}. 1H fresh zone. 15M {last_sweep["type"]}. "
+            reasoning=f"SMC BOT {direction}. 1H fresh zone. 15M {last_sweep['type']}. "
                      f"5M confirmation candle + FVG: {valid_fvg is not None}. "
                      f"Entry at 50%. Strict SL beyond purge. 5R target.",
             timestamp=datetime.utcnow()
