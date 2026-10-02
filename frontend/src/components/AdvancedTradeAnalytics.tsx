@@ -56,7 +56,7 @@ const AMBER = '#f59e0b';
  * uses each trade's own entry_timestamp in UTC — labeled as such,
  * since this app has no per-trader timezone setting to convert against.
  */
-export function AdvancedTradeAnalytics({ dark, source }: { dark: boolean; source: TradeSource }) {
+export function AdvancedTradeAnalytics({ dark, source, botId }: { dark: boolean; source: TradeSource; botId?: string }) {
   const { token } = useAuth();
   const [rows, setRows] = useState<DetailRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -67,13 +67,20 @@ export function AdvancedTradeAnalytics({ dark, source }: { dark: boolean; source
     if (!token) return;
     setRows(null);
     setError(null);
-    const qs = source === 'all' ? '' : `?source=${source}`;
+    // Bot/Strategy filter — by direct request ("include a strategy or
+    // bot filter to ... Advanced Analytics — Trading Edge"). Shares
+    // the same `bot_id` param TradeAnalytics passes down as `botId`,
+    // already supported server-side by this exact endpoint.
+    const qsParams: string[] = [];
+    if (source !== 'all') qsParams.push(`source=${source}`);
+    if (botId) qsParams.push(`bot_id=${encodeURIComponent(botId)}`);
+    const qs = qsParams.length ? `?${qsParams.join('&')}` : '';
     fetchJsonWithRetry<DetailRow[]>(`${API_URL}/trades/analytics/detail${qs}`, { headers: { Authorization: `Bearer ${token}` } }, setPhase)
       .then((r) => {
         if (r) setRows(r);
         else setError('Could not load the advanced analytics right now.');
       });
-  }, [token, source, retryTick]);
+  }, [token, source, botId, retryTick]);
 
   const mutedCls = dark ? 'text-white/40' : 'text-gray-400';
 

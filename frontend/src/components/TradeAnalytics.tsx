@@ -4,6 +4,8 @@ import { fetchJsonWithRetry, type FetchPhase } from '../lib/resilientFetch';
 import { LoadingIndicator } from './LoadingIndicator';
 import { FoldedCard } from './FoldedCard';
 import { AdvancedTradeAnalytics } from './AdvancedTradeAnalytics';
+import { botsApi } from '../services/api';
+import type { BotConfig } from '../types';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -247,6 +249,31 @@ export function SourceToggle({ value, onChange, dark }: { value: TradeSource; on
   );
 }
 
+/** Bot/Strategy filter — by direct request ("include a strategy or
+ * bot filter to the Analytics section Trade Analysis and Advanced
+ * Analytics — Trading Edge"). Shared between TradeAnalytics and
+ * AdvancedTradeAnalytics, same as SourceToggle above — both back onto
+ * the same `bot_id` query param GET /trades/analytics/summary and
+ * GET /trades/analytics/detail already supported server-side (it was
+ * already there for the Trades page's own bot filter; analytics just
+ * never had a control wired to it). '' = every bot/strategy. */
+function BotFilterSelect({ value, onChange, dark }: { value: string; onChange: (v: string) => void; dark: boolean }) {
+  const [bots, setBots] = useState<BotConfig[]>([]);
+  useEffect(() => { botsApi.getBots().then(setBots).catch(() => setBots([])); }, []);
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border focus:outline-none ${
+        dark ? 'bg-white/5 border-white/10 text-white' : 'bg-white border-gray-200 text-corporate-text-on-bg'
+      }`}
+    >
+      <option value="">All Bots/Strategies</option>
+      {bots.map((b) => <option key={b.bot_id} value={b.bot_id}>{b.bot_name}</option>)}
+    </select>
+  );
+}
+
 export function TradeAnalytics({ dark = false }: { dark?: boolean }) {
   const { token } = useAuth();
   const [summary, setSummary] = useState<Summary | null>(null);
@@ -256,6 +283,7 @@ export function TradeAnalytics({ dark = false }: { dark?: boolean }) {
   const [monthPage, setMonthPage] = useState(0);
   const [retryTick, setRetryTick] = useState(0);
   const [source, setSource] = useState<TradeSource>('all');
+  const [botFilter, setBotFilter] = useState('');
 
   // Was a plain one-shot apiFetch with no retry — on a cold Render
   // free-tier start the single attempt could fail before the backend
@@ -266,17 +294,25 @@ export function TradeAnalytics({ dark = false }: { dark?: boolean }) {
     if (!token) return;
     setSummary(null);
     setError(null);
-    const qs = source === 'all' ? '' : `?source=${source}`;
+    const qsParams: string[] = [];
+    if (source !== 'all') qsParams.push(`source=${source}`);
+    if (botFilter) qsParams.push(`bot_id=${encodeURIComponent(botFilter)}`);
+    const qs = qsParams.length ? `?${qsParams.join('&')}` : '';
     fetchJsonWithRetry<Summary>(`${API_URL}/trades/analytics/summary${qs}`, { headers: { Authorization: `Bearer ${token}` } }, setPhase)
       .then((s) => {
         if (s) setSummary(s);
         else setError('Could not load trade analytics right now.');
       });
-  }, [token, retryTick, source]);
+  }, [token, retryTick, source, botFilter]);
 
   const mutedCls = dark ? 'text-white/40' : 'text-gray-400';
 
-  const toggle = <div className="mb-4"><SourceToggle value={source} onChange={setSource} dark={dark} /></div>;
+  const toggle = (
+    <div className="mb-4 flex items-center gap-2 flex-wrap">
+      <SourceToggle value={source} onChange={setSource} dark={dark} />
+      <BotFilterSelect value={botFilter} onChange={setBotFilter} dark={dark} />
+    </div>
+  );
 
   if (error) {
     return (
@@ -408,7 +444,7 @@ export function TradeAnalytics({ dark = false }: { dark?: boolean }) {
         that will help understand the trading edge, profitability ...
         and other unique characteristics"). Shares this same `source`
         filter so switching All/Bots/Manual above affects both. */}
-    <AdvancedTradeAnalytics dark={dark} source={source} />
+    <AdvancedTradeAnalytics dark={dark} source={source} botId={botFilter} />
     </div>
   );
 }
