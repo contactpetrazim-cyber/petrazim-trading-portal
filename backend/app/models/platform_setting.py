@@ -95,3 +95,17 @@ GLOBAL_RISK_DEFAULTS_KEY = "trading.global_risk_defaults"
 # bot's own account_balance_usd (or the static config.py default when
 # that's unset too) applies until an Admin explicitly turns this on.
 MASTER_ACCOUNT_BALANCE_KEY = "trading.master_account_balance"
+
+# Super Admin's platform-wide MASTER override of leverage — both every
+# bot's own BotConfig.leverage AND every trader's own
+# ManualTradingSettings.leverage — by direct request ("put a form to
+# set leverage for Bot and manual - separately on the trader dashboard
+# ... with a global override form in the Admin"). Same hard, always-
+# wins shape as MASTER_ACCOUNT_BALANCE_KEY above (not a soft fallback
+# like GLOBAL_RISK_DEFAULTS_KEY) — when enabled, this ONE leverage
+# value applies platform-wide, superseding every bot's and every
+# trader's own setting, no exceptions. Value is a JSON object
+# ({"enabled": false, "value": 50.0}) so the number survives being
+# toggled off and back on. See services/capital_adequacy.py's
+# get_effective_leverage for the real resolution order.
+MASTER_LEVERAGE_KEY = "trading.master_leverage"

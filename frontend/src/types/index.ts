@@ -101,6 +101,11 @@ export interface BotConfig {
    * comment; the effective value (accounting for the Admin master
    * override) is resolved client-side from botsApi.getMasterAccountBalance. */
   account_balance_usd?: number | null;
+  /** This bot's own leverage override (null = no override) — by direct
+   * request ("put a form to set leverage for Bot and manual -
+   * separately on the trader dashboard ... with a global override
+   * form in the Admin"). See BotConfig.leverage's own backend comment. */
+  leverage?: number | null;
 }
 
 
@@ -163,6 +168,9 @@ export interface BotMetricsUpdate {
    * default/Admin master). See BotConfig.account_balance_usd's own
    * backend comment. */
   account_balance_usd?: number | null;
+  /** null clears this bot's own leverage override. See BotConfig.
+   * leverage's own backend comment. */
+  leverage?: number | null;
 }
 
 export interface TodayTradeBreakdown {
