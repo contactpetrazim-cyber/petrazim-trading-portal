@@ -113,6 +113,14 @@ async def list_trades(
     symbol: Optional[str] = Query(None),
     direction: Optional[str] = Query(None),
     source: Optional[str] = Query(None, description="'all' (default), 'bots', or 'manual'"),
+    # Trades page date filter — calendar + quick options (Today,
+    # Previous 1D/3D/5D/7D/14D/28D), by direct request. Both ends of
+    # Trade.created_at, inclusive — `date_to` is treated as the END of
+    # that day (23:59:59.999999), not midnight, so picking a single
+    # day in the calendar actually includes every trade placed on it
+    # rather than silently excluding all but the first instant.
+    date_from: Optional[datetime] = Query(None, description="Only trades created on/after this instant"),
+    date_to: Optional[datetime] = Query(None, description="Only trades created on/before this instant"),
     # Powers the "Recent Trades" / "Archive Trades" card split on
     # TradesPage — by direct request ("create an option to move
     # individual trades to a new archive trades card"). Defaults to
@@ -167,6 +175,10 @@ async def list_trades(
             query = query.where(Trade.direction == TradeDirection(direction.lower()))
         except ValueError:
             raise HTTPException(status_code=400, detail=f"Invalid direction '{direction}' — expected one of {[d.value for d in TradeDirection]}")
+    if date_from:
+        query = query.where(Trade.created_at >= date_from)
+    if date_to:
+        query = query.where(Trade.created_at <= date_to)
 
     query = query.order_by(Trade.created_at.desc()).offset(offset).limit(limit)
     result = await db.execute(query)

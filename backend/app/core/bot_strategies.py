@@ -1,6 +1,23 @@
-
+"""
 Five Distinct SMC Bot Trading Styles
 Grounded in: Mark Douglas, Wyckoff, Dalton, Damir, Brooks, ICT, Photon, Jeafx
+
+CRITICAL: this module's own opening triple-quote was found MISSING on
+`main` (2026-10-02) — almost certainly lost in PR #170's push through the
+GitHub API workaround used when local `git push` had no credentials
+(see github-create-or-update-file-contents's own known flakiness,
+independently reproduced and caught the same day pushing PR #171). A
+single dropped line silently swallowed everything from here down to
+this class's own docstring into one inert string literal, which is a
+SyntaxError at module import — confirmed directly in Render's own
+deploy logs ("SyntaxError: invalid decimal literal", 2026-09-30
+23:57:29 UTC): PR #170 and PR #171 both show `update_failed` deploys
+and Render had been silently serving PR #169's code ever since,
+through every merge since, with the site never visibly going down
+only because Render's zero-downtime deploy never cut over a build
+that failed to import. Restoring this one line is the entire fix —
+every other PR #170/#171 change underneath was already correct and
+intact; only this file ever failed to deploy.
 """
 
 from typing import Dict, List, Optional, Literal
@@ -25,6 +42,18 @@ class BotSignal:
     confidence: float
     entry_price: float
     stop_loss: float
+    # take_profit is TP1 (1R) — take_profit_2/3 carry the rest of the
+    # 1R/2R/rr_ratio-R ladder calculate_targets() already computes for
+    # every bot that uses it. Previously every bot collapsed the whole
+    # ladder down to a single value (targets["tp2"], a flat 2R) because
+    # BotSignal had nowhere to put TP2/TP3 — so no bot-placed trade
+    # could ever realize more than ~2R even when its own signal had
+    # qualified at a genuine 3R-5R reward:risk (confirmed in production:
+    # every TP1 close across every bot landed at r_multiple≈2.0,
+    # never higher, by direct bug report "TP is always lower than 3R
+    # always"). Optional so a single-target strategy (Bot 4, whose
+    # target is a structural range level, not an R-multiple ladder)
+    # keeps working unchanged.
     take_profit: float
     lot_size: float
     risk_percent: float
@@ -35,6 +64,8 @@ class BotSignal:
     # five bot classes above (which don\'t set it) keep working; None
     # falls back to execution_engine\'s symbol-based guess.
     preferred_broker: Optional[str] = None
+    take_profit_2: Optional[float] = None
+    take_profit_3: Optional[float] = None
 
 # =============================================================================
 # BOT 1: Pure Macro Swing Structure Bot (Damir/Brooks Style)
@@ -178,7 +209,9 @@ class MacroSwingStructureBot:
             confidence=0.85,
             entry_price=entry["entry_price"],
             stop_loss=sl["stop_loss"],
-            take_profit=targets["tp2"],  # Primary target
+            take_profit=targets["tp1"],
+            take_profit_2=targets["tp2"],
+            take_profit_3=targets["tp3"],
             lot_size=lots["lot_size"],
             risk_percent=risk,
             reasoning=f"Macro swing {direction}. 1D trend confirmed. 4H BOS at {last_bos["structure_level"]}. "
@@ -312,7 +345,9 @@ class OrderBlockReversalBot:
             confidence=0.80 if has_sweep else 0.70,
             entry_price=entry["entry_price"],
             stop_loss=sl["stop_loss"],
-            take_profit=targets["tp2"],
+            take_profit=targets["tp1"],
+            take_profit_2=targets["tp2"],
+            take_profit_3=targets["tp3"],
             lot_size=lots["lot_size"],
             risk_percent=risk,
             reasoning=f"ICT OB Reversal {direction}. HTF OB active. 15M CHoCH + {'sweep' if has_sweep else 'no sweep'}. "
@@ -428,7 +463,9 @@ class FVGExpansionBot:
             confidence=0.82,
             entry_price=round(entry_price, 5),
             stop_loss=round(sl_price, 5),
-            take_profit=targets["tp2"],
+            take_profit=targets["tp1"],
+            take_profit_2=targets["tp2"],
+            take_profit_3=targets["tp3"],
             lot_size=lots["lot_size"],
             risk_percent=risk,
             reasoning=f"FVG Expansion {direction}. 1H FVG {target_fvg.gap_type} {target_fvg.mitigated_percent:.0%} mitigated. "
@@ -763,7 +800,9 @@ class JeafxSMCBot:
             confidence=0.88,
             entry_price=round(entry_price, 5),
             stop_loss=round(sl_price, 5),
-            take_profit=targets["tp2"],
+            take_profit=targets["tp1"],
+            take_profit_2=targets["tp2"],
+            take_profit_3=targets["tp3"],
             lot_size=lots["lot_size"],
             risk_percent=risk,
             reasoning=f"SMC BOT {direction}. 1H fresh zone. 15M {last_sweep["type"]}. "

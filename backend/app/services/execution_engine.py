@@ -303,6 +303,11 @@ class ExecutionEngine:
             "entry_price": signal.entry_price,
             "stop_loss": signal.stop_loss,
             "take_profit": signal.take_profit,
+            # TP2/TP3 — see BotSignal's own comment for why these can
+            # now carry real values instead of being silently dropped;
+            # None for Bot 4's single structural target, same as before.
+            "take_profit_2": signal.take_profit_2,
+            "take_profit_3": signal.take_profit_3,
             "lot_size": signal.lot_size,
             "risk_percent": signal.risk_percent,
             "risk_amount": signal.lot_size * abs(signal.entry_price - signal.stop_loss),
@@ -413,6 +418,8 @@ class ExecutionEngine:
             entry_price=trade_data["entry_price"],
             stop_loss=trade_data["stop_loss"],
             take_profit_1=trade_data["take_profit"],
+            take_profit_2=trade_data.get("take_profit_2"),
+            take_profit_3=trade_data.get("take_profit_3"),
             lot_size=trade_data["lot_size"],
             risk_percent=trade_data["risk_percent"],
             risk_amount=trade_data["risk_amount"],
