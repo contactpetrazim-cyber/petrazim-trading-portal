@@ -32,11 +32,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from datetime import datetime
 
+import json
+
 from app.config import get_settings
 from app.core.bot_strategies import BotOrchestrator, Candle
 from app.database import AsyncSessionLocal
 from app.models.bot import BotConfig, BotStatus
-from app.models.platform_setting import MARKET_SCANNER_ENABLED_KEY, PlatformSetting
+from app.models.platform_setting import MARKET_SCANNER_ENABLED_KEY, MASTER_ACCOUNT_BALANCE_KEY, PlatformSetting
 from app.services.data_ingestion import MarketDataIngestion
 from app.services.execution_engine import ExecutionEngine
 
@@ -53,6 +55,43 @@ async def get_market_scanner_runtime_enabled(db: AsyncSession) -> bool:
         select(PlatformSetting).where(PlatformSetting.key == MARKET_SCANNER_ENABLED_KEY)
     )).scalar_one_or_none()
     return row.value.lower() == "true" if row else True
+
+
+async def get_master_account_balance(db: AsyncSession) -> tuple[bool, float]:
+    """The Admin's platform-wide MASTER override — see
+    MASTER_ACCOUNT_BALANCE_KEY's own comment. Returns (enabled, value);
+    `value` is only meaningful when `enabled` is True. Defaults to
+    (False, 0.0) — no override — when never explicitly set, same
+    fail-safe-not-fail-open shape every other master switch in this
+    app already uses."""
+    row = (await db.execute(
+        select(PlatformSetting).where(PlatformSetting.key == MASTER_ACCOUNT_BALANCE_KEY)
+    )).scalar_one_or_none()
+    if not row:
+        return False, 0.0
+    try:
+        data = json.loads(row.value)
+        return bool(data.get("enabled", False)), float(data.get("value", 0.0))
+    except (ValueError, TypeError, KeyError):
+        return False, 0.0
+
+
+async def get_effective_account_balance(db: AsyncSession, bot: BotConfig) -> float:
+    """The REAL account balance a signal for THIS bot is actually sized
+    against — by direct request ("Create a master bot control for bot
+    starting reference capital and balance ... put master in Admin
+    portal to supersede all"). Precedence: the Admin master override
+    (when enabled) ALWAYS wins, regardless of what this bot has set;
+    otherwise this bot's own account_balance_usd; otherwise config.py's
+    static MARKET_SCANNER_DEFAULT_ACCOUNT_BALANCE — the same default
+    every bot silently used before this feature existed, so a bot that
+    never touches either setting behaves exactly as it always did."""
+    master_enabled, master_value = await get_master_account_balance(db)
+    if master_enabled:
+        return master_value
+    if bot.account_balance_usd is not None:
+        return bot.account_balance_usd
+    return settings.MARKET_SCANNER_DEFAULT_ACCOUNT_BALANCE
 
 # BotOrchestrator dispatches by these timeframe keys (bot_strategies.py's
 # run_all) — each maps to the ccxt timeframe string data_ingestion.py needs.
@@ -75,9 +114,12 @@ def _effective_bot_settings(bot: BotConfig) -> Dict[str, float]:
     (matching the Bots page's own "Risk Amount (USD)" field) —
     converted to the risk_per_trade PERCENT this engine's RiskManager
     actually consumes, against the same flat default account balance
-    every other risk calculation in this module already uses (Master
-    Bot Control's own per-bot effective balance isn't wired into
-    market_scanner.py's scan grouping yet).
+    every other risk calculation in this module already uses — Sub-
+    Auto's own dollar-to-percent conversion is deliberately still
+    against the static default rather than this bot's effective
+    balance (get_effective_account_balance), since sub_auto_risk_amount
+    is a trader-entered dollar figure meant to read the same regardless
+    of whatever the Admin's master override happens to be set to.
     """
     risk_per_trade = bot.risk_per_trade
     min_rr_ratio = bot.min_rr_ratio
@@ -164,33 +206,65 @@ class MarketScanner:
 
                 await self._record_scan_result(db, bots_here, error=None)
 
-                bot_by_id = {b.bot_id: b for b in bots_here}
+                # bot_settings (risk_per_trade/min_rr_ratio, including
+                # any Sub-Auto override) is read once for the WHOLE
+                # group — run_all only looks up entries matching the
+                # bot_ids it actually dispatches to in a given call, so
+                # handing it the full dict to every balance-subgroup
+                # call below is harmless (same shape as bot_by_id.get
+                # already tolerating a bot_id that isn't in this
+                # subgroup).
                 bot_settings = {
-                    "_".join(bot_id.split("_")[:2]): _effective_bot_settings(bot)
-                    for bot_id, bot in bot_by_id.items()
+                    "_".join(bot.bot_id.split("_")[:2]): _effective_bot_settings(bot)
+                    for bot in bots_here
                 }
-                signals = self.orchestrator.run_all(market_data, settings.MARKET_SCANNER_DEFAULT_ACCOUNT_BALANCE, bot_settings)
-                if not signals:
-                    continue
 
-                for signal in signals:
-                    bot = bot_by_id.get(signal.bot_id)
-                    if not bot:
-                        # This orchestrator dispatch matched a bot_id
-                        # that isn't one of the BotConfig rows actually
-                        # scanning this (exchange, symbol) group right
-                        # now — skip rather than execute for a bot that
-                        # wasn't part of this cycle's intent.
+                # Sub-grouped by each bot's own EFFECTIVE account
+                # balance (master override, else its own
+                # account_balance_usd, else the static default — see
+                # get_effective_account_balance) rather than one flat
+                # constant for the whole group, by direct request
+                # ("Create a master bot control for bot starting
+                # reference capital and balance"). BotOrchestrator.
+                # run_all already computes every one of the 5 fixed
+                # strategies unconditionally and discards whichever
+                # bot_id isn't wanted (the `bot_by_id.get` check right
+                # below) — calling it once per distinct balance in this
+                # group reuses that exact same discard mechanism rather
+                # than needing any change to the strategies themselves.
+                # The common case (no bot here has its own override, or
+                # the master override is on) collapses back to exactly
+                # one run_all call, identical to before this feature.
+                balance_groups: Dict[float, List[BotConfig]] = {}
+                for bot in bots_here:
+                    balance = await get_effective_account_balance(db, bot)
+                    balance_groups.setdefault(balance, []).append(bot)
+
+                for balance, bots_at_balance in balance_groups.items():
+                    signals = self.orchestrator.run_all(market_data, balance, bot_settings)
+                    if not signals:
                         continue
 
-                    signal.preferred_broker = bot.exchange
-                    mode = bot.execution_mode.value
-                    exec_result = await self.execution_engine.process_signal(signal, mode, db)
-                    logger.info(
-                        "market_scan_signal",
-                        bot_id=signal.bot_id, symbol=symbol, exchange=exchange,
-                        mode=mode, result=exec_result.get("status", exec_result.get("success")),
-                    )
+                    bot_by_id = {b.bot_id: b for b in bots_at_balance}
+                    for signal in signals:
+                        bot = bot_by_id.get(signal.bot_id)
+                        if not bot:
+                            # This orchestrator dispatch matched a bot_id
+                            # that isn't one of the BotConfig rows actually
+                            # scanning this (exchange, symbol, balance)
+                            # group right now — skip rather than execute
+                            # for a bot that wasn't part of this cycle's
+                            # intent.
+                            continue
+
+                        signal.preferred_broker = bot.exchange
+                        mode = bot.execution_mode.value
+                        exec_result = await self.execution_engine.process_signal(signal, mode, db)
+                        logger.info(
+                            "market_scan_signal",
+                            bot_id=signal.bot_id, symbol=symbol, exchange=exchange,
+                            mode=mode, result=exec_result.get("status", exec_result.get("success")),
+                        )
 
     async def _record_scan_result(self, db: AsyncSession, bots: List[BotConfig], error: str | None) -> None:
         """Writes BotConfig.last_run/last_scan_error for every bot in

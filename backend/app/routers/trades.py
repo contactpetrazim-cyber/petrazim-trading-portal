@@ -640,6 +640,7 @@ async def reanalyze_trade(trade_id: str, db: AsyncSession = Depends(get_db), use
     from app.models.trade import TradeDirection
     from app.services.data_ingestion import MarketDataIngestion
     from app.core.bot_strategies import BotOrchestrator
+    from app.services.market_scanner import get_effective_account_balance
 
     bot = (await db.execute(select(BotConfig).where(BotConfig.bot_id == trade.bot_id))).scalar_one_or_none()
     if bot is None:
@@ -661,7 +662,12 @@ async def reanalyze_trade(trade_id: str, db: AsyncSession = Depends(get_db), use
         except Exception:
             continue  # one timeframe failing shouldn't block the others — same tolerance as the scanner
 
-    signals = BotOrchestrator({}).run_all(market_data, settings_module.MARKET_SCANNER_DEFAULT_ACCOUNT_BALANCE)
+    # Same effective-balance resolution as the scanner itself (master
+    # override, else this bot's own account_balance_usd, else the
+    # static default) — by direct request ("Create a master bot
+    # control for bot starting reference capital and balance").
+    account_balance = await get_effective_account_balance(db, bot)
+    signals = BotOrchestrator({}).run_all(market_data, account_balance)
     fresh = next((s for s in signals if s.bot_id == trade.bot_id), None)
 
     # Original reasoning is ALWAYS kept — by direct request ("the
