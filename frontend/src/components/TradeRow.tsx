@@ -116,6 +116,15 @@ export function TradeRow({ trade, onApprove, onReject, onCancel, onChanged, onAr
               </span>
             </div>
             <div className="text-xs text-gray-400">{trade.strategy_type}</div>
+            {/* Risk Amount + Unit Quantity (lot_size) — by direct
+                request ("include the Risk Amount and the Unit Quantity
+                traded (upto three decimal points) ... single line,
+                similar font size as the ... 5 hours ago"), matching
+                the relative-time line's own text-xs/gray-500 size. */}
+            <div className="text-xs text-gray-500">
+              Risk: {trade.risk_amount != null ? `$${trade.risk_amount.toFixed(2)}` : '—'}
+              {' '}&nbsp;·&nbsp; Qty: {trade.lot_size.toFixed(3)}
+            </div>
           </div>
 
           {/* Prices — 2 decimal places, matching every other price in
