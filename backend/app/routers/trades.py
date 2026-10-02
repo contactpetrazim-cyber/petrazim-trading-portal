@@ -293,37 +293,51 @@ async def today_stats(db: AsyncSession = Depends(get_db), user: User = Depends(r
 
 @router.get("/analytics/bot-options")
 async def analytics_bot_options(db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access)):
-    """Distinct (bot_id, bot_name) pairs from the CALLER's OWN trades —
-    by direct bug report ("The bot / strategy quick filter in Analytics
-    is not working"). BotFilterSelect (TradeAnalytics.tsx /
-    AdvancedTradeAnalytics.tsx) used to call GET /bots/ (list_bots),
-    which scopes by BotConfig.user_id — the bot row's OWNER/creator.
-    But the platform's own strategy bots aren't owned by each
-    individual trader who receives their signals/copies — BotConfig.
-    user_id belongs to whoever created that bot, almost never the
-    trader viewing their own Analytics — so for an ordinary trader,
-    list_bots correctly returned an EMPTY list (they own zero
-    BotConfig rows), and the filter dropdown had nothing to show but
-    its own hardcoded "All" option. This derives the list from
-    Trade.bot_id/bot_name on the trader's OWN trades instead — the
-    bots/strategies they've actually traded, which is the right
-    question for a trade filter regardless of BotConfig ownership.
-    Excludes the manual pseudo-bot-id ("manual_{user_id}") — Manual
+    """Every selectable (bot_id, bot_name) option for the Analytics
+    filter — by direct bug report ("The bot / strategy quick filter in
+    Analytics is not working"), then a direct follow-up ("Why is the
+    fifth bot not showing").
+
+    BotFilterSelect (TradeAnalytics.tsx / AdvancedTradeAnalytics.tsx)
+    used to call GET /bots/ (list_bots), which scopes by BotConfig.
+    user_id — the bot row's OWNER/creator. But the platform's own
+    strategy bots aren't owned by each individual trader who receives
+    their signals/copies, so list_bots correctly returned an EMPTY list
+    for an ordinary trader, and the dropdown had nothing to show.
+
+    First fix derived the list from the CALLER's OWN Trade.bot_id/
+    bot_name instead — correct for "bots I've actually traded," but it
+    silently dropped any real bot that just hasn't produced a trade for
+    this caller YET (confirmed: bot_1_macro_swing had zero trades
+    anywhere in the table) — unselectable rather than selectable-with-
+    an-empty-result, which is the wrong failure mode for a filter.
+
+    Now UNIONS two sources: every real BotConfig row (unscoped — the
+    bot's name, not who owns the config row, which is what a filter
+    option actually needs) PLUS the caller's own trade history (covers
+    a bot_id that produced trades but was later deleted from
+    BotConfig). BotConfig's own current name wins on a bot_id present
+    in both, since it's the authoritative, up-to-date one. Still
+    excludes the manual pseudo-bot-id ("manual_{user_id}") — Manual
     trades already have their own separate All/Bots/Manual toggle.
-    GROUP BY (not DISTINCT on both columns) so a bot that was renamed
-    mid-history still shows as ONE option, not one per historical name.
     """
     from sqlalchemy import func
+    from app.models.bot import BotConfig
 
-    query = _scope_to_owner(
+    bot_config_rows = (await db.execute(select(BotConfig.bot_id, BotConfig.bot_name))).all()
+    options: Dict[str, str] = {bot_id: bot_name for bot_id, bot_name in bot_config_rows}
+
+    trade_query = _scope_to_owner(
         select(Trade.bot_id, func.max(Trade.bot_name)).where(
             ~Trade.bot_id.like("manual\\_%", escape="\\"), Trade.is_deleted == False,  # noqa: E712
         ).group_by(Trade.bot_id),
         user,
     )
-    rows = (await db.execute(query)).all()
+    for bot_id, bot_name in (await db.execute(trade_query)).all():
+        options.setdefault(bot_id, bot_name or bot_id)
+
     return sorted(
-        [{"bot_id": bot_id, "bot_name": bot_name or bot_id} for bot_id, bot_name in rows],
+        [{"bot_id": bot_id, "bot_name": bot_name} for bot_id, bot_name in options.items()],
         key=lambda r: r["bot_name"],
     )
 
