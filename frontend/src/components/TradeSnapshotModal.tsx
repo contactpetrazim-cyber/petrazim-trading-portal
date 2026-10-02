@@ -135,11 +135,18 @@ function SnapshotChart({ snapshot, dark }: { snapshot: TradeSnapshot; dark: bool
   const pad = (maxP - minP) * 0.08 || maxP * 0.01 || 1;
   const yMax = maxP + pad, yMin = minP - pad;
 
-  const w = Math.max(400, candles.length * 8);
+  // Price axis — by direct request ("Include a price axis ....").
+  // Reserves a left margin for tick labels; candles/lines/markers all
+  // shift right by AXIS_W so nothing draws under the labels.
+  const AXIS_W = 56;
+  const chartW = Math.max(400, candles.length * 8);
+  const w = chartW + AXIS_W;
   const h = 260;
-  const candleW = (w / candles.length) * 0.65;
+  const candleW = (chartW / candles.length) * 0.65;
   const toY = (price: number) => h - ((price - yMin) / (yMax - yMin)) * h;
-  const toX = (i: number) => (i + 0.5) * (w / candles.length);
+  const toX = (i: number) => AXIS_W + (i + 0.5) * (chartW / candles.length);
+  const TICKS = 5;
+  const priceTicks = Array.from({ length: TICKS }, (_, i) => yMin + ((yMax - yMin) * i) / (TICKS - 1));
 
   // All four reference lines now dashed, consistently — by direct
   // request ("No entry, SL and TP dash lines ....."): Entry/Exit used
@@ -178,7 +185,7 @@ function SnapshotChart({ snapshot, dark }: { snapshot: TradeSnapshot; dark: bool
           })}
           {refLines.map((r) => (
             <g key={r.label}>
-              <line x1={0} y1={toY(r.price)} x2={w} y2={toY(r.price)} stroke={r.color} strokeWidth={1} strokeDasharray={DASH} opacity={0.8} />
+              <line x1={AXIS_W} y1={toY(r.price)} x2={w} y2={toY(r.price)} stroke={r.color} strokeWidth={1} strokeDasharray={DASH} opacity={0.8} />
             </g>
           ))}
           {entryIdx != null && (() => {
@@ -191,6 +198,20 @@ function SnapshotChart({ snapshot, dark }: { snapshot: TradeSnapshot; dark: bool
             const base = toY(candles[exitIdx].high) - 8;
             return <polygon points={`${x - 5},${base} ${x + 5},${base} ${x},${base + 8}`} fill={exitColor} />;
           })()}
+          {priceTicks.map((p, i) => {
+            const y = toY(p);
+            return (
+              <g key={i}>
+                <line x1={AXIS_W - 4} y1={y} x2={AXIS_W} y2={y} stroke={dark ? '#6b7280' : '#9ca3af'} strokeWidth={1} />
+                <text
+                  x={AXIS_W - 6} y={y} textAnchor="end" dominantBaseline="middle"
+                  fontSize={9} fontFamily="monospace" fill={dark ? '#9ca3af' : '#6b7280'}
+                >
+                  {p.toFixed(2)}
+                </text>
+              </g>
+            );
+          })}
         </svg>
       </div>
       <div className="flex items-center gap-3 flex-wrap mt-2 text-xs">
