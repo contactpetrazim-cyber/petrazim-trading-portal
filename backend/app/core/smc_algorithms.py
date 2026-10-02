@@ -1091,14 +1091,32 @@ class RiskManager:
     def calculate_position_risk(self,
                                setup_quality: float = 1.0,  # 0.5 to 1.5
                                consecutive_losses: int = 0,
-                               current_drawdown: float = 0.0) -> float:
+                               current_drawdown: float = 0.0,
+                               base_risk_override: Optional[float] = None) -> float:
         """
         Dynamic risk adjustment:
         - Reduce risk after consecutive losses (fixed fractional)
         - Reduce risk during drawdown
         - Increase risk for high-probability setups (capped)
+
+        base_risk_override — the bot's OWN BotConfig.risk_per_trade (or a
+        Sub-Auto-specific override), read fresh per scan cycle and
+        threaded all the way in from bot_strategies.py's analyze()
+        methods. Found and fixed alongside the TP-always-~2R bug: this
+        RiskManager is constructed ONCE per bot at MarketScanner
+        startup with an always-empty config dict (BotOrchestrator({})
+        in market_scanner.py), so `self.base_risk` could only ever be
+        whatever hardcoded fallback each bot's own __init__ happened to
+        pass — the real, trader-configured BotConfig.risk_per_trade (and
+        any later edit to it on the Bots page) was NEVER actually read
+        anywhere in signal generation, confirmed by a full grep of
+        market_scanner.py/execution_engine.py/bot_strategies.py turning
+        up zero reads of BotConfig.risk_per_trade outside this dead
+        constructor-time default. Falls back to self.base_risk
+        (unchanged behavior) when no override is given, so any other
+        caller of this method keeps working exactly as before.
         """
-        risk = self.base_risk
+        risk = base_risk_override if base_risk_override is not None else self.base_risk
 
         # Fixed fractional: reduce by 20% per consecutive loss
         if consecutive_losses > 0:

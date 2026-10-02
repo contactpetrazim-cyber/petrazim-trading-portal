@@ -163,3 +163,24 @@ class BotConfig(Base):
     # restore to, so "original settings" really means whatever this
     # bot was actually set to before, not a hardcoded default.
     pre_sub_auto_execution_mode = Column(Enum(ExecutionMode), nullable=True)
+
+    # Sub-Auto-specific Risk Amount (USD) / RR overrides — by direct
+    # request ("provide a ( Risk Amount ) input for Semi auto mode
+    # ...and also a RR input"), raised alongside an audit report that
+    # Sub-Auto trades weren't respecting the bot's configured risk
+    # settings. Root cause (found during that audit, not specific to
+    # Sub-Auto): risk_per_trade/min_rr_ratio were NEVER actually read
+    # anywhere in live signal generation at all, for ANY mode — see
+    # market_scanner.py's own _effective_bot_settings, which is also
+    # what fixed that and is what actually consumes these two columns.
+    # Both nullable/optional: unset means Sub-Auto trades with the
+    # bot's own base risk_per_trade/min_rr_ratio, same as every other
+    # mode, now that those are genuinely wired in — these only need
+    # setting when a trader explicitly wants Sub-Auto tighter/looser
+    # than the bot's normal settings. Cleared on neither engage nor
+    # reset (sub_auto_active's own on/off toggle) — a deliberately-set
+    # override is meant to persist across separate Sub-Auto
+    # engagements, the same way the bot's own base risk_per_trade
+    # persists across every other mode switch.
+    sub_auto_risk_amount = Column(Float, nullable=True)
+    sub_auto_min_rr_ratio = Column(Float, nullable=True)

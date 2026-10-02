@@ -205,6 +205,10 @@ class BotConfigResponse(BaseModel):
     sub_auto_daily_cap: Optional[int] = None
     sub_auto_trades_executed: int = 0
     sub_auto_daily_count: int = 0
+    # Sub-Auto-specific Risk Amount (USD) / RR overrides — see
+    # BotConfig.sub_auto_risk_amount's own comment.
+    sub_auto_risk_amount: Optional[float] = None
+    sub_auto_min_rr_ratio: Optional[float] = None
 
     class Config:
         from_attributes = True
@@ -224,10 +228,16 @@ class BotSubAutoUpdate(BaseModel):
     """PATCH /bots/{bot_id}/sub-auto body — see
     BotConfig.sub_auto_active's own comment. enabled=False is the
     "Reset" action (also used to interrupt an active engagement early);
-    total_cap/daily_cap are required when enabling."""
+    total_cap/daily_cap are required when enabling. risk_amount/
+    min_rr_ratio are always optional (unset leaves whatever override
+    — if any — was already saved untouched) and apply regardless of
+    enabled, so a trader can update just the override on an already-
+    active engagement without having to re-send total_cap/daily_cap."""
     enabled: bool
     total_cap: Optional[int] = Field(default=None, ge=1, le=10_000)
     daily_cap: Optional[int] = Field(default=None, ge=1, le=1000)
+    risk_amount: Optional[float] = Field(default=None, gt=0)
+    min_rr_ratio: Optional[float] = Field(default=None, gt=0)
 
 class BotTradingModeUpdate(BaseModel):
     """PATCH /bots/{bot_id}/trading-mode body — mirrors

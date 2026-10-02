@@ -282,6 +282,16 @@ async def set_bot_sub_auto(
         bot.sub_auto_active = False
         bot.execution_mode = bot.pre_sub_auto_execution_mode or bot.execution_mode
         bot.pre_sub_auto_execution_mode = None
+    # Risk Amount (USD) / RR overrides — by direct request. Applied
+    # regardless of enabled/disabled above (a trader can tighten/loosen
+    # an already-active engagement, or pre-set one before ever
+    # engaging) and left untouched when omitted — see
+    # BotSubAutoUpdate's own comment for why these aren't cleared by a
+    # plain Reset (enabled=False) either.
+    if update.risk_amount is not None:
+        bot.sub_auto_risk_amount = update.risk_amount
+    if update.min_rr_ratio is not None:
+        bot.sub_auto_min_rr_ratio = update.min_rr_ratio
     await db.commit()
     await db.refresh(bot)
     return bot

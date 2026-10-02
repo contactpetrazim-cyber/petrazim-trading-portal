@@ -59,6 +59,36 @@ async def get_market_scanner_runtime_enabled(db: AsyncSession) -> bool:
 _TIMEFRAME_TO_CCXT = {"1D": "1d", "4H": "4h", "1H": "1h", "15M": "15m", "5M": "5m"}
 
 
+def _effective_bot_settings(bot: BotConfig) -> Dict[str, float]:
+    """What risk_per_trade/min_rr_ratio THIS bot should actually trade
+    with right now — read fresh every scan cycle so a trader's edit on
+    the Bots page takes effect on the very next cycle, same as
+    exchange's own "takes effect on the very next signal" comment.
+
+    While Sub-Auto Mode is engaged and the trader set a Sub-Auto-
+    specific override, that takes priority over the bot's own base
+    settings — by direct request ("provide a Risk Amount input for
+    Semi auto mode ... and also a RR input"), so a trader can run a
+    Sub-Auto engagement tighter/looser than the bot's normal manual-
+    approval settings without having to edit (and remember to revert)
+    the bot's base config. sub_auto_risk_amount is a dollar figure
+    (matching the Bots page's own "Risk Amount (USD)" field) —
+    converted to the risk_per_trade PERCENT this engine's RiskManager
+    actually consumes, against the same flat default account balance
+    every other risk calculation in this module already uses (Master
+    Bot Control's own per-bot effective balance isn't wired into
+    market_scanner.py's scan grouping yet).
+    """
+    risk_per_trade = bot.risk_per_trade
+    min_rr_ratio = bot.min_rr_ratio
+    if bot.sub_auto_active:
+        if bot.sub_auto_risk_amount:
+            risk_per_trade = (bot.sub_auto_risk_amount / settings.MARKET_SCANNER_DEFAULT_ACCOUNT_BALANCE) * 100
+        if bot.sub_auto_min_rr_ratio:
+            min_rr_ratio = bot.sub_auto_min_rr_ratio
+    return {"risk_per_trade": risk_per_trade, "min_rr_ratio": min_rr_ratio}
+
+
 class MarketScanner:
     def __init__(self, execution_engine: ExecutionEngine):
         self.execution_engine = execution_engine
@@ -134,11 +164,15 @@ class MarketScanner:
 
                 await self._record_scan_result(db, bots_here, error=None)
 
-                signals = self.orchestrator.run_all(market_data, settings.MARKET_SCANNER_DEFAULT_ACCOUNT_BALANCE)
+                bot_by_id = {b.bot_id: b for b in bots_here}
+                bot_settings = {
+                    "_".join(bot_id.split("_")[:2]): _effective_bot_settings(bot)
+                    for bot_id, bot in bot_by_id.items()
+                }
+                signals = self.orchestrator.run_all(market_data, settings.MARKET_SCANNER_DEFAULT_ACCOUNT_BALANCE, bot_settings)
                 if not signals:
                     continue
 
-                bot_by_id = {b.bot_id: b for b in bots_here}
                 for signal in signals:
                     bot = bot_by_id.get(signal.bot_id)
                     if not bot:

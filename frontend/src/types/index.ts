@@ -82,6 +82,12 @@ export interface BotConfig {
   sub_auto_daily_cap?: number | null;
   sub_auto_trades_executed?: number;
   sub_auto_daily_count?: number;
+  /** Sub-Auto-specific Risk Amount (USD) / RR overrides — see
+   * BotConfig.sub_auto_risk_amount's own backend comment. Unset means
+   * Sub-Auto trades with this bot's own risk_per_trade/min_rr_ratio,
+   * same as every other mode. */
+  sub_auto_risk_amount?: number | null;
+  sub_auto_min_rr_ratio?: number | null;
 }
 
 export interface BotPerformance {

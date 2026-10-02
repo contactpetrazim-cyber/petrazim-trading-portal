@@ -164,7 +164,7 @@ export const botsApi = {
   // Sub-Auto Mode — pre-approved autonomous execution up to a total
   // AND a daily trade cap. enabled=false is the "Reset" action. By
   // direct request.
-  setBotSubAuto: (botId: string, update: { enabled: boolean; total_cap?: number; daily_cap?: number }) =>
+  setBotSubAuto: (botId: string, update: { enabled: boolean; total_cap?: number; daily_cap?: number; risk_amount?: number; min_rr_ratio?: number }) =>
     api.patch<BotConfig>(`/bots/${botId}/sub-auto`, update).then(r => r.data),
   // Real, live-searchable Binance instrument list — by direct request
   // ("a search instrument space that searches the instrument - exactly
