@@ -97,6 +97,13 @@ export const tradesApi = {
   getTradeSnapshot: (tradeId: string, timeframe: SnapshotTimeframe) =>
     api.get<TradeSnapshot>(`/trades/${tradeId}/snapshot`, { params: { timeframe } }).then(r => r.data),
   getTradeLogs: (tradeId: string) => api.get(`/trades/${tradeId}/logs`).then(r => r.data),
+  // Bot/Strategy quick-filter options for Analytics — by direct bug
+  // report ("The bot / strategy quick filter in Analytics is not
+  // working"). Derived from the CALLER's own trades (GET /bots/ scopes
+  // by BotConfig ownership, which an ordinary trader almost never has
+  // for the platform's own strategy bots — see the backend endpoint's
+  // own comment), not bot configs.
+  getBotFilterOptions: () => api.get<{ bot_id: string; bot_name: string }[]>('/trades/analytics/bot-options').then(r => r.data),
   // Manual cancellation — by direct request ("partial or manual
   // cancellations ... even in test mode"). Lives under /manual-trading/
   // (see that router's own cancel_order docstring for what this
