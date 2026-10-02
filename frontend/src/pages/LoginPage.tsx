@@ -198,7 +198,14 @@ export function LoginPage() {
       if (!loginRes.ok) throw new Error('Account created — please sign in.');
       const loginData = await loginRes.json();
       setAuth(loginData.access_token, loginData.user);
-      navigate('/onboarding');
+      // "After the registration provide the check mail to verify
+      // email" — by direct request. /auth/register already sends a
+      // real welcome email via Resend (build_registration_confirmation_
+      // email, auth.py); this just tells the new user to go look for
+      // it. Passed as router state (not a query param) so it only
+      // shows once, right after this exact registration, and never
+      // reappears on a later visit to /onboarding.
+      navigate('/onboarding', { state: { justRegistered: true, registeredEmail: email } });
     } catch (err: any) {
       setError(err.message || 'The server did not respond. Please try again.');
     } finally {

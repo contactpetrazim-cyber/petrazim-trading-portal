@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { Mail, X, ShoppingCart } from 'lucide-react';
 import { CommunityGateStep } from '../components/CommunityGateStep';
 import { PetrazimLogo } from '../components/PetrazimLogo';
 import { useAuth } from '../hooks/useAuth';
@@ -47,11 +48,18 @@ const STEP_ORDER: Step[] = ['payment', 'community'];
 
 export function OnboardingPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { token } = useAuth();
   const { theme } = useThemeStore();
   const dark = theme === 'dark';
   const [step, setStep] = useState<Step>('payment');
   const [loading, setLoading] = useState(true);
+  // "After the registration provide the check mail to verify email" —
+  // by direct request. Router state set by LoginPage's own
+  // handleRegister, right after a successful registration — only
+  // true for THIS one landing, never again on a later visit here.
+  const registerState = location.state as { justRegistered?: boolean; registeredEmail?: string } | null;
+  const [showEmailBanner, setShowEmailBanner] = useState(!!registerState?.justRegistered);
 
   async function refreshStatus(authToken: string) {
     const res = await apiFetch(`${API_BASE}/onboarding/status`, {
@@ -110,6 +118,21 @@ export function OnboardingPage() {
         ))}
       </div>
 
+      {showEmailBanner && (
+        <div className={`flex items-start gap-3 rounded-xl p-4 max-w-md w-full mb-5 ${dark ? 'bg-blue-500/10 border border-blue-500/20' : 'bg-blue-50 border border-blue-200'}`}>
+          <Mail size={18} className="text-corporate-accent shrink-0 mt-0.5" />
+          <div className="flex-1 text-sm">
+            <span className={`font-semibold block ${dark ? 'text-white' : 'text-corporate-text-on-bg'}`}>Check your email</span>
+            <span className={dark ? 'text-white/60' : 'text-gray-500'}>
+              We've sent a welcome email{registerState?.registeredEmail ? ` to ${registerState.registeredEmail}` : ''} — take a moment to confirm it's really you.
+            </span>
+          </div>
+          <button onClick={() => setShowEmailBanner(false)} aria-label="Dismiss" className={dark ? 'text-white/40 hover:text-white' : 'text-gray-400 hover:text-gray-600'}>
+            <X size={16} />
+          </button>
+        </div>
+      )}
+
       {loading && <p className={`text-sm ${dark ? 'text-white/40' : 'text-gray-400'}`}>Loading…</p>}
 
       {!loading && step === 'payment' && (
@@ -130,6 +153,27 @@ export function OnboardingPage() {
 
       {!loading && step === 'community' && (
         <CommunityGateStep apiBaseUrl={API_BASE} channel="individual" onContinue={handleCommunityContinue} />
+      )}
+
+      {/* Floating checkout icon — by direct request ("Introduce a
+          floating checkout Icon similar to the program coach icon in
+          the similar blue theme but with a checkout logo in the
+          select program and payment page only ... a quick trigger to
+          the 'Your Order' check out/Pay"). Same fixed bottom-right,
+          circular, blue-accent treatment as the Trade AI floating icon
+          (FloatingTradeAI) elsewhere in the app — rendered only while
+          step is 'payment', not on the Community step. Triggers the
+          exact same checkout action as "Continue to payment" above,
+          just reachable without scrolling back up to the card. */}
+      {!loading && step === 'payment' && (
+        <button
+          onClick={handleStartCheckout}
+          aria-label="Quick checkout"
+          title="Quick checkout — go straight to payment"
+          className="fixed bottom-6 right-5 z-40 w-14 h-14 rounded-full bg-corporate-accent text-white shadow-xl flex items-center justify-center hover:opacity-90 transition"
+        >
+          <ShoppingCart size={24} />
+        </button>
       )}
     </div>
   );

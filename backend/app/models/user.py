@@ -69,6 +69,15 @@ class User(Base):
 
     is_super_admin_seed = Column(Boolean, nullable=False, default=False)
 
+    # First-time "How the Programme Works" auto-trigger — by direct
+    # request ("dashboard buttons should open the programme steps modal
+    # first for a brand-new user until they've seen it once"). Server
+    # side is the source of truth (tied to the account); the frontend
+    # also caches this in localStorage as a backup so a slow/offline
+    # PATCH right after dismissal can't cause a repeat popup on the very
+    # next click within the same visit.
+    has_seen_programme_intro = Column(Boolean, nullable=False, default=False)
+
     created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
     created_by = Column(UUID(as_uuid=True), nullable=True)
     last_login_at = Column(DateTime(timezone=True), nullable=True)

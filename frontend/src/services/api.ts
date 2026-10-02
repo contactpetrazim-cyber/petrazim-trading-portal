@@ -71,6 +71,14 @@ api.interceptors.response.use(
   },
 );
 
+export const authApi = {
+  // First-time "How the Programme Works" auto-trigger — see
+  // useAuth's markProgrammeIntroSeen and CorporateHomePage's
+  // interception logic. Returns the refreshed profile, but the caller
+  // just needs the call to land; the store is updated optimistically.
+  markProgrammeIntroSeen: () => api.patch('/auth/programme-intro-seen').then(r => r.data),
+};
+
 export const dashboardApi = {
   getStats: () => api.get<DashboardStats>('/dashboard/stats').then(r => r.data),
   getTradeBreakdown: (period: TradeBreakdownPeriod = 'today') =>
