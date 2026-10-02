@@ -1157,8 +1157,24 @@ class RiskManager:
         constructor-time default. Falls back to self.base_risk
         (unchanged behavior) when no override is given, so any other
         caller of this method keeps working exactly as before.
+
+        An explicit override is now respected EXACTLY (only the hard
+        3% ceiling still applies) — real bug, found via direct report
+        ("why is the risk amount greater than $10 max that was set in
+        semi auto mode"): a trader's $10 Sub-Auto cap converts
+        (market_scanner.py's _effective_bot_settings) to 0.1%
+        risk_per_trade, which used to get silently bumped up to the
+        0.25% floor below PLUS the setup_quality multiplier further
+        above it — both meant for this method's own un-configured
+        default (self.base_risk, from before BotConfig.risk_per_trade
+        was ever actually wired in — see above), not for a trader's
+        own explicit number. The observed trade risked $24.95 against
+        a stated $10 cap — ~2.5x over, with no warning anywhere.
         """
-        risk = base_risk_override if base_risk_override is not None else self.base_risk
+        if base_risk_override is not None:
+            return round(min(base_risk_override, 3.0), 2)  # 3% ceiling only — no floor, no setup_quality inflation
+
+        risk = self.base_risk
 
         # Fixed fractional: reduce by 20% per consecutive loss
         if consecutive_losses > 0:
@@ -1175,7 +1191,7 @@ class RiskManager:
 
         # Hard limits
         risk = min(risk, 3.0)  # Max 3% per trade
-        risk = max(risk, 0.25)  # Min 0.25% per trade
+        risk = max(risk, 0.25)  # Min 0.25% per trade — only for the un-configured self.base_risk path above
 
         return round(risk, 2)
 
