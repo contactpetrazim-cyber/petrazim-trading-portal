@@ -291,6 +291,43 @@ async def today_stats(db: AsyncSession = Depends(get_db), user: User = Depends(r
         "active_trades": len([t for t in trades if t.status == TradeStatus.ACTIVE])
     }
 
+@router.get("/analytics/bot-options")
+async def analytics_bot_options(db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access)):
+    """Distinct (bot_id, bot_name) pairs from the CALLER's OWN trades —
+    by direct bug report ("The bot / strategy quick filter in Analytics
+    is not working"). BotFilterSelect (TradeAnalytics.tsx /
+    AdvancedTradeAnalytics.tsx) used to call GET /bots/ (list_bots),
+    which scopes by BotConfig.user_id — the bot row's OWNER/creator.
+    But the platform's own strategy bots aren't owned by each
+    individual trader who receives their signals/copies — BotConfig.
+    user_id belongs to whoever created that bot, almost never the
+    trader viewing their own Analytics — so for an ordinary trader,
+    list_bots correctly returned an EMPTY list (they own zero
+    BotConfig rows), and the filter dropdown had nothing to show but
+    its own hardcoded "All" option. This derives the list from
+    Trade.bot_id/bot_name on the trader's OWN trades instead — the
+    bots/strategies they've actually traded, which is the right
+    question for a trade filter regardless of BotConfig ownership.
+    Excludes the manual pseudo-bot-id ("manual_{user_id}") — Manual
+    trades already have their own separate All/Bots/Manual toggle.
+    GROUP BY (not DISTINCT on both columns) so a bot that was renamed
+    mid-history still shows as ONE option, not one per historical name.
+    """
+    from sqlalchemy import func
+
+    query = _scope_to_owner(
+        select(Trade.bot_id, func.max(Trade.bot_name)).where(
+            ~Trade.bot_id.like("manual\\_%", escape="\\"), Trade.is_deleted == False,  # noqa: E712
+        ).group_by(Trade.bot_id),
+        user,
+    )
+    rows = (await db.execute(query)).all()
+    return sorted(
+        [{"bot_id": bot_id, "bot_name": bot_name or bot_id} for bot_id, bot_name in rows],
+        key=lambda r: r["bot_name"],
+    )
+
+
 @router.get("/analytics/summary")
 async def analytics_summary(
     bot_id: Optional[str] = Query(None),
