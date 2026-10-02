@@ -15,22 +15,24 @@ from app.core.access_gate import require_active_access, has_active_access, _rais
 from app.schemas import TradeCreate, TradeResponse, TradeApproval, TradeArchiveUpdate, TradeDeleteUpdate
 from app.services.execution_engine import ExecutionEngine
 from app.services.live_price import get_crypto_price
-from app.services.data_ingestion import MarketDataIngestion
+from app.services.data_ingestion import shared_ingestion
 import structlog
 
 router = APIRouter(prefix="/trades", tags=["trades"])
 logger = structlog.get_logger()
 engine = ExecutionEngine()
 settings_module = get_settings()
-# One shared, long-lived ingestion instance for the Trade Snapshot
-# endpoint below — reusing MarketDataIngestion.__init__'s own one-
-# ccxt-client-per-exchange cache rather than constructing a fresh
-# MarketDataIngestion() (and therefore a fresh ccxt client) per
-# request. See that class's own comment for why that specific mistake
-# previously triggered a real Binance IP ban ("Way too many
-# requests"), confirmed live in production logs this same day — a
-# snapshot endpoint hit repeatedly must not repeat it.
-_snapshot_ingestion = MarketDataIngestion()
+# The SAME app-wide shared_ingestion instance market_scanner.py uses —
+# NOT this router's own separate MarketDataIngestion() (the earlier
+# version of this fix, before a critical "wake up taking longer than
+# usual" investigation traced the Render free-tier backend's OOM-
+# crash-loop to exactly this: two independent long-lived instances
+# each caching their own full ccxt market metadata for the same
+# exchanges, wasting tens of MB that a 512MB cap can't spare). See
+# shared_ingestion's own comment in data_ingestion.py for the full
+# story, and reuse it for any new long-lived caller rather than
+# constructing another MarketDataIngestion().
+_snapshot_ingestion = shared_ingestion
 
 # Same principle as bots.py/roster.py: Admin/Super Admin see every
 # trade, everyone else only their own (a trade's owner is the Trader
@@ -496,10 +498,18 @@ async def get_trade(trade_id: str, db: AsyncSession = Depends(get_db), user: Use
     await _enrich_live_pnl([trade])
     return trade
 
+# Same 5-timeframe set every bot strategy/scanner already uses (see
+# market_scanner.py's own _TIMEFRAME_TO_CCXT) — by direct request
+# ("Add 5M, 4D and 1D to the snapshots chart"; "4D" read as "4H", the
+# actual timeframe this app has everywhere else, since no "4D" bar
+# exists anywhere else in this codebase or on any supported exchange).
+_SNAPSHOT_BAR_SECONDS = {"5m": 300, "15m": 900, "1h": 3600, "4h": 14400, "1d": 86400}
+
+
 @router.get("/{trade_id}/snapshot")
 async def trade_snapshot(
     trade_id: str,
-    timeframe: str = Query("1h", description="'1h' or '15m'"),
+    timeframe: str = Query("1h", description="'5m', '15m', '1h', '4h', or '1d'"),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -507,12 +517,12 @@ async def trade_snapshot(
     window, by direct request ("Can snapshots of the trade be taken
     and stored for 1H and 15M as quick reference ... upon close
     snapshot for the trade showing the entry ... SL or TP ... with the
-    candles"). NOT a pre-rendered image stored at close time: a past
-    window's own OHLCV never changes, so re-fetching it live from the
-    exchange on each view genuinely IS "the snapshot" — no image-
-    rendering infra, no extra storage, no staleness to manage. The
-    frontend draws the actual candlestick chart from the real data
-    this returns.
+    candles"; later extended to the full 5M/15M/1H/4H/1D set). NOT a
+    pre-rendered image stored at close time: a past window's own OHLCV
+    never changes, so re-fetching it live from the exchange on each
+    view genuinely IS "the snapshot" — no image-rendering infra, no
+    extra storage, no staleness to manage. The frontend draws the
+    actual candlestick chart from the real data this returns.
 
     Only crypto trades (a real ccxt exchange id in broker_name) are
     supported — the only asset class any bot here currently trades
@@ -522,8 +532,8 @@ async def trade_snapshot(
     instead of a confusing ccxt error.
     """
     trade = await _get_owned_trade(trade_id, user, db)
-    if timeframe not in ("1h", "15m"):
-        raise HTTPException(status_code=400, detail="timeframe must be '1h' or '15m'")
+    if timeframe not in _SNAPSHOT_BAR_SECONDS:
+        raise HTTPException(status_code=400, detail=f"timeframe must be one of {', '.join(_SNAPSHOT_BAR_SECONDS)}")
     if not trade.entry_timestamp:
         raise HTTPException(status_code=409, detail="This trade has no entry timestamp yet — nothing to snapshot.")
 
@@ -537,7 +547,7 @@ async def trade_snapshot(
     # aftermath is visible too. Candle counts, not calendar time, are
     # what actually matters for a readable chart — capped at 120 so
     # this stays one real ccxt call, not an unbounded fetch.
-    bar_seconds = 3600 if timeframe == "1h" else 900
+    bar_seconds = _SNAPSHOT_BAR_SECONDS[timeframe]
     lookback_bars = 30
     since = trade.entry_timestamp - timedelta(seconds=bar_seconds * lookback_bars)
     end = (trade.exit_timestamp or datetime.utcnow()) + timedelta(seconds=bar_seconds * 6)

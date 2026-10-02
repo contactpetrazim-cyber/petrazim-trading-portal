@@ -110,6 +110,11 @@ export interface BotConfig {
  * the entry, SL or TP ... with the candles"). See tradesApi.
  * getTradeSnapshot's own comment for why this is fetched live each
  * time rather than a stored image. */
+// Same 5-timeframe set every bot strategy/scanner already uses — by
+// direct request ("Add 5M, 4D and 1D to the snapshots chart"; "4D"
+// read as "4H", the only 4-prefixed timeframe this app uses anywhere
+// else).
+export type SnapshotTimeframe = '5m' | '15m' | '1h' | '4h' | '1d';
 export interface TradeSnapshotCandle {
   timestamp: string;
   open: number;
@@ -120,7 +125,7 @@ export interface TradeSnapshotCandle {
 export interface TradeSnapshot {
   trade_id: string;
   symbol: string;
-  timeframe: '1h' | '15m';
+  timeframe: SnapshotTimeframe;
   direction: 'long' | 'short';
   entry_price: number | null;
   entry_timestamp: string | null;
