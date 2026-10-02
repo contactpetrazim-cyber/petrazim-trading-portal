@@ -197,15 +197,27 @@ class Settings(BaseSettings):
     # before a new trade is blocked from executing — distinct from
     # manual_trading.py's own portfolio-exposure check, which sums
     # RISK PERCENT (what you'd lose if stopped out), not notional
-    # (what you need to actually open the position). Defaults to 1.0 —
-    # no leverage assumed — because this platform never actually sets
-    # leverage on any exchange account (broker_integrations.py's
-    # set_leverage exists per-exchange but is never called anywhere),
-    # so the real leverage in effect on any given account is unknown
-    # and 1x is the only assumption that can't be dangerously wrong.
-    # Raise this only with real knowledge of the actual leverage
-    # configured on the exchange account(s) this platform trades.
-    MAX_NOTIONAL_LEVERAGE: float = 1.0
+    # (what you need to actually open the position).
+    #
+    # REAL REGRESSION, found within an hour of this gate first
+    # deploying with a 1.0 (no-leverage) default: it started rejecting
+    # completely ordinary trades — a Sub-Auto trade risking $10 on a
+    # correctly-sized ~0.36 BTC position (~$30k notional on a $10k
+    # account, ~3x) was blocked as "capital_inadequate", because a
+    # risk-based position on an asset this expensive routinely needs
+    # several-x leverage even with a perfectly sane, properly-floored
+    # stop (see MIN_STOP_DISTANCE_PCT below — even AT that 15bps floor,
+    # a $100 risk needs ~6.7x leverage to size correctly; this
+    # platform's bots legitimately trade leveraged). 1.0x conflated
+    # "block an absurd 3500x-implied blowup" with "block any leverage
+    # at all" — the wrong question. 20x is generous enough to never
+    # block a properly-stopped trade post-floor-fix while still
+    # catching another blowup of the original bug's actual magnitude.
+    # Tune this to the REAL max leverage configured on the exchange
+    # account(s) this platform trades, once known — this default is a
+    # reasonable, conservative-but-usable crypto-perp ceiling, not a
+    # measured number.
+    MAX_NOTIONAL_LEVERAGE: float = 20.0
 
     # Floor under calculate_stop_loss's own result (smc_algorithms.py)
     # — 0.0015 = 15 bps of entry price. By critical audit request,
