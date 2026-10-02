@@ -17,6 +17,9 @@ export interface Trade {
    * "Unit Quantity". Optional only because a pre-this-field legacy
    * row could in principle have None at the DB level. */
   risk_amount?: number | null;
+  /** Realized PnL in risk-multiples — a real DB column, exposed for
+   * "Add from Recent Trades" (Prop-Firm Challenge Simulator). */
+  r_multiple?: number | null;
   realized_pnl: number;
   unrealized_pnl: number;
   bot_id: string;
@@ -94,6 +97,8 @@ export interface BotConfig {
   sub_auto_risk_amount?: number | null;
   sub_auto_min_rr_ratio?: number | null;
 }
+
+
 
 export interface BotPerformance {
   bot_id: string;
