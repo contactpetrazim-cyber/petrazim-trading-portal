@@ -92,6 +92,18 @@ class BotConfig(Base):
     # wins over this regardless), else config.py's own static
     # MARKET_SCANNER_DEFAULT_ACCOUNT_BALANCE.
     account_balance_usd = Column(Float, nullable=True)
+    # This bot's own leverage override — by direct request ("put a
+    # form to set leverage for Bot and manual - separately on the
+    # trader dashboard ... with a global override form in the Admin").
+    # Same precedence shape as account_balance_usd above: null means
+    # "no override for this bot" — falls back to the Admin's platform-
+    # wide master leverage when that's enabled (MASTER_LEVERAGE_KEY,
+    # which always wins over this regardless), else config.py's own
+    # static MAX_NOTIONAL_LEVERAGE. See services/capital_adequacy.py's
+    # get_effective_leverage for the real resolution order, and
+    # execution_engine.py's own set_leverage call for where this
+    # actually reaches the real exchange account.
+    leverage = Column(Float, nullable=True)
 
     # Entry Parameters
     entry_types = Column(JSON, default=list)  # ["limit", "market"]

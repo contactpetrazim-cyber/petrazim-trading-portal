@@ -3,6 +3,7 @@ import { ShieldAlert } from 'lucide-react';
 import { FoldedCard } from './FoldedCard';
 import { useAuth } from '../hooks/useAuth';
 import { apiFetch } from './AccessExpiredGate';
+import { botsApi } from '../services/api';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -18,6 +19,14 @@ interface Settings {
   effective_max_concurrent_trades: number;
   effective_max_portfolio_exposure: number;
   effective_min_rr_ratio: number;
+  // Manual trading's own leverage override — by direct request ("put
+  // a form to set leverage for Bot and manual - separately on the
+  // trader dashboard ... with a global override form in the Admin").
+  // Independent of use_global_defaults above (always editable, same
+  // shape as Bots.tsx's own Starting Reference Capital/Leverage
+  // fields) — null means "use the platform default/Admin master."
+  leverage: number | null;
+  effective_leverage: number;
 }
 
 /**
@@ -41,6 +50,13 @@ export function RiskSettingsCard({ dark = false }: { dark?: boolean }) {
   const { token } = useAuth();
   const [settings, setSettings] = useState<Settings | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Only the `enabled` flag is actually needed here — settings.
+  // effective_leverage (from /manual-trading/settings) already
+  // resolves the master override's VALUE; this just tells the input
+  // below whether to disable itself and explain why, same UX as
+  // Bots.tsx's own Leverage field.
+  const [masterLeverageEnabled, setMasterLeverageEnabled] = useState(false);
+  useEffect(() => { botsApi.getMasterLeverage().then((d) => setMasterLeverageEnabled(d.enabled)).catch(() => {}); }, []);
 
   function load() {
     apiFetch(`${API_URL}/manual-trading/settings`, { headers: { Authorization: `Bearer ${token}` } })
@@ -113,6 +129,30 @@ export function RiskSettingsCard({ dark = false }: { dark?: boolean }) {
               ))}
             </div>
           )}
+          {/* Leverage — by direct request ("put a form to set leverage
+              for Bot and manual - separately on the trader dashboard
+              ... with a global override form in the Admin"). Always
+              shown (independent of the Global defaults/My own settings
+              toggle above, same as Bots.tsx's own Leverage field is
+              independent of its other risk fields) since leverage
+              isn't part of GLOBAL_RISK_DEFAULTS_KEY's own soft
+              fallback set. */}
+          <div className={`mt-3 pt-3 border-t ${dark ? 'border-smc-border' : 'border-corporate-bg'}`}>
+            <label className={labelCls}>
+              Leverage (x)
+              {masterLeverageEnabled ? (
+                <div className={`mt-1 px-3 py-2 rounded-lg text-xs ${dark ? 'bg-amber-500/10 text-amber-400' : 'bg-amber-50 text-amber-700'}`}>
+                  Overridden by the Admin's master control — fixed at {settings.effective_leverage}x right now.
+                </div>
+              ) : (
+                <input
+                  type="number" step="1" min="1" max="125" className={`${inputCls} max-w-[140px]`}
+                  defaultValue={settings.leverage ?? settings.effective_leverage}
+                  onBlur={(e) => updateSettings({ leverage: Number(e.target.value) })}
+                />
+              )}
+            </label>
+          </div>
         </div>
       )}
     </FoldedCard>

@@ -19,6 +19,14 @@ from app.services.broker_credentials import build_broker_client
 logger = structlog.get_logger()
 settings = get_settings()
 
+# Brokers whose client exposes a real set_leverage(symbol, leverage)
+# call (see broker_integrations.py) — tradelocker/metatrader/oanda are
+# forex-account-style brokers with no comparable per-symbol futures
+# leverage concept in this codebase, same split as the Trade Snapshot
+# endpoint's own crypto-exchange allowlist.
+_LEVERAGE_CAPABLE_BROKERS = {"bingx", "binance", "bybit", "mexc"}
+
+
 class ExecutionEngine:
     """Core execution engine with multi-broker support."""
 
@@ -95,6 +103,13 @@ class ExecutionEngine:
             "mexc": MexcBroker("", "", paper=True),
             "metatrader": MetaApiBroker("", "", paper=True),
         }
+
+        # Tracks which (broker, account, symbol) combos have already
+        # had their real exchange leverage explicitly set this process
+        # lifetime — see _execute_broker_order's own comment for why
+        # this exists and why it's cached rather than called on every
+        # single order.
+        self._leverage_set_for: set = set()
 
     async def _bot_paper_mode(self, db: Optional[AsyncSession], bot_id: str) -> bool:
         """The same three-way OR manual_trading.py's own `paper` local
@@ -378,6 +393,13 @@ class ExecutionEngine:
                         "success": False, "status": "capital_inadequate",
                         "message": capital_check.reason, "trade_id": trade_data["trade_id"],
                     }
+                # Same resolved leverage the capital check itself used
+                # (master override / this bot's own BotConfig.leverage
+                # / platform default) — carried into trade_data so
+                # _execute_broker_order's own set_leverage call sets
+                # the REAL exchange account to the exact same number
+                # this gate assumed, not a separately-resolved one.
+                trade_data["leverage"] = capital_check.effective_leverage
 
             result = await self._execute_broker_order(trade_data, db, paper=paper)
             if result["success"]:
@@ -625,6 +647,17 @@ class ExecutionEngine:
                 await self._mark_trade_error(db, copy_trade_data["trade_id"], {"error": str(e)})
                 continue
 
+            # Leverage only (not the full capital-adequacy gate — this
+            # platform doesn't know a subscriber's own real account
+            # balance, same honest limitation as this method's own
+            # lot_size-scaling comment above, so a notional check here
+            # would compare against the wrong number). Leverage itself
+            # is a platform POLICY choice, not a balance fact, so the
+            # bot's own override (or the Admin master) still correctly
+            # applies to this subscriber's own real exchange connection.
+            from app.services.capital_adequacy import get_effective_leverage
+            copy_trade_data["leverage"] = await get_effective_leverage(db, bot_id=bot_id)
+
             result = await self._execute_broker_order(copy_trade_data, db, paper=False, client_override=client)
             if result.get("success"):
                 await self._update_trade_after_execution(db, copy_trade_data["trade_id"], result)
@@ -696,6 +729,10 @@ class ExecutionEngine:
                     # set at draft time by _persist_trade, so just read it
                     # back rather than re-querying BotConfig here too.
                     "user_id": row.user_id,
+                    # Same resolved leverage the capital check right
+                    # above just used — see process_signal's own
+                    # identical comment for why this matters.
+                    "leverage": capital_check.effective_leverage,
                 }
                 # row.is_test was captured at DRAFT time (process_signal's
                 # own _bot_paper_mode call, persisted by _persist_trade) —
@@ -1012,6 +1049,51 @@ class ExecutionEngine:
                             f"bot's data source against its execution exchange."
                         ),
                     }
+
+                # Explicitly set this account's REAL exchange leverage
+                # to match what the capital-adequacy gate assumes — the
+                # resolved per-bot/per-trader/master leverage threaded
+                # in as trade["leverage"] by every caller (process_
+                # signal, approve_trade, _fan_out_to_subscribers' AUTO
+                # path — see each one's own comment), falling back to
+                # config.py's static default for any other caller.
+                # Before this, every order executed against WHATEVER
+                # leverage happened to already be configured on the
+                # exchange account/symbol — set_leverage existed per-
+                # broker but was never actually called anywhere — so
+                # our own capital math could say "fine, 50x is
+                # available" while the exchange itself still had, say,
+                # its own default configured for that symbol, and
+                # REJECT the order for insufficient margin despite
+                # passing our own gate.
+                # Real orders only (never for a paper-flagged
+                # execution — this mutates the REAL account's actual
+                # leverage setting, which a simulated trade must never
+                # touch); best-effort (a failure here logs and falls
+                # through to the order attempt as before — set_leverage
+                # calls _request, which never raises, only returns
+                # success=False, same tolerance as every other guard in
+                # this method); cached per (broker, account, symbol,
+                # leverage) — the leverage value is PART of the cache
+                # key so editing a bot's/trader's own override is
+                # picked up on the very next order, not stuck on
+                # whatever was cached first — so it's only actually
+                # called once per process lifetime per combo+value, not
+                # on every single order (same "never repeat a redundant
+                # request" discipline as data_ingestion.py's
+                # shared_ingestion).
+                if not paper and broker in _LEVERAGE_CAPABLE_BROKERS:
+                    target_leverage = trade.get("leverage") or self.settings.MAX_NOTIONAL_LEVERAGE
+                    leverage_key = (broker, trade.get("user_id"), trade["symbol"], target_leverage)
+                    if leverage_key not in self._leverage_set_for:
+                        lev_result = await client.set_leverage(trade["symbol"], int(target_leverage))
+                        if lev_result.get("success"):
+                            self._leverage_set_for.add(leverage_key)
+                        else:
+                            logger.warning(
+                                "set_leverage_failed", broker=broker, symbol=trade["symbol"],
+                                leverage=target_leverage, error=lev_result.get("error"),
+                            )
 
             if broker == "bingx" and client is not None:
                 return await self._execute_bingx(trade, client)

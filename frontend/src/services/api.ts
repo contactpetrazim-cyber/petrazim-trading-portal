@@ -189,6 +189,14 @@ export const botsApi = {
     api.get<{ enabled: boolean; value: number; platform_default: number }>('/bots/master-account-balance').then(r => r.data),
   setMasterAccountBalance: (update: { enabled: boolean; value: number }) =>
     api.patch<{ enabled: boolean; value: number; platform_default: number }>('/bots/master-account-balance', update).then(r => r.data),
+  // Leverage master control — same shape as the balance one above, by
+  // direct request ("put a form to set leverage for Bot and manual -
+  // separately on the trader dashboard ... with a global override
+  // form in the Admin").
+  getMasterLeverage: () =>
+    api.get<{ enabled: boolean; value: number; platform_default: number }>('/bots/master-leverage').then(r => r.data),
+  setMasterLeverage: (update: { enabled: boolean; value: number }) =>
+    api.patch<{ enabled: boolean; value: number; platform_default: number }>('/bots/master-leverage', update).then(r => r.data),
   // Real, live-searchable Binance instrument list — by direct request
   // ("a search instrument space that searches the instrument - exactly
   // like the one on the chart ... removing errors"). Reuses the same

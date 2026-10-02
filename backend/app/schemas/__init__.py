@@ -200,6 +200,10 @@ class BotConfigResponse(BaseModel):
     # enabled, else the platform default). See BotConfig.
     # account_balance_usd's own comment.
     account_balance_usd: Optional[float] = None
+    # This bot's own leverage override — same null-means-no-override
+    # shape as account_balance_usd above. See BotConfig.leverage's own
+    # comment.
+    leverage: Optional[float] = None
     # Same Test/Live + Paper Trading pair ManualTradingSettings already
     # exposes, now per-bot — see BotConfig's own comment for why.
     trading_mode: str = "test"
@@ -293,6 +297,10 @@ class BotMetricsUpdate(BaseModel):
     # default) — the same real, meaningful-null convention every
     # nullable BotConfig column here already gets for free.
     account_balance_usd: Optional[float] = Field(None, gt=0)
+    # This bot's own leverage override — same meaningful-null
+    # convention as account_balance_usd above. See BotConfig.leverage's
+    # own comment.
+    leverage: Optional[float] = Field(None, gt=0, le=125)
 
 # =============================================================================
 # DASHBOARD / ANALYTICS SCHEMAS
