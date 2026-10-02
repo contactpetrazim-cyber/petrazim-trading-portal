@@ -4,7 +4,7 @@ import { fetchJsonWithRetry, type FetchPhase } from '../lib/resilientFetch';
 import { LoadingIndicator } from './LoadingIndicator';
 import { FoldedCard } from './FoldedCard';
 import { money } from './TradeAnalytics';
-import type { TradeSource } from './TradeAnalytics';
+import type { TradeSource, TestLiveFilter } from './TradeAnalytics';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -56,7 +56,7 @@ const AMBER = '#f59e0b';
  * uses each trade's own entry_timestamp in UTC — labeled as such,
  * since this app has no per-trader timezone setting to convert against.
  */
-export function AdvancedTradeAnalytics({ dark, source, botId }: { dark: boolean; source: TradeSource; botId?: string }) {
+export function AdvancedTradeAnalytics({ dark, source, botId, testLive }: { dark: boolean; source: TradeSource; botId?: string; testLive?: TestLiveFilter }) {
   const { token } = useAuth();
   const [rows, setRows] = useState<DetailRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -70,17 +70,19 @@ export function AdvancedTradeAnalytics({ dark, source, botId }: { dark: boolean;
     // Bot/Strategy filter — by direct request ("include a strategy or
     // bot filter to ... Advanced Analytics — Trading Edge"). Shares
     // the same `bot_id` param TradeAnalytics passes down as `botId`,
-    // already supported server-side by this exact endpoint.
+    // already supported server-side by this exact endpoint. Test/Live
+    // filter shares `testLive` the same way.
     const qsParams: string[] = [];
     if (source !== 'all') qsParams.push(`source=${source}`);
     if (botId) qsParams.push(`bot_id=${encodeURIComponent(botId)}`);
+    if (testLive && testLive !== 'all') qsParams.push(`is_test=${testLive === 'test'}`);
     const qs = qsParams.length ? `?${qsParams.join('&')}` : '';
     fetchJsonWithRetry<DetailRow[]>(`${API_URL}/trades/analytics/detail${qs}`, { headers: { Authorization: `Bearer ${token}` } }, setPhase)
       .then((r) => {
         if (r) setRows(r);
         else setError('Could not load the advanced analytics right now.');
       });
-  }, [token, source, botId, retryTick]);
+  }, [token, source, botId, testLive, retryTick]);
 
   const mutedCls = dark ? 'text-white/40' : 'text-gray-400';
 

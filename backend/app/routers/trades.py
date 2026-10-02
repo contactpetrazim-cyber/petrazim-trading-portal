@@ -276,6 +276,11 @@ async def today_stats(db: AsyncSession = Depends(get_db), user: User = Depends(r
 async def analytics_summary(
     bot_id: Optional[str] = Query(None),
     source: Optional[str] = Query(None, description="'all' (default), 'bots', or 'manual'"),
+    # Test/Paper vs Live filter — by direct request ("Include a toggle
+    # for the trade analytics section that filters test Vs live mode
+    # that is paper trading mode Vs live mode"). None (default) = both;
+    # True = only Test/Paper trades; False = only real Live trades.
+    is_test: Optional[bool] = Query(None),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_active_access),
 ):
@@ -298,6 +303,8 @@ async def analytics_summary(
     )
     if bot_id:
         query = query.where(Trade.bot_id == bot_id)
+    if is_test is not None:
+        query = query.where(Trade.is_test == is_test)
     query = _apply_source_filter(query, source)
     result = await db.execute(query)
     trades = result.scalars().all()
@@ -401,6 +408,7 @@ class TradeDetailRow(BaseModel):
 async def analytics_detail(
     bot_id: Optional[str] = Query(None),
     source: Optional[str] = Query(None, description="'all' (default), 'bots', or 'manual'"),
+    is_test: Optional[bool] = Query(None, description="None (default) = both; True = Test/Paper only; False = Live only"),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_active_access),
 ):
@@ -423,6 +431,8 @@ async def analytics_detail(
     )
     if bot_id:
         query = query.where(Trade.bot_id == bot_id)
+    if is_test is not None:
+        query = query.where(Trade.is_test == is_test)
     query = _apply_source_filter(query, source)
     result = await db.execute(query)
     trades = result.scalars().all()
