@@ -2,22 +2,23 @@
 Five Distinct SMC Bot Trading Styles
 Grounded in: Mark Douglas, Wyckoff, Dalton, Damir, Brooks, ICT, Photon, Jeafx
 
-CRITICAL: this module's own opening triple-quote was found MISSING on
-`main` (2026-10-02) — almost certainly lost in PR #170's push through the
-GitHub API workaround used when local `git push` had no credentials
-(see github-create-or-update-file-contents's own known flakiness,
-independently reproduced and caught the same day pushing PR #171). A
-single dropped line silently swallowed everything from here down to
-this class's own docstring into one inert string literal, which is a
-SyntaxError at module import — confirmed directly in Render's own
-deploy logs ("SyntaxError: invalid decimal literal", 2026-09-30
-23:57:29 UTC): PR #170 and PR #171 both show `update_failed` deploys
-and Render had been silently serving PR #169's code ever since,
-through every merge since, with the site never visibly going down
-only because Render's zero-downtime deploy never cut over a build
-that failed to import. Restoring this one line is the entire fix —
-every other PR #170/#171 change underneath was already correct and
-intact; only this file ever failed to deploy.
+CRITICAL: the opening triple-quote on this module docstring was found
+MISSING on main (2026-10-02) -- almost certainly lost in the PR 170
+push through the GitHub API workaround used when local git push had
+no credentials (see github-create-or-update-file-contents, a tool
+with known content-mangling flakiness, independently reproduced and
+caught the same day while pushing PR 171). A single dropped line
+silently swallowed everything from here down to the next class
+docstring into one inert string literal, which is a SyntaxError at
+module import -- confirmed directly in Render deploy logs
+("SyntaxError: invalid decimal literal", 2026-09-30 23:57:29 UTC): PR
+170 and PR 171 both show update_failed deploys, and Render had been
+silently serving PR 169 code ever since, through every merge since,
+with the site never visibly going down only because the Render
+zero-downtime deploy mechanism never cut over to a build that failed
+to import. Restoring this one line is the entire fix -- every other
+PR 170/171 change underneath was already correct and intact; only
+this file ever failed to deploy.
 """
 
 from typing import Dict, List, Optional, Literal
