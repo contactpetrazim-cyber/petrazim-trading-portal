@@ -353,6 +353,32 @@ class ExecutionEngine:
                 "message": f"Trade drafted: {signal.symbol} {signal.direction} @ {signal.entry_price}"
             }
         else:
+            # Capital adequacy gate — by critical audit request, after
+            # a real trade was found sized at 419.35 BTC (~$35M
+            # notional) against a $130 "risk". See capital_adequacy.py's
+            # own module docstring. Only runs when a DB session exists
+            # (every real caller — webhook/market_scanner — passes
+            # one); skipped, not failed-open vs failed-closed, when it
+            # doesn't, same as every other db-dependent check in this
+            # method (e.g. _bot_owner_user_id above).
+            if db is not None:
+                from app.services.capital_adequacy import check_capital_adequacy
+                capital_check = await check_capital_adequacy(
+                    db, trade_data.get("user_id"), signal.bot_id,
+                    trade_data["lot_size"], trade_data["entry_price"],
+                    exclude_trade_id=trade_data["trade_id"],
+                )
+                if not capital_check.ok:
+                    logger.warning(
+                        "trade_blocked_capital_inadequate",
+                        trade_id=trade_data["trade_id"], bot=signal.bot_name, reason=capital_check.reason,
+                    )
+                    await self._mark_trade_error(db, trade_data["trade_id"], {"error": capital_check.reason})
+                    return {
+                        "success": False, "status": "capital_inadequate",
+                        "message": capital_check.reason, "trade_id": trade_data["trade_id"],
+                    }
+
             result = await self._execute_broker_order(trade_data, db, paper=paper)
             if result["success"]:
                 trade_data["status"] = "active"
@@ -640,6 +666,23 @@ class ExecutionEngine:
                                 "previous day. Settle it to resume trading."
                             ),
                         }
+                # Capital adequacy gate — by critical audit request.
+                # Re-checked HERE (not just at draft time) because a
+                # Human-in-the-Loop trade can sit pending for a while:
+                # other trades may have opened/closed, or the account's
+                # own effective balance may have changed, since it was
+                # first drafted. See capital_adequacy.py's own module
+                # docstring; excludes THIS row from "existing notional"
+                # since it's already a PENDING row in the table, not an
+                # OTHER trade to sum against itself.
+                from app.services.capital_adequacy import check_capital_adequacy
+                capital_check = await check_capital_adequacy(
+                    db, row.user_id, row.bot_id, row.lot_size, row.entry_price,
+                    exclude_trade_id=row.trade_id,
+                )
+                if not capital_check.ok:
+                    return {"success": False, "message": capital_check.reason}
+
                 trade = {
                     "trade_id": row.trade_id, "bot_id": row.bot_id, "symbol": row.symbol,
                     "direction": "long" if row.direction.value == "long" else "short",
