@@ -1,6 +1,6 @@
 
 import axios from 'axios';
-import { Trade, BotConfig, BotPerformance, BotMetricsUpdate, DashboardStats, SignalPreview, PerformanceSummary, TradeBreakdown, TradeBreakdownPeriod, ExchangeMetaResponse, TraderBrokerConnection, AvailableBot, TraderBotSubscription, OutboundIpsResponse, FeeSettings, FeeLedgerEntry, MyFeesResponse, FeeGateStatus, FeeCheckoutSession, FeeCheckoutProvider, FeeVerifyResult, DeployStateResponse, TradeSnapshot } from '../types';
+import { Trade, BotConfig, BotPerformance, BotMetricsUpdate, DashboardStats, SignalPreview, PerformanceSummary, TradeBreakdown, TradeBreakdownPeriod, ExchangeMetaResponse, TraderBrokerConnection, AvailableBot, TraderBotSubscription, OutboundIpsResponse, FeeSettings, FeeLedgerEntry, MyFeesResponse, FeeGateStatus, FeeCheckoutSession, FeeCheckoutProvider, FeeVerifyResult, DeployStateResponse, TradeSnapshot, SnapshotTimeframe } from '../types';
 import { useAuthStore } from '../hooks/useAuth';
 import { triggerAccessExpired } from '../components/AccessExpiredGate';
 import { triggerFeesOwed } from '../components/TradingFeeGate';
@@ -89,12 +89,12 @@ export const tradesApi = {
   getActiveTrades: () => api.get<Trade[]>('/trades/active').then(r => r.data),
   getTodayStats: () => api.get('/trades/stats/today').then(r => r.data),
   getTrade: (tradeId: string) => api.get<Trade>(`/trades/${tradeId}`).then(r => r.data),
-  // Real 1H/15M historical candles around this trade's entry/exit
-  // window, with entry/SL/TP/exit prices — by direct request ("Can
-  // snapshots of the trade be taken ... showing the entry, SL or TP
-  // ... with the candles"). Re-fetched live each time (a past
-  // window's OHLCV never changes), not a stored image.
-  getTradeSnapshot: (tradeId: string, timeframe: '1h' | '15m') =>
+  // Real historical candles (5M/15M/1H/4H/1D) around this trade's
+  // entry/exit window, with entry/SL/TP/exit prices — by direct
+  // request ("Can snapshots of the trade be taken ... showing the
+  // entry, SL or TP ... with the candles"). Re-fetched live each time
+  // (a past window's OHLCV never changes), not a stored image.
+  getTradeSnapshot: (tradeId: string, timeframe: SnapshotTimeframe) =>
     api.get<TradeSnapshot>(`/trades/${tradeId}/snapshot`, { params: { timeframe } }).then(r => r.data),
   getTradeLogs: (tradeId: string) => api.get(`/trades/${tradeId}/logs`).then(r => r.data),
   // Manual cancellation — by direct request ("partial or manual

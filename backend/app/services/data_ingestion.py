@@ -303,3 +303,35 @@ class MarketDataIngestion:
             "signals": signals,
             "timestamp": datetime.utcnow()
         }
+
+
+# ONE true app-wide instance — by critical investigation into "wake up
+# taking longer than usual," traced to the Render free-tier backend
+# (512MB cap) OOM-crash-looping roughly every 1-3 minutes (confirmed
+# live via Render's own logs: memory_watchdog_elevated readings
+# climbing to ~81% of the cap within a couple of minutes of every
+# fresh restart, each followed by a restart of the SAME container
+# instance with no graceful app_shutdown log line in between — the
+# signature of an external OOM-kill, not a normal deploy or the
+# scanner's own watchdog, which only logs/GCs and never force-exits).
+#
+# Root cause: market_scanner.py's MarketScanner and routers/trades.py's
+# Trade Snapshot/Encroachment endpoints each held their OWN separate,
+# long-lived MarketDataIngestion() instance — and this class's own
+# _exchange_clients cache deliberately NEVER closes a ccxt client once
+# created (see fetch_historical_ccxt's own comment), because closing
+# and recreating per-call was the exact mistake that caused the earlier
+# real Binance IP ban. Two independent instances both touching the
+# same exchange (binance is the default for both paths) each trigger
+# their OWN ccxt loadMarkets() the first time they're used — Binance
+# alone has 2000+ markets, and ccxt's parsed-market cache for that is
+# genuinely tens of MB per instance. Two live copies of that, on top
+# of five autonomous bots' own per-cycle candle buffers, is a direct,
+# avoidable contributor to a 512MB cap being exhausted this fast.
+#
+# Every long-lived caller (anything that isn't a short, one-off, human-
+# triggered action — see routers/trades.py's reanalyze_trade for the
+# one deliberate exception, which stays a fresh short-lived instance
+# precisely because it's single-shot and GC'd right after) should
+# import and reuse THIS instance rather than constructing its own.
+shared_ingestion = MarketDataIngestion()

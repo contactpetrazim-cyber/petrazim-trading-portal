@@ -39,7 +39,7 @@ from app.core.bot_strategies import BotOrchestrator, Candle
 from app.database import AsyncSessionLocal
 from app.models.bot import BotConfig, BotStatus
 from app.models.platform_setting import MARKET_SCANNER_ENABLED_KEY, MASTER_ACCOUNT_BALANCE_KEY, PlatformSetting
-from app.services.data_ingestion import MarketDataIngestion
+from app.services.data_ingestion import shared_ingestion
 from app.services.execution_engine import ExecutionEngine
 
 logger = structlog.get_logger()
@@ -134,7 +134,12 @@ def _effective_bot_settings(bot: BotConfig) -> Dict[str, float]:
 class MarketScanner:
     def __init__(self, execution_engine: ExecutionEngine):
         self.execution_engine = execution_engine
-        self.ingestion = MarketDataIngestion()
+        # Shared app-wide singleton, not a fresh instance — see
+        # shared_ingestion's own comment in data_ingestion.py for why
+        # (duplicate ccxt market caches across this and the Trade
+        # Snapshot endpoint were a direct, measured contributor to the
+        # Render free-tier backend's OOM-crash-loop).
+        self.ingestion = shared_ingestion
         self.orchestrator = BotOrchestrator({})
         self._task: asyncio.Task | None = None
 

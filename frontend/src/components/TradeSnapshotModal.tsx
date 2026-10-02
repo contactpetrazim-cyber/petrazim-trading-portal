@@ -1,16 +1,20 @@
 import { useEffect, useState } from 'react';
 import { X, Clock3 } from 'lucide-react';
 import { tradesApi } from '../services/api';
-import type { TradeSnapshot } from '../types';
+import type { TradeSnapshot, SnapshotTimeframe } from '../types';
 
 const GREEN = '#10b981';
 const RED = '#ef4444';
 
+// Same 5-timeframe set every bot strategy/scanner already uses — by
+// direct request ("Add 5M, 4D and 1D to the snapshots chart").
+const TIMEFRAMES: SnapshotTimeframe[] = ['5m', '15m', '1h', '4h', '1d'];
+
 /**
  * TradeSnapshotModal — "a quick reference ... showing the entry, SL
  * or TP ... with the candles," by direct request. Renders the REAL
- * 1H/15M candles around this trade's own entry/exit window as a
- * static candlestick chart (not a live widget — this is deliberately
+ * 5M/15M/1H/4H/1D candles around this trade's own entry/exit window as
+ * a static candlestick chart (not a live widget — this is deliberately
  * a look-back at what actually happened, not a live feed), with
  * entry/SL/TP1/exit drawn as labeled reference lines. Backed by
  * GET /trades/{id}/snapshot (routers/trades.py) — see that endpoint's
@@ -18,7 +22,7 @@ const RED = '#ef4444';
  * storing an image: a past candle's OHLCV never changes.
  */
 export function TradeSnapshotModal({ tradeId, dark, onClose }: { tradeId: string; dark: boolean; onClose: () => void }) {
-  const [timeframe, setTimeframe] = useState<'1h' | '15m'>('1h');
+  const [timeframe, setTimeframe] = useState<SnapshotTimeframe>('1h');
   const [snapshot, setSnapshot] = useState<TradeSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -47,11 +51,11 @@ export function TradeSnapshotModal({ tradeId, dark, onClose }: { tradeId: string
           </div>
           <div className="flex items-center gap-2">
             <div className={`inline-flex items-center gap-0.5 rounded-md p-0.5 ${dark ? 'bg-white/5' : 'bg-gray-100'}`}>
-              {(['1h', '15m'] as const).map((tf) => (
+              {TIMEFRAMES.map((tf) => (
                 <button
                   key={tf}
                   onClick={() => setTimeframe(tf)}
-                  className={`px-2.5 py-1 rounded text-xs font-semibold uppercase ${
+                  className={`px-2 py-1 rounded text-xs font-semibold uppercase ${
                     timeframe === tf ? (dark ? 'bg-white/20 text-white' : 'bg-white text-corporate-text-on-bg shadow-sm') : dark ? 'text-white/40' : 'text-gray-500'
                   }`}
                 >
