@@ -166,6 +166,15 @@ export const botsApi = {
   // direct request.
   setBotSubAuto: (botId: string, update: { enabled: boolean; total_cap?: number; daily_cap?: number; risk_amount?: number; min_rr_ratio?: number }) =>
     api.patch<BotConfig>(`/bots/${botId}/sub-auto`, update).then(r => r.data),
+  // Starting Reference Capital/Balance master control — by direct
+  // request ("Create a master bot control for bot starting reference
+  // capital and balance ... put master in Admin portal to supersede
+  // all"). GET is readable by any authenticated user (every Bots page
+  // shows when it's overriding); PATCH is Super Admin only.
+  getMasterAccountBalance: () =>
+    api.get<{ enabled: boolean; value: number; platform_default: number }>('/bots/master-account-balance').then(r => r.data),
+  setMasterAccountBalance: (update: { enabled: boolean; value: number }) =>
+    api.patch<{ enabled: boolean; value: number; platform_default: number }>('/bots/master-account-balance', update).then(r => r.data),
   // Real, live-searchable Binance instrument list — by direct request
   // ("a search instrument space that searches the instrument - exactly
   // like the one on the chart ... removing errors"). Reuses the same

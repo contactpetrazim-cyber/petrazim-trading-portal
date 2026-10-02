@@ -96,6 +96,11 @@ export interface BotConfig {
    * same as every other mode. */
   sub_auto_risk_amount?: number | null;
   sub_auto_min_rr_ratio?: number | null;
+  /** Starting Reference Capital/Balance — this bot's own setting (null
+   * = no override). See BotConfig.account_balance_usd's own backend
+   * comment; the effective value (accounting for the Admin master
+   * override) is resolved client-side from botsApi.getMasterAccountBalance. */
+  account_balance_usd?: number | null;
 }
 
 
@@ -117,6 +122,10 @@ export interface BotMetricsUpdate {
   use_trailing_stop?: boolean;
   symbols?: string[];
   timeframes?: string[];
+  /** null clears this bot's own override (falls back to the platform
+   * default/Admin master). See BotConfig.account_balance_usd's own
+   * backend comment. */
+  account_balance_usd?: number | null;
 }
 
 export interface TodayTradeBreakdown {

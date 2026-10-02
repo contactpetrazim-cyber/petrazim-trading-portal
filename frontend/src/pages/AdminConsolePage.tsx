@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { ShieldAlert, Users, Link2, Percent, ArrowRight, Bot } from 'lucide-react';
+import { ShieldAlert, Users, Link2, Percent, ArrowRight, Bot, Wallet } from 'lucide-react';
 import { FoldedCard } from '../components/FoldedCard';
 import { RoleBadge } from '../components/RoleBadge';
 import { RosterPanel } from '../components/RosterPanel';
@@ -111,6 +111,27 @@ export function AdminConsolePage() {
   const [riskDraft, setRiskDraft] = useState<{ risk_per_trade: number; max_daily_trades: number; max_portfolio_exposure: number; min_rr_ratio: number } | null>(null);
   const [savingRiskDefaults, setSavingRiskDefaults] = useState(false);
 
+  // Master Bot Control — the platform-wide override of every bot's own
+  // Starting Reference Capital/Balance, by direct request ("Create a
+  // master bot control for bot starting reference capital and balance
+  // ... put master in Admin portal to supersede all"). Same draft/Save
+  // shape as Global Risk Defaults above — edited locally, committed
+  // together with one PATCH — but it's a hard kill-switch (see
+  // get_effective_account_balance's own backend comment), not a soft
+  // fallback, so toggling it ON gets the same confirm() guard as
+  // Paper Trading Master Control below.
+  const [masterBalance, setMasterBalance] = useState<{ enabled: boolean; value: number; platform_default: number } | null>(null);
+  const [masterBalanceDraft, setMasterBalanceDraft] = useState<{ enabled: boolean; value: number } | null>(null);
+  const [masterBalanceError, setMasterBalanceError] = useState(false);
+  const [savingMasterBalance, setSavingMasterBalance] = useState(false);
+  function loadMasterBalance() {
+    setMasterBalanceError(false);
+    apiFetch(`${API_URL}/bots/master-account-balance`, { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error('master-account-balance failed'))))
+      .then((d) => { setMasterBalance(d); setMasterBalanceDraft({ enabled: d.enabled, value: d.value }); })
+      .catch(() => setMasterBalanceError(true));
+  }
+
   const isSuperAdmin = user?.role === 'super_admin';
 
   // By direct bug report, with screenshot ("Fix the continuous loading
@@ -176,8 +197,32 @@ export function AdminConsolePage() {
     load();
     loadAdminToggles();
     loadRiskDefaults();
+    loadMasterBalance();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
+
+  async function saveMasterBalance() {
+    if (!masterBalanceDraft) return;
+    if (masterBalanceDraft.enabled && !window.confirm(
+      `Turn ON the Master Bot Control override? Every bot's signal sizing will immediately use $${masterBalanceDraft.value.toFixed(2)} as its account balance, platform-wide, regardless of what any bot's own Starting Reference Capital says.`
+    )) return;
+    setSavingMasterBalance(true);
+    try {
+      const res = await apiFetch(`${API_URL}/bots/master-account-balance`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(masterBalanceDraft),
+        timeoutMs: 60_000,
+      });
+      if (res.ok) {
+        const d = await res.json();
+        setMasterBalance(d);
+        setMasterBalanceDraft({ enabled: d.enabled, value: d.value });
+      }
+    } finally {
+      setSavingMasterBalance(false);
+    }
+  }
 
   async function saveRiskDefaults() {
     if (!riskDraft) return;
@@ -557,6 +602,77 @@ export function AdminConsolePage() {
           >
             {savingRiskDefaults ? 'Saving…' : 'Save global defaults'}
           </button>
+        </FoldedCard>
+      )}
+
+      {/* Master Bot Control — by direct request ("Create a master bot
+          control for bot starting reference capital and balance ...
+          put master in Admin portal to supersede all"). Each bot's own
+          Starting Reference Capital lives on its own Bots page card
+          (BotConfig.account_balance_usd); this is the ONE switch that,
+          when on, overrides every single one of them at once — the
+          same real balance every bot's live signal sizing (and Risk
+          Amount USD display) is actually computed against. */}
+      {isSuperAdmin && (
+        <FoldedCard
+          title="Master Bot Control"
+          summary={
+            masterBalance === null ? (masterBalanceError ? 'Could not load' : 'Loading…')
+              : masterBalance.enabled ? `Override ON — $${masterBalance.value.toFixed(2)} for every bot` : 'Off — each bot uses its own setting'
+          }
+          icon={<Wallet size={18} />} accent="#f59e0b" dark={dark} defaultOpen
+        >
+          <p className="text-xs text-gray-500 mb-3">
+            Starting Reference Capital/Balance is the real account size every bot's own signal sizing (and its
+            Risk Amount USD figure) is computed against. On: this ONE number supersedes every bot's own setting,
+            platform-wide. Off: each bot resolves to its own Starting Reference Capital, or the platform default
+            (${masterBalance?.platform_default.toFixed(2) ?? '—'}) when it hasn't set one.
+          </p>
+          {!masterBalanceDraft && (masterBalanceError
+            ? <button type="button" onClick={loadMasterBalance} className="text-xs text-red-500 underline">Could not load — try again</button>
+            : <span className="text-xs text-gray-500">Loading…</span>)}
+          {masterBalanceDraft && (
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setMasterBalanceDraft({ ...masterBalanceDraft, enabled: true })}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors border ${
+                    masterBalanceDraft.enabled
+                      ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
+                      : dark ? 'bg-smc-dark text-gray-400 border-smc-border hover:text-white' : 'bg-gray-50 text-gray-500 border-corporate-bg hover:text-corporate-text-on-bg'
+                  }`}
+                >
+                  On
+                </button>
+                <button
+                  onClick={() => setMasterBalanceDraft({ ...masterBalanceDraft, enabled: false })}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors border ${
+                    !masterBalanceDraft.enabled
+                      ? 'bg-amber-500/20 text-amber-400 border-amber-500/40'
+                      : dark ? 'bg-smc-dark text-gray-400 border-smc-border hover:text-white' : 'bg-gray-50 text-gray-500 border-corporate-bg hover:text-corporate-text-on-bg'
+                  }`}
+                >
+                  Off
+                </button>
+              </div>
+              <label className="text-xs text-gray-400">
+                Override value (USD)
+                <input
+                  type="number" step="100" min="1"
+                  value={masterBalanceDraft.value}
+                  onChange={(e) => setMasterBalanceDraft({ ...masterBalanceDraft, value: Number(e.target.value) })}
+                  className={`w-full mt-1 border rounded-lg px-2 py-1.5 text-sm ${dark ? 'bg-smc-dark border-smc-border text-white' : 'bg-white border-corporate-bg text-corporate-text-on-bg'}`}
+                />
+              </label>
+              <button
+                onClick={saveMasterBalance}
+                disabled={savingMasterBalance}
+                className={`px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50 ${dark ? 'bg-smc-accent' : 'bg-corporate-hero'}`}
+              >
+                {savingMasterBalance ? 'Saving…' : 'Save master control'}
+              </button>
+            </div>
+          )}
         </FoldedCard>
       )}
       </div>

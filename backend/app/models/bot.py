@@ -81,6 +81,17 @@ class BotConfig(Base):
     max_concurrent_trades = Column(Integer, default=5)
     max_portfolio_exposure = Column(Float, default=5.0)
     min_rr_ratio = Column(Float, default=3.0)
+    # Starting Reference Capital/Balance — by direct request ("Create a
+    # master bot control for bot starting reference capital and
+    # balance"). The REAL account balance this bot's own signal sizing
+    # is computed against (market_scanner.py's scan_once, routers/
+    # trades.py's reanalyze_trade — see get_effective_account_balance),
+    # not just a display figure. Nullable: null means "no override for
+    # this bot" — falls back to the Admin's platform-wide master value
+    # when that's enabled (see MASTER_ACCOUNT_BALANCE_KEY, which always
+    # wins over this regardless), else config.py's own static
+    # MARKET_SCANNER_DEFAULT_ACCOUNT_BALANCE.
+    account_balance_usd = Column(Float, nullable=True)
 
     # Entry Parameters
     entry_types = Column(JSON, default=list)  # ["limit", "market"]

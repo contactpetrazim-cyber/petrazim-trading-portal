@@ -195,6 +195,11 @@ class BotConfigResponse(BaseModel):
     min_rr_ratio: float
     use_trailing_stop: bool
     exchange: Optional[str] = None
+    # Starting Reference Capital/Balance — this bot's own setting (null
+    # = no override, falls back to the Admin master override when
+    # enabled, else the platform default). See BotConfig.
+    # account_balance_usd's own comment.
+    account_balance_usd: Optional[float] = None
     # Same Test/Live + Paper Trading pair ManualTradingSettings already
     # exposes, now per-bot — see BotConfig's own comment for why.
     trading_mode: str = "test"
@@ -279,6 +284,15 @@ class BotMetricsUpdate(BaseModel):
     use_trailing_stop: Optional[bool] = None
     symbols: Optional[List[str]] = None
     timeframes: Optional[List[str]] = None
+    # Starting Reference Capital/Balance — by direct request ("Create a
+    # master bot control for bot starting reference capital and
+    # balance"). update_bot_metrics below applies this via
+    # model_dump(exclude_unset=True), which already distinguishes
+    # "field not sent at all" (left alone) from "sent as null"
+    # (clears this bot's own override, falling back to the platform
+    # default) — the same real, meaningful-null convention every
+    # nullable BotConfig column here already gets for free.
+    account_balance_usd: Optional[float] = Field(None, gt=0)
 
 # =============================================================================
 # DASHBOARD / ANALYTICS SCHEMAS

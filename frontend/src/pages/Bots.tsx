@@ -7,15 +7,6 @@ import { BotConfig, BotPerformance, BotMetricsUpdate } from '../types';
 import { useThemeStore } from '../hooks/useTheme';
 import { formatApiError } from '../lib/apiError';
 
-// The real reference balance every bot's own signal-sizing math is
-// actually computed against — config.py's MARKET_SCANNER_DEFAULT_
-// ACCOUNT_BALANCE (market_scanner.py's scan_once, and routers/
-// trades.py's own reanalyze_trade both pass this exact same constant
-// into BotOrchestrator.run_all's `account_balance` argument). Shown
-// here so "Risk Amount (USD)" is a real number reflecting what a bot
-// actually risks per trade, not a guess — by direct request ("let's
-// add risk amount to the bot Risk Amount (USD)").
-const REFERENCE_ACCOUNT_BALANCE_USD = 10_000;
 
 /**
  * BotsPage — "Bot Configuration". Was 5 hardcoded bots with dead
@@ -107,6 +98,20 @@ export function BotsPage() {
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // Master Bot Control — the Admin's platform-wide override of every
+  // bot's own Starting Reference Capital, by direct request ("Create a
+  // master bot control for bot starting reference capital and balance
+  // ... put master in Admin portal to supersede all"). Fetched once
+  // here (not per-bot) so effectiveBalance below can resolve the SAME
+  // precedence the backend actually enforces (master, else the bot's
+  // own account_balance_usd, else the platform default).
+  const [masterBalance, setMasterBalance] = useState<{ enabled: boolean; value: number; platform_default: number } | null>(null);
+  useEffect(() => { botsApi.getMasterAccountBalance().then(setMasterBalance).catch(() => {}); }, []);
+  function effectiveBalance(bot: BotConfig): number {
+    if (masterBalance?.enabled) return masterBalance.value;
+    if (bot.account_balance_usd != null) return bot.account_balance_usd;
+    return masterBalance?.platform_default ?? 10_000;
+  }
 
   async function loadBots() {
     setLoading(true);
@@ -165,6 +170,7 @@ export function BotsPage() {
       max_portfolio_exposure: bot.max_portfolio_exposure,
       min_rr_ratio: bot.min_rr_ratio,
       use_trailing_stop: bot.use_trailing_stop,
+      account_balance_usd: bot.account_balance_usd,
     });
   }
 
@@ -390,7 +396,7 @@ export function BotsPage() {
                 <div className={`text-center p-2 rounded-lg ${dark ? "bg-white/5" : "bg-corporate-bg"}`}>
                   <div className="text-lg font-bold">{bot.risk_per_trade}%</div>
                   <div className="text-xs text-gray-400">
-                    Risk — ${((bot.risk_per_trade / 100) * REFERENCE_ACCOUNT_BALANCE_USD).toFixed(2)}
+                    Risk — ${((bot.risk_per_trade / 100) * effectiveBalance(bot)).toFixed(2)}
                   </div>
                 </div>
               </div>
@@ -507,23 +513,51 @@ export function BotsPage() {
                       {/* Same value as Risk per trade (%) above, just in
                           dollars — against the real reference balance
                           every bot's own signal sizing is actually
-                          computed with (see REFERENCE_ACCOUNT_BALANCE_USD's
-                          own comment). Editing either field updates the
-                          other; only risk_per_trade is ever actually
-                          saved — this is purely a $ view of the same
-                          number, by direct request ("add risk amount to
-                          the bot Risk Amount (USD)"). */}
+                          computed with (effectiveBalance — master
+                          override, else this bot's own Starting
+                          Reference Capital right below, else the
+                          platform default). Editing either field
+                          updates risk_per_trade to match; only
+                          risk_per_trade is ever actually saved — this
+                          is purely a $ view of the same number, by
+                          direct request ("add risk amount to the bot
+                          Risk Amount (USD)"). */}
                       <label className="text-xs text-gray-400">
                         Risk Amount (USD)
                         <input
                           type="number" step="1" min="0"
-                          value={(((editing.risk_per_trade ?? 0) / 100) * REFERENCE_ACCOUNT_BALANCE_USD).toFixed(2)}
+                          value={(((editing.risk_per_trade ?? 0) / 100) * (editing.account_balance_usd ?? effectiveBalance(bot))).toFixed(2)}
                           onChange={(e) => {
                             const usd = Number(e.target.value);
-                            setEditing({ ...editing, risk_per_trade: Math.round((usd / REFERENCE_ACCOUNT_BALANCE_USD) * 100 * 100) / 100 });
+                            const base = editing.account_balance_usd ?? effectiveBalance(bot);
+                            setEditing({ ...editing, risk_per_trade: Math.round((usd / base) * 100 * 100) / 100 });
                           }}
                           className={inputCls}
                         />
+                      </label>
+                      {/* Starting Reference Capital/Balance — by direct
+                          request ("Create a master bot control for bot
+                          starting reference capital and balance").
+                          This IS the real balance the bot's own signal
+                          sizing is computed against (see BotConfig.
+                          account_balance_usd's own backend comment) —
+                          disabled and explained when the Admin master
+                          override is on, since it would have no effect
+                          while that's superseding every bot. */}
+                      <label className="text-xs text-gray-400 col-span-2">
+                        Starting Reference Capital (USD)
+                        {masterBalance?.enabled ? (
+                          <div className={`mt-1 px-3 py-2 rounded-lg text-xs ${dark ? 'bg-amber-500/10 text-amber-400' : 'bg-amber-50 text-amber-700'}`}>
+                            Overridden by the Admin's master control — fixed at ${masterBalance.value.toFixed(2)} for every bot right now.
+                          </div>
+                        ) : (
+                          <input
+                            type="number" step="100" min="1"
+                            value={editing.account_balance_usd ?? effectiveBalance(bot)}
+                            onChange={(e) => setEditing({ ...editing, account_balance_usd: Number(e.target.value) })}
+                            className={inputCls}
+                          />
+                        )}
                       </label>
                       <label className="text-xs text-gray-400">
                         Min R:R
