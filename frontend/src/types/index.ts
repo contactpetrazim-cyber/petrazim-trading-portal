@@ -12,6 +12,11 @@ export interface Trade {
   take_profit_3?: number | null;
   lot_size: number;
   risk_percent: number;
+  /** Dollar risk on this trade — by direct request ("include the Risk
+   * Amount and the Unit Quantity traded"); lot_size above is the
+   * "Unit Quantity". Optional only because a pre-this-field legacy
+   * row could in principle have None at the DB level. */
+  risk_amount?: number | null;
   realized_pnl: number;
   unrealized_pnl: number;
   bot_id: string;

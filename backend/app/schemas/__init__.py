@@ -47,6 +47,11 @@ class TradeResponse(BaseModel):
     take_profit_3: Optional[float] = None
     lot_size: float
     risk_percent: float
+    # Dollar risk on this trade — the Trade.risk_amount column always
+    # existed but was never actually exposed in this response, by
+    # direct request ("include the Risk Amount and the Unit Quantity
+    # traded"). lot_size above is the "Unit Quantity".
+    risk_amount: Optional[float] = None
     realized_pnl: float
     unrealized_pnl: float = 0.0
     bot_id: str
