@@ -100,6 +100,33 @@ export interface BotConfig {
 
 
 
+/** Real historical candles around a trade's entry/exit window, by
+ * direct request ("snapshots of the trade ... 1H and 15M ... showing
+ * the entry, SL or TP ... with the candles"). See tradesApi.
+ * getTradeSnapshot's own comment for why this is fetched live each
+ * time rather than a stored image. */
+export interface TradeSnapshotCandle {
+  timestamp: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+}
+export interface TradeSnapshot {
+  trade_id: string;
+  symbol: string;
+  timeframe: '1h' | '15m';
+  direction: 'long' | 'short';
+  entry_price: number | null;
+  entry_timestamp: string | null;
+  stop_loss: number;
+  take_profit_1: number | null;
+  exit_price: number | null;
+  exit_timestamp: string | null;
+  status: string;
+  candles: TradeSnapshotCandle[];
+}
+
 export interface BotPerformance {
   bot_id: string;
   total_trades: number;
