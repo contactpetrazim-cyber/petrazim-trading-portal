@@ -249,6 +249,37 @@ export function SourceToggle({ value, onChange, dark }: { value: TradeSource; on
   );
 }
 
+/** Test/Paper vs Live filter — by direct request ("Include a toggle
+ * for the trade analytics section that filters test Vs live mode
+ * that is paper trading mode Vs live mode"). Backed by the `is_test`
+ * query param GET /trades/analytics/summary and GET /trades/analytics/
+ * detail now both support — 'all' sends nothing (both), 'test'/'live'
+ * send is_test=true/false. */
+export type TestLiveFilter = 'all' | 'test' | 'live';
+const TEST_LIVE_OPTIONS: { id: TestLiveFilter; label: string }[] = [
+  { id: 'all', label: 'All' }, { id: 'test', label: 'Test/Paper' }, { id: 'live', label: 'Live' },
+];
+
+export function TestLiveToggle({ value, onChange, dark }: { value: TestLiveFilter; onChange: (v: TestLiveFilter) => void; dark: boolean }) {
+  return (
+    <div className={`inline-flex items-center gap-1 rounded-lg p-1 ${dark ? 'bg-white/5' : 'bg-black/5'}`}>
+      {TEST_LIVE_OPTIONS.map((o) => (
+        <button
+          key={o.id}
+          onClick={() => onChange(o.id)}
+          className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-colors ${
+            value === o.id
+              ? dark ? 'bg-white/20 text-white' : 'bg-white text-corporate-text-on-bg shadow-sm'
+              : dark ? 'text-white/40' : 'text-gray-500'
+          }`}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 /** Bot/Strategy filter — by direct request ("include a strategy or
  * bot filter to the Analytics section Trade Analysis and Advanced
  * Analytics — Trading Edge"). Shared between TradeAnalytics and
@@ -284,6 +315,7 @@ export function TradeAnalytics({ dark = false }: { dark?: boolean }) {
   const [retryTick, setRetryTick] = useState(0);
   const [source, setSource] = useState<TradeSource>('all');
   const [botFilter, setBotFilter] = useState('');
+  const [testLive, setTestLive] = useState<TestLiveFilter>('all');
 
   // Was a plain one-shot apiFetch with no retry — on a cold Render
   // free-tier start the single attempt could fail before the backend
@@ -297,19 +329,21 @@ export function TradeAnalytics({ dark = false }: { dark?: boolean }) {
     const qsParams: string[] = [];
     if (source !== 'all') qsParams.push(`source=${source}`);
     if (botFilter) qsParams.push(`bot_id=${encodeURIComponent(botFilter)}`);
+    if (testLive !== 'all') qsParams.push(`is_test=${testLive === 'test'}`);
     const qs = qsParams.length ? `?${qsParams.join('&')}` : '';
     fetchJsonWithRetry<Summary>(`${API_URL}/trades/analytics/summary${qs}`, { headers: { Authorization: `Bearer ${token}` } }, setPhase)
       .then((s) => {
         if (s) setSummary(s);
         else setError('Could not load trade analytics right now.');
       });
-  }, [token, retryTick, source, botFilter]);
+  }, [token, retryTick, source, botFilter, testLive]);
 
   const mutedCls = dark ? 'text-white/40' : 'text-gray-400';
 
   const toggle = (
     <div className="mb-4 flex items-center gap-2 flex-wrap">
       <SourceToggle value={source} onChange={setSource} dark={dark} />
+      <TestLiveToggle value={testLive} onChange={setTestLive} dark={dark} />
       <BotFilterSelect value={botFilter} onChange={setBotFilter} dark={dark} />
     </div>
   );
@@ -444,7 +478,7 @@ export function TradeAnalytics({ dark = false }: { dark?: boolean }) {
         that will help understand the trading edge, profitability ...
         and other unique characteristics"). Shares this same `source`
         filter so switching All/Bots/Manual above affects both. */}
-    <AdvancedTradeAnalytics dark={dark} source={source} botId={botFilter} />
+    <AdvancedTradeAnalytics dark={dark} source={source} botId={botFilter} testLive={testLive} />
     </div>
   );
 }
