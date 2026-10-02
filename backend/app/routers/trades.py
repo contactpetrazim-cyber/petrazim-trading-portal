@@ -474,6 +474,155 @@ async def analytics_detail(
     return rows
 
 
+class EncroachmentRow(BaseModel):
+    trade_id: str
+    symbol: str
+    direction: str
+    outcome: str  # "win" | "loss" | "breakeven"
+    realized_pnl: float
+    # How far price moved AGAINST the position, as a % of the ORIGINAL
+    # stop distance, before the trade closed — the core ask ("how much
+    # of my SL area is used or encroached into during each trade").
+    # 100% would mean price actually touched the stop; a winning trade
+    # showing e.g. 25% here means it survived a real pullback to a
+    # quarter of its stop distance before turning around.
+    sl_encroachment_pct: float
+    # The mirror question for TP: how far price moved IN FAVOR of the
+    # position, as a % of the distance to TP1, before the trade
+    # closed. A losing or breakeven trade with a HIGH number here came
+    # close to target before reversing — a different lesson (exits/
+    # trailing) than one that never got anywhere near it (entries/
+    # timing).
+    tp_encroachment_pct: Optional[float] = None
+
+
+class WhatIfRow(BaseModel):
+    tighten_pct: int  # 10, 25, 50, 75
+    # Of the trades that actually WON, how many (and what %) had SL
+    # encroachment at or past this tightened threshold — i.e. would
+    # have been stopped out early instead of winning, had the stop
+    # been this much tighter. Directly answers "can I afford to reduce
+    # my usual SL by 25% or 50%."
+    winners_would_be_stopped: int
+    winners_total: int
+    winners_would_be_stopped_pct: float
+
+
+class EncroachmentResponse(BaseModel):
+    rows: List[EncroachmentRow]
+    avg_sl_encroachment_pct: float
+    avg_tp_encroachment_pct: float
+    what_if_tighter_sl: List[WhatIfRow]
+    # Trades requested vs. ones actually analyzed — a forex/MT4 trade
+    # or one with no candle data available is skipped, not silently
+    # dropped without explanation.
+    trades_requested: int
+    trades_analyzed: int
+
+
+_ENCROACHMENT_EXCHANGES = {"binance", "bybit", "bingx", "mexc", "okx", "kucoin"}
+
+
+@router.get("/analytics/encroachment", response_model=EncroachmentResponse)
+async def analytics_encroachment(
+    bot_id: Optional[str] = Query(None),
+    source: Optional[str] = Query(None, description="'all' (default), 'bots', or 'manual'"),
+    is_test: Optional[bool] = Query(None, description="None (default) = both; True = Test/Paper only; False = Live only"),
+    limit: int = Query(20, ge=1, le=30, description="Most recent closed trades to analyze (capped — each one is a real exchange API call)"),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_active_access),
+):
+    """Drawdown Encroachment — by direct request ("a metric that can
+    help monitor specific trades drawdown encroachment ... how much of
+    my SL area is used or encroached into during each trade ... can I
+    afford to reduce my usual SL by 25% or 50% ... since from data
+    compiled, price always seems to encroach up to 25%"). Computed
+    from REAL 15M candles between each trade's own entry and exit —
+    the same live-refetch approach as the Trade Snapshot endpoint
+    above, not a stored/approximated figure.
+
+    Capped at `limit` (max 30) most-recent closed trades and processed
+    SEQUENTIALLY (not concurrently), both deliberately: each trade
+    needs its own real exchange API call, and this session already hit
+    a real Binance IP ban today from exactly this kind of request
+    volume — see MarketDataIngestion's own comment and
+    _snapshot_ingestion above, which this reuses for the same reason
+    (one shared rate-limited ccxt client, not a fresh one per call).
+    """
+    query = _scope_to_owner(select(Trade), user).where(
+        Trade.status == TradeStatus.CLOSED, Trade.is_deleted == False,  # noqa: E712
+        Trade.entry_timestamp.isnot(None), Trade.exit_timestamp.isnot(None),
+    )
+    if bot_id:
+        query = query.where(Trade.bot_id == bot_id)
+    if is_test is not None:
+        query = query.where(Trade.is_test == is_test)
+    query = _apply_source_filter(query, source)
+    query = query.order_by(Trade.exit_timestamp.desc()).limit(limit)
+    result = await db.execute(query)
+    trades = result.scalars().all()
+
+    rows: List[EncroachmentRow] = []
+    for t in trades:
+        exchange = (t.broker_name or "binance").lower()
+        if exchange not in _ENCROACHMENT_EXCHANGES:
+            continue
+        if t.entry_price is None or t.stop_loss is None:
+            continue
+        sl_distance = abs(t.entry_price - t.stop_loss)
+        if sl_distance <= 0:
+            continue
+        try:
+            candles = await _snapshot_ingestion.fetch_historical_ccxt(
+                exchange, t.symbol, "15m", limit=500, since=t.entry_timestamp,
+            )
+        except Exception as e:
+            logger.warning("encroachment_fetch_failed", trade_id=t.trade_id, exchange=exchange, symbol=t.symbol, error=str(e))
+            continue
+        window = [c for c in candles if t.entry_timestamp <= c.timestamp <= t.exit_timestamp]
+        if not window:
+            continue
+
+        is_long = t.direction.value == "long"
+        worst_price = min(c.low for c in window) if is_long else max(c.high for c in window)
+        best_price = max(c.high for c in window) if is_long else min(c.low for c in window)
+        adverse = (t.entry_price - worst_price) if is_long else (worst_price - t.entry_price)
+        favorable = (best_price - t.entry_price) if is_long else (t.entry_price - best_price)
+
+        sl_pct = round(min(100.0, max(0.0, (adverse / sl_distance) * 100)), 1)
+        tp_pct = None
+        if t.take_profit_1 is not None:
+            tp_distance = abs(t.take_profit_1 - t.entry_price)
+            if tp_distance > 0:
+                tp_pct = round(min(100.0, max(0.0, (favorable / tp_distance) * 100)), 1)
+
+        pnl = t.realized_pnl or 0.0
+        outcome = "win" if pnl > 0 else "loss" if pnl < 0 else "breakeven"
+        rows.append(EncroachmentRow(
+            trade_id=t.trade_id, symbol=t.symbol, direction=t.direction.value, outcome=outcome,
+            realized_pnl=round(pnl, 2), sl_encroachment_pct=sl_pct, tp_encroachment_pct=tp_pct,
+        ))
+
+    avg_sl = round(sum(r.sl_encroachment_pct for r in rows) / len(rows), 1) if rows else 0.0
+    tp_vals = [r.tp_encroachment_pct for r in rows if r.tp_encroachment_pct is not None]
+    avg_tp = round(sum(tp_vals) / len(tp_vals), 1) if tp_vals else 0.0
+
+    winners = [r for r in rows if r.outcome == "win"]
+    what_if: List[WhatIfRow] = []
+    for tighten in (10, 25, 50, 75):
+        threshold = 100 - tighten  # a 25%-tighter stop is crossed once encroachment reaches 75% of the ORIGINAL distance
+        stopped = sum(1 for r in winners if r.sl_encroachment_pct >= threshold)
+        what_if.append(WhatIfRow(
+            tighten_pct=tighten, winners_would_be_stopped=stopped, winners_total=len(winners),
+            winners_would_be_stopped_pct=round((stopped / len(winners) * 100) if winners else 0.0, 1),
+        ))
+
+    return EncroachmentResponse(
+        rows=rows, avg_sl_encroachment_pct=avg_sl, avg_tp_encroachment_pct=avg_tp,
+        what_if_tighter_sl=what_if, trades_requested=len(trades), trades_analyzed=len(rows),
+    )
+
+
 @router.get("/{trade_id}", response_model=TradeResponse)
 async def get_trade(trade_id: str, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
     """Get detailed trade information — this is what a Manual Trading

@@ -100,6 +100,62 @@ export interface BotConfig {
 
 
 
+/** Real historical candles around a trade's entry/exit window, by
+ * direct request ("snapshots of the trade ... 1H and 15M ... showing
+ * the entry, SL or TP ... with the candles"). See tradesApi.
+ * getTradeSnapshot's own comment for why this is fetched live each
+ * time rather than a stored image. */
+export interface TradeSnapshotCandle {
+  timestamp: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+}
+export interface TradeSnapshot {
+  trade_id: string;
+  symbol: string;
+  timeframe: '1h' | '15m';
+  direction: 'long' | 'short';
+  entry_price: number | null;
+  entry_timestamp: string | null;
+  stop_loss: number;
+  take_profit_1: number | null;
+  exit_price: number | null;
+  exit_timestamp: string | null;
+  status: string;
+  candles: TradeSnapshotCandle[];
+}
+
+/** Drawdown & Target Encroachment — by direct request ("a metric that
+ * can help monitor specific trades drawdown encroachment ... how much
+ * of my SL area is used or encroached into during each trade"). See
+ * GET /trades/analytics/encroachment's own backend comment for how
+ * this is computed (real candles, not an approximation). */
+export interface EncroachmentRow {
+  trade_id: string;
+  symbol: string;
+  direction: 'long' | 'short';
+  outcome: 'win' | 'loss' | 'breakeven';
+  realized_pnl: number;
+  sl_encroachment_pct: number;
+  tp_encroachment_pct: number | null;
+}
+export interface WhatIfRow {
+  tighten_pct: number;
+  winners_would_be_stopped: number;
+  winners_total: number;
+  winners_would_be_stopped_pct: number;
+}
+export interface EncroachmentResponse {
+  rows: EncroachmentRow[];
+  avg_sl_encroachment_pct: number;
+  avg_tp_encroachment_pct: number;
+  what_if_tighter_sl: WhatIfRow[];
+  trades_requested: number;
+  trades_analyzed: number;
+}
+
 export interface BotPerformance {
   bot_id: string;
   total_trades: number;

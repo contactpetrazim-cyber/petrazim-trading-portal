@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
-import { Info, X } from 'lucide-react';
+import { Info, X, Gauge } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { fetchJsonWithRetry, type FetchPhase } from '../lib/resilientFetch';
 import { LoadingIndicator } from './LoadingIndicator';
 import { FoldedCard } from './FoldedCard';
 import { money } from './TradeAnalytics';
 import type { TradeSource, TestLiveFilter } from './TradeAnalytics';
+import { tradesApi } from '../services/api';
+import type { EncroachmentResponse } from '../types';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -251,6 +253,13 @@ export function AdvancedTradeAnalytics({ dark, source, botId, testLive }: { dark
           <InfoNote dark={dark} text="Each dot is one trade: how far (in % of entry price) its ORIGINAL stop-loss sat from entry, against what it actually realized. If losing trades cluster at a wider stop distance than winners, that's a concrete signal your stops may be too loose for this strategy — see the Drawdown Encroachment metric below for the other half of that question (how much of the stop distance price actually used before reversing)." />
           <SlDistanceScatter rows={chrono} dark={dark} onDrillDown={openDrillDown} />
         </FoldedCard>
+
+        <div className="lg:col-span-2">
+          <FoldedCard title="Drawdown & Target Encroachment" summary="How much of your SL (and TP) distance price actually used before the trade closed." icon={<Gauge size={16} />} dark={dark}>
+            <InfoNote dark={dark} text="For each trade, fetches the REAL candles between entry and exit and measures how far price moved against you (as a % of your original stop distance) and in your favor (as a % of the distance to TP1) before it closed. 100% SL encroachment means price actually touched the stop; a WINNING trade with high SL encroachment survived a real scare first. The 'What if I tightened my SL?' table directly answers 'can I afford to reduce my usual SL by 25% or 50%' — it shows how many of your actual WINNERS would instead have been stopped out early at each tighter threshold, using your own real trade data. Capped to a limited number of recent trades per analysis since each one is a real exchange API call." />
+            <EncroachmentCard dark={dark} source={source} botId={botId} testLive={testLive} />
+          </FoldedCard>
+        </div>
 
         <FoldedCard title="Exit Reason Breakdown" summary="How your closed trades actually ended." dark={dark}>
           <InfoNote dark={dark} text="What actually closed each trade — hit TP1/TP2/TP3, hit stop-loss, closed manually, trailing stop, or a structure-based exit. A portfolio dominated by 'Stop Loss' with few TP hits is a different problem (entries/targets) than one dominated by manual closes (discipline/process)." />
@@ -653,6 +662,111 @@ function SlDistanceScatter({ rows, dark, onDrillDown }: { rows: DetailRow[]; dar
       })}
       <text x={w} y={h - 1} textAnchor="end" fontSize="4.5" fill={dark ? '#ffffff66' : '#9ca3af'}>→ wider stop</text>
     </svg>
+  );
+}
+
+const ENCROACHMENT_LIMIT_OPTIONS = [10, 20, 30];
+
+/** Drawdown & Target Encroachment — by direct request. Unlike every
+ * other card on this page, this does NOT read off the already-fetched
+ * `rows`/`chrono` dataset — it's backed by its own endpoint
+ * (GET /trades/analytics/encroachment) that makes one REAL exchange
+ * API call per trade analyzed, so it only ever fetches on an explicit
+ * "Analyze" click (never on mount, never automatically on filter
+ * change), with its own small "how many trades" control to bound that
+ * cost up front. */
+function EncroachmentCard({ dark, source, botId, testLive }: { dark: boolean; source: TradeSource; botId?: string; testLive?: TestLiveFilter }) {
+  const [limit, setLimit] = useState(20);
+  const [result, setResult] = useState<EncroachmentResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  function analyze() {
+    setLoading(true);
+    setError(null);
+    tradesApi.getEncroachment({
+      bot_id: botId || undefined,
+      source: source !== 'all' ? source : undefined,
+      is_test: testLive && testLive !== 'all' ? testLive === 'test' : undefined,
+      limit,
+    }).then(setResult).catch((e) => setError(e?.response?.data?.detail || 'Could not analyze encroachment right now.')).finally(() => setLoading(false));
+  }
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 flex-wrap mb-3">
+        <select
+          value={limit} onChange={(e) => setLimit(Number(e.target.value))}
+          className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border ${dark ? 'bg-white/5 border-white/10 text-white' : 'bg-white border-gray-200'}`}
+        >
+          {ENCROACHMENT_LIMIT_OPTIONS.map((n) => <option key={n} value={n}>Analyze last {n} trades</option>)}
+        </select>
+        <button
+          onClick={analyze} disabled={loading}
+          className={`text-xs font-semibold px-3 py-1.5 rounded-lg text-white disabled:opacity-50 ${dark ? 'bg-smc-accent' : 'bg-corporate-hero'}`}
+        >
+          {loading ? 'Analyzing…' : 'Analyze'}
+        </button>
+        {loading && <span className={`text-xs ${dark ? 'text-white/40' : 'text-gray-400'}`}>Fetching real candles per trade — this can take a few seconds…</span>}
+      </div>
+
+      {error && <p className={`text-sm ${dark ? 'text-red-400' : 'text-red-500'}`}>{error}</p>}
+
+      {!result && !loading && !error && (
+        <p className={`text-sm ${dark ? 'text-white/40' : 'text-gray-400'}`}>Click Analyze to compute real drawdown/target encroachment from your actual trade history.</p>
+      )}
+
+      {result && (
+        <div className="space-y-4">
+          <p className={`text-xs ${dark ? 'text-white/40' : 'text-gray-400'}`}>
+            Analyzed {result.trades_analyzed} of {result.trades_requested} requested trades
+            {result.trades_analyzed < result.trades_requested ? ' (the rest had no candle data available, e.g. a non-crypto broker)' : ''}.
+          </p>
+
+          <div className="grid grid-cols-2 gap-2">
+            <div className={`rounded-lg p-2.5 ${dark ? 'bg-white/5' : 'bg-gray-50'}`}>
+              <div className={`text-[10px] uppercase tracking-wide ${dark ? 'text-white/40' : 'text-gray-400'}`}>Avg SL Encroachment</div>
+              <div className="text-sm font-bold mt-0.5" style={{ color: RED }}>{result.avg_sl_encroachment_pct}%</div>
+            </div>
+            <div className={`rounded-lg p-2.5 ${dark ? 'bg-white/5' : 'bg-gray-50'}`}>
+              <div className={`text-[10px] uppercase tracking-wide ${dark ? 'text-white/40' : 'text-gray-400'}`}>Avg TP1 Encroachment</div>
+              <div className="text-sm font-bold mt-0.5" style={{ color: GREEN }}>{result.avg_tp_encroachment_pct}%</div>
+            </div>
+          </div>
+
+          <div>
+            <div className={`text-xs font-semibold mb-1.5 ${dark ? 'text-white' : 'text-gray-900'}`}>What if I tightened my SL?</div>
+            <div className="space-y-1">
+              {result.what_if_tighter_sl.map((w) => (
+                <div key={w.tighten_pct} className="flex items-center justify-between text-xs">
+                  <span className={dark ? 'text-white/60' : 'text-gray-600'}>{w.tighten_pct}% tighter stop</span>
+                  <span className={`font-semibold ${w.winners_would_be_stopped_pct > 25 ? 'text-red-500' : dark ? 'text-white' : 'text-gray-900'}`}>
+                    {w.winners_would_be_stopped} of {w.winners_total} winners ({w.winners_would_be_stopped_pct}%) would have been stopped out
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {result.rows.length > 0 && (
+            <div>
+              <div className={`text-xs font-semibold mb-1.5 ${dark ? 'text-white' : 'text-gray-900'}`}>Per-trade SL encroachment</div>
+              <div className="space-y-1 max-h-48 overflow-y-auto">
+                {result.rows.map((r) => (
+                  <div key={r.trade_id} className="flex items-center gap-2 text-xs">
+                    <span className={`w-20 shrink-0 truncate ${dark ? 'text-white/60' : 'text-gray-600'}`}>{r.symbol}</span>
+                    <div className={`flex-1 h-2 rounded-full overflow-hidden ${dark ? 'bg-white/10' : 'bg-gray-100'}`}>
+                      <div className="h-full rounded-full" style={{ width: `${r.sl_encroachment_pct}%`, background: r.outcome === 'win' ? GREEN : r.outcome === 'loss' ? RED : AMBER }} />
+                    </div>
+                    <span className={`w-10 shrink-0 text-right font-mono ${dark ? 'text-white/50' : 'text-gray-500'}`}>{r.sl_encroachment_pct}%</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 

@@ -1,6 +1,6 @@
 
 import axios from 'axios';
-import { Trade, BotConfig, BotPerformance, BotMetricsUpdate, DashboardStats, SignalPreview, PerformanceSummary, TradeBreakdown, TradeBreakdownPeriod, ExchangeMetaResponse, TraderBrokerConnection, AvailableBot, TraderBotSubscription, OutboundIpsResponse, FeeSettings, FeeLedgerEntry, MyFeesResponse, FeeGateStatus, FeeCheckoutSession, FeeCheckoutProvider, FeeVerifyResult, DeployStateResponse } from '../types';
+import { Trade, BotConfig, BotPerformance, BotMetricsUpdate, DashboardStats, SignalPreview, PerformanceSummary, TradeBreakdown, TradeBreakdownPeriod, ExchangeMetaResponse, TraderBrokerConnection, AvailableBot, TraderBotSubscription, OutboundIpsResponse, FeeSettings, FeeLedgerEntry, MyFeesResponse, FeeGateStatus, FeeCheckoutSession, FeeCheckoutProvider, FeeVerifyResult, DeployStateResponse, TradeSnapshot, EncroachmentResponse } from '../types';
 import { useAuthStore } from '../hooks/useAuth';
 import { triggerAccessExpired } from '../components/AccessExpiredGate';
 import { triggerFeesOwed } from '../components/TradingFeeGate';
@@ -89,6 +89,18 @@ export const tradesApi = {
   getActiveTrades: () => api.get<Trade[]>('/trades/active').then(r => r.data),
   getTodayStats: () => api.get('/trades/stats/today').then(r => r.data),
   getTrade: (tradeId: string) => api.get<Trade>(`/trades/${tradeId}`).then(r => r.data),
+  // Real 1H/15M historical candles around this trade's entry/exit
+  // window, with entry/SL/TP/exit prices — by direct request ("Can
+  // snapshots of the trade be taken ... showing the entry, SL or TP
+  // ... with the candles"). Re-fetched live each time (a past
+  // window's OHLCV never changes), not a stored image.
+  getTradeSnapshot: (tradeId: string, timeframe: '1h' | '15m') =>
+    api.get<TradeSnapshot>(`/trades/${tradeId}/snapshot`, { params: { timeframe } }).then(r => r.data),
+  // Drawdown & Target Encroachment — by direct request. A real call
+  // per trade analyzed (capped server-side at 30), so this is only
+  // ever fetched on an explicit "Analyze" click, never on mount.
+  getEncroachment: (params?: { bot_id?: string; source?: string; is_test?: boolean; limit?: number }) =>
+    api.get<EncroachmentResponse>('/trades/analytics/encroachment', { params, timeout: 60_000 }).then(r => r.data),
   getTradeLogs: (tradeId: string) => api.get(`/trades/${tradeId}/logs`).then(r => r.data),
   // Manual cancellation — by direct request ("partial or manual
   // cancellations ... even in test mode"). Lives under /manual-trading/
