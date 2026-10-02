@@ -175,10 +175,19 @@ async def list_trades(
             query = query.where(Trade.direction == TradeDirection(direction.lower()))
         except ValueError:
             raise HTTPException(status_code=400, detail=f"Invalid direction '{direction}' — expected one of {[d.value for d in TradeDirection]}")
+    # Trade.created_at is a naive-UTC column (no timezone=True) — the
+    # frontend sends a real ISO instant with a trailing "Z"
+    # (timezone-aware), which FastAPI parses into a tz-aware datetime.
+    # Comparing that directly against a naive column is exactly the
+    # "can't subtract offset-naive and offset-aware datetimes" class of
+    # bug already documented elsewhere in this codebase (position_monitor.py,
+    # pending_order_monitor.py) — confirmed live here too, by a real 500
+    # the instant this filter shipped. Strip tzinfo (the value is
+    # already UTC either way) before comparing.
     if date_from:
-        query = query.where(Trade.created_at >= date_from)
+        query = query.where(Trade.created_at >= date_from.replace(tzinfo=None))
     if date_to:
-        query = query.where(Trade.created_at <= date_to)
+        query = query.where(Trade.created_at <= date_to.replace(tzinfo=None))
 
     query = query.order_by(Trade.created_at.desc()).offset(offset).limit(limit)
     result = await db.execute(query)
