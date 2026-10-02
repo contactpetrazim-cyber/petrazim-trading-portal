@@ -113,6 +113,11 @@ async def list_trades(
     symbol: Optional[str] = Query(None),
     direction: Optional[str] = Query(None),
     source: Optional[str] = Query(None, description="'all' (default), 'bots', or 'manual'"),
+    # Test/Paper vs Live — by direct request ("add trade info from
+    # recent trade active or closed (live Vs test) mode which is live
+    # Vs paper trading mode"), the same filter now on both analytics
+    # endpoints. None (default) = both.
+    is_test: Optional[bool] = Query(None, description="None (default) = both; True = Test/Paper only; False = Live only"),
     # Trades page date filter — calendar + quick options (Today,
     # Previous 1D/3D/5D/7D/14D/28D), by direct request. Both ends of
     # Trade.created_at, inclusive — `date_to` is treated as the END of
@@ -175,6 +180,8 @@ async def list_trades(
             query = query.where(Trade.direction == TradeDirection(direction.lower()))
         except ValueError:
             raise HTTPException(status_code=400, detail=f"Invalid direction '{direction}' — expected one of {[d.value for d in TradeDirection]}")
+    if is_test is not None:
+        query = query.where(Trade.is_test == is_test)
     # Trade.created_at is a naive-UTC column (no timezone=True) — the
     # frontend sends a real ISO instant with a trailing "Z"
     # (timezone-aware), which FastAPI parses into a tz-aware datetime.

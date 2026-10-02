@@ -52,6 +52,12 @@ class TradeResponse(BaseModel):
     # direct request ("include the Risk Amount and the Unit Quantity
     # traded"). lot_size above is the "Unit Quantity".
     risk_amount: Optional[float] = None
+    # Realized PnL expressed in risk-multiples — already a real DB
+    # column (set on close), just never exposed here before. By direct
+    # request ("Add from Recent Trades" for the Prop-Firm Challenge
+    # Simulator, which models a trade history as a list of r_multiples
+    # — see routers/tools.py's own PropFirmRequest.r_multiples).
+    r_multiple: Optional[float] = None
     realized_pnl: float
     unrealized_pnl: float = 0.0
     bot_id: str

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  Gauge, TrendingUp, Grid3x3, NotebookPen, Wallet, Plus, Trash2, LineChart, Activity, Maximize2,
+  Gauge, TrendingUp, Grid3x3, NotebookPen, Wallet, Plus, Trash2, LineChart, Activity, Maximize2, Import,
 } from 'lucide-react';
 import {
   ComposedChart, Area, Line, Bar, BarChart, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, ResponsiveContainer,
@@ -12,6 +12,8 @@ import { ChartWithPairs } from '../components/ChartWithPairs';
 import { useThemeStore } from '../hooks/useTheme';
 import { useAuth } from '../hooks/useAuth';
 import { apiFetch } from '../components/AccessExpiredGate';
+import { tradesApi } from '../services/api';
+import type { Trade } from '../types';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 const TOOLS_ACCENT = '#0891b2';   // the one documented exception to HERO_BLUE (Master Handover §6)
@@ -26,6 +28,167 @@ function ResultBox({ dark, children }: { dark: boolean; children: React.ReactNod
   return (
     <div className={`text-sm rounded-xl p-3 mt-3 whitespace-pre-wrap ${dark ? 'bg-white/5 text-white/80' : 'bg-corporate-bg text-corporate-text-on-bg'}`}>
       {children}
+    </div>
+  );
+}
+
+const LAST_N_OPTIONS = [1, 2, 3, 5, 10, 20, 30];
+
+function exitReasonFromExitType(exitType: string | null | undefined): string {
+  switch (exitType) {
+    case 'stop_loss': return 'stop';
+    case 'manual': return 'manual_close';
+    case 'structure': return 'manual_close';
+    default: return 'target'; // tp1/tp2/tp3/trailing — all real wins/partial-wins
+  }
+}
+
+/** `<input type="datetime-local">` wants "YYYY-MM-DDTHH:mm" in LOCAL
+ * time, not a raw ISO/UTC string. */
+function toDatetimeLocal(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const d = new Date(iso.endsWith('Z') ? iso : `${iso}Z`);
+  if (isNaN(d.getTime())) return '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/** "Add from Recent Trades" — by direct request ("automatically add
+ * trade info from recent trades instead of manually typing in the
+ * info" + "ADD to the following too: Prop-Firm Challenge Simulator,
+ * Correlation Heat Map, AI Trade Journal Reviewer"). A compact
+ * picker: Live/Test filter + "last N" (1/2/3/5/10/20/30), listing the
+ * caller's own trades, newest first, with a checkbox per row —
+ * multi-select, since Prop-Firm/Correlation both need a BATCH of
+ * trades at once (a list of r_multiples / a return series), not just
+ * one. "Use N selected" calls onPick with the full array; the caller
+ * decides what to do with it (Journal Reviewer appends one entry per
+ * trade, Prop-Firm turns them into an r_multiples override, Correlation
+ * turns them into one new series) — this component only fetches and
+ * selects, it doesn't know or care what the destination form is.
+ * closedOnly restricts the fetch to CLOSED trades only, for callers
+ * that need a real outcome (r_multiple is null until a trade closes). */
+function AddFromRecentTrades({ dark, onPick, closedOnly = false }: { dark: boolean; onPick: (trades: Trade[]) => void; closedOnly?: boolean }) {
+  const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState<'all' | 'test' | 'live'>('all');
+  const [lastN, setLastN] = useState(10);
+  const [trades, setTrades] = useState<Trade[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (!open) return;
+    setLoading(true);
+    setSelected(new Set());
+    const isTest = mode === 'all' ? undefined : mode === 'test';
+    // Active-or-closed, newest first — both statuses fetched and
+    // merged client-side since GET /trades/ only filters to ONE
+    // status at a time (status= is a single value, not a set); a
+    // trader picking "recent trades" almost always means either, not
+    // just one — unless the caller specifically needs closed-only.
+    const fetches = closedOnly
+      ? [tradesApi.getTrades({ status: 'closed', is_test: isTest, limit: lastN })]
+      : [
+          tradesApi.getTrades({ status: 'active', is_test: isTest, limit: lastN }),
+          tradesApi.getTrades({ status: 'closed', is_test: isTest, limit: lastN }),
+        ];
+    Promise.all(fetches).then((lists) => {
+      const merged = lists.flat()
+        .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))
+        .slice(0, lastN);
+      setTrades(merged);
+    }).catch(() => setTrades([])).finally(() => setLoading(false));
+  }, [open, mode, lastN, closedOnly]);
+
+  function toggle(tradeId: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(tradeId)) next.delete(tradeId); else next.add(tradeId);
+      return next;
+    });
+  }
+
+  function useSelected() {
+    if (!trades) return;
+    const picked = trades.filter((t) => selected.has(t.trade_id));
+    if (picked.length === 0) return;
+    onPick(picked);
+    setOpen(false);
+  }
+
+  return (
+    <div className="mb-3">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg ${dark ? 'bg-white/10 text-white' : 'bg-gray-100 text-gray-700'}`}
+      >
+        <Import size={13} /> Add from Recent Trades
+      </button>
+      {open && (
+        <div className={`mt-2 rounded-lg border p-2.5 ${dark ? 'bg-white/5 border-white/10' : 'bg-gray-50 border-gray-200'}`}>
+          <div className="flex items-center gap-2 flex-wrap mb-2">
+            <div className={`inline-flex items-center gap-0.5 rounded-md p-0.5 ${dark ? 'bg-white/5' : 'bg-white'}`}>
+              {(['all', 'live', 'test'] as const).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => setMode(m)}
+                  className={`px-2 py-1 rounded text-[11px] font-semibold capitalize ${
+                    mode === m ? (dark ? 'bg-white/20 text-white' : 'bg-corporate-bg text-corporate-text-on-bg shadow-sm') : dark ? 'text-white/40' : 'text-gray-500'
+                  }`}
+                >
+                  {m === 'test' ? 'Test/Paper' : m}
+                </button>
+              ))}
+            </div>
+            <select
+              value={lastN}
+              onChange={(e) => setLastN(Number(e.target.value))}
+              className={`px-2 py-1 rounded-md text-[11px] font-medium border ${dark ? 'bg-white/5 border-white/10 text-white' : 'bg-white border-gray-200'}`}
+            >
+              {LAST_N_OPTIONS.map((n) => <option key={n} value={n}>Last {n}</option>)}
+            </select>
+          </div>
+          {loading && <div className={`text-xs ${dark ? 'text-white/40' : 'text-gray-400'}`}>Loading…</div>}
+          {!loading && trades && trades.length === 0 && (
+            <div className={`text-xs ${dark ? 'text-white/40' : 'text-gray-400'}`}>No trades match this filter.</div>
+          )}
+          {!loading && trades && trades.length > 0 && (
+            <>
+              <div className="space-y-1 max-h-56 overflow-y-auto">
+                {trades.map((t) => (
+                  <label
+                    key={t.trade_id}
+                    className={`w-full flex items-center justify-between gap-2 text-left px-2 py-1.5 rounded-md text-xs cursor-pointer ${dark ? 'hover:bg-white/10' : 'hover:bg-white'}`}
+                  >
+                    <span className="flex items-center gap-1.5 min-w-0">
+                      <input type="checkbox" checked={selected.has(t.trade_id)} onChange={() => toggle(t.trade_id)} className="shrink-0" />
+                      <span className={t.direction === 'long' ? 'text-smc-long' : 'text-smc-short'}>{t.direction === 'long' ? '▲' : '▼'}</span>
+                      <span className={`font-semibold truncate ${dark ? 'text-white' : 'text-gray-900'}`}>{t.symbol}</span>
+                      <span className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-semibold ${t.status === 'active' ? 'bg-blue-500/15 text-blue-500' : 'bg-gray-500/15 text-gray-500'}`}>
+                        {t.status === 'active' ? 'Active' : 'Closed'}
+                      </span>
+                      <span className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-semibold ${t.is_test ? 'bg-amber-500/15 text-amber-500' : 'bg-emerald-500/15 text-emerald-500'}`}>
+                        {t.is_test ? 'Test' : 'Live'}
+                      </span>
+                    </span>
+                    <span className={`shrink-0 font-mono ${dark ? 'text-white/50' : 'text-gray-500'}`}>
+                      {t.entry_price?.toFixed(2) ?? '—'}
+                    </span>
+                  </label>
+                ))}
+              </div>
+              <button
+                onClick={useSelected}
+                disabled={selected.size === 0}
+                className={`mt-2 w-full text-xs font-semibold px-3 py-1.5 rounded-lg text-white disabled:opacity-40`}
+                style={{ background: TOOLS_ACCENT }}
+              >
+                Use {selected.size} selected
+              </button>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -325,6 +488,13 @@ export function ToolsPage() {
   const [preset, setPreset] = useState('generic_10_5_10');
   const [propResult, setPropResult] = useState<any>(null);
   const [propBusy, setPropBusy] = useState(false);
+  // "Add from Recent Trades" override — by direct request. None (the
+  // default) means the backend uses the caller's FULL real closed-
+  // trade history, same as before; picking specific trades here sends
+  // exactly those r_multiples instead (PropFirmRequest.r_multiples,
+  // routers/tools.py), so a trader can simulate against e.g. only
+  // their last 10 Live trades rather than everything ever closed.
+  const [propTradesOverride, setPropTradesOverride] = useState<Trade[] | null>(null);
 
   useEffect(() => {
     apiFetch(`${API_URL}/tools/prop-firm/presets`).then((r) => r.json()).then(setPresets).catch(() => {});
@@ -333,10 +503,13 @@ export function ToolsPage() {
   async function runPropFirm() {
     setPropBusy(true);
     try {
+      const rMultiples = propTradesOverride
+        ?.map((t) => t.r_multiple)
+        .filter((v): v is number => v != null);
       const res = await apiFetch(`${API_URL}/tools/prop-firm`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders },
-        body: JSON.stringify({ preset }),
+        body: JSON.stringify({ preset, ...(rMultiples && rMultiples.length > 0 ? { r_multiples: rMultiples } : {}) }),
       });
       const data = await res.json();
       setPropResult(res.ok ? data : { error: data.detail || 'Could not simulate — need at least 10 closed trades.' });
@@ -395,6 +568,36 @@ export function ToolsPage() {
 
   function updateEntry(i: number, field: string, value: string) {
     setEntries((prev) => prev.map((e, idx) => (idx === i ? { ...e, [field]: value } : e)));
+  }
+
+  // Auto-fills one new entry row per picked Trade — by direct request
+  // ("automatically add trade info from recent trades instead of
+  // manually typing in the info"). An ACTIVE trade has no exit yet,
+  // so exit_price/exit_time stay blank for the trader to fill in once
+  // it actually closes — only entry-side fields (symbol, direction,
+  // entry price, stop) come prefilled for those. trader_notes is
+  // deliberately left blank either way: the whole point of this tool
+  // is the trader's own reflection, which nothing can autofill.
+  function addEntriesFromTrades(picked: Trade[]) {
+    setEntries((prev) => [
+      ...(prev.length === 1 && !prev[0].symbol ? [] : prev), // drop the one still-blank starter row, if any
+      ...picked.map((t) => ({
+        ...emptyEntry,
+        trade_id: t.trade_id,
+        symbol: t.symbol,
+        direction: t.direction,
+        entry_price: t.entry_price != null ? String(t.entry_price) : '',
+        exit_price: t.exit_price != null ? String(t.exit_price) : '',
+        stop_price: String(t.stop_loss),
+        entry_time: toDatetimeLocal(t.entry_timestamp),
+        exit_time: toDatetimeLocal(t.exit_timestamp),
+        // Still the form's own default ('target') for an ACTIVE trade
+        // — there's no real exit yet to map from, so this is a
+        // placeholder the trader edits once it actually closes, same
+        // as every other still-blank field on an active pick.
+        exit_reason: t.status === 'active' ? emptyEntry.exit_reason : exitReasonFromExitType(t.exit_type),
+      })),
+    ]);
   }
 
   async function runJournalReview() {
@@ -507,7 +710,18 @@ export function ToolsPage() {
               ))}
             </select>
           </label>
-          <p className={`text-xs mb-2 ${dark ? 'text-white/40' : 'text-gray-400'}`}>Uses your own real closed trades — needs at least 10.</p>
+          <AddFromRecentTrades
+            dark={dark} closedOnly
+            onPick={(picked) => setPropTradesOverride(picked)}
+          />
+          {propTradesOverride ? (
+            <p className={`text-xs mb-2 flex items-center gap-1.5 flex-wrap ${dark ? 'text-white/50' : 'text-gray-500'}`}>
+              Simulating against {propTradesOverride.length} selected trade{propTradesOverride.length === 1 ? '' : 's'} instead of your full history.
+              <button onClick={() => setPropTradesOverride(null)} className="underline font-medium">Clear</button>
+            </p>
+          ) : (
+            <p className={`text-xs mb-2 ${dark ? 'text-white/40' : 'text-gray-400'}`}>Uses your own real closed trades — needs at least 10.</p>
+          )}
           <button onClick={runPropFirm} disabled={propBusy} className="text-xs font-semibold px-3 py-1.5 rounded-lg text-white disabled:opacity-50" style={{ background: TOOLS_ACCENT }}>
             {propBusy ? 'Simulating…' : 'Simulate'}
           </button>
@@ -569,6 +783,18 @@ export function ToolsPage() {
               <Plus size={13} /> Add series
             </button>
           </div>
+          {/* Turns a batch of picked trades into a whole new series row
+              — label from the first picked trade's own bot/strategy,
+              returns as those trades' real r_multiples, comma-joined
+              — instead of typing return numbers in by hand. */}
+          <AddFromRecentTrades
+            dark={dark} closedOnly
+            onPick={(picked) => {
+              const label = picked[0]?.bot_name || picked[0]?.strategy_type || picked[0]?.bot_id || `Series ${series.length + 1}`;
+              const returns = picked.map((t) => t.r_multiple).filter((v): v is number => v != null).join(',');
+              setSeries((p) => [...p, { label, returns }]);
+            }}
+          />
           <button onClick={runCorrelation} disabled={corrBusy} className="text-xs font-semibold px-3 py-1.5 rounded-lg text-white disabled:opacity-50" style={{ background: TOOLS_ACCENT }}>
             {corrBusy ? 'Computing…' : 'Compute correlation'}
           </button>
@@ -595,6 +821,7 @@ export function ToolsPage() {
         </FoldedCard>
 
         <FoldedCard title="AI Trade Journal Reviewer" summary="Upload manual trades for the same process-based coach review." icon={<NotebookPen size={19} />} dark={dark} accent={TOOLS_ACCENT}>
+          <AddFromRecentTrades dark={dark} onPick={addEntriesFromTrades} />
           {entries.map((e, i) => (
             <div key={i} className={`rounded-lg p-2 mb-2 border ${dark ? 'border-corporate-border-dark' : 'border-gray-200'}`}>
               <div className="grid grid-cols-2 gap-2 mb-1">
