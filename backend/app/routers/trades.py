@@ -582,15 +582,18 @@ async def trade_snapshot(
     # trade is visible, not just the trade itself) and a short window
     # AFTER exit (or now, for a still-ACTIVE trade) so the immediate
     # aftermath is visible too. Candle counts, not calendar time, are
-    # what actually matters for a readable chart — capped at 120 so
-    # this stays one real ccxt call, not an unbounded fetch.
+    # what actually matters for a readable chart — capped well above
+    # lookback_bars so this stays one real ccxt call, not an unbounded
+    # fetch. 60 (was 30) by direct request ("Increase candles to 60 for
+    # the snapshot"); limit raised alongside it so a longer-held trade
+    # still isn't truncated against the bigger lookback.
     bar_seconds = _SNAPSHOT_BAR_SECONDS[timeframe]
-    lookback_bars = 30
+    lookback_bars = 60
     since = trade.entry_timestamp - timedelta(seconds=bar_seconds * lookback_bars)
     end = (trade.exit_timestamp or datetime.utcnow()) + timedelta(seconds=bar_seconds * 6)
 
     try:
-        candles = await _snapshot_ingestion.fetch_historical_ccxt(exchange, trade.symbol, timeframe, limit=120, since=since)
+        candles = await _snapshot_ingestion.fetch_historical_ccxt(exchange, trade.symbol, timeframe, limit=200, since=since)
     except Exception as e:
         logger.warning("trade_snapshot_fetch_failed", trade_id=trade_id, exchange=exchange, symbol=trade.symbol, error=str(e))
         raise HTTPException(status_code=502, detail="Could not fetch chart data right now — try again shortly.")
