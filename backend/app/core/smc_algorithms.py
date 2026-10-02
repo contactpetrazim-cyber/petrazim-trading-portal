@@ -9,6 +9,14 @@ from datetime import datetime
 import numpy as np
 from enum import Enum
 
+from app.config import get_settings
+
+# Minimum stop-loss distance, as a fraction of entry price, that
+# calculate_stop_loss will ever return regardless of method — by
+# critical audit request (see that method's own comment for the real
+# trade, $0.31 stop on an $83,675 entry, that exposed this gap).
+MIN_STOP_DISTANCE_PCT = get_settings().MIN_STOP_DISTANCE_PCT
+
 class StructureType(Enum):
     BOS = "break_of_structure"
     CHOCH = "change_of_character"
@@ -897,10 +905,27 @@ class EntryExitEngine:
                 sl = zone.top + (zone.top - zone.bottom) * 0.1
 
         elif method == "structure_swing":
+            # Real bug, found via critical audit after a live trade was
+            # sized at 419.35 BTC (~$35M notional) against a $130 risk:
+            # the buffer here used to be 5% of (entry_price -
+            # structure_swing.price) — the GAP between entry and the
+            # swing itself, not a buffer beyond the swing. Bot 1/Bot 2
+            # (bot_strategies.py) both pass the most recent swing
+            # high/low as structure_swing for a mean-reversion-style
+            # entry placed INSIDE the same zone that swing anchors, so
+            # that gap routinely collapses to a few cents on a $80k+
+            # asset — 5% of a few cents is itself a few thousandths of
+            # a cent, producing a stop distance of ~$0.31 on the actual
+            # trade this audit found. Buffer is now a % of the swing
+            # PRICE itself (a real, non-collapsing quantity, same
+            # shape as zone_extreme's own % of zone height above) with
+            # a hard floor so a degenerate setup still produces a
+            # sane, tradeable distance instead of a near-zero one.
+            buffer = max(structure_swing.price * 0.001, entry_price * MIN_STOP_DISTANCE_PCT)
             if direction == "long":
-                sl = structure_swing.price - (entry_price - structure_swing.price) * 0.05
+                sl = structure_swing.price - buffer
             else:
-                sl = structure_swing.price + (structure_swing.price - entry_price) * 0.05
+                sl = structure_swing.price + buffer
 
         elif method == "atr" and atr_value:
             buffer = 1.5 * atr_value
@@ -921,6 +946,23 @@ class EntryExitEngine:
             sl = zone.bottom if direction == "long" else zone.top
 
         sl_distance = abs(entry_price - sl)
+
+        # Defense-in-depth floor, independent of which method/branch
+        # above produced `sl`: by critical audit request, after a real
+        # trade's stop landed just $0.31 from an $83,675 entry (method
+        # "structure_swing"'s own collapsing-buffer bug, fixed above) —
+        # calculate_lot_size's fixed-fractional formula (risk_amount /
+        # stop_loss_distance) has NO upper bound on the resulting
+        # quantity, so any future bug in ANY method here (a degenerate
+        # zone, a near-zero atr_value, ...) would reproduce the exact
+        # same class of bug. A stop this tight was never a real trading
+        # decision — flooring it here is the one change that protects
+        # every method and every future one, not just the specific bug
+        # found this time.
+        min_distance = entry_price * MIN_STOP_DISTANCE_PCT
+        if sl_distance < min_distance:
+            sl = (entry_price - min_distance) if direction == "long" else (entry_price + min_distance)
+            sl_distance = min_distance
 
         return {
             "stop_loss": round(sl, 5),

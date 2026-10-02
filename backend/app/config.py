@@ -187,6 +187,36 @@ class Settings(BaseSettings):
     # balance to read (paper mode, or no credential configured yet).
     MARKET_SCANNER_DEFAULT_ACCOUNT_BALANCE: float = 10000.0
 
+    # Capital adequacy gate (services/capital_adequacy.py) — by direct,
+    # critical request after a real production trade was found sized
+    # at 419.35 BTC (~$35M notional) against a $130 "risk" (the stop-
+    # loss distance was a calc bug, see smc_algorithms.py's
+    # calculate_stop_loss "structure_swing" fix). This is the ceiling
+    # on how much TOTAL notional value (quantity x price), summed
+    # across every open/pending trade for one account, is allowed
+    # before a new trade is blocked from executing — distinct from
+    # manual_trading.py's own portfolio-exposure check, which sums
+    # RISK PERCENT (what you'd lose if stopped out), not notional
+    # (what you need to actually open the position). Defaults to 1.0 —
+    # no leverage assumed — because this platform never actually sets
+    # leverage on any exchange account (broker_integrations.py's
+    # set_leverage exists per-exchange but is never called anywhere),
+    # so the real leverage in effect on any given account is unknown
+    # and 1x is the only assumption that can't be dangerously wrong.
+    # Raise this only with real knowledge of the actual leverage
+    # configured on the exchange account(s) this platform trades.
+    MAX_NOTIONAL_LEVERAGE: float = 1.0
+
+    # Floor under calculate_stop_loss's own result (smc_algorithms.py)
+    # — 0.0015 = 15 bps of entry price. By critical audit request,
+    # after a real trade's stop landed just $0.31 from an $83,675
+    # entry (0.00037%) — see that method's own comment for the root
+    # cause. 15bps is tight enough to not interfere with a genuinely
+    # tight, legitimate crypto scalp stop, wide enough that fixed-
+    # fractional sizing (risk_amount / stop_loss_distance) can never
+    # again blow up into an unexecutable quantity from this alone.
+    MIN_STOP_DISTANCE_PCT: float = 0.0015
+
     # Position monitor (services/position_monitor.py) — the real fix
     # for "no automated TP/SL-hit detection," flagged as an outstanding
     # gap in the platform audit. Scoped to is_test=True trades ONLY: a

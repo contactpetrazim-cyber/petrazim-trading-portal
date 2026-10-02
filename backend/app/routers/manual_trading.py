@@ -369,6 +369,20 @@ async def place_manual_order(
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
 
+        # Capital adequacy gate — by critical audit request. Distinct
+        # from check_manual_trade_risk above (which sums RISK PERCENT,
+        # not notional) — see capital_adequacy.py's own module
+        # docstring. Uses the trader's own stated account_equity
+        # directly (a real input on this order ticket) rather than
+        # resolving a bot's effective balance, since there is no bot.
+        from app.services.capital_adequacy import check_capital_adequacy
+        capital_check = await check_capital_adequacy(
+            db, user.id, None, lot_size, req.entry_price,
+            effective_balance_override=req.account_equity,
+        )
+        if not capital_check.ok:
+            raise HTTPException(status_code=409, detail=capital_check.reason)
+
         # Trade.trade_id is String(50) — the previous format (MANUAL_ + a
         # full user.id UUID + timestamp + a random suffix) ran to 66
         # characters, which asyncpg rejects outright
