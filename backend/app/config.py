@@ -210,14 +210,16 @@ class Settings(BaseSettings):
     # a $100 risk needs ~6.7x leverage to size correctly; this
     # platform's bots legitimately trade leveraged). 1.0x conflated
     # "block an absurd 3500x-implied blowup" with "block any leverage
-    # at all" — the wrong question. 20x is generous enough to never
-    # block a properly-stopped trade post-floor-fix while still
-    # catching another blowup of the original bug's actual magnitude.
-    # Tune this to the REAL max leverage configured on the exchange
-    # account(s) this platform trades, once known — this default is a
-    # reasonable, conservative-but-usable crypto-perp ceiling, not a
-    # measured number.
-    MAX_NOTIONAL_LEVERAGE: float = 20.0
+    # at all" — the wrong question.
+    #
+    # Now set to 50x by direct confirmation of this platform's real
+    # account leverage usage ("Leverage use is approx up to 1x50") —
+    # no longer a guess. Still catches the original bug's actual
+    # magnitude with wide margin (that trade implied ~3500x). If the
+    # real configured leverage ever changes, update this to match —
+    # this number should always equal reality, not the other way
+    # around.
+    MAX_NOTIONAL_LEVERAGE: float = 50.0
 
     # Floor under calculate_stop_loss's own result (smc_algorithms.py)
     # — 0.0015 = 15 bps of entry price. By critical audit request,
