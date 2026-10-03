@@ -36,7 +36,7 @@ const STEPS: StepDef[] = [
     goTo: '/onboarding',
   },
   {
-    title: 'Begin trading & learning',
+    title: 'Begin learning & trading',
     description: 'Your Home dashboard, Learn tracks, and live signals — all unlocked.',
     goTo: '/learn',
   },
