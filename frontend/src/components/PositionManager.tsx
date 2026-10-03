@@ -121,7 +121,17 @@ export function PositionManager({ trade, dark = false, onChanged }: { trade: Tra
   // "Position Chart" would claim a position that isn't there.
   const gotoChartLink = (
     <Link
-      to={`/trade/manual?tv=${encodeURIComponent(chartPair.tv)}`}
+      // `trade_id` added alongside `tv` — by direct bug report ("the
+      // on chart triggers from the trade section ... there is no
+      // position button"). See ManualTradingPage's own
+      // preselectTradeId comment: without it, the destination page
+      // only had a bare symbol to re-match against whatever
+      // getActiveTrades()/getTrades({status:'pending'}) happened to
+      // return, which could silently resolve to nothing (or the wrong
+      // trade, on a symbol with more than one open position) — this
+      // link already knows exactly which trade it means, so hand that
+      // over directly instead of making the destination guess.
+      to={`/trade/manual?tv=${encodeURIComponent(chartPair.tv)}&trade_id=${encodeURIComponent(trade.trade_id)}`}
       target="_blank" rel="noopener noreferrer"
       className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-corporate-hero hover:opacity-90"
     >

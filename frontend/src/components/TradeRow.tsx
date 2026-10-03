@@ -1,11 +1,13 @@
 
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Trade } from '../types';
-import { ArrowUpRight, ArrowDownRight, Clock, CheckCircle, XCircle, AlertCircle, Ban, Settings2, ChevronDown, Archive, ArchiveRestore, Trash2, RotateCcw, Bot, User, CheckSquare, Square, Camera } from 'lucide-react';
+import { ArrowUpRight, ArrowDownRight, Clock, CheckCircle, XCircle, AlertCircle, Ban, Settings2, ChevronDown, Archive, ArchiveRestore, Trash2, RotateCcw, Bot, User, CheckSquare, Square, Camera, LineChart } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { useThemeStore } from '../hooks/useTheme';
 import { PositionManager } from './PositionManager';
 import { TradeSnapshotModal } from './TradeSnapshotModal';
+import { pairFromTradeSymbol } from '../hooks/useQuickPairs';
 
 interface TradeRowProps {
   trade: Trade;
@@ -234,6 +236,27 @@ export function TradeRow({ trade, onApprove, onReject, onCancel, onChanged, onAr
             >
               <Settings2 size={13} /> Manage <ChevronDown size={13} className={`transition-transform ${managing ? 'rotate-180' : ''}`} />
             </button>
+          )}
+
+          {/* On Chart — quick one-click view of this specific ongoing
+              trade, right on the card itself, by direct request ("put
+              a 'On Chart' link on all active trades cards to allow
+              quick view of the ongoing trade"). Previously this same
+              chart was only reachable two clicks deep (Manage ->
+              PositionManager's own "Position Chart" link) — same
+              destination, same `tv`+`trade_id` link shape as that one
+              (see its own comment for why `trade_id` rides along), now
+              also surfaced directly here so a trader scanning a list
+              of cards doesn't have to expand one just to look at its
+              chart. */}
+          {(trade.status === 'active' || trade.status === 'pending') && (
+            <Link
+              to={`/trade/manual?tv=${encodeURIComponent(pairFromTradeSymbol(trade.symbol, trade.broker_name).tv)}&trade_id=${encodeURIComponent(trade.trade_id)}`}
+              target="_blank" rel="noopener noreferrer"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-violet-500/15 text-violet-400 hover:bg-violet-500/25 transition-colors"
+            >
+              <LineChart size={13} /> On Chart
+            </Link>
           )}
 
           {/* Archive/Unarchive — moves this row between the "Recent
