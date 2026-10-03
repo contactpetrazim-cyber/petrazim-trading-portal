@@ -5,8 +5,8 @@ import { TradeRow } from '../components/TradeRow';
 import { LoadingIndicator } from '../components/LoadingIndicator';
 import { FoldedCard } from '../components/FoldedCard';
 import { SourceToggle, type TradeSource } from '../components/TradeAnalytics';
-import { tradesApi, botsApi } from '../services/api';
-import { Trade, BotConfig } from '../types';
+import { tradesApi } from '../services/api';
+import { Trade } from '../types';
 import { useThemeStore } from '../hooks/useTheme';
 import { Filter, Search, Download, RefreshCw, Archive, Trash2, ClipboardCheck, ArrowRight, Calendar, CheckSquare, Square, Bot } from 'lucide-react';
 import { formatApiError } from '../lib/apiError';
@@ -94,8 +94,16 @@ export function TradesPage() {
   // Bots-vs-Manual `source` toggle above (that's origin; this narrows
   // to ONE specific bot within it) — both apply together server-side.
   const [botFilter, setBotFilter] = useState('');
-  const [bots, setBots] = useState<BotConfig[]>([]);
-  useEffect(() => { botsApi.getBots().then(setBots).catch(() => setBots([])); }, []);
+  // Real bug, found via direct report on the Analytics page's own copy
+  // of this exact filter ("The bot / strategy quick filter in
+  // Analytics is not working"): GET /bots/ scopes by BotConfig.user_id
+  // — the bot's OWNER/creator — which an ordinary trader almost never
+  // is for the platform's own strategy bots, so the dropdown was
+  // silently empty for them here too. Same fix: derive options from
+  // GET /trades/analytics/bot-options (unions every real BotConfig row
+  // with the caller's own trade history) instead.
+  const [bots, setBots] = useState<{ bot_id: string; bot_name: string }[]>([]);
+  useEffect(() => { tradesApi.getBotFilterOptions().then(setBots).catch(() => setBots([])); }, []);
 
   // Date filter — quick lookback pills + an optional exact calendar
   // range, by direct request. A custom calendar pick (either field
