@@ -130,6 +130,27 @@ _futures_backup_client = (
     if _settings.BINANCE_BACKUP_PROXY_URL else None
 )
 
+# Third tier, no proxy at all — by direct request ("what happens when
+# Fixie reaches its ... limit for proxies ... is there a backup to
+# route to Binance? fix this permanently"). Unlike the broker classes
+# in broker_integrations.py (order PLACEMENT, which needs an API key
+# whitelisted against a SPECIFIC proxy IP — a direct attempt there
+# would just fail the exchange's own IP check, not help), this router
+# only ever makes unsigned, public market-data GETs — no key, no
+# whitelist, nothing tying it to a specific IP. The direct-IP 451
+# geofence this file's own earlier comment describes was believed to
+# make a direct fallback pointless, but production logs tell a
+# different story: Render's raw IP genuinely reached Binance enough
+# times to trigger a real volume-based 418 ban (see data_ingestion.
+# py's own shared_ingestion comment) — a 418 only happens AFTER a
+# request is actually processed, which a true, unconditional 451
+# geofence would never allow. So the geofence is evidently partial or
+# endpoint-specific, not blanket — direct is a genuinely useful last
+# resort here, same 3-tier shape data_ingestion.py's own candle-fetch
+# proxy fallback already uses.
+_direct_client = httpx.AsyncClient(timeout=10.0, base_url=BINANCE_BASE_URL)
+_futures_direct_client = httpx.AsyncClient(timeout=10.0, base_url=FUTURES_BASE_URL)
+
 # TradingView's own public symbol-search endpoint — the exact one the
 # embedded chart widget's own internal search box calls, so a result
 # here is guaranteed to be a real symbol the chart can actually
@@ -184,12 +205,23 @@ async def _resolve_market(symbol: str) -> tuple[str, bool]:
 
 async def _binance_get(path: str, params: dict, futures: bool = False) -> httpx.Response:
     client, backup = (_futures_client, _futures_backup_client) if futures else (_client, _backup_client)
+    direct = _futures_direct_client if futures else _direct_client
     market = "Binance futures" if futures else "Binance"
     try:
         resp = await _send_with_failover(client, backup, "get", path, params=params)
     except _FAILOVER_EXCEPTIONS as e:
-        record_proxy_failure("order_flow", str(e))
-        raise HTTPException(status_code=502, detail=f"Could not reach {market} market data: {e}")
+        # Both the primary proxy AND the Fixie backup failed at the
+        # transport level (a proxy down, or Fixie's own concurrent-
+        # connection cap hit) — one last try with no proxy at all
+        # before giving up. See _direct_client's own comment for why
+        # this is a genuinely useful third tier here, unlike the order-
+        # placement broker classes.
+        try:
+            resp = await direct.get(path, params=params)
+        except httpx.RequestError as e2:
+            record_proxy_failure("order_flow", str(e2))
+            raise HTTPException(status_code=502, detail=f"Could not reach {market} market data: {e2}")
+        logger.warning("order_flow_direct_fallback", path=path, futures=futures, proxy_error=str(e))
     except httpx.RequestError as e:
         record_proxy_failure("order_flow", str(e))
         raise HTTPException(status_code=502, detail=f"Could not reach {market} market data: {e}")
