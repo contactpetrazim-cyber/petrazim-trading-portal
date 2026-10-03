@@ -119,7 +119,7 @@ function nearestCandleIndex(candles: { timestamp: string }[], iso: string | null
 }
 
 function SnapshotChart({ snapshot, dark }: { snapshot: TradeSnapshot; dark: boolean }) {
-  const { candles, entry_price, entry_timestamp, stop_loss, take_profit_1, exit_price, exit_timestamp, direction } = snapshot;
+  const { candles, entry_price, entry_timestamp, stop_loss, take_profit_1, take_profit_2, take_profit_3, exit_price, exit_timestamp, direction } = snapshot;
   if (candles.length === 0) {
     return <p className={`text-sm ${dark ? 'text-white/40' : 'text-gray-400'}`}>No candle data for this window.</p>;
   }
@@ -127,7 +127,7 @@ function SnapshotChart({ snapshot, dark }: { snapshot: TradeSnapshot; dark: bool
   // Price range spans the candles AND every reference line, so a far
   // SL/TP outside the visible candle range still shows (clamped to
   // the chart edge) rather than being silently cut off.
-  const refPrices = [entry_price, stop_loss, take_profit_1, exit_price].filter((v): v is number => v != null);
+  const refPrices = [entry_price, stop_loss, take_profit_1, take_profit_2, take_profit_3, exit_price].filter((v): v is number => v != null);
   const allHighs = candles.map((c) => c.high);
   const allLows = candles.map((c) => c.low);
   const maxP = Math.max(...allHighs, ...refPrices);
@@ -158,6 +158,13 @@ function SnapshotChart({ snapshot, dark }: { snapshot: TradeSnapshot; dark: bool
   if (entry_price != null) refLines.push({ price: entry_price, color: entryColor, label: 'Entry' });
   refLines.push({ price: stop_loss, color: RED, label: 'SL' });
   if (take_profit_1 != null) refLines.push({ price: take_profit_1, color: GREEN, label: 'TP1' });
+  // TP2/TP3 — by direct report: a multi-target "4R target with BOS
+  // trailing" trade's real exit landed well past TP1 with nothing on
+  // the chart to explain why (it had actually run through TP2 and
+  // closed exactly at TP3). Progressively darker green so "further
+  // target" reads visually without a second legend system.
+  if (take_profit_2 != null) refLines.push({ price: take_profit_2, color: '#059669', label: 'TP2' });
+  if (take_profit_3 != null) refLines.push({ price: take_profit_3, color: '#047857', label: 'TP3' });
   if (exit_price != null) refLines.push({ price: exit_price, color: exitColor, label: 'Exit' });
 
   // Entry/exit candle markers — a small triangle sitting just off the

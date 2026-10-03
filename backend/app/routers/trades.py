@@ -636,6 +636,16 @@ async def trade_snapshot(
         # populating these for bot trades (initial_* was NULL).
         "stop_loss": trade.initial_stop_loss if trade.initial_stop_loss is not None else trade.stop_loss,
         "take_profit_1": trade.initial_take_profit_1 if trade.initial_take_profit_1 is not None else trade.take_profit_1,
+        # By direct report (a multi-target "4R target with BOS
+        # trailing" trade's real exit landed well past TP1, with no
+        # line on the chart explaining why — it had actually run
+        # through TP2 and closed exactly at TP3, invisible until now).
+        # No initial_take_profit_2/3 columns exist (only SL and TP1
+        # get an immutable snapshot today), so these are the current
+        # values — the same honest scope as before this fix, just no
+        # longer silently dropped from the chart entirely.
+        "take_profit_2": trade.take_profit_2,
+        "take_profit_3": trade.take_profit_3,
         "exit_price": trade.exit_price,
         "exit_timestamp": trade.exit_timestamp,
         "status": trade.status.value,
