@@ -176,6 +176,23 @@ export function ManualTradingPage() {
   // pair otherwise — not good enough for a deep link that must land on
   // the right chart even the first time a symbol is ever opened here).
   const preselectTv = params.get('tv');
+  // `?trade_id=` — set by PositionManager's "Position Chart" link and
+  // TradeRow's new "On Chart" button (both now carry it), by direct
+  // bug report ("the on chart triggers from the trade section ...
+  // there is no position button"). A plain symbol match
+  // (`t.symbol === symbol.trade`) is one candidate trade among
+  // possibly several open/pending on the same symbol, and silently
+  // resolves to nothing at all if `?tv=`'s derived exchange prefix
+  // ever disagrees with whichever one `getActiveTrades()`/
+  // `getTrades({status:'pending'})` actually returns first — a bot
+  // trade with no broker_name (pairFromTradeSymbol then guesses the
+  // exchange) is exactly the shape most likely to hit that gap. A
+  // specific trade's own "view this on a chart" link always knows its
+  // own trade_id already, so matching on THAT instead removes the
+  // guesswork entirely: correct regardless of how many other
+  // same-symbol trades exist or how the chart pair's exchange prefix
+  // was derived.
+  const preselectTradeId = params.get('trade_id');
   // Build the QuickPair straight from the trusted `?tv=` string itself
   // (split on ':') rather than re-deriving the exchange from the bare
   // ticker — PositionManager already resolved the right exchange via
@@ -575,15 +592,21 @@ export function ManualTradingPage() {
   // position/otherOpenTrades being empty.
   const [positionLoading, setPositionLoading] = useState(true);
   const loadOpenPosition = useCallback(() => {
+    // See preselectTradeId's own comment — matches the ONE specific
+    // trade a `?trade_id=` link pointed at, instead of guessing by
+    // symbol. Still requires the symbol to also match (a stale/wrong
+    // trade_id for a trade that's since moved symbols, or belongs to
+    // a different chart pair entirely, should fall back to "nothing
+    // open" rather than show the wrong position).
+    const matches = (t: Trade) =>
+      t.entry_price != null && (preselectTradeId ? t.trade_id === preselectTradeId && t.symbol === symbol.trade : t.symbol === symbol.trade);
     return Promise.all([
       tradesApi.getActiveTrades(),
       tradesApi.getTrades({ status: 'pending' }),
     ]).then(([active, pending]) => {
-      const primary = active.find((t) => t.symbol === symbol.trade && t.entry_price != null)
-        ?? pending.find((t) => t.symbol === symbol.trade && t.entry_price != null)
-        ?? null;
-      setOpenPositionTrade(active.find((t) => t.symbol === symbol.trade && t.entry_price != null) ?? null);
-      setPendingOrderTrade(pending.find((t) => t.symbol === symbol.trade && t.entry_price != null) ?? null);
+      const primary = active.find(matches) ?? pending.find(matches) ?? null;
+      setOpenPositionTrade(active.find(matches) ?? null);
+      setPendingOrderTrade(pending.find(matches) ?? null);
       const samePair = [
         ...active.filter((t) => t.symbol === symbol.trade && t.entry_price != null),
         ...pending.filter((t) => t.symbol === symbol.trade && t.entry_price != null),
@@ -596,7 +619,7 @@ export function ManualTradingPage() {
     }).catch(() => { setOpenPositionTrade(null); setPendingOrderTrade(null); setOtherOpenTrades([]); setSamePairOtherPositions([]); })
       .finally(() => setPositionLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [symbol.trade]);
+  }, [symbol.trade, preselectTradeId]);
   useEffect(() => {
     loadOpenPosition();
     const t = setInterval(loadOpenPosition, 8000);
