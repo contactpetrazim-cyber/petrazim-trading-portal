@@ -62,7 +62,7 @@ from app.database import AsyncSessionLocal
 from app.models.bot import BotConfig
 from app.models.trade import ExitType, Trade, TradeDirection, TradeLog, TradeStatus
 from app.services.live_price import get_crypto_price
-from app.services.manual_trading import compute_r_multiple
+from app.services.manual_trading import compute_blended_r_multiple
 
 logger = structlog.get_logger()
 settings = get_settings()
@@ -230,7 +230,12 @@ class PositionMonitor:
         # proactively here before a real close ever hit it in production.
         trade.exit_timestamp = datetime.utcnow()
         trade.exit_type = exit_type
-        trade.r_multiple = compute_r_multiple(trade.entry_price, exit_price, trade.stop_loss, trade.direction)
+        # Blended across every leg (TP1/TP2 partials + this final
+        # close), not just this leg's own price — critical bug fix,
+        # see compute_blended_r_multiple's own docstring.
+        trade.r_multiple = compute_blended_r_multiple(
+            trade.realized_pnl, trade.risk_amount, trade.entry_price, exit_price, trade.stop_loss, trade.direction,
+        )
 
         db.add(TradeLog(
             trade_id=trade.trade_id, event_type=event,
