@@ -29,6 +29,8 @@ from app.models.user import User, UserRole, UserStatus
 from app.models.bot import BotConfig
 from app.models.trade import Trade, TradeStatus
 from app.services.roster_access import user_can_manage_trader
+from app.schemas import TodayTradeBreakdown, TradeBreakdown
+from app.routers.dashboard import _breakdown_counts, _drawdown, _period_start
 
 router = APIRouter(prefix="/roster", tags=["roster"])
 
@@ -182,6 +184,13 @@ class TraderOverview(BaseModel):
     total_trades_today: int
     total_active_trades: int
     open_risk_exposure_pct: float
+    # Same Pending/Executed/Cancelled/Won/Loss/Break-even pills as the
+    # trader's own dashboard — by direct request ("Proceed with Trader
+    # Oversight panel" after the Today's Trades card's own breakdown).
+    # See trader_trade_breakdown below for the Today/Week/Month-
+    # toggleable counterpart this pairs with on the frontend, same
+    # split as dashboard.py's own /stats + /trade-breakdown.
+    today_breakdown: TodayTradeBreakdown
 
 
 @router.get("/{trader_id}/overview", response_model=TraderOverview)
@@ -210,13 +219,15 @@ async def trader_overview(
 
     today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
     all_trades = (await db.execute(select(Trade).where(Trade.user_id == trader_id))).scalars().all()
+    all_today_trades = [t for t in all_trades if t.created_at >= today_start]
     # CANCELLED/ERROR excluded — same fix as dashboard.py's own
     # "Today's Trades", by the same direct bug report: a withdrawn
-    # order was never actually a trade taken today.
-    today_trades = [
-        t for t in all_trades
-        if t.created_at >= today_start and t.status not in (TradeStatus.CANCELLED, TradeStatus.ERROR)
-    ]
+    # order was never actually a trade taken today. today_breakdown
+    # below uses all_today_trades (unfiltered) instead — same split as
+    # dashboard.py's own dashboard_stats, since the breakdown's whole
+    # point is surfacing cancelled/pending as their own visible bucket
+    # rather than hiding them.
+    today_trades = [t for t in all_today_trades if t.status not in (TradeStatus.CANCELLED, TradeStatus.ERROR)]
     active_trades = [t for t in all_trades if t.status == TradeStatus.ACTIVE]
 
     bot_summaries = []
@@ -237,6 +248,48 @@ async def trader_overview(
         total_trades_today=len(today_trades),
         total_active_trades=len(active_trades),
         open_risk_exposure_pct=round(sum(t.risk_percent or 0 for t in active_trades), 2),
+        today_breakdown=TodayTradeBreakdown(**_breakdown_counts(all_today_trades)),
+    )
+
+
+@router.get("/{trader_id}/trade-breakdown", response_model=TradeBreakdown)
+async def trader_trade_breakdown(
+    trader_id: str,
+    period: str = "today",  # "today" | "week" | "month"
+    db: AsyncSession = Depends(get_db),
+    manager: User = Depends(get_current_user),
+):
+    """The Trader Oversight panel's own Today/Week/Month toggle for its
+    breakdown pills — same shape and same permission gate as
+    trader_overview above (only a manager/admin who can actually manage
+    this trader), direct counterpart to dashboard.py's own
+    /dashboard/trade-breakdown, just scoped to ONE trader's trades
+    instead of the caller's own. Shares _breakdown_counts/_drawdown/
+    _period_start with dashboard.py so the bucket definitions and
+    rolling-window math can't drift between the two."""
+    if not await user_can_manage_trader(manager, trader_id, db):
+        raise HTTPException(status_code=404, detail="Trader not found")
+
+    if period not in ("today", "week", "month"):
+        period = "today"
+    start = _period_start(period)
+
+    all_trades = (await db.execute(
+        select(Trade).where(Trade.user_id == trader_id, Trade.created_at >= start)
+    )).scalars().all()
+    real_trades = [t for t in all_trades if t.status not in (TradeStatus.CANCELLED, TradeStatus.ERROR)]
+    total = len(real_trades)
+    wins = len([t for t in real_trades if t.realized_pnl and t.realized_pnl > 0])
+    pnl = sum(t.realized_pnl or 0 for t in real_trades)
+    drawdown = _drawdown([t for t in all_trades if t.status == TradeStatus.CLOSED])
+
+    return TradeBreakdown(
+        period=period,
+        total=total,
+        win_rate=round(wins / total * 100, 2) if total > 0 else 0.0,
+        pnl=round(pnl, 2),
+        drawdown=round(drawdown, 2),
+        **_breakdown_counts(all_trades),
     )
 
 

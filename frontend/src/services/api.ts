@@ -1,6 +1,6 @@
 
 import axios from 'axios';
-import { Trade, BotConfig, BotPerformance, BotMetricsUpdate, DashboardStats, SignalPreview, PerformanceSummary, TradeBreakdown, TradeBreakdownPeriod, ExchangeMetaResponse, TraderBrokerConnection, AvailableBot, TraderBotSubscription, OutboundIpsResponse, FeeSettings, FeeLedgerEntry, MyFeesResponse, FeeGateStatus, FeeCheckoutSession, FeeCheckoutProvider, FeeVerifyResult, DeployStateResponse, TradeSnapshot, EncroachmentResponse, SnapshotTimeframe } from '../types';
+import { Trade, BotConfig, BotPerformance, BotMetricsUpdate, DashboardStats, SignalPreview, PerformanceSummary, TradeBreakdown, TradeBreakdownPeriod, TodayTradeBreakdown, ExchangeMetaResponse, TraderBrokerConnection, AvailableBot, TraderBotSubscription, OutboundIpsResponse, FeeSettings, FeeLedgerEntry, MyFeesResponse, FeeGateStatus, FeeCheckoutSession, FeeCheckoutProvider, FeeVerifyResult, DeployStateResponse, TradeSnapshot, EncroachmentResponse, SnapshotTimeframe } from '../types';
 import { useAuthStore } from '../hooks/useAuth';
 import { triggerAccessExpired } from '../components/AccessExpiredGate';
 import { triggerFeesOwed } from '../components/TradingFeeGate';
@@ -312,10 +312,17 @@ export interface TraderOverview {
   total_trades_today: number;
   total_active_trades: number;
   open_risk_exposure_pct: number;
+  today_breakdown: TodayTradeBreakdown;
 }
 
 export const rosterApi = {
   getOverview: (traderId: string) => api.get<TraderOverview>(`/roster/${traderId}/overview`).then(r => r.data),
+  // Today/Week/Month toggle for the oversight panel's own breakdown
+  // pills — by direct request ("Proceed with Trader Oversight panel"),
+  // same shape as dashboardApi.getTradeBreakdown but scoped to ONE
+  // trader rather than the caller's own trades.
+  getTradeBreakdown: (traderId: string, period: TradeBreakdownPeriod = 'today') =>
+    api.get<TradeBreakdown>(`/roster/${traderId}/trade-breakdown?period=${period}`).then(r => r.data),
 };
 
 // Trader Exchange Connections — self-service "connect your own

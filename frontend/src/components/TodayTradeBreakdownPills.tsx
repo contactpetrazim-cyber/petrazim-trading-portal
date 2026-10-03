@@ -26,8 +26,21 @@ const PERIODS: { key: TradeBreakdownPeriod; label: string }[] = [
  * Week or Month fetches routers/dashboard.py's separate
  * /dashboard/trade-breakdown endpoint on demand and caches each period
  * in state so re-toggling between them doesn't re-fetch.
+ *
+ * `fetchPeriod` — optional override for Week/Month, defaulting to the
+ * caller's-own-trades endpoint above. By direct request ("Proceed with
+ * Trader Oversight panel"): that panel shows a MANAGER looking at a
+ * specific OTHER trader's trades, not their own, so it needs
+ * roster.py's own per-trader /trade-breakdown instead — same pills,
+ * same component, just pointed at a different trader_id-scoped
+ * endpoint rather than duplicating this whole component a second time.
  */
-export function TodayTradeBreakdownPills({ breakdown }: { breakdown: TodayTradeBreakdown }) {
+export function TodayTradeBreakdownPills({
+  breakdown, fetchPeriod = dashboardApi.getTradeBreakdown,
+}: {
+  breakdown: TodayTradeBreakdown;
+  fetchPeriod?: (period: TradeBreakdownPeriod) => Promise<TradeBreakdown>;
+}) {
   const [period, setPeriod] = useState<TradeBreakdownPeriod>('today');
   const [wider, setWider] = useState<Partial<Record<TradeBreakdownPeriod, TradeBreakdown>>>({});
   const [loading, setLoading] = useState(false);
@@ -37,7 +50,7 @@ export function TodayTradeBreakdownPills({ breakdown }: { breakdown: TodayTradeB
     if (p === 'today' || wider[p]) return;
     setLoading(true);
     try {
-      const data = await dashboardApi.getTradeBreakdown(p);
+      const data = await fetchPeriod(p);
       setWider((prev) => ({ ...prev, [p]: data }));
     } catch {
       // Leave that period's cache empty — the pills just show nothing

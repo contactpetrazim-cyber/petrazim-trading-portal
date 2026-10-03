@@ -3,6 +3,7 @@ import { ChevronDown, ChevronUp, Save, Users } from 'lucide-react';
 import api, { rosterApi, botsApi, TraderOverview } from '../services/api';
 import { BotMetricsUpdate } from '../types';
 import { FoldedCard } from './FoldedCard';
+import { TodayTradeBreakdownPills } from './TodayTradeBreakdownPills';
 
 interface RosterEntry {
   trader_user_id: string;
@@ -145,6 +146,30 @@ export function TraderOversightPanel({ dark = false }: { dark?: boolean }) {
                           <div className={`text-sm font-bold ${text}`}>{overview.open_risk_exposure_pct.toFixed(1)}%</div>
                           <div className={`text-[10px] ${muted}`}>Open exposure</div>
                         </div>
+                      </div>
+
+                      {/* Same Pending/Executed/Cancelled/Won/Loss/
+                          Break-even pills + Today/Week/Month toggle as
+                          the trader's OWN dashboard — by direct
+                          request ("Proceed with Trader Oversight
+                          panel"), after that same breakdown shipped on
+                          the Dashboard/Premium Dashboard cards. Wrapped
+                          in its own always-light surface (bg-white,
+                          regardless of this panel's own dark mode) —
+                          TodayTradeBreakdownPills' pill/toggle colors
+                          are hardcoded for a light background, the
+                          same "always light tinted card" rule
+                          StatCard's own docstring explains, since
+                          that's the only other place this component is
+                          used. fetchPeriod is overridden to THIS
+                          trader's own breakdown (roster.py's new
+                          per-trader /trade-breakdown), not the
+                          manager's own. */}
+                      <div className={`rounded-lg p-2.5 ${dark ? 'bg-corporate-surface-dark' : 'bg-white'}`}>
+                        <TodayTradeBreakdownPills
+                          breakdown={overview.today_breakdown}
+                          fetchPeriod={(p) => rosterApi.getTradeBreakdown(r.trader_user_id, p)}
+                        />
                       </div>
 
                       {overview.bots.length === 0 ? (
