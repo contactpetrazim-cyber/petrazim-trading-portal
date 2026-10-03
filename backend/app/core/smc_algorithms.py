@@ -6,6 +6,7 @@ Production-grade algorithms for market structure, zones, FVGs, and liquidity.
 from typing import List, Dict, Optional, Tuple, Literal
 from dataclasses import dataclass, field
 from datetime import datetime
+import math
 import numpy as np
 from enum import Enum
 
@@ -1067,13 +1068,44 @@ class EntryExitEngine:
         # only asset class any bot here trades today) must skip this.
         lots = (raw_lots / (contract_size * pip_value)) if is_forex else raw_lots
 
-        # Normalize to standard lot sizes (0.01 increments) — this
-        # matches Binance's own typical BTC/ETH quantity step for most
-        # of this platform's symbols; a genuinely tiny result (a very
-        # wide stop against a very small account) still correctly
-        # rounds to 0 here, same honest "can't size a real position"
-        # signal as before this fix.
-        normalized_lots = round(lots / 0.01) * 0.01
+        # Normalize to a lot step, FLOORED rather than rounded-to-
+        # nearest — two real bugs, found together via direct report
+        # ("risked amount in this trade is still greater than the $10
+        # max set up for bots ... why are they not following the
+        # rules").
+        #
+        # Bug 1 — wrong step. This used to hardcode 0.01 as "Binance's
+        # own typical BTC/ETH quantity step," but every bot here
+        # actually only ever trades BTCUSDT.P (confirmed live against
+        # every BotConfig row), and Binance's REAL quantity step for
+        # that perpetual (confirmed live via ccxt's own market
+        # precision) is 0.001 — ten times finer. The stale 0.01
+        # assumption threw away a full order of magnitude of sizing
+        # precision for no reason.
+        #
+        # Bug 2 — wrong rounding direction. A trader's risk_percent
+        # (and, for Sub-Auto, the dollar risk cap it's converted from —
+        # see market_scanner.py's _effective_bot_settings) is a
+        # CEILING, not a target to round toward either side of.
+        # round() pushed the raw, exact-risk quantity up to the nearer
+        # step just as often as it pushed it down — a real BTCUSDT.P
+        # trade with raw_lots=0.00888 (an exact $10.00 risk) rounded UP
+        # to the old 0.01 step, which against that trade's real stop
+        # distance priced out to an $11.26 risk, 12.6% over the stated
+        # cap, with no warning anywhere.
+        #
+        # Fixed together: flooring to the OLD coarse 0.01 step alone
+        # would have zeroed out that same trade entirely (0.00888
+        # floors to 0.00) — overcorrecting from "quietly over the cap"
+        # to "can't take this trade at all" even though the real
+        # exchange could size it just fine. Flooring to the CORRECT
+        # 0.001 step sizes it at 0.008 (a $9.01 risk) instead — under
+        # the cap, same honest "can't size a real position" signal as
+        # before this fix for a genuinely tiny result, but no longer
+        # throwing away valid trades the real exchange can actually
+        # place.
+        lot_step = 0.001
+        normalized_lots = math.floor(lots / lot_step) * lot_step
 
         return {
             "lot_size": normalized_lots,
