@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Check, Ticket, Clock, CreditCard, Banknote, Bitcoin, Minus, Plus, Lightbulb } from 'lucide-react';
+import { Check, Ticket, Clock, CreditCard, Banknote, Bitcoin, Minus, Plus, Lightbulb, ShoppingCart } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { useThemeStore } from '../hooks/useTheme';
 import { apiFetch } from '../components/AccessExpiredGate';
@@ -342,7 +342,7 @@ export function PaymentsPage() {
         </div>
 
         {/* Order summary */}
-        <div className="lg:sticky lg:top-6 space-y-4">
+        <div id="order-summary" className="lg:sticky lg:top-6 space-y-4">
           <div className={`${card} p-5`}>
             <h2 className={`text-base font-bold font-display mb-4 ${text}`}>Your order</h2>
 
@@ -444,6 +444,37 @@ export function PaymentsPage() {
           </form>
         </div>
       </div>
+
+      {/* Floating checkout icon — by direct report, with a screenshot
+          ("Floating checkout Icon not currently present"): this page
+          IS "the select program and payment page" the original
+          floating-icon request (OnboardingPage.tsx) named, but that
+          build only ever added it to the onboarding flow's own
+          payment step — a tiny one-button screen that redirects
+          straight out to Stripe/Paystack — never to THIS page, the
+          one a trader actually lands on from navigation every time
+          they want to buy or renew access. Same visual treatment
+          (circular, bg-corporate-accent, ShoppingCart) as that one,
+          but a different action and a different vertical position:
+          OnboardingPage has no BottomNav/FloatingTradeAI to clear
+          (bottom-6 was safe there), while this page renders inside
+          CorporateLayout, which always has both — bottom-40 stacks
+          this cleanly above FloatingTradeAI's own bottom-24 (56px
+          button + 8px gap), matching the stacked cart-over-chat layout
+          from the reference screenshot. Scrolls to the sticky "Your
+          order" card (`#order-summary`) rather than firing `pay()`
+          directly — unlike Onboarding's single implicit flow, a plan
+          must be selected first here, and the order card already
+          shows "Select a duration pass or a tier to continue" when
+          none is, so scrolling there is the right action either way. */}
+      <button
+        onClick={() => document.getElementById('order-summary')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+        aria-label="Quick checkout"
+        title="Quick checkout — jump to your order"
+        className="fixed bottom-40 right-5 z-40 w-14 h-14 rounded-full bg-corporate-accent text-white shadow-xl flex items-center justify-center hover:opacity-90 transition"
+      >
+        <ShoppingCart size={24} />
+      </button>
     </div>
   );
 }
