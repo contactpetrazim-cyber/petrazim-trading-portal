@@ -623,8 +623,19 @@ async def trade_snapshot(
         "direction": trade.direction.value,
         "entry_price": trade.entry_price,
         "entry_timestamp": trade.entry_timestamp,
-        "stop_loss": trade.stop_loss,
-        "take_profit_1": trade.take_profit_1,
+        # The OPENING SL/TP1 — by direct request ("always show the
+        # opening SL, Entry and TPs ... the closing line will show
+        # what actually closed level"). stop_loss/take_profit_1 are
+        # mutable (a trailing stop, a manual edit via modify_targets
+        # can move them well past where the trade actually started —
+        # exactly what made an earlier trade's chart confusing: its
+        # current stop_loss had been trailed down to match its own
+        # exit price). initial_stop_loss/initial_take_profit_1 are the
+        # immutable values captured at entry; falls back to the
+        # current column for a trade that predates execution_engine.py
+        # populating these for bot trades (initial_* was NULL).
+        "stop_loss": trade.initial_stop_loss if trade.initial_stop_loss is not None else trade.stop_loss,
+        "take_profit_1": trade.initial_take_profit_1 if trade.initial_take_profit_1 is not None else trade.take_profit_1,
         "exit_price": trade.exit_price,
         "exit_timestamp": trade.exit_timestamp,
         "status": trade.status.value,
