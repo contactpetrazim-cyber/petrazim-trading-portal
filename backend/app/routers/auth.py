@@ -55,6 +55,7 @@ class UserProfileResponse(BaseModel):
     status: str
     badge_color: str
     landing_route: str
+    has_seen_programme_intro: bool
 
 
 class LoginResponse(BaseModel):
@@ -69,6 +70,7 @@ def _to_profile(user: User) -> UserProfileResponse:
         role=user.role.value, status=user.status.value,
         badge_color=ROLE_BADGE_COLOR[user.role],
         landing_route=ROLE_LANDING_ROUTE[user.role],
+        has_seen_programme_intro=user.has_seen_programme_intro,
     )
 
 
@@ -195,6 +197,23 @@ async def google_login(req: GoogleLoginRequest, db: AsyncSession = Depends(get_d
 
 @router.get("/me", response_model=UserProfileResponse)
 async def me(user: User = Depends(get_current_user)):
+    return _to_profile(user)
+
+
+@router.patch("/programme-intro-seen", response_model=UserProfileResponse)
+async def mark_programme_intro_seen(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Called the first time a brand-new user dismisses (or completes)
+    the auto-triggered "How the Programme Works" modal from the Home
+    dashboard — by direct request ("tie it to both account and account
+    as a backup"). The account is the source of truth; the frontend
+    also mirrors this into localStorage so a slow/offline PATCH can't
+    cause the modal to pop again on the very next click in the same
+    visit. Idempotent — calling it again on an already-seen account is
+    a harmless no-op."""
+    if not user.has_seen_programme_intro:
+        user.has_seen_programme_intro = True
+        await db.commit()
+        await db.refresh(user)
     return _to_profile(user)
 
 

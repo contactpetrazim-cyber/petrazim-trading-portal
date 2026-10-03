@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type MouseEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { Compass } from 'lucide-react';
 import { HERO_GRADIENT } from '../config/theme';
@@ -8,6 +8,7 @@ import { openProgrammeSteps } from '../components/ProgrammeStepsModal';
 import { useAuth } from '../hooks/useAuth';
 import { useThemeStore } from '../hooks/useTheme';
 import { apiFetch } from '../components/AccessExpiredGate';
+import { authApi } from '../services/api';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -45,10 +46,37 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
  *   to fetch stats for.
  */
 export function CorporateHomePage() {
-  const { user, token } = useAuth();
+  const { user, token, markProgrammeIntroSeen } = useAuth();
   const { theme } = useThemeStore();
   const dark = theme === 'dark';
   const firstName = user?.full_name?.split(' ')[0];
+
+  // First-time "How the Programme Works" auto-trigger — by direct
+  // request ("every dashboard button should open [it] first for a
+  // brand-new user until they've seen it once, then behave normally").
+  // The account (user.has_seen_programme_intro) is the source of
+  // truth; a per-user localStorage flag is only a backup for the
+  // window between an optimistic store flip and the PATCH actually
+  // landing, so a slow network can't cause the modal to pop twice in
+  // one visit. Does nothing for a signed-out visitor (no account to
+  // tie the flag to) — the grid links navigate normally for them.
+  const introSeenBackupKey = user ? `petrazim.programmeIntroSeen.${user.id}` : null;
+  function hasSeenProgrammeIntro() {
+    if (!user) return true;
+    if (user.has_seen_programme_intro) return true;
+    if (!introSeenBackupKey) return false;
+    try { return localStorage.getItem(introSeenBackupKey) === '1'; } catch { return false; }
+  }
+  function interceptFirstVisit(e: MouseEvent) {
+    if (hasSeenProgrammeIntro()) return;
+    e.preventDefault();
+    markProgrammeIntroSeen();
+    if (introSeenBackupKey) {
+      try { localStorage.setItem(introSeenBackupKey, '1'); } catch { /* best-effort */ }
+    }
+    authApi.markProgrammeIntroSeen().catch(() => {});
+    openProgrammeSteps();
+  }
 
   const [botStats, setBotStats] = useState({ active: 0, total: 0 });
   const [learningStats, setLearningStats] = useState({
@@ -142,6 +170,7 @@ export function CorporateHomePage() {
                     : `/learn/tracks/${continuePoint.track_id}`
                   : '/learn'
               }
+              onClick={interceptFirstVisit}
               className="flex items-center gap-2 border border-white/30 text-white font-semibold text-sm px-5 py-3 rounded-xl hover:bg-white/10 transition-colors"
             >
               Continue Learning →
@@ -179,6 +208,7 @@ export function CorporateHomePage() {
           <Link
             key={area.id}
             to={`/${area.id}`}
+            onClick={interceptFirstVisit}
             className={`rounded-2xl p-4 text-center text-sm font-semibold transition-all active:translate-y-0.5 active:shadow-none ${dark ? 'bg-corporate-surface-dark text-white' : 'bg-white text-corporate-text-on-bg'}`}
             style={{
               boxShadow: dark

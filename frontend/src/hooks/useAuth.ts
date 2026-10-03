@@ -11,6 +11,9 @@ export interface AuthUser {
   status: string;
   badge_color: string;
   landing_route: string;
+  /** First-time "How the Programme Works" auto-trigger — see
+   * markProgrammeIntroSeen's own comment below. */
+  has_seen_programme_intro: boolean;
 }
 
 interface AuthState {
@@ -18,6 +21,12 @@ interface AuthState {
   user: AuthUser | null;
   setAuth: (token: string, user: AuthUser) => void;
   logout: () => void;
+  /** Local-only flip, called right after PATCH /auth/programme-intro-seen
+   * succeeds — by direct request ("tie it to both account and account
+   * as a backup"). The account remains the source of truth; this just
+   * keeps the persisted store's cached user in sync with it so the very
+   * next dashboard click (same visit, no reload) doesn't re-trigger. */
+  markProgrammeIntroSeen: () => void;
 }
 
 /**
@@ -68,6 +77,9 @@ export const useAuthStore = create<AuthState>()(
       user: null,
       setAuth: (token, user) => set({ token, user }),
       logout: () => set({ token: null, user: null }),
+      markProgrammeIntroSeen: () => set((s) => (
+        s.user ? { user: { ...s.user, has_seen_programme_intro: true } } : {}
+      )),
     }),
     {
       name: 'petrazim.auth',
@@ -78,6 +90,6 @@ export const useAuthStore = create<AuthState>()(
 );
 
 export function useAuth() {
-  const { token, user, setAuth, logout } = useAuthStore();
-  return { token, user, setAuth, logout, isAuthenticated: !!token };
+  const { token, user, setAuth, logout, markProgrammeIntroSeen } = useAuthStore();
+  return { token, user, setAuth, logout, markProgrammeIntroSeen, isAuthenticated: !!token };
 }

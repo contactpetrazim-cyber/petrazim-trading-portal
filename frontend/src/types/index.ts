@@ -147,6 +147,35 @@ export interface TradeSnapshot {
   candles: TradeSnapshotCandle[];
 }
 
+/** Drawdown & Target Encroachment — by direct request ("a metric that
+ * can help monitor specific trades drawdown encroachment ... how much
+ * of my SL area is used or encroached into during each trade"). See
+ * GET /trades/analytics/encroachment's own backend comment for how
+ * this is computed (real candles, not an approximation). */
+export interface EncroachmentRow {
+  trade_id: string;
+  symbol: string;
+  direction: 'long' | 'short';
+  outcome: 'win' | 'loss' | 'breakeven';
+  realized_pnl: number;
+  sl_encroachment_pct: number;
+  tp_encroachment_pct: number | null;
+}
+export interface WhatIfRow {
+  tighten_pct: number;
+  winners_would_be_stopped: number;
+  winners_total: number;
+  winners_would_be_stopped_pct: number;
+}
+export interface EncroachmentResponse {
+  rows: EncroachmentRow[];
+  avg_sl_encroachment_pct: number;
+  avg_tp_encroachment_pct: number;
+  what_if_tighter_sl: WhatIfRow[];
+  trades_requested: number;
+  trades_analyzed: number;
+}
+
 export interface BotPerformance {
   bot_id: string;
   total_trades: number;

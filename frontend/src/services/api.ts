@@ -1,6 +1,6 @@
 
 import axios from 'axios';
-import { Trade, BotConfig, BotPerformance, BotMetricsUpdate, DashboardStats, SignalPreview, PerformanceSummary, TradeBreakdown, TradeBreakdownPeriod, ExchangeMetaResponse, TraderBrokerConnection, AvailableBot, TraderBotSubscription, OutboundIpsResponse, FeeSettings, FeeLedgerEntry, MyFeesResponse, FeeGateStatus, FeeCheckoutSession, FeeCheckoutProvider, FeeVerifyResult, DeployStateResponse, TradeSnapshot, SnapshotTimeframe } from '../types';
+import { Trade, BotConfig, BotPerformance, BotMetricsUpdate, DashboardStats, SignalPreview, PerformanceSummary, TradeBreakdown, TradeBreakdownPeriod, ExchangeMetaResponse, TraderBrokerConnection, AvailableBot, TraderBotSubscription, OutboundIpsResponse, FeeSettings, FeeLedgerEntry, MyFeesResponse, FeeGateStatus, FeeCheckoutSession, FeeCheckoutProvider, FeeVerifyResult, DeployStateResponse, TradeSnapshot, EncroachmentResponse, SnapshotTimeframe } from '../types';
 import { useAuthStore } from '../hooks/useAuth';
 import { triggerAccessExpired } from '../components/AccessExpiredGate';
 import { triggerFeesOwed } from '../components/TradingFeeGate';
@@ -71,6 +71,14 @@ api.interceptors.response.use(
   },
 );
 
+export const authApi = {
+  // First-time "How the Programme Works" auto-trigger — see
+  // useAuth's markProgrammeIntroSeen and CorporateHomePage's
+  // interception logic. Returns the refreshed profile, but the caller
+  // just needs the call to land; the store is updated optimistically.
+  markProgrammeIntroSeen: () => api.patch('/auth/programme-intro-seen').then(r => r.data),
+};
+
 export const dashboardApi = {
   getStats: () => api.get<DashboardStats>('/dashboard/stats').then(r => r.data),
   getTradeBreakdown: (period: TradeBreakdownPeriod = 'today') =>
@@ -96,6 +104,11 @@ export const tradesApi = {
   // (a past window's OHLCV never changes), not a stored image.
   getTradeSnapshot: (tradeId: string, timeframe: SnapshotTimeframe) =>
     api.get<TradeSnapshot>(`/trades/${tradeId}/snapshot`, { params: { timeframe } }).then(r => r.data),
+  // Drawdown & Target Encroachment — by direct request. A real call
+  // per trade analyzed (capped server-side at 30), so this is only
+  // ever fetched on an explicit "Analyze" click, never on mount.
+  getEncroachment: (params?: { bot_id?: string; source?: string; is_test?: boolean; limit?: number }) =>
+    api.get<EncroachmentResponse>('/trades/analytics/encroachment', { params, timeout: 60_000 }).then(r => r.data),
   getTradeLogs: (tradeId: string) => api.get(`/trades/${tradeId}/logs`).then(r => r.data),
   // Bot/Strategy quick-filter options for Analytics — by direct bug
   // report ("The bot / strategy quick filter in Analytics is not
