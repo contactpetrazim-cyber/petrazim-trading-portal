@@ -241,3 +241,46 @@ def compute_r_multiple(
         return None
     sign = 1 if direction == TradeDirection.LONG else -1
     return sign * (exit_price - entry_price) / risk_per_unit
+
+
+def compute_blended_r_multiple(
+    realized_pnl: Optional[float], risk_amount: Optional[float],
+    entry_price: float, exit_price: float, stop_loss: float, direction: TradeDirection,
+) -> Optional[float]:
+    """The R-multiple a multi-leg partial-exit trade ACTUALLY realized
+    — critical bug, found via direct report with real numbers that
+    didn't add up: a 30/40/30-allocation trade that closed 30% at TP1
+    (1R), 40% at TP2 (2R), and the final 30% at TP3 (3R) truly realized
+    a capital-weighted blend of 0.3x1 + 0.4x2 + 0.3x3 = 2.0R — exactly
+    what its accumulated realized_pnl ($19.87) divided by its
+    risk_amount ($9.94) gives. But every call site that sets
+    Trade.r_multiple on a final close (position_monitor.py's _close,
+    manual_trading.py's partial_close 100%-case and cancel_order's
+    ACTIVE fallback) called plain compute_r_multiple() above instead,
+    which only knows the LAST leg's own exit price against entry/stop
+    — for this exact trade, that's TP3's price-only ratio, a clean
+    3.0R, completely overwriting the true blended 2.0R the trader
+    actually earned and silently claiming the position re-risked its
+    FULL original size on every leg when 70% of it had already locked
+    in profit at lower R multiples. Every "Average R" statistic reading
+    this column (bots.py's /performance, dashboard.py's /performance)
+    was overstating real performance for every trade that used partial
+    take-profits.
+
+    realized_pnl / risk_amount is both correct AND a strict improvement
+    with zero regression for the common single-leg case: algebraically,
+    realized_pnl = sign * (exit-entry) * lot_size and risk_amount =
+    lot_size * risk_per_unit, so realized_pnl / risk_amount reduces to
+    the exact same sign * (exit-entry) / risk_per_unit plain
+    compute_r_multiple() already computes — lot_size cancels out. Only
+    diverges (correctly) once realized_pnl has accumulated gains from
+    MULTIPLE legs closed at different prices, which plain
+    compute_r_multiple() has no way to see.
+
+    Falls back to compute_r_multiple() only when risk_amount is
+    missing/zero (an older row predating risk_amount being tracked) —
+    same "degrade to the old behavior, never silently return nothing"
+    principle as compute_r_multiple's own None-vs-0R distinction."""
+    if realized_pnl is not None and risk_amount is not None and risk_amount > 0:
+        return realized_pnl / risk_amount
+    return compute_r_multiple(entry_price, exit_price, stop_loss, direction)

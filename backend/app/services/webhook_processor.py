@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.core.bot_strategies import BotOrchestrator, BotSignal
 from app.services.execution_engine import ExecutionEngine
-from app.services.manual_trading import compute_r_multiple
+from app.services.manual_trading import compute_blended_r_multiple
 from app.services.performance_fees import apply_performance_fee
 from app.models.bot import BotConfig
 from app.models.trade import ExitType, Trade, TradeDirection, TradeLog, TradeStatus
@@ -251,7 +251,12 @@ class WebhookProcessor:
                 row.exit_price = exit_price
                 row.exit_timestamp = datetime.utcnow()
                 row.exit_type = ExitType.MANUAL
-                row.r_multiple = compute_r_multiple(row.entry_price, exit_price, row.stop_loss, row.direction)
+                # Blended across every partial leg already closed before
+                # this one — same critical bug fix as every other close
+                # site; see compute_blended_r_multiple's own docstring.
+                row.r_multiple = compute_blended_r_multiple(
+                    row.realized_pnl, row.risk_amount, row.entry_price, exit_price, row.stop_loss, row.direction,
+                )
                 closed.append(row.trade_id)
                 await apply_performance_fee(db, row, pnl)
             await db.commit()

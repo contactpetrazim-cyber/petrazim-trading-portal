@@ -40,7 +40,7 @@ from app.models.trade import EntryType, ExitType, ManualTradingSettings, Trade, 
 from app.models.user import User
 from app.services.execution_engine import ExecutionEngine
 from app.services.live_price import get_crypto_price
-from app.services.manual_trading import check_manual_trade_risk, compute_lot_size, compute_r_multiple, effective_limits, get_global_risk_defaults, get_master_paper_enforced
+from app.services.manual_trading import check_manual_trade_risk, compute_lot_size, compute_blended_r_multiple, effective_limits, get_global_risk_defaults, get_master_paper_enforced
 from app.services.performance_fees import apply_performance_fee
 
 router = APIRouter(prefix="/manual-trading", tags=["manual-trading"])
@@ -600,10 +600,13 @@ async def partial_close(
         row.exit_timestamp = datetime.utcnow()
         row.exit_type = ExitType.MANUAL
         row.lot_size = 0.0
-        # See compute_r_multiple's own docstring — this was never set
-        # anywhere before, silently zeroing out average_r everywhere
-        # it's read.
-        row.r_multiple = compute_r_multiple(row.entry_price, req.exit_price, row.stop_loss, row.direction)
+        # Blended across every partial leg, not just this final one —
+        # critical bug fix, see compute_blended_r_multiple's own
+        # docstring (this was the exact same flaw position_monitor.py's
+        # own _close had).
+        row.r_multiple = compute_blended_r_multiple(
+            row.realized_pnl, row.risk_amount, row.entry_price, req.exit_price, row.stop_loss, row.direction,
+        )
     await db.commit()
     await apply_performance_fee(db, row, pnl_this_close)
 
@@ -781,7 +784,12 @@ async def cancel_order(
     # Naive UTC — same offset-naive/aware bug class as the other two
     # timestamp writes in this file.
     row.exit_timestamp = datetime.utcnow()
-    row.r_multiple = compute_r_multiple(row.entry_price, exit_price, row.stop_loss, row.direction)
+    # Blended across every partial leg already closed before this final
+    # one — same critical bug fix as partial_close's own 100%-case
+    # above; see compute_blended_r_multiple's own docstring.
+    row.r_multiple = compute_blended_r_multiple(
+        row.realized_pnl, row.risk_amount, row.entry_price, exit_price, row.stop_loss, row.direction,
+    )
     row.exit_type = ExitType.MANUAL
     await db.commit()
     await apply_performance_fee(db, row, pnl_this_close)
