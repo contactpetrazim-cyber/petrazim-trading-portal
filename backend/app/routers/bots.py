@@ -361,17 +361,42 @@ async def set_bot_sub_auto(
         if not update.total_cap or not update.daily_cap:
             raise HTTPException(status_code=400, detail="total_cap and daily_cap are both required to engage Sub-Auto Mode.")
         if not bot.sub_auto_active:
-            # Only snapshot on a fresh False→True engage — re-saving new
-            # caps while already active must never clobber the ORIGINAL
-            # pre-Sub-Auto mode with "fully_autonomous" (what it's
-            # already been forced to for this engagement).
+            # Only snapshot/reset on a fresh False→True engage — real
+            # compliance bug, found via direct audit request ("why are
+            # some bots having 14 trades when the max set was 10 ...
+            # and why are some with just 1 trade reset when the max set
+            # is 10"). sub_auto_risk_amount/min_rr_ratio edits apply
+            # "regardless of enabled/disabled" (see below), and
+            # total_cap/daily_cap are REQUIRED whenever enabled=True —
+            # meaning a trader adjusting even one Sub-Auto setting while
+            # already engaged had to resubmit enabled=True, which used
+            # to unconditionally zero sub_auto_trades_executed/
+            # sub_auto_daily_count/sub_auto_daily_date every single
+            # time, exactly like this method already protected
+            # pre_sub_auto_execution_mode from. A bot genuinely at, say,
+            # 9 of a 10-trade total allotment got its progress silently
+            # erased back to 0 on the next settings tweak, letting it
+            # execute a full fresh batch of up to total_cap trades all
+            # over again — and again, and again — with no real ceiling
+            # on lifetime Sub-Auto executions despite the stated cap.
+            # Conversely a bot the trader had JUST reset this way shows
+            # a low sub_auto_trades_executed (1, matching the one trade
+            # that landed right after the reset) while its REAL
+            # lifetime trade count is far higher — same bug, same
+            # symptom from the other side. Now ONLY a genuine
+            # False→True engage resets progress; editing caps or risk
+            # settings on an already-active engagement preserves
+            # whatever progress toward the cap has actually been made,
+            # live trades and paper trades alike (this bookkeeping has
+            # no is_test branch anywhere in execution_engine.py's own
+            # increment — it already applied uniformly to both).
             bot.pre_sub_auto_execution_mode = bot.execution_mode
+            bot.sub_auto_trades_executed = 0
+            bot.sub_auto_daily_count = 0
+            bot.sub_auto_daily_date = None
         bot.sub_auto_active = True
         bot.sub_auto_total_cap = update.total_cap
         bot.sub_auto_daily_cap = update.daily_cap
-        bot.sub_auto_trades_executed = 0
-        bot.sub_auto_daily_count = 0
-        bot.sub_auto_daily_date = None
         bot.execution_mode = ExecutionMode.FULLY_AUTONOMOUS
     else:
         bot.sub_auto_active = False
