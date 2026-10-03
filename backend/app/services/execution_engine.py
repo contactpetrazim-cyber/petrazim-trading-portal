@@ -468,6 +468,21 @@ class ExecutionEngine:
             take_profit_1=trade_data["take_profit"],
             take_profit_2=trade_data.get("take_profit_2"),
             take_profit_3=trade_data.get("take_profit_3"),
+            # Immutable snapshots at open — real gap, found via direct
+            # request ("always show the opening SL, Entry and TPs ...
+            # the closing line will show what actually closed level").
+            # manual_trading.py's own place_manual_order already set
+            # these; this path (every bot-driven trade — the vast
+            # majority of trades on this platform) never did, so
+            # initial_stop_loss/initial_take_profit_1 was NULL for
+            # every bot trade ever created. Trade Snapshot now reads
+            # these (falling back to the current, possibly-trailed
+            # stop_loss/take_profit_1 for a trade predating this fix)
+            # so the chart shows what the trade's risk/reward setup
+            # ACTUALLY was at entry, with Exit showing what it actually
+            # closed at — two different, both real, numbers.
+            initial_stop_loss=trade_data["stop_loss"],
+            initial_take_profit_1=trade_data["take_profit"],
             lot_size=trade_data["lot_size"],
             risk_percent=trade_data["risk_percent"],
             risk_amount=trade_data["risk_amount"],
