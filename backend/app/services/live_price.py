@@ -41,6 +41,13 @@ _binance_backup_client = (
     httpx.AsyncClient(timeout=5.0, base_url="https://api.binance.com/api/v3", proxy=_settings.BINANCE_BACKUP_PROXY_URL)
     if _settings.BINANCE_BACKUP_PROXY_URL else None
 )
+# Third tier, no proxy — by direct request ("what happens when Fixie
+# reaches its ... limit ... fix this permanently"). Same reasoning as
+# order_flow.py's own _direct_client: this is an unsigned public price
+# lookup, no API key/IP-whitelist involved, so a direct attempt is a
+# genuinely useful last resort before falling all the way to
+# CoinGecko's much narrower 4-symbol coverage below.
+_binance_direct_client = httpx.AsyncClient(timeout=5.0, base_url="https://api.binance.com/api/v3")
 
 
 async def get_crypto_price(symbol: str) -> Optional[float]:
@@ -85,6 +92,18 @@ async def get_crypto_price(symbol: str) -> Optional[float]:
             return float(resp.json()["price"])
         logger.warning("live_price_binance_non_200", symbol=clean, status=resp.status_code)
     except _FAILOVER_EXCEPTIONS as e:
+        # Both the primary proxy and the Fixie backup failed at the
+        # transport level — one last direct attempt (see
+        # _binance_direct_client's own comment) before falling through
+        # to CoinGecko below.
+        try:
+            resp = await _binance_direct_client.get("/ticker/price", params={"symbol": clean})
+            if resp.status_code == 200:
+                record_proxy_success()
+                logger.warning("live_price_direct_fallback", symbol=clean, proxy_error=str(e))
+                return float(resp.json()["price"])
+        except httpx.HTTPError:
+            pass
         record_proxy_failure("live_price", str(e))
         logger.warning("live_price_binance_failed", symbol=clean, error=str(e))
     except httpx.HTTPError as e:
