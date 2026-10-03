@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  Activity, AlertCircle, ArrowUpRight, BookOpen, DollarSign, Gauge,
+  Activity, AlertCircle, ArrowUpRight, Bot as BotIcon, BookOpen, DollarSign, Gauge,
   LineChart as LineChartIcon, RefreshCw, Target, TrendingDown, Wrench,
 } from 'lucide-react';
 import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
@@ -259,22 +259,51 @@ export function PremiumDashboardPage() {
           {bots.length === 0 ? (
             <p className={`text-sm ${muted}`}>No bots configured yet. <Link to="/bots" className="underline">Set one up</Link>.</p>
           ) : (
-            <div className="space-y-3">
+            <div className="space-y-2.5">
               {bots.map((bot) => {
                 const perf = performance[bot.bot_id];
+                const winRate = perf?.win_rate ?? 0;
+                // Real bug fixed here, found via direct report ("Improve
+                // the colour theme ... make it aesthetic follow the
+                // portal theme"): the bot-name line never set an
+                // explicit text color, so it inherited whatever ambient
+                // default applied — invisible-pale in light mode,
+                // confirmed live via screenshot. Same bug class as
+                // ChartOPage's own search input fix: every other label
+                // in this codebase sets text-corporate-text-on-bg for
+                // light / text-white for dark explicitly; this one just
+                // never did. Rebuilt around it to match the real Bots
+                // page's own card language (Bots.tsx) — the same
+                // rounded-lg bot-icon badge, border treatment, and
+                // hover state — rather than the flat, unbordered fill
+                // this card had instead.
+                const winRateCls = winRate >= 60 ? 'text-emerald-500' : winRate > 0 ? 'text-amber-500' : muted;
                 return (
-                  <div key={bot.bot_id} className={`flex items-center justify-between rounded-lg p-3 ${dark ? 'bg-white/5' : 'bg-corporate-bg'}`}>
-                    <div>
-                      <div className="text-sm font-medium">{bot.bot_name}</div>
-                      <div className={`text-xs ${muted}`}>{perf ? `${perf.total_trades} trades` : '—'}</div>
-                    </div>
-                    <div className="text-right">
-                      <div className={`text-sm font-bold ${(perf?.win_rate ?? 0) >= 60 ? 'text-emerald-500' : 'text-amber-500'}`}>
-                        {perf ? `${perf.win_rate}%` : '—'}
+                  <Link
+                    key={bot.bot_id}
+                    to="/bots"
+                    className={`flex items-center justify-between gap-3 rounded-lg border p-3 transition-colors ${
+                      dark ? 'border-smc-border bg-white/[0.03] hover:border-smc-accent/30' : 'border-corporate-bg bg-white hover:border-corporate-hero/30'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className={`w-9 h-9 shrink-0 rounded-lg flex items-center justify-center ${dark ? 'bg-smc-accent/10' : 'bg-corporate-hero/10'}`}>
+                        <BotIcon size={17} className={dark ? 'text-smc-accent' : 'text-corporate-hero'} />
                       </div>
-                      <div className={`text-xs ${muted}`}>{bot.status === 'active' ? 'Active' : 'Paused'}</div>
+                      <div className="min-w-0">
+                        <div className={`text-sm font-medium truncate ${dark ? 'text-white' : 'text-corporate-text-on-bg'}`}>{bot.bot_name}</div>
+                        <div className={`text-xs ${muted}`}>{perf ? `${perf.total_trades} trades` : '—'}</div>
+                      </div>
                     </div>
-                  </div>
+                    <div className="flex items-center gap-2.5 shrink-0">
+                      <div className={`text-sm font-bold ${winRateCls}`}>{perf ? `${perf.win_rate}%` : '—'}</div>
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide ${
+                        bot.status === 'active' ? 'bg-emerald-500/15 text-emerald-500' : dark ? 'bg-white/10 text-white/50' : 'bg-gray-500/10 text-gray-500'
+                      }`}>
+                        {bot.status === 'active' ? 'Active' : 'Paused'}
+                      </span>
+                    </div>
+                  </Link>
                 );
               })}
               <Link to="/bots" className={`inline-block text-xs font-medium ${dark ? 'text-white/50' : 'text-corporate-hero'}`}>Manage bots →</Link>
