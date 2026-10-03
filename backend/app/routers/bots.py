@@ -10,10 +10,11 @@ from app.models.bot import BotConfig, BotStatus, ExecutionMode
 from app.models.user import User, UserRole
 from app.core.access_gate import require_active_access
 from app.core.auth import get_current_user, require_super_admin
-from app.models.platform_setting import MARKET_SCANNER_ENABLED_KEY, MASTER_ACCOUNT_BALANCE_KEY, PlatformSetting
+from app.models.platform_setting import MARKET_SCANNER_ENABLED_KEY, MASTER_ACCOUNT_BALANCE_KEY, MASTER_LEVERAGE_KEY, PlatformSetting
 from app.models.trade import Trade, TradeStatus
 from app.services.roster_access import user_can_manage_trader
 from app.services.market_scanner import get_market_scanner_runtime_enabled, get_master_account_balance
+from app.services.capital_adequacy import get_master_leverage
 from app.models.trade import TradingMode
 from app.config import get_settings
 from app.schemas import BotConfigCreate, BotConfigResponse, BotToggle, BotExchangeUpdate, BotMetricsUpdate, BotRename, BotTradingModeUpdate, BotSleepUpdate, BotSubAutoUpdate
@@ -125,6 +126,53 @@ async def set_master_account_balance(
         db.add(PlatformSetting(key=MASTER_ACCOUNT_BALANCE_KEY, value=value))
     await db.commit()
     return MasterAccountBalanceResponse(enabled=req.enabled, value=req.value, platform_default=get_settings().MARKET_SCANNER_DEFAULT_ACCOUNT_BALANCE)
+
+
+class MasterLeverageResponse(BaseModel):
+    enabled: bool
+    value: float
+    # config.py's own static default — same honesty as
+    # MasterAccountBalanceResponse's own platform_default.
+    platform_default: float
+
+
+@router.get("/master-leverage", response_model=MasterLeverageResponse)
+async def get_master_leverage_route(db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+    """Any authenticated user can read this — both the Bots page and
+    the Manual Trading Risk Settings card show it, same "everyone sees
+    the resolved state, only Super Admin changes it" shape as every
+    other master switch here."""
+    enabled, value = await get_master_leverage(db)
+    return MasterLeverageResponse(enabled=enabled, value=value, platform_default=get_settings().MAX_NOTIONAL_LEVERAGE)
+
+
+class SetMasterLeverageRequest(BaseModel):
+    enabled: bool
+    value: float = Field(gt=0, le=125)
+
+
+@router.patch("/master-leverage", response_model=MasterLeverageResponse)
+async def set_master_leverage(
+    req: SetMasterLeverageRequest, db: AsyncSession = Depends(get_db), admin: User = Depends(require_super_admin),
+):
+    """Super Admin only — by direct request ("put a form to set
+    leverage for Bot and manual - separately on the trader dashboard
+    ... with a global override form in the Admin"). Turning this on
+    forces EVERY bot's AND every trader's manual-trading leverage to
+    this ONE value, platform-wide, regardless of any individual
+    bot's/trader's own setting — a genuine kill-switch, not a soft
+    default (see get_effective_leverage's own comment for the
+    precedence order)."""
+    row = (await db.execute(
+        select(PlatformSetting).where(PlatformSetting.key == MASTER_LEVERAGE_KEY)
+    )).scalar_one_or_none()
+    value = json.dumps({"enabled": req.enabled, "value": req.value})
+    if row:
+        row.value = value
+    else:
+        db.add(PlatformSetting(key=MASTER_LEVERAGE_KEY, value=value))
+    await db.commit()
+    return MasterLeverageResponse(enabled=req.enabled, value=req.value, platform_default=get_settings().MAX_NOTIONAL_LEVERAGE)
 
 
 async def _get_owned_bot(bot_id: str, user: User, db: AsyncSession) -> BotConfig:

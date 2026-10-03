@@ -6,8 +6,17 @@ Production-grade algorithms for market structure, zones, FVGs, and liquidity.
 from typing import List, Dict, Optional, Tuple, Literal
 from dataclasses import dataclass, field
 from datetime import datetime
+import math
 import numpy as np
 from enum import Enum
+
+from app.config import get_settings
+
+# Minimum stop-loss distance, as a fraction of entry price, that
+# calculate_stop_loss will ever return regardless of method — by
+# critical audit request (see that method's own comment for the real
+# trade, $0.31 stop on an $83,675 entry, that exposed this gap).
+MIN_STOP_DISTANCE_PCT = get_settings().MIN_STOP_DISTANCE_PCT
 
 class StructureType(Enum):
     BOS = "break_of_structure"
@@ -897,10 +906,27 @@ class EntryExitEngine:
                 sl = zone.top + (zone.top - zone.bottom) * 0.1
 
         elif method == "structure_swing":
+            # Real bug, found via critical audit after a live trade was
+            # sized at 419.35 BTC (~$35M notional) against a $130 risk:
+            # the buffer here used to be 5% of (entry_price -
+            # structure_swing.price) — the GAP between entry and the
+            # swing itself, not a buffer beyond the swing. Bot 1/Bot 2
+            # (bot_strategies.py) both pass the most recent swing
+            # high/low as structure_swing for a mean-reversion-style
+            # entry placed INSIDE the same zone that swing anchors, so
+            # that gap routinely collapses to a few cents on a $80k+
+            # asset — 5% of a few cents is itself a few thousandths of
+            # a cent, producing a stop distance of ~$0.31 on the actual
+            # trade this audit found. Buffer is now a % of the swing
+            # PRICE itself (a real, non-collapsing quantity, same
+            # shape as zone_extreme's own % of zone height above) with
+            # a hard floor so a degenerate setup still produces a
+            # sane, tradeable distance instead of a near-zero one.
+            buffer = max(structure_swing.price * 0.001, entry_price * MIN_STOP_DISTANCE_PCT)
             if direction == "long":
-                sl = structure_swing.price - (entry_price - structure_swing.price) * 0.05
+                sl = structure_swing.price - buffer
             else:
-                sl = structure_swing.price + (structure_swing.price - entry_price) * 0.05
+                sl = structure_swing.price + buffer
 
         elif method == "atr" and atr_value:
             buffer = 1.5 * atr_value
@@ -921,6 +947,23 @@ class EntryExitEngine:
             sl = zone.bottom if direction == "long" else zone.top
 
         sl_distance = abs(entry_price - sl)
+
+        # Defense-in-depth floor, independent of which method/branch
+        # above produced `sl`: by critical audit request, after a real
+        # trade's stop landed just $0.31 from an $83,675 entry (method
+        # "structure_swing"'s own collapsing-buffer bug, fixed above) —
+        # calculate_lot_size's fixed-fractional formula (risk_amount /
+        # stop_loss_distance) has NO upper bound on the resulting
+        # quantity, so any future bug in ANY method here (a degenerate
+        # zone, a near-zero atr_value, ...) would reproduce the exact
+        # same class of bug. A stop this tight was never a real trading
+        # decision — flooring it here is the one change that protects
+        # every method and every future one, not just the specific bug
+        # found this time.
+        min_distance = entry_price * MIN_STOP_DISTANCE_PCT
+        if sl_distance < min_distance:
+            sl = (entry_price - min_distance) if direction == "long" else (entry_price + min_distance)
+            sl_distance = min_distance
 
         return {
             "stop_loss": round(sl, 5),
@@ -1025,13 +1068,44 @@ class EntryExitEngine:
         # only asset class any bot here trades today) must skip this.
         lots = (raw_lots / (contract_size * pip_value)) if is_forex else raw_lots
 
-        # Normalize to standard lot sizes (0.01 increments) — this
-        # matches Binance's own typical BTC/ETH quantity step for most
-        # of this platform's symbols; a genuinely tiny result (a very
-        # wide stop against a very small account) still correctly
-        # rounds to 0 here, same honest "can't size a real position"
-        # signal as before this fix.
-        normalized_lots = round(lots / 0.01) * 0.01
+        # Normalize to a lot step, FLOORED rather than rounded-to-
+        # nearest — two real bugs, found together via direct report
+        # ("risked amount in this trade is still greater than the $10
+        # max set up for bots ... why are they not following the
+        # rules").
+        #
+        # Bug 1 — wrong step. This used to hardcode 0.01 as "Binance's
+        # own typical BTC/ETH quantity step," but every bot here
+        # actually only ever trades BTCUSDT.P (confirmed live against
+        # every BotConfig row), and Binance's REAL quantity step for
+        # that perpetual (confirmed live via ccxt's own market
+        # precision) is 0.001 — ten times finer. The stale 0.01
+        # assumption threw away a full order of magnitude of sizing
+        # precision for no reason.
+        #
+        # Bug 2 — wrong rounding direction. A trader's risk_percent
+        # (and, for Sub-Auto, the dollar risk cap it's converted from —
+        # see market_scanner.py's _effective_bot_settings) is a
+        # CEILING, not a target to round toward either side of.
+        # round() pushed the raw, exact-risk quantity up to the nearer
+        # step just as often as it pushed it down — a real BTCUSDT.P
+        # trade with raw_lots=0.00888 (an exact $10.00 risk) rounded UP
+        # to the old 0.01 step, which against that trade's real stop
+        # distance priced out to an $11.26 risk, 12.6% over the stated
+        # cap, with no warning anywhere.
+        #
+        # Fixed together: flooring to the OLD coarse 0.01 step alone
+        # would have zeroed out that same trade entirely (0.00888
+        # floors to 0.00) — overcorrecting from "quietly over the cap"
+        # to "can't take this trade at all" even though the real
+        # exchange could size it just fine. Flooring to the CORRECT
+        # 0.001 step sizes it at 0.008 (a $9.01 risk) instead — under
+        # the cap, same honest "can't size a real position" signal as
+        # before this fix for a genuinely tiny result, but no longer
+        # throwing away valid trades the real exchange can actually
+        # place.
+        lot_step = 0.001
+        normalized_lots = math.floor(lots / lot_step) * lot_step
 
         return {
             "lot_size": normalized_lots,
@@ -1115,8 +1189,24 @@ class RiskManager:
         constructor-time default. Falls back to self.base_risk
         (unchanged behavior) when no override is given, so any other
         caller of this method keeps working exactly as before.
+
+        An explicit override is now respected EXACTLY (only the hard
+        3% ceiling still applies) — real bug, found via direct report
+        ("why is the risk amount greater than $10 max that was set in
+        semi auto mode"): a trader's $10 Sub-Auto cap converts
+        (market_scanner.py's _effective_bot_settings) to 0.1%
+        risk_per_trade, which used to get silently bumped up to the
+        0.25% floor below PLUS the setup_quality multiplier further
+        above it — both meant for this method's own un-configured
+        default (self.base_risk, from before BotConfig.risk_per_trade
+        was ever actually wired in — see above), not for a trader's
+        own explicit number. The observed trade risked $24.95 against
+        a stated $10 cap — ~2.5x over, with no warning anywhere.
         """
-        risk = base_risk_override if base_risk_override is not None else self.base_risk
+        if base_risk_override is not None:
+            return round(min(base_risk_override, 3.0), 2)  # 3% ceiling only — no floor, no setup_quality inflation
+
+        risk = self.base_risk
 
         # Fixed fractional: reduce by 20% per consecutive loss
         if consecutive_losses > 0:
@@ -1133,7 +1223,7 @@ class RiskManager:
 
         # Hard limits
         risk = min(risk, 3.0)  # Max 3% per trade
-        risk = max(risk, 0.25)  # Min 0.25% per trade
+        risk = max(risk, 0.25)  # Min 0.25% per trade — only for the un-configured self.base_risk path above
 
         return round(risk, 2)
 

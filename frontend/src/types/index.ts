@@ -101,6 +101,11 @@ export interface BotConfig {
    * comment; the effective value (accounting for the Admin master
    * override) is resolved client-side from botsApi.getMasterAccountBalance. */
   account_balance_usd?: number | null;
+  /** This bot's own leverage override (null = no override) — by direct
+   * request ("put a form to set leverage for Bot and manual -
+   * separately on the trader dashboard ... with a global override
+   * form in the Admin"). See BotConfig.leverage's own backend comment. */
+  leverage?: number | null;
 }
 
 
@@ -110,6 +115,11 @@ export interface BotConfig {
  * the entry, SL or TP ... with the candles"). See tradesApi.
  * getTradeSnapshot's own comment for why this is fetched live each
  * time rather than a stored image. */
+// Same 5-timeframe set every bot strategy/scanner already uses — by
+// direct request ("Add 5M, 4D and 1D to the snapshots chart"; "4D"
+// read as "4H", the only 4-prefixed timeframe this app uses anywhere
+// else).
+export type SnapshotTimeframe = '5m' | '15m' | '1h' | '4h' | '1d';
 export interface TradeSnapshotCandle {
   timestamp: string;
   open: number;
@@ -120,7 +130,7 @@ export interface TradeSnapshotCandle {
 export interface TradeSnapshot {
   trade_id: string;
   symbol: string;
-  timeframe: '1h' | '15m';
+  timeframe: SnapshotTimeframe;
   direction: 'long' | 'short';
   entry_price: number | null;
   entry_timestamp: string | null;
@@ -129,6 +139,11 @@ export interface TradeSnapshot {
   exit_price: number | null;
   exit_timestamp: string | null;
   status: string;
+  /** Real bot reasoning captured at signal time — by direct request
+   * ("include a reason summary that opens when clicked on the
+   * snapshot"). Null for a manual trade or a bot signal predating this
+   * field. */
+  reasoning_log: string | null;
   candles: TradeSnapshotCandle[];
 }
 
@@ -182,6 +197,9 @@ export interface BotMetricsUpdate {
    * default/Admin master). See BotConfig.account_balance_usd's own
    * backend comment. */
   account_balance_usd?: number | null;
+  /** null clears this bot's own leverage override. See BotConfig.
+   * leverage's own backend comment. */
+  leverage?: number | null;
 }
 
 export interface TodayTradeBreakdown {

@@ -11,7 +11,36 @@ from datetime import datetime, timedelta, timezone
 import asyncio
 import aiohttp
 import pandas as pd
+import structlog
+from app.config import get_settings
 from app.core.smc_algorithms import Candle
+
+logger = structlog.get_logger()
+settings = get_settings()
+
+# Same per-exchange static-IP proxies execution_engine.py's own
+# BinanceBroker/BybitBroker/BingXBroker/MexcBroker already route every
+# SIGNED order-placement call through (most exchanges require
+# whitelisting a fixed IP for a trading-enabled key, which Render's own
+# dynamic egress IP can't satisfy) — by direct request ("no proxy
+# fallback, unlike order placement ... build that resilience fix").
+# Candle-fetching never needed a whitelisted IP (it's public market
+# data, no signing), so it was left on Render's raw IP — which is
+# exactly what a real Binance IP ban (HTTP 418, "Way too many
+# requests ... banned until ...", confirmed live in production logs)
+# then took down entirely: every bot's own candle fetch AND the Trade
+# Snapshot/Encroachment endpoints all share this one ingestion path.
+# Routing candle-fetching through the SAME proxies closes that gap —
+# a ban on one IP (direct or either proxy) no longer blocks the others.
+# okx/kucoin have no proxy configured here (same as execution_engine.py
+# — neither is a real order-placement broker in this app today) and
+# fall through to a direct connection, unchanged from before.
+_PROXY_SETTINGS = {
+    "binance": ("BINANCE_PROXY_URL", "BINANCE_BACKUP_PROXY_URL"),
+    "bybit": ("BYBIT_PROXY_URL", "BYBIT_BACKUP_PROXY_URL"),
+    "bingx": ("BINGX_PROXY_URL", "BINGX_BACKUP_PROXY_URL"),
+    "mexc": ("MEXC_PROXY_URL", "MEXC_BACKUP_PROXY_URL"),
+}
 
 
 def to_ccxt_symbol(symbol: str) -> str:
@@ -97,15 +126,55 @@ class MarketDataIngestion:
         # ever produced a recommendation: zero real candle data ever
         # reached BotOrchestrator to analyze.
         self._exchange_clients: Dict[str, object] = {}
+        # Three routing tiers per exchange, each its own cached client
+        # (long-lived, same reasoning as self._exchange_clients' own
+        # comment above) — see _get_exchange_client's own docstring.
+        self._exchange_backup_clients: Dict[str, object] = {}
+        self._exchange_direct_clients: Dict[str, object] = {}
 
-    def _get_exchange_client(self, exchange: str):
+    def _build_exchange_client(self, exchange: str, proxy_url: Optional[str]):
+        import ccxt.async_support as ccxt_async
+        try:
+            exchange_class = getattr(ccxt_async, exchange)
+        except AttributeError:
+            raise ValueError(f"Unknown ccxt exchange id: {exchange!r}")
+        client = exchange_class({'enableRateLimit': True})
+        if proxy_url:
+            # ccxt 4.x's own unified proxy attribute (confirmed present
+            # on a live instance of this exact installed version) —
+            # exchange APIs here are HTTPS-only, so only this one is
+            # set. Real bug, found by actually exercising this against
+            # a live ccxt instance before shipping: setting BOTH
+            # httpsProxy and httpProxy raises ccxt.ProxyError
+            # ("multiple conflicting proxy settings"), which would have
+            # made every proxied route fail at construction time.
+            client.httpsProxy = proxy_url
+        return client
+
+    def _get_exchange_client(self, exchange: str, route: str = "proxy"):
+        """`route`: "proxy" (default — the same static-IP proxy order
+        placement uses for this exchange, or a direct connection for an
+        exchange with none configured), "backup" (the Fixie backup
+        proxy), or "direct" (no proxy at all, Render's own raw IP —
+        the ONLY route this method had before this fix, and the one a
+        direct-IP ban like the one that prompted this change takes
+        down entirely)."""
+        primary_setting, backup_setting = _PROXY_SETTINGS.get(exchange, (None, None))
+
+        if route == "backup":
+            if exchange not in self._exchange_backup_clients:
+                proxy_url = getattr(settings, backup_setting, "") if backup_setting else ""
+                self._exchange_backup_clients[exchange] = self._build_exchange_client(exchange, proxy_url or None)
+            return self._exchange_backup_clients[exchange]
+
+        if route == "direct":
+            if exchange not in self._exchange_direct_clients:
+                self._exchange_direct_clients[exchange] = self._build_exchange_client(exchange, None)
+            return self._exchange_direct_clients[exchange]
+
         if exchange not in self._exchange_clients:
-            import ccxt.async_support as ccxt_async
-            try:
-                exchange_class = getattr(ccxt_async, exchange)
-            except AttributeError:
-                raise ValueError(f"Unknown ccxt exchange id: {exchange!r}")
-            self._exchange_clients[exchange] = exchange_class({'enableRateLimit': True})
+            proxy_url = getattr(settings, primary_setting, "") if primary_setting else ""
+            self._exchange_clients[exchange] = self._build_exchange_client(exchange, proxy_url or None)
         return self._exchange_clients[exchange]
 
     async def fetch_historical_ccxt(self,
@@ -132,38 +201,63 @@ class MarketDataIngestion:
         fetch_ohlcv — and the direction was backwards anyway (it
         stripped "/" rather than inserting one). ccxt requires
         "BTC/USDT", not "BTCUSDT"; see to_ccxt_symbol() above.
+
+        Proxy failover — by direct request ("no proxy fallback, unlike
+        order placement ... build that resilience fix"): tries the
+        proxy route first (_PROXY_SETTINGS — the same static IP order
+        placement uses for this exchange), then the Fixie backup proxy,
+        then a direct connection, stopping at the first one that
+        actually returns candles. Only a ccxt.NetworkError (connection
+        failures, AND the ban/rate-limit responses themselves —
+        DDoSProtection/RateLimitExceeded/ExchangeNotAvailable all
+        inherit from it — see that class hierarchy) advances to the
+        next route; an exchange genuinely rejecting the request for a
+        reason unrelated to which IP it came from (bad symbol, ...)
+        is not retried, same "don't blindly retry an application
+        error" principle as broker_integrations.py's own
+        _send_with_failover.
         """
-        ex = self._get_exchange_client(exchange)
-        try:
-            ccxt_symbol = to_ccxt_symbol(symbol)
-            since_ms = int(since.timestamp() * 1000) if since else None
-            ohlcv = await ex.fetch_ohlcv(ccxt_symbol, timeframe, since=since_ms, limit=limit)
+        ccxt_symbol = to_ccxt_symbol(symbol)
+        since_ms = int(since.timestamp() * 1000) if since else None
 
-            candles = []
-            for data in ohlcv:
-                timestamp_ms, open_p, high_p, low_p, close_p, volume = data
-                candles.append(Candle(
-                    # Naive-but-UTC, matching every other timestamp in
-                    # this codebase (smc_algorithms.py etc. use
-                    # datetime.utcnow()) — an aware datetime here would
-                    # raise "can't compare offset-naive and
-                    # offset-aware datetimes" the moment it's compared
-                    # against one of those.
-                    timestamp=datetime.fromtimestamp(timestamp_ms / 1000, tz=timezone.utc).replace(tzinfo=None),
-                    open=float(open_p),
-                    high=float(high_p),
-                    low=float(low_p),
-                    close=float(close_p),
-                    volume=float(volume)
-                ))
+        import ccxt
+        routes = ["proxy", "backup", "direct"]
+        last_error: Optional[Exception] = None
+        for i, route in enumerate(routes):
+            try:
+                ex = self._get_exchange_client(exchange, route)
+                ohlcv = await ex.fetch_ohlcv(ccxt_symbol, timeframe, since=since_ms, limit=limit)
+                if i > 0:
+                    logger.warning("candle_fetch_route_failover", exchange=exchange, route=route, previous_error=str(last_error))
+                return [
+                    Candle(
+                        # Naive-but-UTC, matching every other timestamp
+                        # in this codebase (smc_algorithms.py etc. use
+                        # datetime.utcnow()) — an aware datetime here
+                        # would raise "can't compare offset-naive and
+                        # offset-aware datetimes" the moment it's
+                        # compared against one of those.
+                        timestamp=datetime.fromtimestamp(timestamp_ms / 1000, tz=timezone.utc).replace(tzinfo=None),
+                        open=float(open_p), high=float(high_p), low=float(low_p), close=float(close_p), volume=float(volume),
+                    )
+                    for timestamp_ms, open_p, high_p, low_p, close_p, volume in ohlcv
+                ]
+            except (ccxt.NetworkError, ccxt.ProxyError) as e:
+                # ProxyError (malformed proxy config, unreachable proxy
+                # at the transport level) is NOT a ccxt.NetworkError
+                # subclass — it inherits from ExchangeError instead —
+                # but it's exactly as eligible for failover as one:
+                # this specific route's transport is broken, not the
+                # exchange rejecting the actual request.
+                last_error = e
+                continue
+            except Exception as e:
+                raise Exception(f"Failed to fetch from {exchange}: {str(e)}")
 
-            return candles
-
-        except Exception as e:
-            raise Exception(f"Failed to fetch from {exchange}: {str(e)}")
-        # No `finally: await ex.close()` any more — this client is now
-        # long-lived (cached in self._exchange_clients), not a
-        # one-shot resource. It's cleaned up when the process exits.
+        raise Exception(f"Failed to fetch from {exchange} via every route (proxy, backup, direct): {last_error}")
+        # No `finally: await ex.close()` any more — every client is
+        # long-lived (cached per exchange+route), not a one-shot
+        # resource. Cleaned up when the process exits.
 
     async def fetch_historical_yahoo(self,
                                      symbol: str,
@@ -303,3 +397,35 @@ class MarketDataIngestion:
             "signals": signals,
             "timestamp": datetime.utcnow()
         }
+
+
+# ONE true app-wide instance — by critical investigation into "wake up
+# taking longer than usual," traced to the Render free-tier backend
+# (512MB cap) OOM-crash-looping roughly every 1-3 minutes (confirmed
+# live via Render's own logs: memory_watchdog_elevated readings
+# climbing to ~81% of the cap within a couple of minutes of every
+# fresh restart, each followed by a restart of the SAME container
+# instance with no graceful app_shutdown log line in between — the
+# signature of an external OOM-kill, not a normal deploy or the
+# scanner's own watchdog, which only logs/GCs and never force-exits).
+#
+# Root cause: market_scanner.py's MarketScanner and routers/trades.py's
+# Trade Snapshot/Encroachment endpoints each held their OWN separate,
+# long-lived MarketDataIngestion() instance — and this class's own
+# _exchange_clients cache deliberately NEVER closes a ccxt client once
+# created (see fetch_historical_ccxt's own comment), because closing
+# and recreating per-call was the exact mistake that caused the earlier
+# real Binance IP ban. Two independent instances both touching the
+# same exchange (binance is the default for both paths) each trigger
+# their OWN ccxt loadMarkets() the first time they're used — Binance
+# alone has 2000+ markets, and ccxt's parsed-market cache for that is
+# genuinely tens of MB per instance. Two live copies of that, on top
+# of five autonomous bots' own per-cycle candle buffers, is a direct,
+# avoidable contributor to a 512MB cap being exhausted this fast.
+#
+# Every long-lived caller (anything that isn't a short, one-off, human-
+# triggered action — see routers/trades.py's reanalyze_trade for the
+# one deliberate exception, which stays a fresh short-lived instance
+# precisely because it's single-shot and GC'd right after) should
+# import and reuse THIS instance rather than constructing its own.
+shared_ingestion = MarketDataIngestion()

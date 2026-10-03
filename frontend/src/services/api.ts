@@ -1,6 +1,6 @@
 
 import axios from 'axios';
-import { Trade, BotConfig, BotPerformance, BotMetricsUpdate, DashboardStats, SignalPreview, PerformanceSummary, TradeBreakdown, TradeBreakdownPeriod, ExchangeMetaResponse, TraderBrokerConnection, AvailableBot, TraderBotSubscription, OutboundIpsResponse, FeeSettings, FeeLedgerEntry, MyFeesResponse, FeeGateStatus, FeeCheckoutSession, FeeCheckoutProvider, FeeVerifyResult, DeployStateResponse, TradeSnapshot, EncroachmentResponse } from '../types';
+import { Trade, BotConfig, BotPerformance, BotMetricsUpdate, DashboardStats, SignalPreview, PerformanceSummary, TradeBreakdown, TradeBreakdownPeriod, ExchangeMetaResponse, TraderBrokerConnection, AvailableBot, TraderBotSubscription, OutboundIpsResponse, FeeSettings, FeeLedgerEntry, MyFeesResponse, FeeGateStatus, FeeCheckoutSession, FeeCheckoutProvider, FeeVerifyResult, DeployStateResponse, TradeSnapshot, EncroachmentResponse, SnapshotTimeframe } from '../types';
 import { useAuthStore } from '../hooks/useAuth';
 import { triggerAccessExpired } from '../components/AccessExpiredGate';
 import { triggerFeesOwed } from '../components/TradingFeeGate';
@@ -97,12 +97,12 @@ export const tradesApi = {
   getActiveTrades: () => api.get<Trade[]>('/trades/active').then(r => r.data),
   getTodayStats: () => api.get('/trades/stats/today').then(r => r.data),
   getTrade: (tradeId: string) => api.get<Trade>(`/trades/${tradeId}`).then(r => r.data),
-  // Real 1H/15M historical candles around this trade's entry/exit
-  // window, with entry/SL/TP/exit prices — by direct request ("Can
-  // snapshots of the trade be taken ... showing the entry, SL or TP
-  // ... with the candles"). Re-fetched live each time (a past
-  // window's OHLCV never changes), not a stored image.
-  getTradeSnapshot: (tradeId: string, timeframe: '1h' | '15m') =>
+  // Real historical candles (5M/15M/1H/4H/1D) around this trade's
+  // entry/exit window, with entry/SL/TP/exit prices — by direct
+  // request ("Can snapshots of the trade be taken ... showing the
+  // entry, SL or TP ... with the candles"). Re-fetched live each time
+  // (a past window's OHLCV never changes), not a stored image.
+  getTradeSnapshot: (tradeId: string, timeframe: SnapshotTimeframe) =>
     api.get<TradeSnapshot>(`/trades/${tradeId}/snapshot`, { params: { timeframe } }).then(r => r.data),
   // Drawdown & Target Encroachment — by direct request. A real call
   // per trade analyzed (capped server-side at 30), so this is only
@@ -110,6 +110,13 @@ export const tradesApi = {
   getEncroachment: (params?: { bot_id?: string; source?: string; is_test?: boolean; limit?: number }) =>
     api.get<EncroachmentResponse>('/trades/analytics/encroachment', { params, timeout: 60_000 }).then(r => r.data),
   getTradeLogs: (tradeId: string) => api.get(`/trades/${tradeId}/logs`).then(r => r.data),
+  // Bot/Strategy quick-filter options for Analytics — by direct bug
+  // report ("The bot / strategy quick filter in Analytics is not
+  // working"). Derived from the CALLER's own trades (GET /bots/ scopes
+  // by BotConfig ownership, which an ordinary trader almost never has
+  // for the platform's own strategy bots — see the backend endpoint's
+  // own comment), not bot configs.
+  getBotFilterOptions: () => api.get<{ bot_id: string; bot_name: string }[]>('/trades/analytics/bot-options').then(r => r.data),
   // Manual cancellation — by direct request ("partial or manual
   // cancellations ... even in test mode"). Lives under /manual-trading/
   // (see that router's own cancel_order docstring for what this
@@ -195,6 +202,14 @@ export const botsApi = {
     api.get<{ enabled: boolean; value: number; platform_default: number }>('/bots/master-account-balance').then(r => r.data),
   setMasterAccountBalance: (update: { enabled: boolean; value: number }) =>
     api.patch<{ enabled: boolean; value: number; platform_default: number }>('/bots/master-account-balance', update).then(r => r.data),
+  // Leverage master control — same shape as the balance one above, by
+  // direct request ("put a form to set leverage for Bot and manual -
+  // separately on the trader dashboard ... with a global override
+  // form in the Admin").
+  getMasterLeverage: () =>
+    api.get<{ enabled: boolean; value: number; platform_default: number }>('/bots/master-leverage').then(r => r.data),
+  setMasterLeverage: (update: { enabled: boolean; value: number }) =>
+    api.patch<{ enabled: boolean; value: number; platform_default: number }>('/bots/master-leverage', update).then(r => r.data),
   // Real, live-searchable Binance instrument list — by direct request
   // ("a search instrument space that searches the instrument - exactly
   // like the one on the chart ... removing errors"). Reuses the same

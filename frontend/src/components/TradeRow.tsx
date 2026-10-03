@@ -48,6 +48,15 @@ export function TradeRow({ trade, onApprove, onReject, onCancel, onChanged, onAr
   // actually has entry/exit history to show, so this never shows for
   // pending/active rows, only closed ones (see the button below).
   const [snapshotOpen, setSnapshotOpen] = useState(false);
+  // Reason summary — by direct request ("each of the bot trades should
+  // have a reason summary - default is fold until triggered"). Folded
+  // by default, same rationale as `managing` above (a list of many
+  // trades, not a place to dump a paragraph of reasoning per row
+  // unasked). reasoning_log is real, bot-generated text already
+  // stored on every bot signal (e.g. "FVG Expansion short. 1H FVG
+  // bearish 56% mitigated. 15M BOS confirms...") — this was captured
+  // all along but never actually surfaced anywhere in the UI.
+  const [reasonOpen, setReasonOpen] = useState(false);
   const isLong = trade.direction === 'long';
   // Manual vs Bot origin watermark — by direct request ("introduce a
   // watermark that shows whether it's a manual or Bot ... so at a
@@ -272,6 +281,31 @@ export function TradeRow({ trade, onApprove, onReject, onCancel, onChanged, onAr
           </div>
         </div>
       </div>
+
+      {/* Reason summary — by direct request ("each of the bot trades
+          should have a reason summary - default is fold until
+          triggered"). Bot trades only (a manual order has no strategy
+          reasoning to show) and only when one actually exists — folded
+          by default; clicking reveals the real reasoning_log text
+          captured at signal time, regardless of trade status (an
+          ERROR'd or still-open trade benefits from seeing why it was
+          taken just as much as a closed one). */}
+      {!isManual && trade.reasoning_log && (
+        <div className="mt-3 pt-3 border-t border-dashed border-gray-200 dark:border-smc-border">
+          <button
+            onClick={() => setReasonOpen((v) => !v)}
+            className={`flex items-center gap-1.5 text-xs font-medium ${dark ? 'text-white/60 hover:text-white' : 'text-gray-500 hover:text-corporate-text-on-bg'}`}
+          >
+            <ChevronDown size={13} className={`transition-transform ${reasonOpen ? 'rotate-180' : ''}`} />
+            Reason summary
+          </button>
+          {reasonOpen && (
+            <p className={`mt-2 text-xs leading-relaxed ${dark ? 'text-white/70' : 'text-gray-600'}`}>
+              {trade.reasoning_log}
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Closed-trade details — Entry, SL, TP, Closed price, Win/Loss/BE
           — by direct request ("provide details of the trade ... for

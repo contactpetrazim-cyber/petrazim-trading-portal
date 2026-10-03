@@ -107,6 +107,17 @@ export function BotsPage() {
   // own account_balance_usd, else the platform default).
   const [masterBalance, setMasterBalance] = useState<{ enabled: boolean; value: number; platform_default: number } | null>(null);
   useEffect(() => { botsApi.getMasterAccountBalance().then(setMasterBalance).catch(() => {}); }, []);
+  // Same pattern as Master Bot Control above, for leverage — by direct
+  // request ("put a form to set leverage for Bot and manual -
+  // separately on the trader dashboard ... with a global override
+  // form in the Admin").
+  const [masterLeverage, setMasterLeverage] = useState<{ enabled: boolean; value: number; platform_default: number } | null>(null);
+  useEffect(() => { botsApi.getMasterLeverage().then(setMasterLeverage).catch(() => {}); }, []);
+  function effectiveLeverage(bot: BotConfig): number {
+    if (masterLeverage?.enabled) return masterLeverage.value;
+    if (bot.leverage != null) return bot.leverage;
+    return masterLeverage?.platform_default ?? 50;
+  }
   function effectiveBalance(bot: BotConfig): number {
     if (masterBalance?.enabled) return masterBalance.value;
     if (bot.account_balance_usd != null) return bot.account_balance_usd;
@@ -171,6 +182,7 @@ export function BotsPage() {
       min_rr_ratio: bot.min_rr_ratio,
       use_trailing_stop: bot.use_trailing_stop,
       account_balance_usd: bot.account_balance_usd,
+      leverage: bot.leverage,
     });
   }
 
@@ -555,6 +567,28 @@ export function BotsPage() {
                             type="number" step="100" min="1"
                             value={editing.account_balance_usd ?? effectiveBalance(bot)}
                             onChange={(e) => setEditing({ ...editing, account_balance_usd: Number(e.target.value) })}
+                            className={inputCls}
+                          />
+                        )}
+                      </label>
+                      {/* Leverage — by direct request ("put a form to
+                          set leverage for Bot and manual - separately
+                          on the trader dashboard ... with a global
+                          override form in the Admin"). Same disabled-
+                          and-explained treatment as Starting Reference
+                          Capital above when the Admin master override
+                          is on. */}
+                      <label className="text-xs text-gray-400 col-span-2">
+                        Leverage (x)
+                        {masterLeverage?.enabled ? (
+                          <div className={`mt-1 px-3 py-2 rounded-lg text-xs ${dark ? 'bg-amber-500/10 text-amber-400' : 'bg-amber-50 text-amber-700'}`}>
+                            Overridden by the Admin's master control — fixed at {masterLeverage.value}x for every bot right now.
+                          </div>
+                        ) : (
+                          <input
+                            type="number" step="1" min="1" max="125"
+                            value={editing.leverage ?? effectiveLeverage(bot)}
+                            onChange={(e) => setEditing({ ...editing, leverage: Number(e.target.value) })}
                             className={inputCls}
                           />
                         )}

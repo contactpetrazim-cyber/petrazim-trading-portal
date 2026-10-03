@@ -187,6 +187,50 @@ class Settings(BaseSettings):
     # balance to read (paper mode, or no credential configured yet).
     MARKET_SCANNER_DEFAULT_ACCOUNT_BALANCE: float = 10000.0
 
+    # Capital adequacy gate (services/capital_adequacy.py) — by direct,
+    # critical request after a real production trade was found sized
+    # at 419.35 BTC (~$35M notional) against a $130 "risk" (the stop-
+    # loss distance was a calc bug, see smc_algorithms.py's
+    # calculate_stop_loss "structure_swing" fix). This is the ceiling
+    # on how much TOTAL notional value (quantity x price), summed
+    # across every open/pending trade for one account, is allowed
+    # before a new trade is blocked from executing — distinct from
+    # manual_trading.py's own portfolio-exposure check, which sums
+    # RISK PERCENT (what you'd lose if stopped out), not notional
+    # (what you need to actually open the position).
+    #
+    # REAL REGRESSION, found within an hour of this gate first
+    # deploying with a 1.0 (no-leverage) default: it started rejecting
+    # completely ordinary trades — a Sub-Auto trade risking $10 on a
+    # correctly-sized ~0.36 BTC position (~$30k notional on a $10k
+    # account, ~3x) was blocked as "capital_inadequate", because a
+    # risk-based position on an asset this expensive routinely needs
+    # several-x leverage even with a perfectly sane, properly-floored
+    # stop (see MIN_STOP_DISTANCE_PCT below — even AT that 15bps floor,
+    # a $100 risk needs ~6.7x leverage to size correctly; this
+    # platform's bots legitimately trade leveraged). 1.0x conflated
+    # "block an absurd 3500x-implied blowup" with "block any leverage
+    # at all" — the wrong question.
+    #
+    # Now set to 50x by direct confirmation of this platform's real
+    # account leverage usage ("Leverage use is approx up to 1x50") —
+    # no longer a guess. Still catches the original bug's actual
+    # magnitude with wide margin (that trade implied ~3500x). If the
+    # real configured leverage ever changes, update this to match —
+    # this number should always equal reality, not the other way
+    # around.
+    MAX_NOTIONAL_LEVERAGE: float = 50.0
+
+    # Floor under calculate_stop_loss's own result (smc_algorithms.py)
+    # — 0.0015 = 15 bps of entry price. By critical audit request,
+    # after a real trade's stop landed just $0.31 from an $83,675
+    # entry (0.00037%) — see that method's own comment for the root
+    # cause. 15bps is tight enough to not interfere with a genuinely
+    # tight, legitimate crypto scalp stop, wide enough that fixed-
+    # fractional sizing (risk_amount / stop_loss_distance) can never
+    # again blow up into an unexecutable quantity from this alone.
+    MIN_STOP_DISTANCE_PCT: float = 0.0015
+
     # Position monitor (services/position_monitor.py) — the real fix
     # for "no automated TP/SL-hit detection," flagged as an outstanding
     # gap in the platform audit. Scoped to is_test=True trades ONLY: a

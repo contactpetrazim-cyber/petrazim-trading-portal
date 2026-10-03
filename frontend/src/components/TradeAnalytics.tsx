@@ -4,8 +4,7 @@ import { fetchJsonWithRetry, type FetchPhase } from '../lib/resilientFetch';
 import { LoadingIndicator } from './LoadingIndicator';
 import { FoldedCard } from './FoldedCard';
 import { AdvancedTradeAnalytics } from './AdvancedTradeAnalytics';
-import { botsApi } from '../services/api';
-import type { BotConfig } from '../types';
+import { tradesApi } from '../services/api';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -287,10 +286,20 @@ export function TestLiveToggle({ value, onChange, dark }: { value: TestLiveFilte
  * the same `bot_id` query param GET /trades/analytics/summary and
  * GET /trades/analytics/detail already supported server-side (it was
  * already there for the Trades page's own bot filter; analytics just
- * never had a control wired to it). '' = every bot/strategy. */
+ * never had a control wired to it). '' = every bot/strategy.
+ *
+ * Options come from GET /trades/analytics/bot-options (the trader's
+ * OWN trades), not GET /bots/ (BotConfig ownership) — real bug, found
+ * via direct report with screenshot ("the bot / strategy quick filter
+ * in Analytics is not working"): GET /bots/ scopes by BotConfig.
+ * user_id, the bot's OWNER/creator, which an ordinary trader almost
+ * never is for the platform's own strategy bots (they just receive
+ * signals/copies from them) — so it silently returned an empty list
+ * for every regular trader, leaving this dropdown with nothing but its
+ * own hardcoded "All" option. */
 function BotFilterSelect({ value, onChange, dark }: { value: string; onChange: (v: string) => void; dark: boolean }) {
-  const [bots, setBots] = useState<BotConfig[]>([]);
-  useEffect(() => { botsApi.getBots().then(setBots).catch(() => setBots([])); }, []);
+  const [bots, setBots] = useState<{ bot_id: string; bot_name: string }[]>([]);
+  useEffect(() => { tradesApi.getBotFilterOptions().then(setBots).catch(() => setBots([])); }, []);
   return (
     <select
       value={value}

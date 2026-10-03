@@ -15,22 +15,24 @@ from app.core.access_gate import require_active_access, has_active_access, _rais
 from app.schemas import TradeCreate, TradeResponse, TradeApproval, TradeArchiveUpdate, TradeDeleteUpdate
 from app.services.execution_engine import ExecutionEngine
 from app.services.live_price import get_crypto_price
-from app.services.data_ingestion import MarketDataIngestion
+from app.services.data_ingestion import shared_ingestion
 import structlog
 
 router = APIRouter(prefix="/trades", tags=["trades"])
 logger = structlog.get_logger()
 engine = ExecutionEngine()
 settings_module = get_settings()
-# One shared, long-lived ingestion instance for the Trade Snapshot
-# endpoint below — reusing MarketDataIngestion.__init__'s own one-
-# ccxt-client-per-exchange cache rather than constructing a fresh
-# MarketDataIngestion() (and therefore a fresh ccxt client) per
-# request. See that class's own comment for why that specific mistake
-# previously triggered a real Binance IP ban ("Way too many
-# requests"), confirmed live in production logs this same day — a
-# snapshot endpoint hit repeatedly must not repeat it.
-_snapshot_ingestion = MarketDataIngestion()
+# The SAME app-wide shared_ingestion instance market_scanner.py uses —
+# NOT this router's own separate MarketDataIngestion() (the earlier
+# version of this fix, before a critical "wake up taking longer than
+# usual" investigation traced the Render free-tier backend's OOM-
+# crash-loop to exactly this: two independent long-lived instances
+# each caching their own full ccxt market metadata for the same
+# exchanges, wasting tens of MB that a 512MB cap can't spare). See
+# shared_ingestion's own comment in data_ingestion.py for the full
+# story, and reuse it for any new long-lived caller rather than
+# constructing another MarketDataIngestion().
+_snapshot_ingestion = shared_ingestion
 
 # Same principle as bots.py/roster.py: Admin/Super Admin see every
 # trade, everyone else only their own (a trade's owner is the Trader
@@ -288,6 +290,57 @@ async def today_stats(db: AsyncSession = Depends(get_db), user: User = Depends(r
         "net_pnl": round(pnl, 2),
         "active_trades": len([t for t in trades if t.status == TradeStatus.ACTIVE])
     }
+
+@router.get("/analytics/bot-options")
+async def analytics_bot_options(db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access)):
+    """Every selectable (bot_id, bot_name) option for the Analytics
+    filter — by direct bug report ("The bot / strategy quick filter in
+    Analytics is not working"), then a direct follow-up ("Why is the
+    fifth bot not showing").
+
+    BotFilterSelect (TradeAnalytics.tsx / AdvancedTradeAnalytics.tsx)
+    used to call GET /bots/ (list_bots), which scopes by BotConfig.
+    user_id — the bot row's OWNER/creator. But the platform's own
+    strategy bots aren't owned by each individual trader who receives
+    their signals/copies, so list_bots correctly returned an EMPTY list
+    for an ordinary trader, and the dropdown had nothing to show.
+
+    First fix derived the list from the CALLER's OWN Trade.bot_id/
+    bot_name instead — correct for "bots I've actually traded," but it
+    silently dropped any real bot that just hasn't produced a trade for
+    this caller YET (confirmed: bot_1_macro_swing had zero trades
+    anywhere in the table) — unselectable rather than selectable-with-
+    an-empty-result, which is the wrong failure mode for a filter.
+
+    Now UNIONS two sources: every real BotConfig row (unscoped — the
+    bot's name, not who owns the config row, which is what a filter
+    option actually needs) PLUS the caller's own trade history (covers
+    a bot_id that produced trades but was later deleted from
+    BotConfig). BotConfig's own current name wins on a bot_id present
+    in both, since it's the authoritative, up-to-date one. Still
+    excludes the manual pseudo-bot-id ("manual_{user_id}") — Manual
+    trades already have their own separate All/Bots/Manual toggle.
+    """
+    from sqlalchemy import func
+    from app.models.bot import BotConfig
+
+    bot_config_rows = (await db.execute(select(BotConfig.bot_id, BotConfig.bot_name))).all()
+    options: Dict[str, str] = {bot_id: bot_name for bot_id, bot_name in bot_config_rows}
+
+    trade_query = _scope_to_owner(
+        select(Trade.bot_id, func.max(Trade.bot_name)).where(
+            ~Trade.bot_id.like("manual\\_%", escape="\\"), Trade.is_deleted == False,  # noqa: E712
+        ).group_by(Trade.bot_id),
+        user,
+    )
+    for bot_id, bot_name in (await db.execute(trade_query)).all():
+        options.setdefault(bot_id, bot_name or bot_id)
+
+    return sorted(
+        [{"bot_id": bot_id, "bot_name": bot_name} for bot_id, bot_name in options.items()],
+        key=lambda r: r["bot_name"],
+    )
+
 
 @router.get("/analytics/summary")
 async def analytics_summary(
@@ -645,10 +698,18 @@ async def get_trade(trade_id: str, db: AsyncSession = Depends(get_db), user: Use
     await _enrich_live_pnl([trade])
     return trade
 
+# Same 5-timeframe set every bot strategy/scanner already uses (see
+# market_scanner.py's own _TIMEFRAME_TO_CCXT) — by direct request
+# ("Add 5M, 4D and 1D to the snapshots chart"; "4D" read as "4H", the
+# actual timeframe this app has everywhere else, since no "4D" bar
+# exists anywhere else in this codebase or on any supported exchange).
+_SNAPSHOT_BAR_SECONDS = {"5m": 300, "15m": 900, "1h": 3600, "4h": 14400, "1d": 86400}
+
+
 @router.get("/{trade_id}/snapshot")
 async def trade_snapshot(
     trade_id: str,
-    timeframe: str = Query("1h", description="'1h' or '15m'"),
+    timeframe: str = Query("1h", description="'5m', '15m', '1h', '4h', or '1d'"),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -656,12 +717,12 @@ async def trade_snapshot(
     window, by direct request ("Can snapshots of the trade be taken
     and stored for 1H and 15M as quick reference ... upon close
     snapshot for the trade showing the entry ... SL or TP ... with the
-    candles"). NOT a pre-rendered image stored at close time: a past
-    window's own OHLCV never changes, so re-fetching it live from the
-    exchange on each view genuinely IS "the snapshot" — no image-
-    rendering infra, no extra storage, no staleness to manage. The
-    frontend draws the actual candlestick chart from the real data
-    this returns.
+    candles"; later extended to the full 5M/15M/1H/4H/1D set). NOT a
+    pre-rendered image stored at close time: a past window's own OHLCV
+    never changes, so re-fetching it live from the exchange on each
+    view genuinely IS "the snapshot" — no image-rendering infra, no
+    extra storage, no staleness to manage. The frontend draws the
+    actual candlestick chart from the real data this returns.
 
     Only crypto trades (a real ccxt exchange id in broker_name) are
     supported — the only asset class any bot here currently trades
@@ -671,8 +732,8 @@ async def trade_snapshot(
     instead of a confusing ccxt error.
     """
     trade = await _get_owned_trade(trade_id, user, db)
-    if timeframe not in ("1h", "15m"):
-        raise HTTPException(status_code=400, detail="timeframe must be '1h' or '15m'")
+    if timeframe not in _SNAPSHOT_BAR_SECONDS:
+        raise HTTPException(status_code=400, detail=f"timeframe must be one of {', '.join(_SNAPSHOT_BAR_SECONDS)}")
     if not trade.entry_timestamp:
         raise HTTPException(status_code=409, detail="This trade has no entry timestamp yet — nothing to snapshot.")
 
@@ -684,15 +745,18 @@ async def trade_snapshot(
     # trade is visible, not just the trade itself) and a short window
     # AFTER exit (or now, for a still-ACTIVE trade) so the immediate
     # aftermath is visible too. Candle counts, not calendar time, are
-    # what actually matters for a readable chart — capped at 120 so
-    # this stays one real ccxt call, not an unbounded fetch.
-    bar_seconds = 3600 if timeframe == "1h" else 900
-    lookback_bars = 30
+    # what actually matters for a readable chart — capped well above
+    # lookback_bars so this stays one real ccxt call, not an unbounded
+    # fetch. 60 (was 30) by direct request ("Increase candles to 60 for
+    # the snapshot"); limit raised alongside it so a longer-held trade
+    # still isn't truncated against the bigger lookback.
+    bar_seconds = _SNAPSHOT_BAR_SECONDS[timeframe]
+    lookback_bars = 60
     since = trade.entry_timestamp - timedelta(seconds=bar_seconds * lookback_bars)
     end = (trade.exit_timestamp or datetime.utcnow()) + timedelta(seconds=bar_seconds * 6)
 
     try:
-        candles = await _snapshot_ingestion.fetch_historical_ccxt(exchange, trade.symbol, timeframe, limit=120, since=since)
+        candles = await _snapshot_ingestion.fetch_historical_ccxt(exchange, trade.symbol, timeframe, limit=200, since=since)
     except Exception as e:
         logger.warning("trade_snapshot_fetch_failed", trade_id=trade_id, exchange=exchange, symbol=trade.symbol, error=str(e))
         raise HTTPException(status_code=502, detail="Could not fetch chart data right now — try again shortly.")
@@ -708,11 +772,28 @@ async def trade_snapshot(
         "direction": trade.direction.value,
         "entry_price": trade.entry_price,
         "entry_timestamp": trade.entry_timestamp,
-        "stop_loss": trade.stop_loss,
-        "take_profit_1": trade.take_profit_1,
+        # The OPENING SL/TP1 — by direct request ("always show the
+        # opening SL, Entry and TPs ... the closing line will show
+        # what actually closed level"). stop_loss/take_profit_1 are
+        # mutable (a trailing stop, a manual edit via modify_targets
+        # can move them well past where the trade actually started —
+        # exactly what made an earlier trade's chart confusing: its
+        # current stop_loss had been trailed down to match its own
+        # exit price). initial_stop_loss/initial_take_profit_1 are the
+        # immutable values captured at entry; falls back to the
+        # current column for a trade that predates execution_engine.py
+        # populating these for bot trades (initial_* was NULL).
+        "stop_loss": trade.initial_stop_loss if trade.initial_stop_loss is not None else trade.stop_loss,
+        "take_profit_1": trade.initial_take_profit_1 if trade.initial_take_profit_1 is not None else trade.take_profit_1,
         "exit_price": trade.exit_price,
         "exit_timestamp": trade.exit_timestamp,
         "status": trade.status.value,
+        # By direct request ("include a reason summary that opens when
+        # clicked on the snapshot") — the same real reasoning_log
+        # TradeRow's own "Reason summary" fold already surfaces,
+        # exposed here too so the snapshot modal doesn't need a
+        # separate fetch for text already on the same Trade row.
+        "reasoning_log": trade.reasoning_log,
         "candles": [
             {"timestamp": c.timestamp.isoformat(), "open": c.open, "high": c.high, "low": c.low, "close": c.close}
             for c in candles

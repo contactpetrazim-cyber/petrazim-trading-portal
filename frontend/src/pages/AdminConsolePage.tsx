@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { ShieldAlert, Users, Link2, Percent, ArrowRight, Bot, Wallet } from 'lucide-react';
+import { ShieldAlert, Users, Link2, Percent, ArrowRight, Bot, Wallet, Zap } from 'lucide-react';
 import { FoldedCard } from '../components/FoldedCard';
 import { RoleBadge } from '../components/RoleBadge';
 import { RosterPanel } from '../components/RosterPanel';
@@ -132,6 +132,24 @@ export function AdminConsolePage() {
       .catch(() => setMasterBalanceError(true));
   }
 
+  // Master Leverage Control — same hard-override shape as Master Bot
+  // Control above, for leverage instead of balance — by direct request
+  // ("put a form to set leverage for Bot and manual - separately on
+  // the trader dashboard ... with a global override form in the
+  // Admin"). Overrides every bot's AND every manual trader's own
+  // leverage setting at once.
+  const [masterLeverage, setMasterLeverage] = useState<{ enabled: boolean; value: number; platform_default: number } | null>(null);
+  const [masterLeverageDraft, setMasterLeverageDraft] = useState<{ enabled: boolean; value: number } | null>(null);
+  const [masterLeverageError, setMasterLeverageError] = useState(false);
+  const [savingMasterLeverage, setSavingMasterLeverage] = useState(false);
+  function loadMasterLeverage() {
+    setMasterLeverageError(false);
+    apiFetch(`${API_URL}/bots/master-leverage`, { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error('master-leverage failed'))))
+      .then((d) => { setMasterLeverage(d); setMasterLeverageDraft({ enabled: d.enabled, value: d.value }); })
+      .catch(() => setMasterLeverageError(true));
+  }
+
   const isSuperAdmin = user?.role === 'super_admin';
 
   // By direct bug report, with screenshot ("Fix the continuous loading
@@ -198,6 +216,7 @@ export function AdminConsolePage() {
     loadAdminToggles();
     loadRiskDefaults();
     loadMasterBalance();
+    loadMasterLeverage();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
@@ -221,6 +240,29 @@ export function AdminConsolePage() {
       }
     } finally {
       setSavingMasterBalance(false);
+    }
+  }
+
+  async function saveMasterLeverage() {
+    if (!masterLeverageDraft) return;
+    if (masterLeverageDraft.enabled && !window.confirm(
+      `Turn ON the Master Leverage override? Every bot's AND every manual trader's own leverage will immediately become ${masterLeverageDraft.value}x, platform-wide, regardless of what any bot's/trader's own setting says.`
+    )) return;
+    setSavingMasterLeverage(true);
+    try {
+      const res = await apiFetch(`${API_URL}/bots/master-leverage`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(masterLeverageDraft),
+        timeoutMs: 60_000,
+      });
+      if (res.ok) {
+        const d = await res.json();
+        setMasterLeverage(d);
+        setMasterLeverageDraft({ enabled: d.enabled, value: d.value });
+      }
+    } finally {
+      setSavingMasterLeverage(false);
     }
   }
 
@@ -670,6 +712,76 @@ export function AdminConsolePage() {
                 className={`px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50 ${dark ? 'bg-smc-accent' : 'bg-corporate-hero'}`}
               >
                 {savingMasterBalance ? 'Saving…' : 'Save master control'}
+              </button>
+            </div>
+          )}
+        </FoldedCard>
+      )}
+
+      {/* Master Leverage Control — by direct request ("put a form to
+          set leverage for Bot and manual - separately on the trader
+          dashboard ... with a global override form in the Admin").
+          Each bot's own Leverage lives on its own Bots page card, and
+          each trader's own Manual Trading leverage lives on their Risk
+          Settings card; this is the ONE switch that, when on,
+          overrides every single one of them at once. */}
+      {isSuperAdmin && (
+        <FoldedCard
+          title="Master Leverage Control"
+          summary={
+            masterLeverage === null ? (masterLeverageError ? 'Could not load' : 'Loading…')
+              : masterLeverage.enabled ? `Override ON — ${masterLeverage.value}x for every bot and trader` : "Off — each bot/trader uses its own setting"
+          }
+          icon={<Zap size={18} />} accent="#f59e0b" dark={dark} defaultOpen
+        >
+          <p className="text-xs text-gray-500 mb-3">
+            Leverage used when sizing/executing both bot-driven and manual trades. On: this ONE number supersedes
+            every bot's own Leverage AND every trader's own Manual Trading leverage, platform-wide. Off: each
+            resolves to its own setting, or the platform default ({masterLeverage?.platform_default ?? '—'}x) when
+            it hasn't set one.
+          </p>
+          {!masterLeverageDraft && (masterLeverageError
+            ? <button type="button" onClick={loadMasterLeverage} className="text-xs text-red-500 underline">Could not load — try again</button>
+            : <span className="text-xs text-gray-500">Loading…</span>)}
+          {masterLeverageDraft && (
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setMasterLeverageDraft({ ...masterLeverageDraft, enabled: true })}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors border ${
+                    masterLeverageDraft.enabled
+                      ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
+                      : dark ? 'bg-smc-dark text-gray-400 border-smc-border hover:text-white' : 'bg-gray-50 text-gray-500 border-corporate-bg hover:text-corporate-text-on-bg'
+                  }`}
+                >
+                  On
+                </button>
+                <button
+                  onClick={() => setMasterLeverageDraft({ ...masterLeverageDraft, enabled: false })}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors border ${
+                    !masterLeverageDraft.enabled
+                      ? 'bg-amber-500/20 text-amber-400 border-amber-500/40'
+                      : dark ? 'bg-smc-dark text-gray-400 border-smc-border hover:text-white' : 'bg-gray-50 text-gray-500 border-corporate-bg hover:text-corporate-text-on-bg'
+                  }`}
+                >
+                  Off
+                </button>
+              </div>
+              <label className="text-xs text-gray-400">
+                Override value (x)
+                <input
+                  type="number" step="1" min="1" max="125"
+                  value={masterLeverageDraft.value}
+                  onChange={(e) => setMasterLeverageDraft({ ...masterLeverageDraft, value: Number(e.target.value) })}
+                  className={`w-full mt-1 border rounded-lg px-2 py-1.5 text-sm ${dark ? 'bg-smc-dark border-smc-border text-white' : 'bg-white border-corporate-bg text-corporate-text-on-bg'}`}
+                />
+              </label>
+              <button
+                onClick={saveMasterLeverage}
+                disabled={savingMasterLeverage}
+                className={`px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50 ${dark ? 'bg-smc-accent' : 'bg-corporate-hero'}`}
+              >
+                {savingMasterLeverage ? 'Saving…' : 'Save master control'}
               </button>
             </div>
           )}

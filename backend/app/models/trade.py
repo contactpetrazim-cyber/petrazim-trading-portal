@@ -238,5 +238,15 @@ class ManualTradingSettings(Base):
     max_concurrent_trades = Column(Integer, nullable=False, default=5)
     max_portfolio_exposure = Column(Float, nullable=False, default=5.0)
     min_rr_ratio = Column(Float, nullable=False, default=1.5)
+    # This trader's own leverage override for MANUAL trading — by
+    # direct request ("put a form to set leverage for Bot and manual -
+    # separately on the trader dashboard ... with a global override
+    # form in the Admin"). Independent of use_global_defaults above
+    # (leverage isn't part of GLOBAL_RISK_DEFAULTS_KEY's own soft
+    # fallback set) — null means "use the platform default" regardless
+    # of which risk-settings mode this trader is on. Same Admin-master-
+    # always-wins precedence as BotConfig.leverage; see
+    # services/capital_adequacy.py's get_effective_leverage.
+    leverage = Column(Float, nullable=True)
 
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

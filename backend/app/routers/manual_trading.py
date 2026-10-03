@@ -181,10 +181,20 @@ class SettingsResponse(BaseModel):
     effective_max_concurrent_trades: int
     effective_max_portfolio_exposure: float
     effective_min_rr_ratio: float
+    # Manual trading's own leverage override — by direct request ("put
+    # a form to set leverage for Bot and manual - separately on the
+    # trader dashboard ... with a global override form in the Admin").
+    # null = using the platform default/Admin master; see
+    # capital_adequacy.py's get_effective_leverage for resolution order.
+    leverage: Optional[float] = None
+    effective_leverage: float = 0.0
 
 
 async def _to_response(db: AsyncSession, row: ManualTradingSettings) -> SettingsResponse:
+    from app.services.capital_adequacy import get_effective_leverage
+
     eff = await effective_limits(db, row)
+    effective_leverage = await get_effective_leverage(db, bot_id=None, manual_leverage=row.leverage)
     return SettingsResponse(
         use_global_defaults=row.use_global_defaults, trading_mode=row.trading_mode.value,
         paper_trading_enabled=row.paper_trading_enabled,
@@ -194,6 +204,7 @@ async def _to_response(db: AsyncSession, row: ManualTradingSettings) -> Settings
         effective_risk_per_trade=eff.risk_per_trade, effective_max_daily_trades=eff.max_daily_trades,
         effective_max_concurrent_trades=eff.max_concurrent_trades,
         effective_max_portfolio_exposure=eff.max_portfolio_exposure, effective_min_rr_ratio=eff.min_rr_ratio,
+        leverage=row.leverage, effective_leverage=effective_leverage,
     )
 
 
@@ -221,6 +232,7 @@ class SettingsUpdateRequest(BaseModel):
     max_concurrent_trades: Optional[int] = Field(default=None, ge=1)
     max_portfolio_exposure: Optional[float] = Field(default=None, gt=0, le=100)
     min_rr_ratio: Optional[float] = Field(default=None, ge=0)
+    leverage: Optional[float] = Field(default=None, gt=0, le=125)
 
 
 @router.patch("/settings", response_model=SettingsResponse)
@@ -369,6 +381,21 @@ async def place_manual_order(
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
 
+        # Capital adequacy gate — by critical audit request. Distinct
+        # from check_manual_trade_risk above (which sums RISK PERCENT,
+        # not notional) — see capital_adequacy.py's own module
+        # docstring. Uses the trader's own stated account_equity
+        # directly (a real input on this order ticket) rather than
+        # resolving a bot's effective balance, since there is no bot.
+        from app.services.capital_adequacy import check_capital_adequacy
+        capital_check = await check_capital_adequacy(
+            db, user.id, None, lot_size, req.entry_price,
+            effective_balance_override=req.account_equity,
+            manual_leverage=settings_row.leverage,
+        )
+        if not capital_check.ok:
+            raise HTTPException(status_code=409, detail=capital_check.reason)
+
         # Trade.trade_id is String(50) — the previous format (MANUAL_ + a
         # full user.id UUID + timestamp + a random suffix) ran to 66
         # characters, which asyncpg rejects outright
@@ -460,6 +487,9 @@ async def place_manual_order(
             # full priority chain (bot credential > trader connection >
             # global key).
             "user_id": user.id,
+            # Same resolved leverage the capital check right above just
+            # used — see execution_engine.py's own set_leverage comment.
+            "leverage": capital_check.effective_leverage,
         }, db, paper=paper)
 
         if result.get("success"):
