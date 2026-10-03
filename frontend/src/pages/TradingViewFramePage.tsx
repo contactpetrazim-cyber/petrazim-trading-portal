@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Sun, Moon, Save, Trash2, FolderOpen, X, TrendingUp, Target, LineChart, Search, Globe2, MonitorSmartphone } from 'lucide-react';
 import { TradingViewChart } from '../components/TradingViewChart';
 import { CandleColorPicker } from '../components/CandleColorPicker';
@@ -11,7 +11,7 @@ import { OpenInTradingView } from '../components/OpenInTradingView';
 import { PetrazimLogo } from '../components/PetrazimLogo';
 import { FoldedCard } from '../components/FoldedCard';
 import { PairsPanel } from '../components/PairsPanel';
-import { useQuickPairsStore, pairFromTradeSymbol } from '../hooks/useQuickPairs';
+import { useQuickPairsStore, pairFromTradeSymbol, pairFromResult } from '../hooks/useQuickPairs';
 import { useAuth } from '../hooks/useAuth';
 import { apiFetch } from '../components/AccessExpiredGate';
 import { tradesApi } from '../services/api';
@@ -69,10 +69,41 @@ interface LayoutSummary {
 export function TradingViewFramePage() {
   const { token } = useAuth();
   const navigate = useNavigate();
+  const [params] = useSearchParams();
   const { colors, chartStyle, hydrated: colorsHydrated, applyLocal, applyGlobal, resetLocal, resetGlobal } = useEffectiveChartColors();
-  const { pairs } = useQuickPairsStore();
-  const [selectedTv, setSelectedTv] = useState<string>(pairs[0]?.tv);
-  const selectedPair = pairs.find((p) => p.tv === selectedTv) ?? pairs[0];
+  const { pairs, addPair } = useQuickPairsStore();
+  // `?tv=EXCHANGE:TICKER&trade_id=...&onchart=1` — set by TradeRow's
+  // and PositionManager's own "On Chart" links, by direct bug report
+  // ("the On Chart does not go directly to the actual On Chart page
+  // and price chart but to the manual trade chart first - it should
+  // go straight, so user can view ongoing position"): those links used
+  // to point at Manual Trading's full order-ticket page instead of
+  // here (this page's own dedicated On Chart toggle, with no order
+  // form competing for space) purely because this page had no way to
+  // be deep-linked to a specific symbol at all before now. Same
+  // `?tv=` parsing ManualTradingPage's own preselectPair already does
+  // — built straight from the trusted `tv` string itself rather than
+  // re-deriving the exchange, for the same reason that page's comment
+  // gives. `trade_id` is read by loadOpenPosition below (see its own
+  // comment) — same exact-match fix ManualTradingPage got, for the
+  // same reason: a bare symbol can silently resolve to the wrong
+  // trade, or none, when more than one is open on it.
+  const preselectTv = params.get('tv');
+  const preselectTradeId = params.get('trade_id');
+  const autoOpenOnChart = params.get('onchart') === '1';
+  const preselectPair = (() => {
+    if (!preselectTv) return null;
+    const [exch, ...rest] = preselectTv.split(':');
+    const ticker = rest.join(':');
+    if (!exch || !ticker) return null;
+    return pairFromResult({ symbol: ticker, exchange: exch });
+  })();
+  useEffect(() => {
+    if (preselectPair && !pairs.some((p) => p.tv === preselectPair.tv)) addPair(preselectPair);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preselectPair?.tv]);
+  const [selectedTv, setSelectedTv] = useState<string>(() => preselectPair?.tv ?? pairs[0]?.tv);
+  const selectedPair = pairs.find((p) => p.tv === selectedTv) ?? preselectPair ?? pairs[0];
   const symbol = {
     label: selectedPair.label,
     value: selectedPair.tv,
@@ -150,14 +181,23 @@ export function TradingViewFramePage() {
     });
     navigate(`/trade/manual?${params.toString()}`);
   }
-  const [onChartOpen, setOnChartOpen] = useState(false);
+  // Auto-opens when `?onchart=1` is on the URL — see preselectTv's own
+  // comment. Only forces it open ONCE on arrival (the trader can still
+  // close it manually afterward without it springing back open on the
+  // next 8s poll).
+  const [onChartOpen, setOnChartOpen] = useState(autoOpenOnChart);
   const loadOpenPosition = useCallback(() => {
+    // See preselectTradeId's own comment — matches the ONE specific
+    // trade a `?trade_id=` link pointed at, instead of guessing by
+    // symbol (still requires the symbol to also match).
+    const matches = (t: Trade) =>
+      t.entry_price != null && (preselectTradeId ? t.trade_id === preselectTradeId && t.symbol === symbol.tradeSymbol : t.symbol === symbol.tradeSymbol);
     return Promise.all([
       tradesApi.getActiveTrades(),
       tradesApi.getTrades({ status: 'pending' }),
     ]).then(([active, pending]) => {
-      setOpenPositionTrade(active.find((t) => t.symbol === symbol.tradeSymbol && t.entry_price != null) ?? null);
-      setPendingOrderTrade(pending.find((t) => t.symbol === symbol.tradeSymbol && t.entry_price != null) ?? null);
+      setOpenPositionTrade(active.find(matches) ?? null);
+      setPendingOrderTrade(pending.find(matches) ?? null);
       const bySymbol = new Map<string, Trade>();
       active.filter((t) => t.symbol !== symbol.tradeSymbol && t.entry_price != null).forEach((t) => bySymbol.set(t.symbol, t));
       pending.filter((t) => t.symbol !== symbol.tradeSymbol && t.entry_price != null).forEach((t) => { if (!bySymbol.has(t.symbol)) bySymbol.set(t.symbol, t); });
@@ -165,7 +205,7 @@ export function TradingViewFramePage() {
     }).catch(() => { setOpenPositionTrade(null); setPendingOrderTrade(null); setOtherOpenTrades([]); })
       .finally(() => setPositionLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [symbol.tradeSymbol, token]);
+  }, [symbol.tradeSymbol, token, preselectTradeId]);
   useEffect(() => {
     if (!token) return;
     loadOpenPosition();

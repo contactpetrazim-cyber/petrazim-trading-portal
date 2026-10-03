@@ -99,7 +99,7 @@ export function TradeRow({ trade, onApprove, onReject, onCancel, onChanged, onAr
     <div className={`border rounded-lg p-4 transition-colors ${
       dark ? 'bg-smc-card border-smc-border hover:border-smc-accent/30' : 'bg-white border-corporate-bg hover:border-corporate-hero/30'
     }`}>
-      <div className="flex items-center justify-between flex-wrap gap-y-2">
+      <div className="flex items-start justify-between flex-wrap gap-y-2">
         <div className="flex items-center gap-4 flex-wrap">
           {onToggleSelect && (
             <button
@@ -163,43 +163,84 @@ export function TradeRow({ trade, onApprove, onReject, onCancel, onChanged, onAr
           </div>
         </div>
 
-        <div className="flex items-center gap-4 flex-wrap justify-end">
-          {/* Status */}
-          <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium ${statusColors[trade.status] || statusColors.pending}`}>
-            <StatusIcon />
-            {trade.status.toUpperCase()}
+        <div className="flex flex-col items-end gap-2">
+          {/* Time — relative, plus the exact date and time underneath,
+              by direct request ("include date and time ... in the
+              trades form"). Pinned to the TOP of this column, level
+              with the symbol/bot-badge line on the left — by direct
+              follow-up request ("the 'about 8 hours ago' should move
+              up to the first horizontal line ... Make sure
+              arrangements on all cards are always aesthetic and well
+              aligned"): it used to sit down with Status/P&L, which
+              itself only existed to keep it off the action-button row
+              below (see that row's own comment) — pulling it all the
+              way up to its own top-aligned slot, matching the card's
+              own `items-start` on the outer row, reads as a clean
+              header/timestamp pairing instead of a mid-card
+              afterthought, and leaves Status/P&L room to breathe on
+              their own line underneath. */}
+          <div className="text-xs text-gray-500 text-right shrink-0">
+            <div className="whitespace-nowrap">{formatDistanceToNow(new Date(trade.created_at), { addSuffix: true })}</div>
+            <div className="text-[10px] text-gray-400 font-mono mt-0.5 whitespace-nowrap">{new Date(trade.created_at).toLocaleString()}</div>
           </div>
 
-          {/* P&L — realized once closed, live unrealized while active */}
-          {trade.status === 'closed' && (
-            <div className={`text-right font-mono font-bold ${outcomeColorCls}`}>
-              {trade.realized_pnl > 0 ? '+' : ''}{trade.realized_pnl.toFixed(2)}
-              <span className="block text-[10px] font-normal">{outcomeLabel}</span>
+          <div className="flex items-center gap-4 flex-wrap justify-end">
+            {/* Status */}
+            <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium ${statusColors[trade.status] || statusColors.pending}`}>
+              <StatusIcon />
+              {trade.status.toUpperCase()}
             </div>
-          )}
-          {trade.status === 'active' && (
-            <div className={`text-right font-mono font-bold ${trade.unrealized_pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-              {trade.unrealized_pnl >= 0 ? '+' : ''}{trade.unrealized_pnl.toFixed(2)}
-              <span className="block text-[10px] font-normal text-gray-500">unrealized</span>
-            </div>
-          )}
 
+            {/* P&L — realized once closed, live unrealized while active */}
+            {trade.status === 'closed' && (
+              <div className={`text-right font-mono font-bold ${outcomeColorCls}`}>
+                {trade.realized_pnl > 0 ? '+' : ''}{trade.realized_pnl.toFixed(2)}
+                <span className="block text-[10px] font-normal">{outcomeLabel}</span>
+              </div>
+            )}
+            {trade.status === 'active' && (
+              <div className={`text-right font-mono font-bold ${trade.unrealized_pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                {trade.unrealized_pnl >= 0 ? '+' : ''}{trade.unrealized_pnl.toFixed(2)}
+                <span className="block text-[10px] font-normal text-gray-500">unrealized</span>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Action buttons — own dedicated row, by direct request
+          ("re-arrange all the link buttons - to be on a single
+          horizontal line .... move the delete button to the same
+          [row] line as archive and on chart etc"). Previously these
+          shared one flex-wrap row with Status/P&L/Time, which — on a
+          card this width, with every action present at once (Manage +
+          On Chart + Archive + Delete) — routinely ran out of room and
+          wrapped Delete onto its own line below the other three,
+          confirmed live via screenshot. Giving this row the full card
+          width to itself, with nothing else competing for space,
+          keeps every action on one line for any status/action
+          combination this card actually renders. */}
+      {(trade.requires_approval && trade.status === 'pending'
+        || (trade.strategy_type === 'manual' && (trade.status === 'pending' || trade.status === 'active'))
+        || trade.status === 'active' || trade.status === 'pending'
+        || onArchive || onDelete) && (
+        <div className="flex items-center gap-2 flex-wrap mt-3 pt-3 border-t border-dashed border-gray-200 dark:border-smc-border">
           {/* Approval Actions */}
           {trade.requires_approval && trade.status === 'pending' && (
-            <div className="flex items-center gap-2">
-              <button 
+            <>
+              <button
                 onClick={() => onApprove?.(trade.trade_id)}
                 className="px-3 py-1.5 bg-emerald-500/20 text-emerald-400 rounded-lg text-sm font-medium hover:bg-emerald-500/30 transition-colors"
               >
                 Approve
               </button>
-              <button 
+              <button
                 onClick={() => onReject?.(trade.trade_id)}
                 className="px-3 py-1.5 bg-red-500/20 text-red-400 rounded-lg text-sm font-medium hover:bg-red-500/30 transition-colors"
               >
                 Reject
               </button>
-            </div>
+            </>
           )}
 
           {/* Manual cancel/close — by direct request ("partial or
@@ -241,17 +282,22 @@ export function TradeRow({ trade, onApprove, onReject, onCancel, onChanged, onAr
           {/* On Chart — quick one-click view of this specific ongoing
               trade, right on the card itself, by direct request ("put
               a 'On Chart' link on all active trades cards to allow
-              quick view of the ongoing trade"). Previously this same
-              chart was only reachable two clicks deep (Manage ->
-              PositionManager's own "Position Chart" link) — same
-              destination, same `tv`+`trade_id` link shape as that one
-              (see its own comment for why `trade_id` rides along), now
-              also surfaced directly here so a trader scanning a list
-              of cards doesn't have to expand one just to look at its
-              chart. */}
+              quick view of the ongoing trade"). Goes straight to the
+              real On Chart view (TradingViewFramePage, the same chart
+              Manual Trading's own "On Chart" toggle opens) rather than
+              Manual Trading's full order-ticket page — by direct
+              follow-up bug report ("the On Chart does not go directly
+              to the actual On Chart page and price chart but to the
+              manual trade chart first - it should go straight, so
+              user can view ongoing position"): landing on the order
+              form first, with the trader having to additionally click
+              a toggle to even see the chart, defeated the point of a
+              "quick view" link. `onchart=1` tells that page to open
+              its On Chart modal immediately on load — see its own
+              preselectTradeId/autoOpenOnChart comments. */}
           {(trade.status === 'active' || trade.status === 'pending') && (
             <Link
-              to={`/trade/manual?tv=${encodeURIComponent(pairFromTradeSymbol(trade.symbol, trade.broker_name).tv)}&trade_id=${encodeURIComponent(trade.trade_id)}`}
+              to={`/tradingview?tv=${encodeURIComponent(pairFromTradeSymbol(trade.symbol, trade.broker_name).tv)}&trade_id=${encodeURIComponent(trade.trade_id)}&onchart=1`}
               target="_blank" rel="noopener noreferrer"
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-violet-500/15 text-violet-400 hover:bg-violet-500/25 transition-colors"
             >
@@ -288,22 +334,8 @@ export function TradeRow({ trade, onApprove, onReject, onCancel, onChanged, onAr
               {trade.is_deleted ? 'Restore' : 'Delete'}
             </button>
           )}
-
-          {/* Time — relative, plus the exact date and time underneath,
-              by direct request ("include date and time ... in the
-              trades form"). Used to be `hidden lg:block` (invisible
-              below desktop width) — by direct follow-up request ("each
-              trade card should have a date and time info - maybe small
-              fonts ...but must be present"), now always rendered; only
-              the relative line's width shrinks via `whitespace-nowrap`
-              so it never wraps the row at narrow widths, and the exact
-              timestamp stays legible at 10px rather than disappearing. */}
-          <div className="text-xs text-gray-500 text-right shrink-0">
-            <div className="whitespace-nowrap">{formatDistanceToNow(new Date(trade.created_at), { addSuffix: true })}</div>
-            <div className="text-[10px] text-gray-400 font-mono mt-0.5 whitespace-nowrap">{new Date(trade.created_at).toLocaleString()}</div>
-          </div>
         </div>
-      </div>
+      )}
 
       {/* Reason summary — by direct request ("each of the bot trades
           should have a reason summary - default is fold until
