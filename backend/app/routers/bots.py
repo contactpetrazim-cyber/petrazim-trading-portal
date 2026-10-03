@@ -472,28 +472,55 @@ async def bot_performance(
     bot_id: str, db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access)
 ):
     """Get real performance metrics for a specific bot, computed from
-    its own closed trades — this used to be a stub that always
-    returned zeros regardless of actual trade history."""
+    its own trade history — this used to be a stub that always
+    returned zeros regardless of actual trade history.
+
+    `total_trades` — real compliance bug, found via direct audit
+    request ("resolve the bot summary trade 2 Vs the semi auto trades
+    3/10 ... why the disparity ... does the bot count closed or active
+    trades ... does the semi auto count closed or active ... make
+    consistent across"). This used to count ONLY status == CLOSED,
+    while the Sub-Auto card right next to it on the same Bots page
+    (BotConfig.sub_auto_trades_executed, incremented in
+    execution_engine.py's process_signal the moment a trade actually
+    EXECUTES, regardless of whether it's closed yet) counts every
+    placed trade that isn't cancelled/errored — a genuinely different,
+    and for a SAFETY CAP, the only correct scope: a cap meant to limit
+    how many trades a bot is allowed to PLACE autonomously has to be
+    enforced at execution time, not wait for a trade to close, or a
+    bot could have an unbounded number of trades open simultaneously
+    before any of them ever closed. Rather than weaken that cap's own
+    counting to match, `total_trades` here now counts the SAME scope
+    (CLOSED + ACTIVE + PENDING, excluding CANCELLED/ERROR and deleted)
+    so the two numbers agree for every bot. win_rate/profit_factor/
+    average_r are still computed from the CLOSED subset only — an
+    open position has no realized outcome yet, so including it in
+    those would be meaningless, not just inconsistent."""
     await _get_owned_bot(bot_id, user, db)
 
-    query = select(Trade).where(Trade.bot_id == bot_id, Trade.status == TradeStatus.CLOSED)
+    query = select(Trade).where(
+        Trade.bot_id == bot_id,
+        Trade.status.notin_([TradeStatus.CANCELLED, TradeStatus.ERROR]),
+        Trade.is_deleted == False,  # noqa: E712
+    )
     result = await db.execute(query)
     trades = result.scalars().all()
 
     total = len(trades)
-    if total == 0:
-        return {"bot_id": bot_id, "total_trades": 0, "win_rate": 0.0, "profit_factor": 0.0, "average_r": 0.0}
+    closed = [t for t in trades if t.status == TradeStatus.CLOSED]
+    if not closed:
+        return {"bot_id": bot_id, "total_trades": total, "win_rate": 0.0, "profit_factor": 0.0, "average_r": 0.0}
 
-    wins = [t for t in trades if (t.realized_pnl or 0) > 0]
-    losses = [t for t in trades if (t.realized_pnl or 0) < 0]
+    wins = [t for t in closed if (t.realized_pnl or 0) > 0]
+    losses = [t for t in closed if (t.realized_pnl or 0) < 0]
     gross_profit = sum(t.realized_pnl or 0 for t in wins)
     gross_loss = abs(sum(t.realized_pnl or 0 for t in losses))
-    r_multiples = [t.r_multiple for t in trades if t.r_multiple is not None]
+    r_multiples = [t.r_multiple for t in closed if t.r_multiple is not None]
 
     return {
         "bot_id": bot_id,
         "total_trades": total,
-        "win_rate": round(len(wins) / total * 100, 2),
+        "win_rate": round(len(wins) / len(closed) * 100, 2),
         "profit_factor": round(gross_profit / gross_loss, 2) if gross_loss > 0 else 0.0,
         "average_r": round(sum(r_multiples) / len(r_multiples), 2) if r_multiples else 0.0,
     }
