@@ -136,6 +136,14 @@ export interface TradeSnapshot {
   entry_timestamp: string | null;
   stop_loss: number;
   take_profit_1: number | null;
+  /** Further multi-target levels on a "30/40/30 allocation" strategy —
+   * by direct report (a trade's real exit landed well past TP1 with
+   * no line explaining why; it had actually run through TP2 and
+   * closed exactly at TP3). Current values, not an immutable opening
+   * snapshot like stop_loss/take_profit_1 above — no initial_take_
+   * profit_2/3 columns exist yet. */
+  take_profit_2: number | null;
+  take_profit_3: number | null;
   exit_price: number | null;
   exit_timestamp: string | null;
   status: string;
