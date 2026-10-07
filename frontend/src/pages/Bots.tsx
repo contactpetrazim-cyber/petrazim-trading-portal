@@ -74,6 +74,10 @@ const BOT_CATALOG = [
     id: 'bot_5_jeafx', key: 'bot_5', name: 'SMC BOT',
     summary: 'Highly mechanical liquidity-purge and refined supply/demand entries with strict confirmation criteria — highest target R:R (4:1-6:1).',
   },
+  {
+    id: 'bot_6_smc_v2', key: 'bot_6', name: 'SMC v2',
+    summary: 'Same zone/purge/confirmation setup as SMC BOT, but direction comes from HF Order Block Reversal + FVG Expansion’s own calls agreeing — by direct request, after the original’s sweep-based direction was found to miss more often.',
+  },
 ];
 
 export function BotsPage() {
@@ -296,7 +300,7 @@ export function BotsPage() {
     try {
       await botsApi.createBot({
         bot_id: uniqueId,
-        strategy_key: (catalogEntry?.key ?? base) as 'bot_1' | 'bot_2' | 'bot_3' | 'bot_4' | 'bot_5',
+        strategy_key: (catalogEntry?.key ?? base) as 'bot_1' | 'bot_2' | 'bot_3' | 'bot_4' | 'bot_5' | 'bot_6',
         bot_name: newBot.bot_name.trim(),
         bot_type: newBot.bot_type,
         symbols: newBot.symbols,
