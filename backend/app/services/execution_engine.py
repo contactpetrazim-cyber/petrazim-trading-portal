@@ -188,7 +188,7 @@ class ExecutionEngine:
         # reject the existing one (or it closes).
         if db is not None:
             from sqlalchemy import select as _dedup_select
-            from app.models.trade import Trade, TradeStatus
+            from app.models.trade import Trade, TradeStatus, TradeDirection
             existing = (await db.execute(
                 _dedup_select(Trade.id).where(
                     Trade.bot_id == signal.bot_id,
@@ -208,6 +208,68 @@ class ExecutionEngine:
                     "success": True, "status": "deduped",
                     "message": f"Skipped — {signal.bot_id} already has a pending or active trade on {signal.symbol}.",
                 }
+
+            # Don't repeat a setup that JUST lost — by direct report,
+            # with real duplicated-trade examples ("the exact same
+            # setup re-fired minutes after the first one closed ...
+            # does this happen to other bots too?" — confirmed yes,
+            # 8 separate clusters across 3 bots, one 5 trades deep in
+            # 13 minutes) and direct follow-up instruction ("Check if
+            # the trade is a win first - if win - it may repeat the
+            # FVG has multiple successes ... but if a loss there is no
+            # reason to repeat the trade position or setup ... look for
+            # new optimal levels but the win set up was the best then
+            # it can re-use ... if it's a loss don't repeat and make
+            # the same mistakes").
+            #
+            # The dedup check right above only ever covers PENDING/
+            # ACTIVE — the moment a trade CLOSES, that protection clears,
+            # and market_scanner.py's own strategy re-detects the SAME
+            # still-valid chart structure (an FVG/BOS zone nothing has
+            # invalidated yet) as a brand-new signal, with the exact
+            # same entry/SL computed from the exact same candles. This
+            # closes that gap: if THIS signal's entry/SL match a recent
+            # CLOSED trade on this same bot+symbol+direction closely
+            # enough to be "the same setup" (within 0.05% — real floating
+            # -point noise between scans, not a materially different
+            # level), and that trade was a real LOSS (realized_pnl < 0;
+            # break-even and wins both pass through untouched), skip it.
+            # A signal with a genuinely DIFFERENT entry/SL (the scanner
+            # found a more optimal level on this cycle) never matches
+            # the tolerance check at all, so it is never blocked here —
+            # exactly the "look for new optimal levels ... if no optimal
+            # [found], try the same levels provided the previous trade
+            # was a win only" rule asked for, with no separate "is this
+            # more optimal" comparison needed: a different level IS a
+            # different setup, and only an UNCHANGED level (no more
+            # optimal one found) ever reaches this win/loss check at all.
+            direction_enum = TradeDirection.LONG if signal.direction == "long" else TradeDirection.SHORT
+            price_tolerance = 0.0005  # 0.05%
+            recent_same_setup = (await db.execute(
+                _dedup_select(Trade).where(
+                    Trade.bot_id == signal.bot_id,
+                    Trade.symbol == signal.symbol,
+                    Trade.direction == direction_enum,
+                    Trade.status == TradeStatus.CLOSED,
+                    Trade.is_deleted == False,  # noqa: E712
+                ).order_by(Trade.exit_timestamp.desc()).limit(5)
+            )).scalars().all()
+            for past in recent_same_setup:
+                if past.entry_price is None or past.stop_loss is None:
+                    continue
+                entry_close = abs(past.entry_price - signal.entry_price) <= signal.entry_price * price_tolerance
+                sl_close = abs(past.stop_loss - signal.stop_loss) <= signal.stop_loss * price_tolerance
+                if entry_close and sl_close:
+                    if (past.realized_pnl or 0) < 0:
+                        logger.info(
+                            "market_scan_signal_repeat_loss_blocked",
+                            bot_id=signal.bot_id, symbol=signal.symbol, past_trade_id=past.trade_id,
+                        )
+                        return {
+                            "success": True, "status": "repeat_loss_blocked",
+                            "message": f"Skipped — {signal.bot_id} already lost on this exact setup ({past.trade_id}); not repeating it.",
+                        }
+                    break  # same setup, but it won/broke even last time — fine to re-trade, stop checking
 
             # Per-bot daily/concurrent caps — by direct bug report ("how
             # can I have 17 executed when the global limit is 10").
