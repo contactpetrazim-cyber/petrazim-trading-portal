@@ -125,6 +125,11 @@ export function BotsPage() {
   // form in the Admin").
   const [masterLeverage, setMasterLeverage] = useState<{ enabled: boolean; value: number; platform_default: number } | null>(null);
   useEffect(() => { botsApi.getMasterLeverage().then(setMasterLeverage).catch(() => {}); }, []);
+  // Margin auto-switch master switch — see botsApi.getMarginAutoSwitchMode's
+  // own comment. A bot's own margin_mode dropdown below does nothing
+  // unless this is also on.
+  const [marginAutoSwitchMode, setMarginAutoSwitchMode] = useState<{ enabled: boolean } | null>(null);
+  useEffect(() => { botsApi.getMarginAutoSwitchMode().then(setMarginAutoSwitchMode).catch(() => {}); }, []);
   function effectiveLeverage(bot: BotConfig): number {
     if (masterLeverage?.enabled) return masterLeverage.value;
     if (bot.leverage != null) return bot.leverage;
@@ -221,6 +226,7 @@ export function BotsPage() {
       use_trailing_stop: bot.use_trailing_stop,
       account_balance_usd: bot.account_balance_usd,
       leverage: bot.leverage,
+      margin_mode: bot.margin_mode ?? 'dedicated',
       // Editable instrument pairs — by direct request ("create an
       // option to edit the instrument pairs of each bot"). The
       // backend's own PATCH /bots/{id}/metrics already accepted
@@ -657,6 +663,27 @@ export function BotsPage() {
                             onChange={(e) => setEditing({ ...editing, leverage: Number(e.target.value) })}
                             className={inputCls}
                           />
+                        )}
+                      </label>
+                      {/* Margin auto-switch — by direct request ("there
+                          should be a dedicated Vs Auto margin account
+                          setting for bots and manual and also a master
+                          switch in the Admin portal"). Does nothing
+                          unless the Admin's master switch is also on. */}
+                      <label className="text-xs text-gray-400 col-span-2">
+                        Margin Account
+                        <select
+                          value={editing.margin_mode ?? 'dedicated'}
+                          onChange={(e) => setEditing({ ...editing, margin_mode: e.target.value as 'dedicated' | 'auto_switch' })}
+                          className={inputCls}
+                        >
+                          <option value="dedicated">Dedicated — this bot's own account only</option>
+                          <option value="auto_switch">Auto-switch — fall back to another funded exchange if underfunded</option>
+                        </select>
+                        {editing.margin_mode === 'auto_switch' && !marginAutoSwitchMode?.enabled && (
+                          <div className={`mt-1 px-3 py-2 rounded-lg text-xs ${dark ? 'bg-amber-500/10 text-amber-400' : 'bg-amber-50 text-amber-700'}`}>
+                            The Admin's master switch for margin auto-switch is currently off — this bot won't actually switch accounts until an Admin turns it on.
+                          </div>
                         )}
                       </label>
                       <label className="text-xs text-gray-400">

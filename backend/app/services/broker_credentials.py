@@ -87,6 +87,26 @@ async def get_credential(db: AsyncSession, bot_id: str, exchange: str) -> Option
     return result.scalar_one_or_none()
 
 
+async def list_credentials_for_bot(db: AsyncSession, bot_id: str) -> list[BotBrokerCredential]:
+    """Every active credential this bot has, across exchanges (and,
+    should more than one ever exist for the SAME exchange, every one of
+    those too) — the candidate pool services/margin_switch_engine.py
+    picks from when this bot's dedicated account is underfunded. Today
+    there's exactly one active row per (bot_id, exchange) in practice
+    (confirmed live), so this is effectively "this bot's other
+    exchanges" — written as a plain list rather than reusing
+    get_credential's single-row assumption so it keeps working exactly
+    the same if a bot ever does get more than one sub-account on the
+    same exchange."""
+    result = await db.execute(
+        select(BotBrokerCredential).where(
+            BotBrokerCredential.bot_id == bot_id,
+            BotBrokerCredential.is_active == True,  # noqa: E712
+        )
+    )
+    return list(result.scalars().all())
+
+
 async def build_broker_client(db: AsyncSession, bot_id: str, exchange: str):
     """
     Returns a broker client instance scoped to this bot's own

@@ -218,6 +218,14 @@ export const botsApi = {
     api.get<{ enabled: boolean; value: number; platform_default: number }>('/bots/master-leverage').then(r => r.data),
   setMasterLeverage: (update: { enabled: boolean; value: number }) =>
     api.patch<{ enabled: boolean; value: number; platform_default: number }>('/bots/master-leverage', update).then(r => r.data),
+  // Margin auto-switch master switch — by direct request ("there
+  // should be a dedicated Vs Auto margin account setting for bots and
+  // manual and also a master switch in the Admin portal"). GET
+  // readable by any authenticated user; PATCH is Super Admin only.
+  getMarginAutoSwitchMode: () =>
+    api.get<{ enabled: boolean }>('/bots/margin-auto-switch-mode').then(r => r.data),
+  setMarginAutoSwitchMode: (update: { enabled: boolean }) =>
+    api.patch<{ enabled: boolean }>('/bots/margin-auto-switch-mode', update).then(r => r.data),
   // Real, live-searchable Binance instrument list — by direct request
   // ("a search instrument space that searches the instrument - exactly
   // like the one on the chart ... removing errors"). Reuses the same
@@ -344,7 +352,7 @@ export const exchangeConnectionsApi = {
   list: () => api.get<TraderBrokerConnection[]>('/exchange-connections').then(r => r.data),
   connect: (body: { exchange: string; api_key: string; api_secret?: string; account_id?: string; label?: string; mode?: string }) =>
     api.post<TraderBrokerConnection>('/exchange-connections', body).then(r => r.data),
-  update: (id: string, body: Partial<{ label: string; mode: string; is_active: boolean; api_key: string; api_secret: string; account_id: string; auto_undeploy_minutes: number }>) =>
+  update: (id: string, body: Partial<{ label: string; mode: string; is_active: boolean; api_key: string; api_secret: string; account_id: string; auto_undeploy_minutes: number; margin_mode: 'dedicated' | 'auto_switch' }>) =>
     api.patch<TraderBrokerConnection>(`/exchange-connections/${id}`, body).then(r => r.data),
   remove: (id: string) => api.delete(`/exchange-connections/${id}`).then(r => r.data),
   test: (id: string) => api.post<{ success: boolean; status: string; error?: string }>(`/exchange-connections/${id}/test`).then(r => r.data),

@@ -129,6 +129,12 @@ class Trade(Base):
     # Broker details
     broker_order_id = Column(String(100))
     broker_name = Column(String(50))
+    # True when this trade's broker/account was resolved by
+    # services/margin_switch_engine.py's auto-switch fallback rather
+    # than the bot's/trader's own dedicated account — makes a
+    # fallback-funded fill visibly distinguishable, since its capital
+    # source differs from what's configured as the default.
+    margin_switch_used = Column(Boolean, default=False)
 
     # Human-in-the-loop
     requires_approval = Column(Boolean, default=False)

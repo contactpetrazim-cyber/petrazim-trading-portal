@@ -142,6 +142,14 @@ export function ConnectExchangePage() {
     await load();
   }
 
+  // "dedicated Vs Auto margin account setting for ... manual" — by
+  // direct request for the margin auto-switch engine. Does nothing
+  // unless an Admin has also turned the engine's master switch on.
+  async function updateMarginMode(id: string, mode: 'dedicated' | 'auto_switch') {
+    await exchangeConnectionsApi.update(id, { margin_mode: mode });
+    await load();
+  }
+
   const selectedMeta = exchanges.find((e) => e.exchange === formExchange);
 
   async function submitConnect() {
@@ -430,6 +438,17 @@ export function ConnectExchangePage() {
                     <button onClick={() => removeConn(c.id)} disabled={busyId === c.id} className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1.5 rounded-lg text-red-600 border border-red-200 disabled:opacity-50">
                       <Trash2 size={12} /> Remove
                     </button>
+                    <label className="flex items-center gap-1.5 text-[11px] opacity-70 ml-1">
+                      Margin account
+                      <select
+                        defaultValue={c.margin_mode ?? 'dedicated'}
+                        onChange={(e) => updateMarginMode(c.id, e.target.value as 'dedicated' | 'auto_switch')}
+                        className={`text-xs px-1.5 py-1 rounded border ${dark ? 'bg-smc-dark border-smc-border text-white' : 'bg-white'}`}
+                      >
+                        <option value="dedicated">Dedicated</option>
+                        <option value="auto_switch">Auto-switch</option>
+                      </select>
+                    </label>
                   </div>
 
                   {c.exchange === 'metatrader' && (

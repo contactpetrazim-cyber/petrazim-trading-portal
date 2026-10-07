@@ -10,7 +10,7 @@ from app.models.bot import BotConfig, BotStatus, ExecutionMode
 from app.models.user import User, UserRole
 from app.core.access_gate import require_active_access
 from app.core.auth import get_current_user, require_super_admin
-from app.models.platform_setting import MARKET_SCANNER_ENABLED_KEY, MASTER_ACCOUNT_BALANCE_KEY, MASTER_LEVERAGE_KEY, PlatformSetting
+from app.models.platform_setting import MARGIN_AUTO_SWITCH_ENABLED_KEY, MARKET_SCANNER_ENABLED_KEY, MASTER_ACCOUNT_BALANCE_KEY, MASTER_LEVERAGE_KEY, PlatformSetting
 from app.models.trade import Trade, TradeStatus
 from app.services.roster_access import user_can_manage_trader
 from app.services.market_scanner import get_market_scanner_runtime_enabled, get_master_account_balance
@@ -173,6 +173,47 @@ async def set_master_leverage(
         db.add(PlatformSetting(key=MASTER_LEVERAGE_KEY, value=value))
     await db.commit()
     return MasterLeverageResponse(enabled=req.enabled, value=req.value, platform_default=get_settings().MAX_NOTIONAL_LEVERAGE)
+
+
+class MarginAutoSwitchModeResponse(BaseModel):
+    enabled: bool
+
+
+@router.get("/margin-auto-switch-mode", response_model=MarginAutoSwitchModeResponse)
+async def get_margin_auto_switch_mode(db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+    """Any authenticated user can read this — same "everyone sees the
+    resolved state, only Super Admin changes it" shape as every other
+    master switch here. Even when this is on, a given bot/connection
+    still needs its OWN margin_mode set to AUTO_SWITCH to actually
+    use it — see app/models/bot.py's MarginMode."""
+    from app.services.margin_switch_engine import get_margin_auto_switch_enabled
+    return MarginAutoSwitchModeResponse(enabled=await get_margin_auto_switch_enabled(db))
+
+
+class SetMarginAutoSwitchModeRequest(BaseModel):
+    enabled: bool
+
+
+@router.patch("/margin-auto-switch-mode", response_model=MarginAutoSwitchModeResponse)
+async def set_margin_auto_switch_mode(
+    req: SetMarginAutoSwitchModeRequest, db: AsyncSession = Depends(get_db), admin: User = Depends(require_super_admin),
+):
+    """Super Admin only — the master switch half of "there should be a
+    dedicated Vs Auto margin account setting for bots and manual and
+    also a master switch in the Admin portal." Off (the default) means
+    no bot/trader can ever trigger a fallback regardless of their own
+    margin_mode; see services/margin_switch_engine.py's own docstring
+    for the full resolution order."""
+    row = (await db.execute(
+        select(PlatformSetting).where(PlatformSetting.key == MARGIN_AUTO_SWITCH_ENABLED_KEY)
+    )).scalar_one_or_none()
+    value = "true" if req.enabled else "false"
+    if row:
+        row.value = value
+    else:
+        db.add(PlatformSetting(key=MARGIN_AUTO_SWITCH_ENABLED_KEY, value=value))
+    await db.commit()
+    return MarginAutoSwitchModeResponse(enabled=req.enabled)
 
 
 async def _get_owned_bot(bot_id: str, user: User, db: AsyncSession) -> BotConfig:
@@ -481,6 +522,13 @@ async def update_bot_metrics(
     bot = await _get_owned_bot(bot_id, user, db)
 
     for field, value in update.model_dump(exclude_unset=True).items():
+        if field == "margin_mode":
+            # Not nullable (defaults to DEDICATED, never "no override")
+            # — a null here is a no-op rather than a constraint error.
+            if value is not None:
+                from app.models.bot import MarginMode
+                bot.margin_mode = MarginMode(value)
+            continue
         setattr(bot, field, value)
 
     await db.commit()

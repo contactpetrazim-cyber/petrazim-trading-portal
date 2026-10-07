@@ -601,6 +601,7 @@ class ExecutionEngine:
             row.entry_timestamp = datetime.utcnow()
             row.broker_order_id = str(result.get("order_id", ""))
             row.broker_name = result.get("broker", row.broker_name)
+            row.margin_switch_used = result.get("margin_switch_used", row.margin_switch_used)
             await db.commit()
 
     async def _fan_out_to_subscribers(self, db: AsyncSession, bot_id: str, trade_data: Dict) -> None:
@@ -825,6 +826,7 @@ class ExecutionEngine:
                     row.approval_notes = notes
                     row.broker_order_id = str(result.get("order_id", ""))
                     row.broker_name = result.get("broker", row.broker_name)
+                    row.margin_switch_used = result.get("margin_switch_used", row.margin_switch_used)
                     await db.commit()
                     self.daily_trade_count += 1
                     return {"success": True, "message": "Trade approved and executed", "trade_id": trade_id}
@@ -870,6 +872,56 @@ class ExecutionEngine:
             self.pending_trades.remove(trade)
             return {"success": True, "message": "Trade rejected", "trade_id": trade_id}
 
+    async def _resolve_dedicated(
+        self, broker: str, bot_id: Optional[str], db: Optional[AsyncSession], user_id=None,
+    ):
+        """The actual "bot credential -> trader connection -> global
+        key" priority chain _get_broker_client has always used — pulled
+        out on its own so _get_broker_client_for_new_order can also see
+        WHICH tier resolved (and that tier's own config row), since
+        margin_switch_engine.py needs to know whose margin_mode to
+        check, not just the resulting client. Returns
+        (tier, client, config_row): tier is "bot" | "trader" | "global";
+        config_row is the BotConfig (tier="bot") or TraderBrokerConnection
+        (tier="trader") whose own margin_mode governs auto-switch
+        eligibility, or None for "global" (no such setting applies to
+        the shared key).
+        """
+        if db is not None and bot_id is not None:
+            try:
+                credential_client = await build_broker_client(db, bot_id, broker)
+                if credential_client is not None:
+                    from sqlalchemy import select as _select
+                    from app.models.bot import BotConfig
+                    bot_config = (await db.execute(
+                        _select(BotConfig).where(BotConfig.bot_id == bot_id)
+                    )).scalar_one_or_none()
+                    return "bot", credential_client, bot_config
+            except Exception as e:
+                logger.error("per_bot_credential_lookup_failed", bot_id=bot_id, broker=broker, error=str(e))
+        if db is not None and user_id is not None:
+            try:
+                # Local imports — same reason as _persist_trade's own
+                # local model imports: avoids a circular import at
+                # module load (trader_broker_connections.py doesn't
+                # import this file, but keeps this dependency scoped to
+                # only where it's actually used).
+                from app.services.trader_broker_connections import build_client_from_connection, get_connection, mark_connection_activity
+                connection = await get_connection(db, user_id, broker)
+                if connection is not None:
+                    if connection.exchange == "metatrader":
+                        # Every real place/cancel/close/SL-TP-update
+                        # call routes through here — this is the single
+                        # choke point that resets the idle clock
+                        # metaapi_lifecycle.py's auto-undeploy sweep
+                        # reads, so it covers all of those, not just a
+                        # fresh order.
+                        await mark_connection_activity(db, connection)
+                    return "trader", build_client_from_connection(connection), connection
+            except Exception as e:
+                logger.error("trader_connection_lookup_failed", user_id=str(user_id), broker=broker, error=str(e))
+        return "global", self.brokers.get(broker), None
+
     async def _get_broker_client(
         self, broker: str, bot_id: Optional[str], db: Optional[AsyncSession], paper: bool = False,
         user_id=None,
@@ -901,38 +953,51 @@ class ExecutionEngine:
         existing "paper" meaning in _determine_broker/_execute_broker_order
         below: no broker could be determined at all, unrelated to the
         Paper Trading toggle).
+
+        Used as-is (no margin awareness) by cancel/close/SL-TP-update —
+        those always act on whichever broker a Trade was ALREADY placed
+        on, where switching accounts makes no sense. Only NEW order
+        placement considers margin; see _get_broker_client_for_new_order.
         """
         if paper:
             return self.paper_brokers.get(broker)
-        if db is not None and bot_id is not None:
-            try:
-                credential_client = await build_broker_client(db, bot_id, broker)
-                if credential_client is not None:
-                    return credential_client
-            except Exception as e:
-                logger.error("per_bot_credential_lookup_failed", bot_id=bot_id, broker=broker, error=str(e))
-        if db is not None and user_id is not None:
-            try:
-                # Local imports — same reason as _persist_trade's own
-                # local model imports: avoids a circular import at
-                # module load (trader_broker_connections.py doesn't
-                # import this file, but keeps this dependency scoped to
-                # only where it's actually used).
-                from app.services.trader_broker_connections import build_client_from_connection, get_connection, mark_connection_activity
-                connection = await get_connection(db, user_id, broker)
-                if connection is not None:
-                    if connection.exchange == "metatrader":
-                        # Every real place/cancel/close/SL-TP-update
-                        # call routes through here — this is the single
-                        # choke point that resets the idle clock
-                        # metaapi_lifecycle.py's auto-undeploy sweep
-                        # reads, so it covers all of those, not just a
-                        # fresh order.
-                        await mark_connection_activity(db, connection)
-                    return build_client_from_connection(connection)
-            except Exception as e:
-                logger.error("trader_connection_lookup_failed", user_id=str(user_id), broker=broker, error=str(e))
-        return self.brokers.get(broker)
+        _, client, _ = await self._resolve_dedicated(broker, bot_id, db, user_id=user_id)
+        return client
+
+    async def _estimate_required_margin(self, trade: Dict) -> Optional[float]:
+        """A rough notional/leverage estimate of the margin this order
+        is about to consume — enough for margin_switch_engine.py to
+        compare against a candidate account's free balance. Returns
+        None (never a guessed number) when lot_size/entry_price aren't
+        both known yet, which callers treat as "can't tell, don't
+        switch" exactly like an unreadable balance."""
+        lot_size = trade.get("lot_size")
+        entry_price = trade.get("entry_price")
+        if not lot_size or not entry_price:
+            return None
+        leverage = trade.get("leverage") or self.settings.MAX_NOTIONAL_LEVERAGE
+        return (lot_size * entry_price) / leverage
+
+    async def _get_broker_client_for_new_order(
+        self, broker: str, bot_id: Optional[str], db: Optional[AsyncSession], paper: bool,
+        user_id, required_margin: Optional[float],
+    ):
+        """The margin-aware counterpart to _get_broker_client, used only
+        for a FRESH order about to be placed (_execute_broker_order).
+        Returns (broker, client, switched) — `broker` can change too,
+        not just the client, since a cross-exchange fallback needs
+        _execute_broker_order's own per-exchange dispatch to match
+        whichever exchange the returned client actually belongs to.
+        `switched` is False whenever the dedicated account is used
+        unchanged — see margin_switch_engine.maybe_switch_broker's own
+        docstring for every reason that can be true."""
+        if paper:
+            return broker, self.paper_brokers.get(broker), False
+        tier, client, config_row = await self._resolve_dedicated(broker, bot_id, db, user_id=user_id)
+        if client is None or required_margin is None:
+            return broker, client, False
+        from app.services.margin_switch_engine import maybe_switch_broker
+        return await maybe_switch_broker(db, tier, config_row, bot_id, user_id, broker, client, required_margin)
 
     async def cancel_broker_order(
         self, broker: Optional[str], order_id: Optional[str], symbol: str,
@@ -1077,10 +1142,19 @@ class ExecutionEngine:
         broker = self._determine_broker(trade["symbol"], trade.get("preferred_broker"))
         if client_override is not None:
             client = client_override
+        elif broker != "paper":
+            required_margin = await self._estimate_required_margin(trade)
+            broker, client, switched = await self._get_broker_client_for_new_order(
+                broker, trade.get("bot_id"), db, paper, trade.get("user_id"), required_margin,
+            )
+            if switched:
+                trade["margin_switch_used"] = True
+                logger.info(
+                    "margin_auto_switch_used", trade_id=trade.get("trade_id"), bot_id=trade.get("bot_id"),
+                    new_broker=broker, required_margin=required_margin,
+                )
         else:
-            client = await self._get_broker_client(
-                broker, trade.get("bot_id"), db, paper=paper, user_id=trade.get("user_id"),
-            ) if broker != "paper" else None
+            client = None
 
         # Real, dangerous bug fixed here, found while extending this
         # path for trader-connection fan-out: broker == "paper" is the
@@ -1173,26 +1247,32 @@ class ExecutionEngine:
                             )
 
             if broker == "bingx" and client is not None:
-                return await self._execute_bingx(trade, client)
+                result = await self._execute_bingx(trade, client)
             elif broker == "tradelocker" and client is not None:
-                return await self._execute_tradelocker(trade, client)
+                result = await self._execute_tradelocker(trade, client)
             elif broker == "binance" and client is not None:
-                return await self._execute_binance(trade, client)
+                result = await self._execute_binance(trade, client)
             elif broker == "bybit" and client is not None:
-                return await self._execute_bybit(trade, client)
+                result = await self._execute_bybit(trade, client)
             elif broker == "mexc" and client is not None:
-                return await self._execute_mexc(trade, client)
+                result = await self._execute_mexc(trade, client)
             elif broker == "metatrader" and client is not None:
-                return await self._execute_metatrader(trade, client)
+                result = await self._execute_metatrader(trade, client)
             elif broker == "oanda" and client is not None:
-                return await self._execute_oanda(trade, client)
+                result = await self._execute_oanda(trade, client)
             else:
-                return {
+                result = {
                     "success": True,
                     "order_id": f"PAPER_{trade['trade_id']}",
                     "broker": "paper",
                     "message": "Paper trade executed (no broker configured)"
                 }
+            # Carried onto the Trade row by _update_trade_after_execution
+            # below, the same way it already copies result["broker"] —
+            # see margin_switch_engine.py's own docstring for why a
+            # fallback-funded fill needs to stay visibly distinguishable.
+            result["margin_switch_used"] = trade.get("margin_switch_used", False)
+            return result
         except _FAILOVER_EXCEPTIONS as e:
             # A TRANSPORT failure (proxy down, connection refused,
             # timed out) — as opposed to the exchange itself rejecting
