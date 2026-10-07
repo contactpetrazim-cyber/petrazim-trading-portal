@@ -202,11 +202,31 @@ async def list_bots(db: AsyncSession = Depends(get_db), user: User = Depends(req
 async def create_bot(
     config: BotConfigCreate, db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access)
 ):
-    """Create a new bot configuration, owned by the authenticated caller."""
+    """Create a new bot configuration, owned by the authenticated caller.
+
+    bot_id must be globally unique (BotConfig.bot_id's own unique
+    constraint) — checked explicitly here, with a clear message, by
+    direct bug report ("I cant seem to be able to create more than 5
+    bots even though I don't mind repeating the bot strategy"): picking
+    the same strategy twice in the frontend's "New Bot" form used to
+    send the SAME fixed bot_id both times, failing with a bare DB
+    integrity error the frontend could only show as "Could not create
+    bot." The frontend now generates a unique bot_id itself (an
+    incrementing suffix) when the chosen strategy is already taken, so
+    this collision shouldn't actually happen in normal use any more —
+    this check stays as a clear, honest error for the rare case it
+    still does (e.g. two tabs creating a bot at once), instead of a
+    confusing generic one.
+    """
+    existing = (await db.execute(select(BotConfig).where(BotConfig.bot_id == config.bot_id))).scalar_one_or_none()
+    if existing:
+        raise HTTPException(status_code=409, detail=f"A bot with id '{config.bot_id}' already exists — try again (this is auto-generated, so a fresh attempt picks a new one).")
+
     bot = BotConfig(
         bot_id=config.bot_id,
         bot_name=config.bot_name,
         bot_type=config.bot_type,
+        strategy_key=config.strategy_key,
         symbols=config.symbols,
         timeframes=config.timeframes,
         risk_per_trade=config.risk_per_trade,

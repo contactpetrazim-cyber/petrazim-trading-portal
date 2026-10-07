@@ -58,6 +58,10 @@ export interface BotConfig {
   bot_id: string;
   bot_name: string;
   bot_type: string;
+  // Which of the 5 fixed SMC algorithms this bot runs — see the
+  // backend BotConfig model's own strategy_key comment. Optional only
+  // for a pre-migration row that predates this column.
+  strategy_key?: string | null;
   status: string;
   execution_mode: string;
   symbols: string[];

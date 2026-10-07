@@ -24,6 +24,14 @@ class BotConfig(Base):
     bot_id = Column(String(50), unique=True, nullable=False, index=True)
     bot_name = Column(String(100), nullable=False)
     bot_type = Column(String(50), nullable=False)
+    # Which of the 5 fixed SMC algorithms (bot_1..bot_5,
+    # BotOrchestrator.bots' own keys in app/core/bot_strategies.py)
+    # this instance runs — independent of its own unique bot_id, so a
+    # trader can run more than one bot per strategy. See migration
+    # 021_bot_strategy_key.sql's own comment for the full story; this
+    # is what run_all actually dispatches by, not a derived guess from
+    # the bot_id string.
+    strategy_key = Column(String(10), nullable=True, index=True)
 
     # Owning Trader. Nullable — pre-existing bots (none, as of the
     # migration that added this column) have no owner; every bot

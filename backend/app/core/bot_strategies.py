@@ -108,7 +108,15 @@ class MacroSwingStructureBot:
                 account_balance: float,
                 symbol: str,
                 risk_per_trade: Optional[float] = None,
-                min_rr_ratio: Optional[float] = None) -> Optional[BotSignal]:
+                min_rr_ratio: Optional[float] = None,
+                # Overrides self.bot_id on the produced signal — lets
+                # ONE strategy-family instance (self.bots["bot_N"] in
+                # BotOrchestrator) run on behalf of several real
+                # BotConfig rows that all share this algorithm. None
+                # (every call site before this feature) keeps the
+                # original hardcoded self.bot_id, so nothing about the
+                # 5 original bots' own behavior changes.
+                bot_id: Optional[str] = None) -> Optional[BotSignal]:
         """
         Macro Swing Analysis Pipeline:
         1. Detect 1D swing structure
@@ -205,7 +213,7 @@ class MacroSwingStructureBot:
         )
 
         return BotSignal(
-            bot_id=self.bot_id,
+            bot_id=bot_id or self.bot_id,
             bot_name=self.bot_name,
             symbol=symbol,
             direction=direction,
@@ -262,7 +270,15 @@ class OrderBlockReversalBot:
                 account_balance: float,
                 symbol: str,
                 risk_per_trade: Optional[float] = None,
-                min_rr_ratio: Optional[float] = None) -> Optional[BotSignal]:
+                min_rr_ratio: Optional[float] = None,
+                # Overrides self.bot_id on the produced signal — lets
+                # ONE strategy-family instance (self.bots["bot_N"] in
+                # BotOrchestrator) run on behalf of several real
+                # BotConfig rows that all share this algorithm. None
+                # (every call site before this feature) keeps the
+                # original hardcoded self.bot_id, so nothing about the
+                # 5 original bots' own behavior changes.
+                bot_id: Optional[str] = None) -> Optional[BotSignal]:
 
         # Step 1: Find HTF Order Blocks (4H or 1H)
         zone_detector = ZoneDetector()
@@ -343,7 +359,7 @@ class OrderBlockReversalBot:
         lots = self.entry_engine.calculate_lot_size(account_balance, risk, sl["sl_distance"])
 
         return BotSignal(
-            bot_id=self.bot_id,
+            bot_id=bot_id or self.bot_id,
             bot_name=self.bot_name,
             symbol=symbol,
             direction=direction,
@@ -398,7 +414,15 @@ class FVGExpansionBot:
                 account_balance: float,
                 symbol: str,
                 risk_per_trade: Optional[float] = None,
-                min_rr_ratio: Optional[float] = None) -> Optional[BotSignal]:
+                min_rr_ratio: Optional[float] = None,
+                # Overrides self.bot_id on the produced signal — lets
+                # ONE strategy-family instance (self.bots["bot_N"] in
+                # BotOrchestrator) run on behalf of several real
+                # BotConfig rows that all share this algorithm. None
+                # (every call site before this feature) keeps the
+                # original hardcoded self.bot_id, so nothing about the
+                # 5 original bots' own behavior changes.
+                bot_id: Optional[str] = None) -> Optional[BotSignal]:
 
         # Step 1: Find unmitigated FVGs on 1H
         fvg_detector = FVGDetector()
@@ -463,7 +487,7 @@ class FVGExpansionBot:
         lots = self.entry_engine.calculate_lot_size(account_balance, risk, sl_distance)
 
         return BotSignal(
-            bot_id=self.bot_id,
+            bot_id=bot_id or self.bot_id,
             bot_name=self.bot_name,
             symbol=symbol,
             direction=direction,
@@ -518,7 +542,15 @@ class VolumeLiquidityBot:
                 account_balance: float,
                 symbol: str,
                 risk_per_trade: Optional[float] = None,
-                min_rr_ratio: Optional[float] = None) -> Optional[BotSignal]:
+                min_rr_ratio: Optional[float] = None,
+                # Overrides self.bot_id on the produced signal — lets
+                # ONE strategy-family instance (self.bots["bot_N"] in
+                # BotOrchestrator) run on behalf of several real
+                # BotConfig rows that all share this algorithm. None
+                # (every call site before this feature) keeps the
+                # original hardcoded self.bot_id, so nothing about the
+                # 5 original bots' own behavior changes.
+                bot_id: Optional[str] = None) -> Optional[BotSignal]:
 
         # Step 1: Identify ranging/accumulation structure on 4H
         swings_4h = self.structure_detector.detect_swing_highs(candles_4h) + \
@@ -635,7 +667,7 @@ class VolumeLiquidityBot:
         lots = self.entry_engine.calculate_lot_size(account_balance, risk, sl_distance)
 
         return BotSignal(
-            bot_id=self.bot_id,
+            bot_id=bot_id or self.bot_id,
             bot_name=self.bot_name,
             symbol=symbol,
             direction=direction,
@@ -691,7 +723,15 @@ class JeafxSMCBot:
                 account_balance: float,
                 symbol: str,
                 risk_per_trade: Optional[float] = None,
-                min_rr_ratio: Optional[float] = None) -> Optional[BotSignal]:
+                min_rr_ratio: Optional[float] = None,
+                # Overrides self.bot_id on the produced signal — lets
+                # ONE strategy-family instance (self.bots["bot_N"] in
+                # BotOrchestrator) run on behalf of several real
+                # BotConfig rows that all share this algorithm. None
+                # (every call site before this feature) keeps the
+                # original hardcoded self.bot_id, so nothing about the
+                # 5 original bots' own behavior changes.
+                bot_id: Optional[str] = None) -> Optional[BotSignal]:
 
         # Step 1: Find refined supply/demand zones on 1H
         zone_detector = ZoneDetector()
@@ -809,7 +849,7 @@ class JeafxSMCBot:
         lots = self.entry_engine.calculate_lot_size(account_balance, risk, sl_distance)
 
         return BotSignal(
-            bot_id=self.bot_id,
+            bot_id=bot_id or self.bot_id,
             bot_name=self.bot_name,
             symbol=symbol,
             direction=direction,
@@ -895,74 +935,67 @@ class BotOrchestrator:
             return
         signals.append(sig)
 
-    def run_all(self, market_data: Dict, account_balance: float, bot_settings: Optional[Dict[str, Dict]] = None) -> List[BotSignal]:
+    def run_all(self, market_data: Dict, account_balance: float, bot_settings: Optional[Dict[str, List[Dict]]] = None) -> List[BotSignal]:
         """Run all active bots against current market data.
 
-        bot_settings — {"bot_1": {"risk_per_trade": ..., "min_rr_ratio":
-        ...}, ...}, read fresh from each bot's own BotConfig (and any
-        Sub-Auto-specific override) by market_scanner.py's scan_once
-        every cycle, same live-per-call shape account_balance already
-        used. Optional/omitted keeps every bot on its own prior
-        hardcoded default — found, alongside the TP-always-~2R bug,
-        that BotConfig.risk_per_trade/min_rr_ratio were NEVER actually
-        read anywhere in signal generation (this orchestrator is built
-        once with an empty config dict — see __init__ above), so a
-        trader editing either field on the Bots page had silently had
-        zero effect until this was wired through.
+        bot_settings — {"bot_1": [{"bot_id": ..., "risk_per_trade": ...,
+        "min_rr_ratio": ...}, ...], ...}: a LIST per strategy family,
+        not a single dict — by direct request ("I don't mind repeating
+        the bot strategy ... we should always be able to update or add
+        bots to the portal from now for the future"). Each entry is one
+        real BotConfig row that runs this family's algorithm; a family
+        with no entries (or omitted entirely) runs the original
+        self.bots["bot_N"] instance's own hardcoded bot_id exactly once
+        — the same shape/behavior every call site before this feature
+        relied on (read fresh from each bot's own BotConfig, and any
+        Sub-Auto-specific override, by market_scanner.py's scan_once
+        every cycle).
+
+        Running the SAME algorithm for N real bots costs N real
+        .analyze() calls against the SAME already-fetched market_data —
+        cheap (pure computation over already-fetched candles, no extra
+        network/exchange calls), and keeps each bot's own entry/SL/TP
+        genuinely independent (computed fresh per call, not copied).
         """
         signals = []
-        settings = bot_settings or {}
+        families = bot_settings or {}
 
-        def _risk(bot_key: str) -> Optional[float]:
-            return settings.get(bot_key, {}).get("risk_per_trade")
+        def _entries(bot_key: str) -> List[Dict]:
+            # No entry for this family at all -> run the original
+            # single hardcoded instance, unchanged from before this
+            # feature (bot_id=None keeps each .analyze()'s own
+            # self.bot_id default).
+            return families.get(bot_key) or [{"bot_id": None, "risk_per_trade": None, "min_rr_ratio": None}]
 
-        def _rr(bot_key: str) -> Optional[float]:
-            return settings.get(bot_key, {}).get("min_rr_ratio")
+        def _run_family(bot_key: str, *candle_args: List[Candle]) -> None:
+            for entry in _entries(bot_key):
+                sig = self.bots[bot_key].analyze(
+                    *candle_args,
+                    account_balance, market_data.get("symbol", "UNKNOWN"),
+                    risk_per_trade=entry.get("risk_per_trade"), min_rr_ratio=entry.get("min_rr_ratio"),
+                    bot_id=entry.get("bot_id"),
+                )
+                self._collect(signals, sig)
 
         # Bot 1: Needs 1D + 4H
         if "1D" in market_data and "4H" in market_data:
-            sig = self.bots["bot_1"].analyze(
-                market_data["1D"], market_data["4H"],
-                account_balance, market_data.get("symbol", "UNKNOWN"),
-                risk_per_trade=_risk("bot_1"), min_rr_ratio=_rr("bot_1"),
-            )
-            self._collect(signals, sig)
+            _run_family("bot_1", market_data["1D"], market_data["4H"])
 
         # Bot 2: Needs 4H + 1H + 15M
         if all(k in market_data for k in ["4H", "1H", "15M"]):
-            sig = self.bots["bot_2"].analyze(
-                market_data["4H"], market_data["1H"], market_data["15M"],
-                account_balance, market_data.get("symbol", "UNKNOWN"),
-                risk_per_trade=_risk("bot_2"), min_rr_ratio=_rr("bot_2"),
-            )
-            self._collect(signals, sig)
+            _run_family("bot_2", market_data["4H"], market_data["1H"], market_data["15M"])
 
         # Bot 3: Needs 1H + 15M
         if "1H" in market_data and "15M" in market_data:
-            sig = self.bots["bot_3"].analyze(
-                market_data["1H"], market_data["15M"],
-                account_balance, market_data.get("symbol", "UNKNOWN"),
-                risk_per_trade=_risk("bot_3"), min_rr_ratio=_rr("bot_3"),
-            )
-            self._collect(signals, sig)
+            _run_family("bot_3", market_data["1H"], market_data["15M"])
 
         # Bot 4: Needs 4H + 1H
         if "4H" in market_data and "1H" in market_data:
-            sig = self.bots["bot_4"].analyze(
-                market_data["4H"], market_data["1H"],
-                account_balance, market_data.get("symbol", "UNKNOWN"),
-                risk_per_trade=_risk("bot_4"), min_rr_ratio=_rr("bot_4"),
-            )
-            self._collect(signals, sig)
+            _run_family("bot_4", market_data["4H"], market_data["1H"])
 
         # Bot 5: Needs 1H + 15M + 5M
         if all(k in market_data for k in ["1H", "15M", "5M"]):
-            sig = self.bots["bot_5"].analyze(
-                market_data["1H"], market_data["15M"], market_data["5M"],
-                account_balance, market_data.get("symbol", "UNKNOWN"),
-                risk_per_trade=_risk("bot_5"), min_rr_ratio=_rr("bot_5"),
-            )
-            self._collect(signals, sig)
+            _run_family("bot_5", market_data["1H"], market_data["15M"], market_data["5M"])
 
         self.active_signals = signals
         return signals
