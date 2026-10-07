@@ -68,15 +68,15 @@ const BOT_CATALOG = [
   },
   {
     id: 'bot_4_volume_liq', key: 'bot_4', name: 'Volume & Liquidity Sweep',
-    summary: 'Wyckoff-style spring/upthrust false-breakout patterns confirmed by volume divergence — range accumulation/distribution trades.',
+    summary: 'Wyckoff-style spring/upthrust false-breakout + volume divergence, confirmed by a full SMC checklist — a 4H order-block POI, a 15M CHoCH, a confirming 1H FVG formed after the shift, and alignment with the 4H BOS trend.',
   },
   {
     id: 'bot_5_jeafx', key: 'bot_5', name: 'SMC BOT',
-    summary: 'Highly mechanical liquidity-purge and refined supply/demand entries with strict confirmation criteria — highest target R:R (4:1-6:1).',
+    summary: 'Highly mechanical liquidity-purge and refined supply/demand entries with strict confirmation criteria, trading in the direction of the last confirmed 4H BOS — highest target R:R (4:1-6:1).',
   },
   {
     id: 'bot_6_smc_v2', key: 'bot_6', name: 'SMC v2',
-    summary: 'Same zone/purge/confirmation setup as SMC BOT, but direction comes from HF Order Block Reversal + FVG Expansion’s own calls agreeing — by direct request, after the original’s sweep-based direction was found to miss more often.',
+    summary: 'Same zone/purge/confirmation setup as SMC BOT, but direction comes from either HF Order Block Reversal’s CHoCH or FVG Expansion’s FVG+BOS call — either is enough on its own, but a genuine conflict between the two blocks the trade.',
   },
 ];
 
