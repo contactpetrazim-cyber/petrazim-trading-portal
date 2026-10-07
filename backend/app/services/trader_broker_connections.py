@@ -98,6 +98,22 @@ EXCHANGE_META = {
     # docstring for the full "why two, not one" explanation.
 
 
+async def list_connections_for_trader(db: AsyncSession, user_id) -> list[TraderBrokerConnection]:
+    """Every active, non-suspended connection this trader has, across
+    exchanges — the candidate pool services/margin_switch_engine.py
+    picks from when a trader's dedicated connection for a given
+    exchange is underfunded. Mirrors broker_credentials.py's own
+    list_credentials_for_bot for the bot side."""
+    result = await db.execute(
+        select(TraderBrokerConnection).where(
+            TraderBrokerConnection.user_id == user_id,
+            TraderBrokerConnection.is_active == True,  # noqa: E712
+            TraderBrokerConnection.status != ConnectionStatus.SUSPENDED,
+        )
+    )
+    return list(result.scalars().all())
+
+
 async def get_connection(
     db: AsyncSession, user_id, exchange: str, require_mode: Optional[ConnectionMode] = None,
 ) -> Optional[TraderBrokerConnection]:

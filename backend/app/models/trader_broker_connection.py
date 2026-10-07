@@ -32,6 +32,7 @@ from sqlalchemy import Boolean, Column, DateTime, Enum, Float, ForeignKey, Integ
 from sqlalchemy.dialects.postgresql import UUID
 
 from app.database import Base
+from app.models.bot import MarginMode
 
 
 class ConnectionMode(enum.Enum):
@@ -88,6 +89,12 @@ class TraderBrokerConnection(Base):
 
     mode = Column(Enum(ConnectionMode), nullable=False, default=ConnectionMode.MANUAL)
     status = Column(Enum(ConnectionStatus), nullable=False, default=ConnectionStatus.PENDING)
+    # The "dedicated Vs Auto margin account setting ... for ... manual"
+    # half of the margin auto-switch engine — see app/models/bot.py's
+    # MarginMode for the full story. Defaults to DEDICATED: a manual
+    # trader's connection behaves exactly as before until they
+    # explicitly opt it into auto-switch.
+    margin_mode = Column(Enum(MarginMode), nullable=False, default=MarginMode.DEDICATED)
     last_verified_at = Column(DateTime, nullable=True)
     last_error = Column(Text, nullable=True)
 

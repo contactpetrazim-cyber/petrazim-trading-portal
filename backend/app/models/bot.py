@@ -17,6 +17,21 @@ class ExecutionMode(enum.Enum):
     HUMAN_IN_LOOP = "human_in_loop"
     FULLY_AUTONOMOUS = "fully_autonomous"
 
+class MarginMode(enum.Enum):
+    """"dedicated Vs Auto margin account setting for bots and manual"
+    — by direct request ("Create an automatic switch engine that checks
+    which accounts have margin capital to trade and if the dedicated
+    accounts do not have money it can switch to the account that has
+    margin to take the trade"). Governs whether
+    services/margin_switch_engine.py is even allowed to look past this
+    bot's/connection's own dedicated account when it's underfunded —
+    see that module's own docstring for the full resolution order.
+    Also requires the Admin portal's platform-wide master switch
+    (PlatformSetting MARGIN_AUTO_SWITCH_ENABLED_KEY) to be on; this
+    setting alone does nothing if that master switch is off."""
+    DEDICATED = "dedicated"
+    AUTO_SWITCH = "auto_switch"
+
 class BotConfig(Base):
     __tablename__ = "bot_configs"
 
@@ -42,6 +57,11 @@ class BotConfig(Base):
     # Status
     status = Column(Enum(BotStatus), default=BotStatus.ACTIVE)
     execution_mode = Column(Enum(ExecutionMode), default=ExecutionMode.HUMAN_IN_LOOP)
+
+    # Defaults to DEDICATED so a bot's behavior is unchanged until a
+    # trader explicitly opts it into auto-switch — see MarginMode's own
+    # docstring.
+    margin_mode = Column(Enum(MarginMode), nullable=False, default=MarginMode.DEDICATED)
 
     # Test/Live + Paper Trading — the exact same two-toggle model
     # ManualTradingSettings already gives a manual trader, now given to

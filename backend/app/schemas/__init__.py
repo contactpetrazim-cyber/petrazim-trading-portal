@@ -217,6 +217,9 @@ class BotConfigResponse(BaseModel):
     # exposes, now per-bot — see BotConfig's own comment for why.
     trading_mode: str = "test"
     paper_trading_enabled: bool = False
+    # "dedicated Vs Auto margin account setting for bots" — see
+    # app/models/bot.py's MarginMode.
+    margin_mode: str = "dedicated"
     user_id: Optional[UUID] = None
     created_at: datetime
     # Real bot health, by direct request ("confirm my five bots are
@@ -310,6 +313,10 @@ class BotMetricsUpdate(BaseModel):
     # convention as account_balance_usd above. See BotConfig.leverage's
     # own comment.
     leverage: Optional[float] = Field(None, gt=0, le=125)
+    # "dedicated Vs Auto margin account setting for bots" — see
+    # app/models/bot.py's MarginMode. Also requires the Admin portal's
+    # master switch to be on; see services/margin_switch_engine.py.
+    margin_mode: Optional[Literal["dedicated", "auto_switch"]] = None
 
 # =============================================================================
 # DASHBOARD / ANALYTICS SCHEMAS

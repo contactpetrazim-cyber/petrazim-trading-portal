@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { ShieldAlert, Users, Link2, Percent, ArrowRight, Bot, Wallet, Zap } from 'lucide-react';
+import { ShieldAlert, Users, Link2, Percent, ArrowRight, Bot, Wallet, Zap, Shuffle } from 'lucide-react';
 import { FoldedCard } from '../components/FoldedCard';
 import { RoleBadge } from '../components/RoleBadge';
 import { RosterPanel } from '../components/RosterPanel';
@@ -98,6 +98,14 @@ export function AdminConsolePage() {
   const [switchingFireflies, setSwitchingFireflies] = useState(false);
   const [scannerCapabilityEnabled, setScannerCapabilityEnabled] = useState<boolean | null>(null);
   const [scannerRuntimeEnabled, setScannerRuntimeEnabled] = useState<boolean | null>(null);
+  // Margin auto-switch master switch — by direct request ("there
+  // should be a dedicated Vs Auto margin account setting for bots and
+  // manual and also a master switch in the Admin portal"). A bot's/
+  // connection's own margin_mode setting does nothing unless this is
+  // also on. Same simple boolean-toggle shape as the scanner pause/
+  // resume switch above (no numeric value like Master Leverage needs).
+  const [marginAutoSwitchEnabled, setMarginAutoSwitchEnabled] = useState<boolean | null>(null);
+  const [switchingMarginAutoSwitch, setSwitchingMarginAutoSwitch] = useState(false);
   const [switchingScanner, setSwitchingScanner] = useState(false);
   // Global Risk Defaults — by direct request ("with a global risk
   // settings override in the Admin portal"). Edited in a draft object
@@ -179,6 +187,9 @@ export function AdminConsolePage() {
       apiFetch(`${API_URL}/bots/market-scanner-mode`, { headers: { Authorization: `Bearer ${token}` } })
         .then((r) => (r.ok ? r.json() : Promise.reject(new Error('market-scanner-mode failed'))))
         .then((d) => { setScannerCapabilityEnabled(d.capability_enabled); setScannerRuntimeEnabled(d.runtime_enabled); }),
+      apiFetch(`${API_URL}/bots/margin-auto-switch-mode`, { headers: { Authorization: `Bearer ${token}` } })
+        .then((r) => (r.ok ? r.json() : Promise.reject(new Error('margin-auto-switch-mode failed'))))
+        .then((d) => setMarginAutoSwitchEnabled(d.enabled)),
     ]).catch(() => setTogglesError(true));
   }
 
@@ -358,6 +369,22 @@ export function AdminConsolePage() {
       if (res.ok) setScannerRuntimeEnabled((await res.json()).runtime_enabled);
     } finally {
       setSwitchingScanner(false);
+    }
+  }
+
+  async function setMarginAutoSwitch(next: boolean) {
+    if (next === marginAutoSwitchEnabled) return;
+    setSwitchingMarginAutoSwitch(true);
+    try {
+      const res = await apiFetch(`${API_URL}/bots/margin-auto-switch-mode`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ enabled: next }),
+        timeoutMs: 60_000,
+      });
+      if (res.ok) setMarginAutoSwitchEnabled((await res.json()).enabled);
+    } finally {
+      setSwitchingMarginAutoSwitch(false);
     }
   }
 
@@ -592,6 +619,59 @@ export function AdminConsolePage() {
               Off
             </button>
             {scannerRuntimeEnabled === null && (togglesError
+              ? <button type="button" onClick={loadAdminToggles} className="text-xs text-red-500 underline">Could not load — try again</button>
+              : <span className="text-xs text-gray-500">Loading…</span>)}
+          </div>
+        </FoldedCard>
+      )}
+
+      {/* Margin Auto-Switch master switch — by direct request ("there
+          should be a dedicated Vs Auto margin account setting for
+          bots and manual and also a master switch in the Admin
+          portal"). Off (the default): every order uses only its
+          bot's/trader's own dedicated account, exactly as before this
+          feature existed. On: a bot/connection whose OWN margin_mode
+          is set to Auto-switch (on the Bots page or the trader's
+          connection settings) will fall back to another funded
+          exchange when its dedicated account doesn't have enough
+          margin for the order, instead of placing it (or failing)
+          against an underfunded account. */}
+      {isSuperAdmin && (
+        <FoldedCard
+          title="Margin Auto-Switch"
+          summary={marginAutoSwitchEnabled === null ? 'Loading…' : marginAutoSwitchEnabled ? 'On' : 'Off'}
+          icon={<Shuffle size={18} />} accent="#06b6d4" dark={dark} defaultOpen
+        >
+          <p className="text-xs text-gray-500 mb-3">
+            On: a bot or trader connection set to "Auto-switch" (instead of "Dedicated") will fall back to
+            another of its own funded exchange accounts when its usual dedicated account doesn't have enough
+            margin for an order. Off: every order only ever uses its own dedicated account, regardless of what
+            any individual bot/connection's own setting says — same as before this feature existed.
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setMarginAutoSwitch(true)}
+              disabled={switchingMarginAutoSwitch}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 border ${
+                marginAutoSwitchEnabled === true
+                  ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
+                  : dark ? 'bg-smc-dark text-gray-400 border-smc-border hover:text-white' : 'bg-gray-50 text-gray-500 border-corporate-bg hover:text-corporate-text-on-bg'
+              }`}
+            >
+              On
+            </button>
+            <button
+              onClick={() => setMarginAutoSwitch(false)}
+              disabled={switchingMarginAutoSwitch}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 border ${
+                marginAutoSwitchEnabled === false
+                  ? 'bg-amber-500/20 text-amber-400 border-amber-500/40'
+                  : dark ? 'bg-smc-dark text-gray-400 border-smc-border hover:text-white' : 'bg-gray-50 text-gray-500 border-corporate-bg hover:text-corporate-text-on-bg'
+              }`}
+            >
+              Off
+            </button>
+            {marginAutoSwitchEnabled === null && (togglesError
               ? <button type="button" onClick={loadAdminToggles} className="text-xs text-red-500 underline">Could not load — try again</button>
               : <span className="text-xs text-gray-500">Loading…</span>)}
           </div>

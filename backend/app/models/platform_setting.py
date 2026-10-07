@@ -109,3 +109,15 @@ MASTER_ACCOUNT_BALANCE_KEY = "trading.master_account_balance"
 # toggled off and back on. See services/capital_adequacy.py's
 # get_effective_leverage for the real resolution order.
 MASTER_LEVERAGE_KEY = "trading.master_leverage"
+
+# Super Admin's platform-wide MASTER switch for the margin auto-switch
+# engine (services/margin_switch_engine.py) — by direct request
+# ("there should be a dedicated Vs Auto margin account setting for
+# bots and manual and also a master switch in the Admin portal"). Even
+# a bot/connection whose OWN margin_mode is AUTO_SWITCH (see
+# app/models/bot.py's MarginMode) never actually switches accounts
+# unless this is also on — same fail-safe-not-fail-open shape as
+# TRADING_PAPER_ENFORCED_KEY: defaults to unset/"false" (no bot/
+# trader can trigger a fallback until an Admin explicitly turns this
+# on, even if they've already set their own side to AUTO_SWITCH).
+MARGIN_AUTO_SWITCH_ENABLED_KEY = "trading.margin_auto_switch_enabled"

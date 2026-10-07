@@ -112,6 +112,9 @@ class ConnectionResponse(BaseModel):
     # on these two fields for why they exist.
     last_activity_at: Optional[datetime] = None
     auto_undeploy_minutes: Optional[int] = None
+    # "dedicated Vs Auto margin account setting for ... manual" — see
+    # app/models/bot.py's MarginMode.
+    margin_mode: str = "dedicated"
 
 
 def _to_response(c: TraderBrokerConnection, trader: Optional[User] = None) -> ConnectionResponse:
@@ -121,6 +124,7 @@ def _to_response(c: TraderBrokerConnection, trader: Optional[User] = None) -> Co
         last_verified_at=c.last_verified_at, last_error=c.last_error, created_at=c.created_at,
         trader_email=trader.email if trader else None, trader_name=trader.full_name if trader else None,
         last_activity_at=c.last_activity_at, auto_undeploy_minutes=c.auto_undeploy_minutes,
+        margin_mode=c.margin_mode.value,
     )
 
 
@@ -194,6 +198,10 @@ class UpdateConnectionRequest(BaseModel):
     # NULL) rather than a real 0-minute threshold, which would be
     # meaningless — omit this field entirely to leave it unchanged.
     auto_undeploy_minutes: Optional[int] = None
+    # "dedicated Vs Auto margin account setting for ... manual" — see
+    # app/models/bot.py's MarginMode. Also requires the Admin portal's
+    # master switch to be on; see services/margin_switch_engine.py.
+    margin_mode: Optional[Literal["dedicated", "auto_switch"]] = None
 
 
 @router.patch("/{connection_id}", response_model=ConnectionResponse)
@@ -220,6 +228,9 @@ async def update_connection(
         credentials_changed = True
     if req.auto_undeploy_minutes is not None:
         row.auto_undeploy_minutes = req.auto_undeploy_minutes if req.auto_undeploy_minutes > 0 else None
+    if req.margin_mode is not None:
+        from app.models.bot import MarginMode
+        row.margin_mode = MarginMode(req.margin_mode)
     if credentials_changed:
         # A rotated/edited key hasn't been re-verified yet — back to
         # PENDING rather than leaving a stale VERIFIED badge on

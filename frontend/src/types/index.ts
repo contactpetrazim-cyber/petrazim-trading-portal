@@ -110,6 +110,10 @@ export interface BotConfig {
    * separately on the trader dashboard ... with a global override
    * form in the Admin"). See BotConfig.leverage's own backend comment. */
   leverage?: number | null;
+  /** "dedicated Vs Auto margin account setting for bots" — by direct
+   * request for the margin auto-switch engine. Also requires the
+   * Admin portal's master switch to be on. */
+  margin_mode?: 'dedicated' | 'auto_switch';
 }
 
 
@@ -212,6 +216,8 @@ export interface BotMetricsUpdate {
   /** null clears this bot's own leverage override. See BotConfig.
    * leverage's own backend comment. */
   leverage?: number | null;
+  /** See BotConfig.margin_mode above. */
+  margin_mode?: 'dedicated' | 'auto_switch';
 }
 
 export interface TodayTradeBreakdown {
@@ -314,6 +320,9 @@ export interface TraderBrokerConnection {
   // MetaApi (MT4/MT5) only — null/meaningless for the other 5 exchanges.
   last_activity_at?: string | null;
   auto_undeploy_minutes?: number | null;
+  /** "dedicated Vs Auto margin account setting for ... manual" — see
+   * BotConfig.margin_mode's own comment above. */
+  margin_mode?: 'dedicated' | 'auto_switch';
 }
 
 export interface DeployStateResponse {
