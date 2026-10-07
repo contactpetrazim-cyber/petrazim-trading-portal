@@ -266,13 +266,33 @@ class MarketScanner:
                 # single dict shared unconditionally across every
                 # balance subgroup, since the risk-percent conversion
                 # now genuinely depends on which subgroup a bot is in.
+                #
+                # Grouped by strategy_key (which of the 5 fixed
+                # algorithms this bot runs — see BotConfig.strategy_key's
+                # own comment), not re-derived from the bot_id string —
+                # by direct request ("I don't mind repeating the bot
+                # strategy ... we should always be able to update or add
+                # bots ... from now for the future"). A LIST per
+                # strategy_key, not a single dict, so run_all can run
+                # the same algorithm for every real bot that uses it,
+                # each tagged with its own real bot_id — see
+                # BotOrchestrator.run_all's own docstring for the other
+                # half of this. Falls back to the bot_id-prefix
+                # convention only for a pre-migration row that somehow
+                # still has no strategy_key (shouldn't happen after
+                # migration 021's backfill, but a bot missing from this
+                # grouping would silently never trade, so this stays
+                # defensive rather than assuming the backfill always
+                # ran).
                 balance_groups: Dict[float, List[BotConfig]] = {}
-                bot_settings_by_balance: Dict[float, Dict[str, Dict[str, float]]] = {}
+                bot_settings_by_balance: Dict[float, Dict[str, List[Dict[str, float]]]] = {}
                 for bot in bots_here:
                     balance = await get_effective_account_balance(db, bot)
                     balance_groups.setdefault(balance, []).append(bot)
-                    bot_settings_by_balance.setdefault(balance, {})["_".join(bot.bot_id.split("_")[:2])] = \
-                        _effective_bot_settings(bot, balance)
+                    strategy_key = bot.strategy_key or "_".join(bot.bot_id.split("_")[:2])
+                    bot_settings_by_balance.setdefault(balance, {}).setdefault(strategy_key, []).append(
+                        {"bot_id": bot.bot_id, **_effective_bot_settings(bot, balance)}
+                    )
 
                 for balance, bots_at_balance in balance_groups.items():
                     signals = self.orchestrator.run_all(market_data, balance, bot_settings_by_balance[balance])

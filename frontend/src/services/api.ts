@@ -158,7 +158,14 @@ export const botsApi = {
   getBots: () => api.get<BotConfig[]>('/bots/').then(r => r.data),
   getBot: (botId: string) => api.get<BotConfig>(`/bots/${botId}`).then(r => r.data),
   createBot: (config: {
-    bot_id: string; bot_name: string; bot_type: string; symbols: string[];
+    bot_id: string;
+    // Which of the 5 fixed algorithms to run — required so the
+    // backend's dispatch engine (BotOrchestrator.run_all) knows which
+    // strategy produces this bot's signals, independent of its own
+    // (now auto-suffixed-for-uniqueness) bot_id. See Bots.tsx's own
+    // createBot comment for why bot_id alone isn't enough any more.
+    strategy_key: 'bot_1' | 'bot_2' | 'bot_3' | 'bot_4' | 'bot_5';
+    bot_name: string; bot_type: string; symbols: string[];
     timeframes?: string[]; risk_per_trade?: number; max_daily_trades?: number;
     max_concurrent_trades?: number; min_rr_ratio?: number;
     execution_mode?: 'human_in_loop' | 'fully_autonomous'; use_trailing_stop?: boolean;

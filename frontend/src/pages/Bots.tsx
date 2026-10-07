@@ -45,25 +45,33 @@ interface InstrumentResult { symbol: string; base_asset: string; quote_asset: st
 // actually trade. This dropdown replaces a free-text "Bot ID" field
 // that let someone create exactly that, by direct request to show a
 // short summary of the bot's technique/style before picking one.
+// `key` — which of the 5 fixed algorithms this catalog entry runs
+// (BotOrchestrator.bots' own keys, app/core/bot_strategies.py) — by
+// direct request ("I don't mind repeating the bot strategy ... we
+// should always be able to update or add bots ... from now for the
+// future"). Sent as strategy_key on create; `id` here is just the
+// FIRST bot's own bot_id for that strategy, still used as the base a
+// unique id is generated from — see createBot's own comment for why
+// it can no longer be sent as the real bot_id unconditionally.
 const BOT_CATALOG = [
   {
-    id: 'bot_1_macro_swing', name: 'Pure Macro Swing Structure',
+    id: 'bot_1_macro_swing', key: 'bot_1', name: 'Pure Macro Swing Structure',
     summary: 'Patient multi-day swing trades on confirmed 1D/4H structure breaks, entered on a pullback — low frequency, high R:R (5:1+).',
   },
   {
-    id: 'bot_2_ob_reversal', name: 'HF Order Block Reversal',
+    id: 'bot_2_ob_reversal', key: 'bot_2', name: 'HF Order Block Reversal',
     summary: 'Fast reversals inside higher-timeframe order blocks, confirmed by a 15m liquidity sweep + CHoCH — higher frequency, 3:1 target.',
   },
   {
-    id: 'bot_3_fvg_expansion', name: 'FVG Expansion & Fill',
+    id: 'bot_3_fvg_expansion', key: 'bot_3', name: 'FVG Expansion & Fill',
     summary: 'Trades unmitigated fair-value-gap retests after strong expansion moves, trailing the stop on new structure breaks — momentum/runner style.',
   },
   {
-    id: 'bot_4_volume_liq', name: 'Volume & Liquidity Sweep',
+    id: 'bot_4_volume_liq', key: 'bot_4', name: 'Volume & Liquidity Sweep',
     summary: 'Wyckoff-style spring/upthrust false-breakout patterns confirmed by volume divergence — range accumulation/distribution trades.',
   },
   {
-    id: 'bot_5_jeafx', name: 'SMC BOT',
+    id: 'bot_5_jeafx', key: 'bot_5', name: 'SMC BOT',
     summary: 'Highly mechanical liquidity-purge and refined supply/demand entries with strict confirmation criteria — highest target R:R (4:1-6:1).',
   },
 ];
@@ -232,9 +240,27 @@ export function BotsPage() {
       setCreateError('Bot ID, name, and at least one symbol are required.');
       return;
     }
+    // `newBot.bot_id` here is still the Strategy dropdown's own fixed
+    // catalog id (e.g. "bot_3_fvg_expansion") — picking a strategy
+    // already in use used to send that SAME id again, which
+    // BotConfig.bot_id's own unique constraint correctly rejected
+    // ("Could not create bot.", by direct bug report: "I cant seem to
+    // be able to create more than 5 bots even though I don't mind
+    // repeating the bot strategy"). Now generates a fresh, unique id
+    // off that same base (bot_3_fvg_expansion -> _2 -> _3 -> ...) by
+    // checking against the trader's own already-loaded bots, while
+    // strategy_key (the catalog entry's own fixed key) tells the
+    // backend's dispatch engine which of the 5 algorithms to actually
+    // run for it — see BotOrchestrator.run_all's own comment.
+    const catalogEntry = BOT_CATALOG.find((b) => b.id === newBot.bot_id);
+    const base = newBot.bot_id.trim();
+    const existingIds = new Set(bots.map((b) => b.bot_id));
+    let uniqueId = base;
+    for (let n = 2; existingIds.has(uniqueId); n++) uniqueId = `${base}_${n}`;
     try {
       await botsApi.createBot({
-        bot_id: newBot.bot_id.trim(),
+        bot_id: uniqueId,
+        strategy_key: (catalogEntry?.key ?? base) as 'bot_1' | 'bot_2' | 'bot_3' | 'bot_4' | 'bot_5',
         bot_name: newBot.bot_name.trim(),
         bot_type: newBot.bot_type,
         symbols: newBot.symbols,
