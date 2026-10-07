@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
-import { Pencil, X, Check, Scissors, AlertCircle, Ban, LineChart, ShieldCheck } from 'lucide-react';
+import { Pencil, X, Check, Scissors, AlertCircle, Ban, LineChart, ShieldCheck, ChevronDown } from 'lucide-react';
 import { Trade } from '../types';
 import { tradesApi } from '../services/api';
 import { useQuickPrice } from '../hooks/useQuickPrice';
@@ -50,6 +50,15 @@ export function PositionManager({ trade, dark = false, onChanged }: { trade: Tra
   const [movingToBreakeven, setMovingToBreakeven] = useState(false);
 
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  // Reason summary — by direct follow-up request ("put each trade
+  // reasoning on the trade card also and position cards and not just
+  // the snapshot"): TradeRow's own card already had this fold (same
+  // reasoning_log, same bot-trades-only/folded-by-default rules); this
+  // is the position-management surface (reached from a trade card's
+  // own Manage button, or ChartPanel's folded Position card) that
+  // didn't yet.
+  const [reasonOpen, setReasonOpen] = useState(false);
+  const isManual = trade.bot_id?.startsWith('manual_') ?? false;
   const { price: livePrice, refresh: refreshLivePrice } = useQuickPrice(trade.symbol);
   // Real current price, polled every 15s — by direct request ("include
   // current price in position form"). `livePrice` was already fetched
@@ -533,6 +542,23 @@ export function PositionManager({ trade, dark = false, onChanged }: { trade: Tra
           </div>
         )}
       </div>
+      )}
+
+      {!isManual && trade.reasoning_log && (
+        <div className="mt-3 pt-3 border-t border-dashed border-gray-200 dark:border-smc-border">
+          <button
+            onClick={() => setReasonOpen((v) => !v)}
+            className={`flex items-center gap-1.5 text-xs font-medium ${dark ? 'text-white/60 hover:text-white' : 'text-gray-500 hover:text-gray-800'}`}
+          >
+            <ChevronDown size={13} className={`transition-transform ${reasonOpen ? 'rotate-180' : ''}`} />
+            Reason summary
+          </button>
+          {reasonOpen && (
+            <p className={`mt-2 text-xs leading-relaxed ${dark ? 'text-white/70' : 'text-gray-600'}`}>
+              {trade.reasoning_log}
+            </p>
+          )}
+        </div>
       )}
     </div>
   );
