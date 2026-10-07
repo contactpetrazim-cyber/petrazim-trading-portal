@@ -378,6 +378,67 @@ class OrderBlockReversalBot:
 
 
 # =============================================================================
+# Shared direction-detection helpers (used by Bot 6 / SMC v2 below) —
+# isolated out of Bot 2's and Bot 3's own direction steps, by direct
+# request ("it's a duplicate of the original SMC bot - but ... it uses
+# the exact trading direction that the FVG Expansion and HF Order
+# Block Reversal bot uses to determine it's trading direction ... the
+# current SMC often misses the prices direction but the FVG expansion
+# and HF Order block reversal are much better"). New, standalone
+# functions rather than SMC v2 calling Bot 2/3's own .analyze() —
+# that would compute a full signal (zone, entry, SL, targets, lot
+# size) just to read one field off it, and would wrongly make SMC v2
+# depend on Bot 2/3 *instances* existing. Bot 2's and Bot 3's own
+# inline logic is left exactly as-is for this change (not pointed at
+# these yet) to keep this change's blast radius limited to the new
+# bot only — a later cleanup could have them call these instead of
+# keeping two copies.
+# =============================================================================
+
+def _choch_direction_15m(structure_detector: MarketStructureDetector, candles_15m: List[Candle]) -> Optional[Literal["long", "short"]]:
+    """Exactly Bot 2's own direction step: a 15M CHoCH (change of
+    character). None if no CHoCH, or the latest one isn't a clean
+    bullish/bearish call."""
+    swings_15m = structure_detector.detect_swing_highs(candles_15m) + structure_detector.detect_swing_lows(candles_15m)
+    choch_15m = structure_detector.detect_choch(candles_15m, swings_15m)
+    if not choch_15m:
+        return None
+    last_choch = choch_15m[-1]
+    if last_choch["type"] == "bullish_choch":
+        return "long"
+    if last_choch["type"] == "bearish_choch":
+        return "short"
+    return None
+
+
+def _fvg_bos_direction_1h_15m(candles_1h: List[Candle], candles_15m: List[Candle]) -> Optional[Literal["long", "short"]]:
+    """Exactly Bot 3's own direction step: an unmitigated 1H FVG's own
+    gap_type, confirmed by a same-direction 15M BOS (break of
+    structure). None if no qualifying FVG, no BOS, or they disagree —
+    same gates Bot 3's own analyze() applies before it ever considers
+    a direction confirmed."""
+    fvg_detector = FVGDetector()
+    fvgs = fvg_detector.track_mitigation(fvg_detector.detect_fvg(candles_1h), candles_1h)
+    partial_fvgs = [f for f in fvgs if 0.3 <= f.mitigated_percent <= 0.7 and f.status.name == "ACTIVE"]
+    if not partial_fvgs:
+        return None
+    target_fvg = partial_fvgs[-1]
+
+    structure_detector = MarketStructureDetector()
+    swings_15m = structure_detector.detect_swing_highs(candles_15m) + structure_detector.detect_swing_lows(candles_15m)
+    bos_15m = structure_detector.detect_bos(candles_15m, swings_15m)
+    if not bos_15m:
+        return None
+    last_bos = bos_15m[-1]
+
+    if target_fvg.gap_type == "bullish" and last_bos["type"] == "bullish_bos":
+        return "long"
+    if target_fvg.gap_type == "bearish" and last_bos["type"] == "bearish_bos":
+        return "short"
+    return None
+
+
+# =============================================================================
 # BOT 3: Imbalance Expansion & FVG Fill Bot (Photon/Phantom Style)
 # =============================================================================
 
@@ -869,6 +930,179 @@ class JeafxSMCBot:
 
 
 # =============================================================================
+# BOT 6: SMC v2 — Bot 5's own zone/purge/confirmation setup, direction
+# from Bot 2 + Bot 3's own consensus instead of the sweep side
+# =============================================================================
+
+class JeafxSMCv2Bot:
+    """
+    Bot 6: SMC v2
+
+    A duplicate of Bot 5 (JeafxSMCBot) — same refined zone, same 15M
+    liquidity-purge gate, same 5M momentum confirmation candle, same
+    strict SL beyond the purge extreme, same 4-6R target ladder — by
+    direct request ("it's a duplicate of the original SMC bot"). The
+    one thing that changes is Bot 5's own weakest link: direction used
+    to come from which side the 15M liquidity sweep hit
+    (buy_side_sweep/sell_side_sweep), which the user observed "often
+    misses the price[']s direction." Here it comes from Bot 2's own
+    15M CHoCH call and Bot 3's own 1H-FVG+15M-BOS call instead
+    (_choch_direction_15m/_fvg_bos_direction_1h_15m above) — by direct
+    request ("it uses the exact trading direction that the FVG
+    Expansion and HF Order block reversal bot uses ... much better in
+    price direction"). The two must AGREE; if either has no call, or
+    they disagree, this returns None — no trade, rather than guessing
+    between two genuinely conflicting reads. The FVG-validation step
+    (originally cross-checked against the sweep's own side) now
+    cross-checks against this same consensus direction instead, so it
+    stays internally consistent with what's actually driving the
+    trade.
+    """
+
+    def __init__(self, config: Dict):
+        self.bot_id = "bot_6_smc_v2"
+        self.bot_name = "SMC v2"
+        self.config = config
+        self.structure_detector = MarketStructureDetector(left_bars=3, right_bars=2)
+        self.entry_engine = EntryExitEngine(default_rr=4.0)
+        self.risk_manager = RiskManager(base_risk_percent=1.0)
+
+    def analyze(self,
+                candles_1h: List[Candle],
+                candles_15m: List[Candle],
+                candles_5m: List[Candle],
+                account_balance: float,
+                symbol: str,
+                risk_per_trade: Optional[float] = None,
+                min_rr_ratio: Optional[float] = None,
+                bot_id: Optional[str] = None) -> Optional[BotSignal]:
+
+        # Step 1: Find refined supply/demand zones on 1H — identical to Bot 5.
+        zone_detector = ZoneDetector()
+        swings_1h = self.structure_detector.detect_swing_highs(candles_1h) + \
+                    self.structure_detector.detect_swing_lows(candles_1h)
+
+        zones = zone_detector.detect_order_blocks(candles_1h, swings_1h)
+        fresh_zones = [z for z in zones
+                      if z.status.name == "ACTIVE" and z.test_count <= 1]
+
+        if not fresh_zones:
+            return None
+
+        # Step 2: 15M liquidity purge — identical to Bot 5. Still required
+        # as the ENTRY-TIMING gate (a zone with no purge yet isn't ready
+        # to trade) even though the purge's own side no longer decides
+        # direction below.
+        liq_detector = LiquidityDetector(tolerance_pips=1.0)
+        pools = liq_detector.detect_equal_highs_lows(candles_15m, lookback=30)
+        sweeps = liq_detector.detect_liquidity_sweeps(pools, candles_15m[-5:])
+
+        if not sweeps:
+            return None
+
+        last_sweep = sweeps[-1]
+
+        # Step 3: Zone aligned with the purge — identical to Bot 5.
+        sweep_price = last_sweep["sweep_price"]
+        aligned_zone = None
+        for z in fresh_zones:
+            if z.bottom <= sweep_price <= z.top:
+                aligned_zone = z
+                break
+
+        if not aligned_zone:
+            return None
+
+        # Step 4: 5M momentum confirmation candle — identical to Bot 5.
+        recent_5m = candles_5m[-5:]
+        confirmation_candle = None
+        for c in recent_5m:
+            body_size = abs(c.close - c.open)
+            avg_body = sum(abs(x.close - x.open) for x in candles_5m[-20:]) / 20
+            if body_size > avg_body * 1.5:
+                if aligned_zone.bottom <= c.close <= aligned_zone.top:
+                    confirmation_candle = c
+                    break
+
+        if not confirmation_candle:
+            return None
+
+        # Step 5: Direction — the actual change from Bot 5. Bot 2's own
+        # CHoCH call and Bot 3's own FVG+BOS call must agree; this
+        # REPLACES last_sweep["type"] as the direction source (the purge
+        # above is still used as a timing/zone-alignment gate, just not
+        # for which way to trade).
+        choch_dir = _choch_direction_15m(self.structure_detector, candles_15m)
+        fvg_bos_dir = _fvg_bos_direction_1h_15m(candles_1h, candles_15m)
+        if not choch_dir or not fvg_bos_dir or choch_dir != fvg_bos_dir:
+            return None
+        direction = choch_dir
+
+        # Step 6: FVG must form on or after confirmation, in the
+        # consensus direction (was: the sweep's own side) — identical
+        # structure to Bot 5, just cross-checked against `direction`.
+        fvg_detector = FVGDetector()
+        recent_fvgs = fvg_detector.detect_fvg(candles_5m[-10:])
+
+        valid_fvg = None
+        for f in recent_fvgs:
+            if f.candle1.timestamp >= confirmation_candle.timestamp:
+                if f.gap_type == "bullish" and direction == "long":
+                    valid_fvg = f
+                    break
+                elif f.gap_type == "bearish" and direction == "short":
+                    valid_fvg = f
+                    break
+
+        # Step 7: Entry at 50% of confirmation candle or FVG — identical to Bot 5.
+        if valid_fvg:
+            entry_price = (valid_fvg.top + valid_fvg.bottom) / 2
+        else:
+            entry_price = (confirmation_candle.open + confirmation_candle.close) / 2
+
+        # Step 8: Strict SL beyond purge extreme — identical to Bot 5
+        # (the purge is still what the stop sits beyond; only which way
+        # we're trading through it has changed).
+        purge_extreme = last_sweep["sweep_price"]
+        buffer = abs(confirmation_candle.high - confirmation_candle.low) * 0.2
+
+        if direction == "long":
+            sl_price = purge_extreme - buffer
+        else:
+            sl_price = purge_extreme + buffer
+
+        sl_distance = abs(entry_price - sl_price)
+        sl = {"stop_loss": sl_price, "sl_distance": sl_distance, "method": "jeafx_purge_extreme"}
+
+        # Step 9: High R:R target (4-6R) — identical to Bot 5.
+        entry = {"entry_price": entry_price, "direction": direction}
+        targets = self.entry_engine.calculate_targets(entry, sl, rr_ratio=min_rr_ratio if min_rr_ratio is not None else 5.0)
+
+        risk = self.risk_manager.calculate_position_risk(setup_quality=1.3, base_risk_override=risk_per_trade)
+        lots = self.entry_engine.calculate_lot_size(account_balance, risk, sl_distance)
+
+        return BotSignal(
+            bot_id=bot_id or self.bot_id,
+            bot_name=self.bot_name,
+            symbol=symbol,
+            direction=direction,
+            confidence=0.88,
+            entry_price=round(entry_price, 5),
+            stop_loss=round(sl_price, 5),
+            take_profit=targets["tp1"],
+            take_profit_2=targets["tp2"],
+            take_profit_3=targets["tp3"],
+            lot_size=lots["lot_size"],
+            risk_percent=risk,
+            reasoning=f"SMC v2 {direction}. 1H fresh zone. 15M purge (timing/zone gate only). "
+                     f"Direction consensus: Bot2 CHoCH + Bot3 FVG/BOS both {direction}. "
+                     f"5M confirmation candle + FVG: {valid_fvg is not None}. "
+                     f"Entry at 50%. Strict SL beyond purge. 5R target.",
+            timestamp=datetime.utcnow()
+        )
+
+
+# =============================================================================
 # BOT ORCHESTRATOR
 # =============================================================================
 
@@ -917,7 +1151,8 @@ class BotOrchestrator:
             "bot_2": OrderBlockReversalBot(configs.get("bot_2", {})),
             "bot_3": FVGExpansionBot(configs.get("bot_3", {})),
             "bot_4": VolumeLiquidityBot(configs.get("bot_4", {})),
-            "bot_5": JeafxSMCBot(configs.get("bot_5", {}))
+            "bot_5": JeafxSMCBot(configs.get("bot_5", {})),
+            "bot_6": JeafxSMCv2Bot(configs.get("bot_6", {})),
         }
         self.active_signals: List[BotSignal] = []
 
@@ -996,6 +1231,10 @@ class BotOrchestrator:
         # Bot 5: Needs 1H + 15M + 5M
         if all(k in market_data for k in ["1H", "15M", "5M"]):
             _run_family("bot_5", market_data["1H"], market_data["15M"], market_data["5M"])
+
+        # Bot 6 (SMC v2): Needs 1H + 15M + 5M — same set as Bot 5.
+        if all(k in market_data for k in ["1H", "15M", "5M"]):
+            _run_family("bot_6", market_data["1H"], market_data["15M"], market_data["5M"])
 
         self.active_signals = signals
         return signals

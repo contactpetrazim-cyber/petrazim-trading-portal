@@ -158,13 +158,14 @@ class BotConfigCreate(BaseModel):
     bot_id: str
     bot_name: str
     bot_type: str
-    # Which of the 5 fixed SMC algorithms this bot runs — see
+    # Which of the 6 fixed SMC algorithms this bot runs — see
     # BotConfig.strategy_key's own comment. Required so a trader can
     # create more than one bot per strategy (by direct request): the
     # frontend's "New Bot" form now generates a unique bot_id when the
     # chosen strategy is already taken, so strategy_key is what the
-    # dispatch engine actually keys off, not bot_id itself.
-    strategy_key: Literal["bot_1", "bot_2", "bot_3", "bot_4", "bot_5"]
+    # dispatch engine actually keys off, not bot_id itself. bot_6 (SMC
+    # v2) added by direct request alongside the original 5.
+    strategy_key: Literal["bot_1", "bot_2", "bot_3", "bot_4", "bot_5", "bot_6"]
     symbols: List[str]
     timeframes: List[str] = ["1D", "4H", "1H", "15M"]
     risk_per_trade: float = 1.0
