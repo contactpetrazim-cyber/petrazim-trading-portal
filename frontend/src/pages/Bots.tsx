@@ -175,6 +175,32 @@ export function BotsPage() {
     setNewBot((b) => ({ ...b, symbols: b.symbols.filter((s) => s !== sym) }));
   }
 
+  // Same instrument-search pattern as the "New Bot" form above, with
+  // its own local state (rather than sharing instrumentQuery/Results)
+  // so the two search boxes — this one and the New Bot modal's, which
+  // could technically both be mounted at once — never cross-talk.
+  const [editSymbolQuery, setEditSymbolQuery] = useState('');
+  const [editSymbolResults, setEditSymbolResults] = useState<InstrumentResult[]>([]);
+  useEffect(() => {
+    if (!editing) return;
+    const t = setTimeout(() => {
+      botsApi.searchInstruments(editSymbolQuery).then(setEditSymbolResults).catch(() => setEditSymbolResults([]));
+    }, 250);
+    return () => clearTimeout(t);
+  }, [editSymbolQuery, editing]);
+
+  function addEditSymbol(raw: string) {
+    const clean = raw.trim().toUpperCase();
+    if (!clean || !editing || editing.symbols?.includes(clean)) return;
+    setEditing({ ...editing, symbols: [...(editing.symbols ?? []), clean] });
+    setEditSymbolQuery('');
+  }
+
+  function removeEditSymbol(sym: string) {
+    if (!editing) return;
+    setEditing({ ...editing, symbols: (editing.symbols ?? []).filter((s) => s !== sym) });
+  }
+
   function openBot(bot: BotConfig) {
     if (selectedBot === bot.bot_id) {
       setSelectedBot(null);
@@ -191,7 +217,17 @@ export function BotsPage() {
       use_trailing_stop: bot.use_trailing_stop,
       account_balance_usd: bot.account_balance_usd,
       leverage: bot.leverage,
+      // Editable instrument pairs — by direct request ("create an
+      // option to edit the instrument pairs of each bot"). The
+      // backend's own PATCH /bots/{id}/metrics already accepted
+      // `symbols` (BotMetricsUpdate.symbols, applied via
+      // exclude_unset=True same as every other field here) — this was
+      // never actually populated/editable from this form, only from
+      // the separate "New Bot" creation form.
+      symbols: [...bot.symbols],
     });
+    setEditSymbolQuery('');
+    setEditSymbolResults([]);
   }
 
   async function toggleBot(bot: BotConfig) {
@@ -664,6 +700,57 @@ export function BotsPage() {
                         Use trailing stop
                       </label>
                     </div>
+
+                    {/* Instrument pairs — by direct request ("create an
+                        option to edit the instrument pairs of each
+                        bot"). Same search-and-add pattern as the New
+                        Bot form above (botsApi.searchInstruments), own
+                        local query/results state so the two search
+                        boxes never cross-talk if both happen to be
+                        mounted. */}
+                    <div className="mt-3">
+                      <div className="text-xs text-gray-400 mb-1.5">Instrument pairs</div>
+                      <div className="flex flex-wrap gap-1.5 mb-1.5">
+                        {(editing.symbols ?? []).map((s) => (
+                          <span key={s} className={`flex items-center gap-1 px-2 py-1 rounded-md text-xs font-semibold ${dark ? 'bg-white/10 text-white/80' : 'bg-corporate-bg text-corporate-text-on-bg'}`}>
+                            {s}
+                            <button onClick={() => removeEditSymbol(s)} aria-label={`Remove ${s}`} className="text-gray-400 hover:text-red-400">
+                              <X size={12} />
+                            </button>
+                          </span>
+                        ))}
+                        {(editing.symbols ?? []).length === 0 && (
+                          <span className="text-xs text-gray-400">No pairs — a bot with none never scans anything.</span>
+                        )}
+                      </div>
+                      <input
+                        placeholder="Search e.g. BTC, ETH, XAUT… (Enter to add a typed symbol)"
+                        value={editSymbolQuery}
+                        onChange={(e) => setEditSymbolQuery(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter' && editSymbolQuery.trim()) { e.preventDefault(); addEditSymbol(editSymbolQuery); } }}
+                        className={`${inputCls} py-1.5`}
+                      />
+                      {editSymbolResults.length > 0 && (
+                        <div className={`mt-1.5 max-h-40 overflow-y-auto rounded-lg border ${dark ? 'border-smc-border' : 'border-corporate-bg'}`}>
+                          {editSymbolResults.map((i) => (
+                            <button
+                              key={i.symbol}
+                              onClick={() => addEditSymbol(i.symbol)}
+                              className={`w-full flex items-center justify-between px-2.5 py-1.5 text-xs text-left ${dark ? 'hover:bg-white/5 text-white/80' : 'hover:bg-corporate-bg text-corporate-text-on-bg'}`}
+                            >
+                              <span className="flex items-center gap-1.5">
+                                <span className="font-semibold">{i.symbol}</span>
+                                <span className={`px-1 py-0.5 rounded text-[9px] font-bold uppercase ${i.market === 'futures' ? 'bg-violet-500/15 text-violet-400' : 'bg-sky-500/15 text-sky-500'}`}>
+                                  {i.market === 'futures' ? 'PERP' : 'SPOT'}
+                                </span>
+                              </span>
+                              <span className="text-gray-400">{i.base_asset}/{i.quote_asset}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
                     <button
                       onClick={() => saveMetrics(bot.bot_id)}
                       disabled={saving}
