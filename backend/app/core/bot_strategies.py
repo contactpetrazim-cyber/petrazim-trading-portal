@@ -580,13 +580,43 @@ class VolumeLiquidityBot:
     - Spring (false breakdown) and Upthrust (false breakout) patterns
     - Volume divergence confirmations
 
-    Rules:
+    Rules (original 6, still the entry trigger/geometry — unchanged):
     1. Identify accumulation (lows) or distribution (highs) structure
     2. Wait for Spring (buy) or Upthrust (sell) - false break with volume
     3. Volume must show divergence (less volume on break than expected)
     4. Enter on close back inside range + CHoCH
     5. Stop beyond the spring/upthrust extreme
     6. Target opposite side of range or 3:1
+
+    Full SMC confluence checklist ADDED by direct request ("To the
+    volume and liquidity sweep Add the following: 4H POI or zone of
+    interest / Liquidity sweep / Market structure shift or CHOCH / FVG
+    / Change in the state of delivery / Trade should follow the HTF
+    4H trend - BOS direction etc"), layered on top as REQUIRED
+    confirmations rather than replacing the Wyckoff mechanics above —
+    a real signal must now pass BOTH:
+      a. 4H POI/zone of interest — NEW: the spring/upthrust extreme
+         must sit inside a real 4H order-block zone (ZoneDetector,
+         same zone-alignment pattern bots 2/5/6 already use), not just
+         a raw swing-derived range extreme.
+      b. Liquidity sweep — already what a Spring/Upthrust IS in Wyckoff
+         terms (a false break that sweeps the liquidity resting beyond
+         the range extreme, then reverses) — no separate/redundant
+         check added; this list item is the existing spring/upthrust
+         step, named explicitly here as what it already does.
+      c. Market structure shift / CHoCH — already the existing 1H
+         CHoCH step; unchanged.
+      d. FVG — NEW: a same-direction FVG must form on 1H.
+      e. Change in the state of delivery — NEW: that FVG must appear
+         strictly AFTER the CHoCH timestamp, confirming price is
+         actually DELIVERING in the new direction post-shift, not just
+         printing an old, stale imbalance left over from before the
+         structure shift.
+      f. HTF 4H trend / BOS direction — NEW: a 4H BOS must independently
+         confirm the SAME direction as the CHoCH/spring/upthrust call,
+         or the signal is dropped — same "require agreement, don't
+         guess between two reads" principle used for Bot 5's own 4H-BOS
+         direction fix and Bot 6's Bot2+Bot3 consensus.
     """
 
     def __init__(self, config: Dict):
@@ -640,6 +670,20 @@ class VolumeLiquidityBot:
         near_low = abs(current_price - range_low) / range_size < 0.15
 
         if not near_high and not near_low:
+            return None
+
+        # Step 1b: 4H POI / zone of interest — NEW, by direct request
+        # ("Add ... 4H POI or zone of interest"). The range extreme
+        # this setup is forming at must sit inside a REAL 4H order-block
+        # zone (same ZoneDetector/zone-alignment pattern bots 2/5/6
+        # already use), not just a raw swing-derived number — a genuine
+        # institutional point of interest, not merely "the last 3
+        # swings happened to cluster here."
+        zone_detector = ZoneDetector()
+        zones_4h = zone_detector.detect_order_blocks(candles_4h, swings_4h)
+        active_zones_4h = [z for z in zones_4h if z.status.name == "ACTIVE"]
+        poi_price = range_high if near_high else range_low
+        if not any(z.bottom <= poi_price <= z.top for z in active_zones_4h):
             return None
 
         # Step 2: Detect Spring or Upthrust on 1H
@@ -703,6 +747,50 @@ class VolumeLiquidityBot:
         else:
             return None
 
+        # Step 3b: FVG + "change in the state of delivery" — NEW, by
+        # direct request ("Add ... FVG / Change in the state of
+        # delivery"). A same-direction FVG must form on 1H (same
+        # gap_type convention bots 2/3/5/6 already use) — and,
+        # specifically, strictly AFTER this CHoCH's own timestamp.
+        # That ordering is "change in the state of delivery" as
+        # implemented here: an FVG from BEFORE the structure shift is
+        # just leftover imbalance from the old (opposite) delivery
+        # bias, not evidence that price is actually delivering in the
+        # NEW direction yet — only a fresh, post-CHoCH FVG confirms
+        # delivery itself has genuinely flipped, not just the swing
+        # structure.
+        fvg_detector = FVGDetector()
+        fvgs_1h = fvg_detector.detect_fvg(candles_1h)
+        choch_timestamp = last_choch["timestamp"]
+        valid_fvg = None
+        for f in fvgs_1h:
+            if f.candle1.timestamp < choch_timestamp:
+                continue  # pre-CHoCH imbalance — old delivery bias, doesn't count
+            if (f.gap_type == "bullish" and direction == "long") or (f.gap_type == "bearish" and direction == "short"):
+                valid_fvg = f
+                break
+
+        if not valid_fvg:
+            return None
+
+        # Step 3c: HTF 4H trend / BOS direction — NEW, by direct
+        # request ("Trade should follow the HTF 4H trend - BOS
+        # direction etc"). The 4H BOS must independently confirm the
+        # SAME direction as the spring/upthrust+CHoCH call above, or
+        # this is dropped — same "require agreement, don't guess
+        # between two reads" principle as Bot 5's own 4H-BOS direction
+        # fix and Bot 6's Bot2+Bot3 consensus; a range/reversal setup
+        # that runs directly against the higher-timeframe trend is
+        # exactly the kind of counter-trend trade this confluence
+        # check exists to filter out.
+        bos_4h = self.structure_detector.detect_bos(candles_4h, swings_4h)
+        if not bos_4h:
+            return None
+        last_bos_4h = bos_4h[-1]
+        trend_4h = "long" if last_bos_4h["type"] == "bullish_bos" else "short" if last_bos_4h["type"] == "bearish_bos" else None
+        if trend_4h != direction:
+            return None
+
         sl_distance = abs(entry_price - sl_price)
 
         sl = {
@@ -738,8 +826,9 @@ class VolumeLiquidityBot:
             take_profit=round(tp, 5),
             lot_size=lots["lot_size"],
             risk_percent=risk,
-            reasoning=f"Wyckoff {pattern} {direction}. Range {range_low:.5f}-{range_high:.5f}. "
-                     f"Volume divergence confirmed. CHoCH on 1H. SL beyond {pattern} extreme. Target range opposite.",
+            reasoning=f"Wyckoff {pattern} {direction} (liquidity sweep) at 4H POI. Range {range_low:.5f}-{range_high:.5f}. "
+                     f"Volume divergence confirmed. CHoCH (structure shift) on 1H. Post-CHoCH FVG confirms delivery change. "
+                     f"4H BOS trend agrees. SL beyond {pattern} extreme. Target range opposite.",
             timestamp=datetime.utcnow()
         )
 
