@@ -1079,13 +1079,16 @@ class JeafxSMCv2Bot:
     (_choch_direction_15m/_fvg_bos_direction_1h_15m above) — by direct
     request ("it uses the exact trading direction that the FVG
     Expansion and HF Order block reversal bot uses ... much better in
-    price direction"). The two must AGREE; if either has no call, or
-    they disagree, this returns None — no trade, rather than guessing
-    between two genuinely conflicting reads. The FVG-validation step
+    price direction"). EITHER one firing is enough — by direct
+    follow-up correction ("Make either and not an AND dependency for
+    Bot 2's CHoCH call AND Bot 3's FVG+BOS call to agree"), after
+    requiring BOTH to independently fire at once proved too rare in
+    live testing. If BOTH fire and genuinely DISAGREE, that's still a
+    real conflict, not "two votes" — no trade, rather than guessing
+    between two contradicting reads. The FVG-validation step
     (originally cross-checked against the sweep's own side) now
-    cross-checks against this same consensus direction instead, so it
-    stays internally consistent with what's actually driving the
-    trade.
+    cross-checks against this same direction instead, so it stays
+    internally consistent with what's actually driving the trade.
     """
 
     def __init__(self, config: Dict):
@@ -1156,16 +1159,30 @@ class JeafxSMCv2Bot:
         if not confirmation_candle:
             return None
 
-        # Step 5: Direction — the actual change from Bot 5. Bot 2's own
-        # CHoCH call and Bot 3's own FVG+BOS call must agree; this
-        # REPLACES last_sweep["type"] as the direction source (the purge
-        # above is still used as a timing/zone-alignment gate, just not
-        # for which way to trade).
+        # Step 5: Direction — the actual change from Bot 5. REPLACES
+        # last_sweep["type"] as the direction source (the purge above
+        # is still used as a timing/zone-alignment gate, just not for
+        # which way to trade) with Bot 2's own CHoCH call and Bot 3's
+        # own FVG+BOS call.
+        #
+        # EITHER one firing is enough — by direct follow-up correction
+        # ("Make either and not an AND dependency for Bot 2's CHoCH
+        # call AND Bot 3's FVG+BOS call to agree"): requiring BOTH to
+        # independently fire on the SAME 15M/1H window at once was too
+        # rare in practice (confirmed live: it never once fired across
+        # this session's real-market testing). One real signal is
+        # enough to trade on. The one guard that stays: if BOTH happen
+        # to fire AND genuinely disagree (one says long, the other
+        # short), that's not "two votes," it's a real conflict — still
+        # no trade rather than guessing between two contradicting
+        # reads, same principle the whole redesign exists for.
         choch_dir = _choch_direction_15m(self.structure_detector, candles_15m)
         fvg_bos_dir = _fvg_bos_direction_1h_15m(candles_1h, candles_15m)
-        if not choch_dir or not fvg_bos_dir or choch_dir != fvg_bos_dir:
+        if choch_dir and fvg_bos_dir and choch_dir != fvg_bos_dir:
             return None
-        direction = choch_dir
+        direction = choch_dir or fvg_bos_dir
+        if not direction:
+            return None
 
         # Step 6: FVG must form on or after confirmation, in the
         # consensus direction (was: the sweep's own side) — identical
@@ -1224,7 +1241,7 @@ class JeafxSMCv2Bot:
             lot_size=lots["lot_size"],
             risk_percent=risk,
             reasoning=f"SMC v2 {direction}. 1H fresh zone. 15M purge (timing/zone gate only). "
-                     f"Direction consensus: Bot2 CHoCH + Bot3 FVG/BOS both {direction}. "
+                     f"Direction: Bot2 CHoCH={choch_dir or '—'}, Bot3 FVG/BOS={fvg_bos_dir or '—'} (either sufficient, no conflict). "
                      f"5M confirmation candle + FVG: {valid_fvg is not None}. "
                      f"Entry at 50%. Strict SL beyond purge. 5R target.",
             timestamp=datetime.utcnow()
