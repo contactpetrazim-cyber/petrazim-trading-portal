@@ -93,7 +93,7 @@ const TRADER_NAV_ITEMS: NavItem[] = [
  * only covers its own header/sidebar chrome.
  */
 export function Layout({ children, navItems = TRADER_NAV_ITEMS }: { children: React.ReactNode; navItems?: NavItem[] }) {
-  const { sidebarOpen, toggleSidebar, wsConnected, stats } = useAppStore();
+  const { sidebarOpen, toggleSidebar, stats } = useAppStore();
   const location = useLocation();
   const { portalThemes, setPortalTheme } = useThemeStore();
   const theme = portalThemes.trader;
@@ -117,17 +117,19 @@ export function Layout({ children, navItems = TRADER_NAV_ITEMS }: { children: Re
         </div>
 
         <div className="flex items-center gap-4">
-          {/* Backend sleep/wake status — separate from the WS connection
-              below: the backend can be reachable but the socket dropped,
-              or vice versa while it's waking up. */}
+          {/* Backend sleep/wake status — the real, live-polled signal
+              for whether the backend is actually reachable. The
+              "Connection Status" Live/Offline dot that used to sit
+              here read `wsConnected`, which nothing in the app ever
+              set true — useWebSocket.ts (the only place that calls
+              setWsConnected) is never invoked anywhere, confirmed
+              directly — so it permanently showed "Offline" even while
+              this badge correctly showed "Ready", a real bug report
+              ("We should not have both ready and offline light up").
+              Removed rather than wired up to a real socket: there's no
+              actual WebSocket feature behind it to connect to. */}
           <BackendStatusBadge />
           <TradingModeBadge dark={dark} />
-
-          {/* Connection Status */}
-          <div className="flex items-center gap-2 text-sm">
-            <div className={`w-2 h-2 rounded-full ${wsConnected ? 'bg-smc-success animate-pulse' : 'bg-smc-danger'}`} />
-            <span className={dark ? 'text-gray-400' : 'text-gray-500'}>{wsConnected ? 'Live' : 'Offline'}</span>
-          </div>
 
           {/* Pending Approvals Badge */}
           {stats && stats.pending_approvals > 0 && (
