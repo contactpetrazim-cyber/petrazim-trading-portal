@@ -34,6 +34,19 @@ interface TradeRowProps {
   onToggleSelect?: (tradeId: string) => void;
 }
 
+// Planned Risk:Reward — by direct request ("RR on every trade/position
+// card"). Reward/risk from the SAME entry/SL/TP already shown on the
+// card, not Trade.r_multiple (that's the REALIZED outcome of a closed
+// trade, a different number). Direction-agnostic (abs on both legs),
+// since a short's TP sits below entry and SL above, same ratio either
+// way. Null when entry/TP aren't set yet (a still-PENDING trade) or
+// stop_loss equals entry_price (zero risk, an undefined ratio) rather
+// than showing a misleading number.
+function computeRR(entry_price: number | null, stop_loss: number, take_profit: number | null): number | null {
+  if (entry_price == null || take_profit == null || stop_loss === entry_price) return null;
+  return Math.abs(take_profit - entry_price) / Math.abs(entry_price - stop_loss);
+}
+
 export function TradeRow({ trade, onApprove, onReject, onCancel, onChanged, onArchive, onDelete, selected, onToggleSelect }: TradeRowProps) {
   const { theme } = useThemeStore();
   const dark = theme === 'dark';
@@ -160,6 +173,15 @@ export function TradeRow({ trade, onApprove, onReject, onCancel, onChanged, onAr
               <span className="text-gray-500">TP:</span>
               <span className="ml-1 font-mono text-emerald-400">{trade.take_profit?.toFixed(2) || '-'}</span>
             </div>
+            {(() => {
+              const rr = computeRR(trade.entry_price, trade.stop_loss, trade.take_profit);
+              return rr != null ? (
+                <div>
+                  <span className="text-gray-500">R:R:</span>
+                  <span className="ml-1 font-mono">1:{rr.toFixed(2)}</span>
+                </div>
+              ) : null;
+            })()}
           </div>
         </div>
 
@@ -371,7 +393,7 @@ export function TradeRow({ trade, onApprove, onReject, onCancel, onChanged, onAr
           where these numbers matter most and there's no live position
           to fall back on managing instead. */}
       {trade.status === 'closed' && (
-        <div className={`mt-3 pt-3 border-t grid grid-cols-2 sm:grid-cols-5 gap-x-3 gap-y-2 text-xs ${dark ? 'border-smc-border' : 'border-corporate-bg'}`}>
+        <div className={`mt-3 pt-3 border-t grid grid-cols-2 sm:grid-cols-6 gap-x-3 gap-y-2 text-xs ${dark ? 'border-smc-border' : 'border-corporate-bg'}`}>
           {/* Label on its own line, price on the line below — by
               direct request ("the corresponding prices should be
               under each of the following Entry, SL, TP, Close etc -
@@ -393,6 +415,15 @@ export function TradeRow({ trade, onApprove, onReject, onCancel, onChanged, onAr
             <span className="text-gray-500">TP:</span>
             <span className="font-mono text-emerald-400">{trade.take_profit?.toFixed(2) ?? '—'}</span>
           </div>
+          {(() => {
+            const rr = computeRR(trade.entry_price, trade.stop_loss, trade.take_profit);
+            return (
+              <div className="flex flex-col gap-0.5">
+                <span className="text-gray-500">R:R:</span>
+                <span className="font-mono">{rr != null ? `1:${rr.toFixed(2)}` : '—'}</span>
+              </div>
+            );
+          })()}
           <div className="flex flex-col gap-0.5">
             <span className="text-gray-500">Closed:</span>
             <span className="font-mono">{trade.exit_price?.toFixed(2) ?? '—'}</span>
@@ -401,7 +432,7 @@ export function TradeRow({ trade, onApprove, onReject, onCancel, onChanged, onAr
             <span className="text-gray-500">Result:</span>
             <span className={`font-semibold ${outcomeColorCls}`}>{outcomeLabel}</span>
           </div>
-          <div className="flex flex-col gap-0.5 col-span-2 sm:col-span-5">
+          <div className="flex flex-col gap-0.5 col-span-2 sm:col-span-6">
             <button
               onClick={() => setSnapshotOpen(true)}
               className={`self-start flex items-center gap-1.5 text-xs font-medium mt-1 ${dark ? 'text-smc-accent hover:text-white' : 'text-corporate-hero hover:text-corporate-text-on-bg'}`}

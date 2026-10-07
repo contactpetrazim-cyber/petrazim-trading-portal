@@ -218,6 +218,11 @@ export function AdvancedTradeAnalytics({ dark, source, botId, testLive }: { dark
           <HourHistogram rows={chrono} dark={dark} onDrillDown={openDrillDown} />
         </FoldedCard>
 
+        <FoldedCard title="Net P&L by Day-of-Week" summary="Mon..Sun, UTC — aggregated across every week, not tied to any specific date." dark={dark}>
+          <InfoNote dark={dark} text="Groups every closed trade by which weekday it was ENTERED on (Monday through Sunday, UTC), summing realized P&L per weekday across your whole history. Different from the Calendar view below it, which shows individual dates — this answers 'is Tuesday just bad for me' rather than 'what happened on March 4th.'" />
+          <DayOfWeekChart rows={chrono} dark={dark} onDrillDown={openDrillDown} />
+        </FoldedCard>
+
         <div className="lg:col-span-2">
           <FoldedCard title="Net P&L by Day — Calendar" summary="Green = net profit that day, red = net loss, grey = no closed trades." dark={dark}>
             <InfoNote dark={dark} text="A calendar view of net realized P&L per day — darker shading means a bigger move (win or loss) that day. Click any day to see exactly which trades closed on it. Useful for spotting a cluster of bad days tied to a specific event or a run of overtrading." />
@@ -346,6 +351,14 @@ function entryDateUtc(r: DetailRow): string | null {
   return d.toISOString().slice(0, 10);
 }
 
+const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+function entryDayOfWeekUtc(r: DetailRow): string | null {
+  if (!r.entry_timestamp) return null;
+  const d = new Date(r.entry_timestamp.endsWith('Z') ? r.entry_timestamp : `${r.entry_timestamp}Z`);
+  return isNaN(d.getTime()) ? null : DAY_NAMES[d.getUTCDay()];
+}
+
 // Non-overlapping UTC-hour buckets — approximate, labeled as such
 // rather than claiming precise session-open/close times, since those
 // genuinely do overlap in reality (e.g. London/NY).
@@ -414,6 +427,16 @@ function PnlBarList({ buckets, dark, onDrillDown }: { buckets: Bucket[]; dark: b
 function SessionChart({ rows, dark, onDrillDown }: { rows: DetailRow[]; dark: boolean; onDrillDown?: (title: string, rows: DetailRow[]) => void }) {
   const buckets = bucketRows(rows, (r) => { const h = entryHourUtc(r); return h === null ? null : sessionOf(h); },
     ['Asian', 'London', 'London/NY Overlap', 'New York', 'Late/Off-hours']);
+  return buckets.length ? <PnlBarList buckets={buckets} dark={dark} onDrillDown={onDrillDown} /> : <NoData dark={dark} />;
+}
+
+// Net P&L by Day-of-Week — Mon..Sun aggregate (as distinct from the
+// Calendar heatmap below, which buckets by actual calendar DATE, not
+// which weekday it fell on). Same bucketing/rendering as SessionChart,
+// just a different key function and a Mon-first order (ISO weekday
+// convention) instead of DAY_NAMES's own Sun-first array order.
+function DayOfWeekChart({ rows, dark, onDrillDown }: { rows: DetailRow[]; dark: boolean; onDrillDown?: (title: string, rows: DetailRow[]) => void }) {
+  const buckets = bucketRows(rows, entryDayOfWeekUtc, ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']);
   return buckets.length ? <PnlBarList buckets={buckets} dark={dark} onDrillDown={onDrillDown} /> : <NoData dark={dark} />;
 }
 

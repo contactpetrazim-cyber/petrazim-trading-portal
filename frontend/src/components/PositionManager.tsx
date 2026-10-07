@@ -96,6 +96,13 @@ export function PositionManager({ trade, dark = false, onChanged }: { trade: Tra
   const rMultiple = riskDistance && riskDistance > 0
     ? ((impliedPrice - entry) * (isLong ? 1 : -1)) / riskDistance
     : null;
+  // Planned Risk:Reward to TP1 — by direct request ("RR on every
+  // trade/position card"). A different number from rMultiple above:
+  // this is the fixed ratio the trade was set up with (reward/risk
+  // from entry/SL/TP1), not where price has actually gotten to yet.
+  const plannedRR = riskDistance && riskDistance > 0 && trade.take_profit != null
+    ? Math.abs(trade.take_profit - entry) / riskDistance
+    : null;
   // "Goto Chart" — by direct request ("add a link that triggers the
   // correct chart pair from the correct exchange embedded in each
   // order management card"). Exact whenever trade.broker_name is set
@@ -371,6 +378,12 @@ export function PositionManager({ trade, dark = false, onChanged }: { trade: Tra
             </div>
           </div>
         )}
+        <div>
+          <div className={labelCls}>R:R (TP1)</div>
+          <div className={`text-sm font-mono font-semibold ${statCls}`}>
+            {plannedRR != null ? `1:${plannedRR.toFixed(2)}` : '—'}
+          </div>
+        </div>
       </div>
 
       {message && (
