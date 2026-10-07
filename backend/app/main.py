@@ -1,6 +1,7 @@
 # SMC Multi-Bot Automated Trading System
 # Principal Algorithmic Trading Engine
 
+import asyncio
 import enum
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -28,7 +29,7 @@ from app.routers.portals import router as portals_router
 from app.routers.broker_credentials import router as broker_credentials_router
 from app.routers.curriculum import router as curriculum_router
 from app.routers.practise import router as practise_router
-from app.routers.order_flow import router as order_flow_router
+from app.routers.order_flow import router as order_flow_router, _get_all_instruments as _prewarm_order_flow_instruments
 from app.routers.oanda import router as oanda_router
 from app.routers.metatrader import router as metatrader_router
 from app.routers.tools import router as tools_router
@@ -132,6 +133,16 @@ async def _repair_missing_columns(conn, base, label: str):
                 )
 
 
+async def _prewarm_instrument_cache() -> None:
+    try:
+        instruments = await _prewarm_order_flow_instruments()
+        logger.info("order_flow_instrument_cache_prewarmed", count=len(instruments))
+    except Exception as e:
+        # Never fatal — the cache just stays cold until the first real
+        # request fetches it the slow way, same as before this existed.
+        logger.warning("order_flow_instrument_cache_prewarm_failed", error=str(e))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Application lifespan handler.
@@ -205,6 +216,23 @@ async def lifespan(app: FastAPI):
     if settings.MEMORY_WATCHDOG_ENABLED:
         memory_watchdog = MemoryWatchdog()
         memory_watchdog.start()
+
+    # Pre-warm order_flow.py's in-memory Binance instrument-list cache
+    # (_get_all_instruments) — real bug report ("'On Chart' not display
+    # price chart ... Same issue on incognito tab"): that cache resets
+    # on every restart/redeploy, and an uncached fetch (the full spot +
+    # futures exchangeInfo payload, through the Fixie proxy failover
+    # chain) was confirmed to take 30+ seconds — well past the
+    # frontend's 20s request timeout — so the FIRST chart/instrument-
+    # search request after any deploy failed outright, reproducible in
+    # a fresh incognito session (nothing to do with browser caching).
+    # Fire-and-forget: failing or being slow here must never block app
+    # startup/readiness — a cold cache on the very first real request
+    # is still correct, just slow, exactly as it was before this; this
+    # only shrinks the WINDOW where that's true, from "whenever the
+    # first trader happens to open a chart" to "the ~30s right after
+    # deploy, before anyone's even loaded the page yet."
+    asyncio.create_task(_prewarm_instrument_cache())
 
     yield
 
