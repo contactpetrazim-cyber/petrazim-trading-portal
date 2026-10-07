@@ -1,5 +1,5 @@
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List, Dict, Literal
 from datetime import datetime
 from uuid import UUID
@@ -241,6 +241,28 @@ class BotConfigResponse(BaseModel):
     # BotConfig.sub_auto_risk_amount's own comment.
     sub_auto_risk_amount: Optional[float] = None
     sub_auto_min_rr_ratio: Optional[float] = None
+
+    # Real bug: these 3 columns are plain SQLAlchemy `default=False`/
+    # `default=0` — a Python-side INSERT-time default, not a DB
+    # `server_default`/NOT NULL constraint — so any row created through
+    # a path that didn't trigger that (confirmed: a real bot_config row
+    # existed with genuine NULLs here) has nothing to fall back to.
+    # Pydantic's own `= False`/`= 0` field default only applies when a
+    # field is MISSING, not when it's explicitly None — so one bad row
+    # 500'd GET /bots/ for every trader, which cascaded into the whole
+    # Dashboard page failing (it fetches bots in the same Promise.all as
+    # everything else). Coercing None -> the same default here, instead
+    # of just backfilling the one bad row, makes this permanently safe
+    # regardless of how a future NULL gets in.
+    @field_validator("sub_auto_active", mode="before")
+    @classmethod
+    def _default_sub_auto_active(cls, v):
+        return False if v is None else v
+
+    @field_validator("sub_auto_trades_executed", "sub_auto_daily_count", mode="before")
+    @classmethod
+    def _default_sub_auto_counts(cls, v):
+        return 0 if v is None else v
 
     class Config:
         from_attributes = True
