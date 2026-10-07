@@ -41,7 +41,21 @@ COPY . .
 
 EXPOSE 8000
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+# start-period/retries widened from 5s/3 — real bug report ("On Chart
+# not display price chart ... Same issue on incognito tab") traced to
+# this exact instruction: on the Coolify-hosted VM, app startup
+# (DB connection + table setup) was directly observed taking 45-90s
+# under real load, well past the old 5s+3*30s≈95s nominal window and
+# routinely missing it in practice — Docker marked the container
+# unhealthy before it ever finished starting, so every deploy rolled
+# back to stale code. Coolify's own UI/DB health-check settings do
+# NOT override this instruction (confirmed directly — changing them
+# had zero effect on a running container's actual behavior); this
+# line is the one actual source of truth for a Docker-image-based
+# Coolify deployment. 90s start-period + up to 10*20s=200s of retries
+# gives ~290s of total headroom, comfortably covering the slowest
+# observed real startup.
+HEALTHCHECK --interval=20s --timeout=10s --start-period=90s --retries=10 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
 
 # No --reload here (this file's previous version had it): --reload is
