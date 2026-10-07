@@ -761,12 +761,15 @@ class JeafxSMCBot:
 
     Rules:
     1. Identify 1H or 4H supply/demand zone (refined, not just any OB)
-    2. Wait for LTF (15M/5M) liquidity purge of retail trendlines/patterns
-    3. Confirmation candle: strong close back inside zone with momentum
-    4. FVG must form on confirmation candle (not just exist)
-    5. Entry at 50% of confirmation candle or FVG 50%
-    6. Strict SL: beyond purge extreme + buffer
-    7. Target 4:1 to 6:1 (Jeafx emphasizes high R:R)
+    2. Direction follows the last 4H BOS (the higher-timeframe trend) —
+       see the direction-step comment below for why this replaced the
+       original liquidity-sweep-side logic.
+    3. Wait for LTF (15M/5M) liquidity purge of retail trendlines/patterns
+    4. Confirmation candle: strong close back inside zone with momentum
+    5. FVG must form on confirmation candle (not just exist)
+    6. Entry at 50% of confirmation candle or FVG 50%
+    7. Strict SL: beyond purge extreme + buffer
+    8. Target 4:1 to 6:1 (Jeafx emphasizes high R:R)
     """
 
     def __init__(self, config: Dict):
@@ -778,6 +781,7 @@ class JeafxSMCBot:
         self.risk_manager = RiskManager(base_risk_percent=1.0)
 
     def analyze(self,
+                candles_4h: List[Candle],
                 candles_1h: List[Candle],
                 candles_15m: List[Candle],
                 candles_5m: List[Candle],
@@ -802,13 +806,53 @@ class JeafxSMCBot:
         zones = zone_detector.detect_order_blocks(candles_1h, swings_1h)
 
         # Jeafx refinement: zones must be fresh (not tested more than once)
-        fresh_zones = [z for z in zones 
+        fresh_zones = [z for z in zones
                       if z.status.name == "ACTIVE" and z.test_count <= 1]
 
         if not fresh_zones:
             return None
 
-        # Step 2: Check 15M for liquidity purge
+        # Step 2: Direction from the last 4H BOS — real strategy change,
+        # by direct request ("get direction from the direction of the
+        # last 4H BOS - so it should follow the 4H TREND ONLY"),
+        # replacing the ORIGINAL liquidity-sweep-side logic this method
+        # used to have here (buy_side_sweep -> long, sell_side_sweep ->
+        # short) — the step the user reported as the bot "often
+        # miss[ing] the price[']s direction."
+        #
+        # Separately researched and CONFIRMED by direct request
+        # ("I expect that a sweep of sellside liquidity should move
+        # long and a sweep of buyside should make price move short
+        # direction ... confirm from research and the web"): standard
+        # ICT/SMC convention (the "Turtle Soup" liquidity-sweep-reversal
+        # setup, and independently corroborated by Smart Money Concepts
+        # material) has this the OPPOSITE way from what the OLD code
+        # here did — buy-side liquidity (resting above swing highs)
+        # swept -> BEARISH reversal (short); sell-side liquidity
+        # (resting below swing lows) swept -> BULLISH reversal (long).
+        # The old mapping was backwards by the standard convention, on
+        # top of being the less-reliable signal overall per the user's
+        # own observation — which is exactly why this step now uses 4H
+        # BOS instead of either sweep-direction reading. The sweep
+        # itself is NOT removed — see Step 3 below — it's just no
+        # longer what decides long vs. short.
+        swings_4h = self.structure_detector.detect_swing_highs(candles_4h) + \
+                    self.structure_detector.detect_swing_lows(candles_4h)
+        bos_4h = self.structure_detector.detect_bos(candles_4h, swings_4h)
+        if not bos_4h:
+            return None
+        last_bos_4h = bos_4h[-1]
+        if last_bos_4h["type"] == "bullish_bos":
+            direction = "long"
+        elif last_bos_4h["type"] == "bearish_bos":
+            direction = "short"
+        else:
+            return None
+
+        # Step 3: Check 15M for liquidity purge — still required as the
+        # ENTRY-TIMING/zone-alignment gate (a zone with no purge yet
+        # isn't ready to trade), same role this already played before
+        # Step 2's change; it no longer decides direction (see above).
         liq_detector = LiquidityDetector(tolerance_pips=1.0)
         pools = liq_detector.detect_equal_highs_lows(candles_15m, lookback=30)
         sweeps = liq_detector.detect_liquidity_sweeps(pools, candles_15m[-5:])
@@ -818,7 +862,7 @@ class JeafxSMCBot:
 
         last_sweep = sweeps[-1]
 
-        # Step 3: Find zone aligned with sweep
+        # Step 4: Find zone aligned with sweep
         sweep_price = last_sweep["sweep_price"]
         aligned_zone = None
 
@@ -830,7 +874,7 @@ class JeafxSMCBot:
         if not aligned_zone:
             return None
 
-        # Step 4: Confirmation candle on 5M
+        # Step 5: Confirmation candle on 5M
         # Jeafx confirmation: strong momentum candle closing back inside zone
         recent_5m = candles_5m[-5:]
         confirmation_candle = None
@@ -847,27 +891,23 @@ class JeafxSMCBot:
         if not confirmation_candle:
             return None
 
-        # Step 5: FVG must form on or after confirmation
+        # Step 6: FVG must form on or after confirmation, in the 4H-BOS
+        # direction (was: cross-checked against the sweep's own side —
+        # now cross-checked against `direction` from Step 2, so this
+        # stays internally consistent with what's actually driving the
+        # trade).
         fvg_detector = FVGDetector()
         recent_fvgs = fvg_detector.detect_fvg(candles_5m[-10:])
 
         valid_fvg = None
         for f in recent_fvgs:
             if f.candle1.timestamp >= confirmation_candle.timestamp:
-                if f.gap_type == "bullish" and last_sweep["type"] == "buy_side_sweep":
+                if f.gap_type == "bullish" and direction == "long":
                     valid_fvg = f
                     break
-                elif f.gap_type == "bearish" and last_sweep["type"] == "sell_side_sweep":
+                elif f.gap_type == "bearish" and direction == "short":
                     valid_fvg = f
                     break
-
-        # Step 6: Determine direction
-        if last_sweep["type"] == "buy_side_sweep":
-            direction = "long"
-        elif last_sweep["type"] == "sell_side_sweep":
-            direction = "short"
-        else:
-            return None
 
         # Step 7: Entry at 50% of confirmation candle or FVG
         if valid_fvg:
@@ -922,7 +962,7 @@ class JeafxSMCBot:
             take_profit_3=targets["tp3"],
             lot_size=lots["lot_size"],
             risk_percent=risk,
-            reasoning=f"SMC BOT {direction}. 1H fresh zone. 15M {last_sweep['type']}. "
+            reasoning=f"SMC BOT {direction}. 4H BOS confirms trend. 1H fresh zone. 15M {last_sweep['type']} (timing gate). "
                      f"5M confirmation candle + FVG: {valid_fvg is not None}. "
                      f"Entry at 50%. Strict SL beyond purge. 5R target.",
             timestamp=datetime.utcnow()
@@ -1228,9 +1268,11 @@ class BotOrchestrator:
         if "4H" in market_data and "1H" in market_data:
             _run_family("bot_4", market_data["4H"], market_data["1H"])
 
-        # Bot 5: Needs 1H + 15M + 5M
-        if all(k in market_data for k in ["1H", "15M", "5M"]):
-            _run_family("bot_5", market_data["1H"], market_data["15M"], market_data["5M"])
+        # Bot 5: Needs 4H + 1H + 15M + 5M — 4H added by direct request
+        # ("get direction from the direction of the last 4H BOS"); see
+        # JeafxSMCBot.analyze's own Step 2 comment for the full story.
+        if all(k in market_data for k in ["4H", "1H", "15M", "5M"]):
+            _run_family("bot_5", market_data["4H"], market_data["1H"], market_data["15M"], market_data["5M"])
 
         # Bot 6 (SMC v2): Needs 1H + 15M + 5M — same set as Bot 5.
         if all(k in market_data for k in ["1H", "15M", "5M"]):
