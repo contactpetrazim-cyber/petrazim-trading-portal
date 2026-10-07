@@ -98,7 +98,7 @@ async def get_effective_account_balance(db: AsyncSession, bot: BotConfig) -> flo
 _TIMEFRAME_TO_CCXT = {"1D": "1d", "4H": "4h", "1H": "1h", "15M": "15m", "5M": "5m"}
 
 
-def _effective_bot_settings(bot: BotConfig) -> Dict[str, float]:
+def _effective_bot_settings(bot: BotConfig, effective_balance: float) -> Dict[str, float]:
     """What risk_per_trade/min_rr_ratio THIS bot should actually trade
     with right now — read fresh every scan cycle so a trader's edit on
     the Bots page takes effect on the very next cycle, same as
@@ -113,19 +113,40 @@ def _effective_bot_settings(bot: BotConfig) -> Dict[str, float]:
     the bot's base config. sub_auto_risk_amount is a dollar figure
     (matching the Bots page's own "Risk Amount (USD)" field) —
     converted to the risk_per_trade PERCENT this engine's RiskManager
-    actually consumes, against the same flat default account balance
-    every other risk calculation in this module already uses — Sub-
-    Auto's own dollar-to-percent conversion is deliberately still
-    against the static default rather than this bot's effective
-    balance (get_effective_account_balance), since sub_auto_risk_amount
-    is a trader-entered dollar figure meant to read the same regardless
-    of whatever the Admin's master override happens to be set to.
+    actually consumes.
+
+    CRITICAL FIX, found via direct report ("Why is the risk amount so
+    low ...I should be close to the set amount ~$10 and not ~0.91"):
+    this conversion used to divide by config.py's static
+    MARKET_SCANNER_DEFAULT_ACCOUNT_BALANCE ($10,000) unconditionally,
+    while calculate_lot_size downstream sizes the position against
+    `effective_balance` — THIS bot's own actual balance (its own
+    account_balance_usd, or the Admin's master override, resolved by
+    the caller via get_effective_account_balance; see scan_once). The
+    two used to disagree the moment a bot's effective balance wasn't
+    exactly $10,000 — which, in production, it never is: every bot
+    here has its own account_balance_usd set to $1,000. A $10
+    Sub-Auto risk converted to 0.1% against the ASSUMED $10,000
+    ("$10 would be 0.1% of a $10k account"), then applied against the
+    REAL $1,000 balance, sized to 0.1% x $1,000 = $1 — roughly 10x
+    under the stated $10, matching the real trades audited live
+    (risk_amount ~$0.91-$0.95 against a $10 target). The old
+    docstring's own reasoning for using the static default ("meant to
+    read the same regardless of whatever the Admin's master override
+    happens to be set to") was backwards: using effective_balance for
+    BOTH the %-conversion AND the sizing is what keeps the real dollar
+    risk correct and constant across a master-override change —
+    mismatching them is exactly what broke it. Passed in by the caller
+    (not re-resolved here) so a single DB round trip
+    (get_effective_account_balance) serves both this conversion and
+    calculate_lot_size's own sizing call, with no risk of the two ever
+    disagreeing on which balance "effective" means.
     """
     risk_per_trade = bot.risk_per_trade
     min_rr_ratio = bot.min_rr_ratio
     if bot.sub_auto_active:
         if bot.sub_auto_risk_amount:
-            risk_per_trade = (bot.sub_auto_risk_amount / settings.MARKET_SCANNER_DEFAULT_ACCOUNT_BALANCE) * 100
+            risk_per_trade = (bot.sub_auto_risk_amount / effective_balance) * 100
         if bot.sub_auto_min_rr_ratio:
             min_rr_ratio = bot.sub_auto_min_rr_ratio
     return {"risk_per_trade": risk_per_trade, "min_rr_ratio": min_rr_ratio}
@@ -211,19 +232,6 @@ class MarketScanner:
 
                 await self._record_scan_result(db, bots_here, error=None)
 
-                # bot_settings (risk_per_trade/min_rr_ratio, including
-                # any Sub-Auto override) is read once for the WHOLE
-                # group — run_all only looks up entries matching the
-                # bot_ids it actually dispatches to in a given call, so
-                # handing it the full dict to every balance-subgroup
-                # call below is harmless (same shape as bot_by_id.get
-                # already tolerating a bot_id that isn't in this
-                # subgroup).
-                bot_settings = {
-                    "_".join(bot.bot_id.split("_")[:2]): _effective_bot_settings(bot)
-                    for bot in bots_here
-                }
-
                 # Sub-grouped by each bot's own EFFECTIVE account
                 # balance (master override, else its own
                 # account_balance_usd, else the static default — see
@@ -240,13 +248,34 @@ class MarketScanner:
                 # The common case (no bot here has its own override, or
                 # the master override is on) collapses back to exactly
                 # one run_all call, identical to before this feature.
+                #
+                # bot_settings (risk_per_trade/min_rr_ratio, including
+                # any Sub-Auto override) is now built in THIS same loop,
+                # using each bot's own just-resolved effective_balance —
+                # real bug fix, found via direct report ("Why is the
+                # risk amount so low ... ~0.91" against a $10 target).
+                # See _effective_bot_settings' own docstring for the
+                # full mismatch this closes: that conversion used to
+                # run against the static platform default regardless of
+                # what balance a bot would actually be sized against,
+                # silently under-sizing every bot whose effective
+                # balance differs from that default (every bot here,
+                # in production — each has its own $1,000
+                # account_balance_usd). One run_all call per distinct
+                # balance, same as before; bot_settings is no longer a
+                # single dict shared unconditionally across every
+                # balance subgroup, since the risk-percent conversion
+                # now genuinely depends on which subgroup a bot is in.
                 balance_groups: Dict[float, List[BotConfig]] = {}
+                bot_settings_by_balance: Dict[float, Dict[str, Dict[str, float]]] = {}
                 for bot in bots_here:
                     balance = await get_effective_account_balance(db, bot)
                     balance_groups.setdefault(balance, []).append(bot)
+                    bot_settings_by_balance.setdefault(balance, {})["_".join(bot.bot_id.split("_")[:2])] = \
+                        _effective_bot_settings(bot, balance)
 
                 for balance, bots_at_balance in balance_groups.items():
-                    signals = self.orchestrator.run_all(market_data, balance, bot_settings)
+                    signals = self.orchestrator.run_all(market_data, balance, bot_settings_by_balance[balance])
                     if not signals:
                         continue
 
