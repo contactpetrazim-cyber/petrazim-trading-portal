@@ -312,15 +312,20 @@ and `max(highs)`/`min(lows)` logic quoted directly from source.
 **Estimated study time:** 13 minutes
 **Prerequisites:** BOT4-02, C2-07
 **Learning objectives:** State the exact proximity test that gates a
-Spring/Upthrust search, and confirm Bot 4 checks CHoCH (matching Bot
-2's pattern), not BOS.
+Spring/Upthrust search, and confirm Bot 4 confirms its PATTERN with a
+CHoCH (matching Bot 2's mechanism) — while also noting that a 4H BOS
+IS now read elsewhere in this bot's pipeline, for a different purpose
+(see BOT4-05's new confluence gates).
 
 ### Why This Matters
 
 A defined range (BOT4-02) alone isn't enough — Bot 4 only bothers
 searching for a Spring or Upthrust when price is ACTUALLY near one of
-the range's extremes, and only confirms a real signal with a CHoCH,
-the same mechanism Bot 2 uses (but Bot 1 and Bot 3 don't).
+the range's extremes, and only confirms the PATTERN itself with a
+CHoCH, the same mechanism Bot 2 uses (but Bot 1 and Bot 3 don't). A 4H
+BOS is also read by this bot today, but only as a LATER, separate
+confluence check (BOT4-05's gates 10-11) — it plays no role in
+confirming the Spring/Upthrust pattern itself.
 
 ### Core Teaching
 
@@ -339,9 +344,19 @@ or Bot 3's BOS-based one.
 `near_low = abs(current_price - range_low) / range_size < 0.15`. If
 NEITHER is true, return `None` — this is checked BEFORE the
 Spring/Upthrust search even runs, saving that search for genuinely
-relevant price locations. Later: `choch_1h = detect_choch(candles_1h,
-swings_1h)`; if empty, return `None`. Like Bot 2, and unlike Bot 1 and
-Bot 3, `detect_bos` is never called anywhere in `VolumeLiquidityBot`.
+relevant price locations. Between this proximity test and the
+Spring/Upthrust search sits one more gate, added by direct request
+after this curriculum was first written: the range extreme
+(`poi_price`) must sit inside a real, ACTIVE 4H order-block zone (the
+"4H POI or zone of interest" confluence item, BOT4-05's gate 5) —
+covered in full in BOT4-05, not here, since it's a genuinely separate
+check from proximity itself. Later: `choch_1h = detect_choch(candles_1h,
+swings_1h)`; if empty, return `None`. This CHoCH check matches Bot 2's
+mechanism for confirming the PATTERN itself. `detect_bos` IS now also
+called in this bot's class — but only later, on `candles_4h`, as an
+independent confluence check (BOT4-05's gates 10-11), added after this
+curriculum was first written; it has no role in this proximity/CHoCH
+step.
 
 ### Visual Model
 
@@ -369,20 +384,28 @@ middle of a range.
 
 ### Good Example / Bad Example
 
-Good: Checking proximity to a range extreme FIRST, only searching for
-a Spring/Upthrust when that proximity test passes, and requiring a
-real CHoCH afterward to confirm. Bad: Searching for a Spring/Upthrust
-pattern regardless of where price currently sits within the range, or
-accepting a BOS instead of a CHoCH as confirmation.
+Good: Checking proximity to a range extreme FIRST, then the 4H POI/
+zone check (BOT4-05's gate 5), only searching for a Spring/Upthrust
+once both pass, and requiring a real CHoCH afterward to confirm the
+PATTERN. Bad: Searching for a Spring/Upthrust pattern regardless of
+where price currently sits within the range, or accepting a BOS
+instead of a CHoCH as the PATTERN's own confirmation (the 4H BOS this
+bot reads today confirms something else entirely — trend agreement,
+BOT4-05's gates 10-11).
 
 ### What to Look Out For
 
 - The 15%-of-range proximity test runs BEFORE the pattern search — a
   real efficiency and precision gate, not just documentation.
-- Bot 4 checks CHoCH, matching Bot 2's mechanism — `detect_bos` is
-  never called anywhere in this bot's class.
+- Bot 4 confirms its PATTERN with a CHoCH, matching Bot 2's mechanism.
+  `detect_bos` IS called elsewhere in this bot's class today, but only
+  as a later, separate confluence check (BOT4-05) — it plays no part
+  in confirming the Spring/Upthrust pattern itself.
 - Both `near_high` and `near_low` being false is a hard `None` —
   there's no fallback search elsewhere in the range.
+- A 4H POI/zone check (BOT4-05's gate 5) also sits between this
+  proximity test and the Spring/Upthrust search — a second, separate
+  gate added after this curriculum was first written.
 
 ### Common Mistakes
 
@@ -394,10 +417,12 @@ a common misread of what the actual code checks first.
 
 1. Bot 4 only searches for a Spring/Upthrust when price is within 15%
    of the range's size from either extreme.
-2. Bot 4 checks CHoCH for confirmation — matching Bot 2's mechanism,
-   not Bot 1 or Bot 3's BOS.
-3. Failing the proximity test returns `None` before the pattern search
-   even runs.
+2. Bot 4 confirms its PATTERN with CHoCH — matching Bot 2's mechanism.
+   A 4H BOS IS read elsewhere in this bot today, but only as a later,
+   separate confluence check (BOT4-05), not for this confirmation.
+3. Failing the proximity test, or the 4H POI/zone check that follows
+   it (BOT4-05's gate 5), both return `None` before the Spring/Upthrust
+   search ever completes.
 
 ### Practice Drill
 
@@ -433,9 +458,11 @@ Answer: (b).
 - Front: What's Bot 4's exact proximity test? Back:
   `abs(current_price - extreme) / range_size < 0.15` for either the
   range high or range low — checked before the pattern search runs.
-- Front: Does Bot 4 use BOS or CHoCH for confirmation? Back: CHoCH —
-  matching Bot 2's mechanism; `detect_bos` is never called anywhere in
-  this bot's class.
+- Front: Does Bot 4 use BOS or CHoCH to confirm its Spring/Upthrust
+  pattern? Back: CHoCH — matching Bot 2's mechanism. `detect_bos` IS
+  called elsewhere in this bot's class today, but only as a later,
+  separate confluence check (BOT4-05), never to confirm the pattern
+  itself.
 
 ### Reflection
 
@@ -457,8 +484,10 @@ precedes BOT4-04's pattern search.
 
 Verified against `VolumeLiquidityBot.analyze()` Steps 1-3 in
 `bot_strategies.py` — the `< 0.15` proximity test and `detect_choch`
-call (with confirmed absence of any `detect_bos` call) quoted directly
-from source.
+call quoted directly from source. The 4H `detect_bos` call this bot's
+class does contain today lives in a later step (Step 3c, BOT4-05's
+gates 10-11), confirmed by tracing its line position well after this
+stage's own logic.
 
 ---
 
@@ -626,165 +655,220 @@ source.
 
 ---
 
-## BOT4-05 — Invalidation: The Seven Conditions That Return No Signal
+## BOT4-05 — Invalidation: The Eleven Conditions That Return No Signal
 
 **Level:** 3
-**Estimated study time:** 13 minutes
+**Estimated study time:** 16 minutes
 **Prerequisites:** BOT4-02 through BOT4-04, C2-09
-**Learning objectives:** List, in order, all seven points in Bot 4's
-pipeline where it returns no signal — the longest gate list of any bot
-covered so far.
+**Learning objectives:** List, in order, all eleven points in Bot 4's
+pipeline where it returns no signal — including the three confluence
+additions (4H POI, FVG + change in the state of delivery, 4H BOS
+trend agreement) added to this bot's logic by direct request after
+this curriculum was first written — and place Bot 4's gate count in
+the complete six-bot comparison.
 
 ### Why This Matters
 
-Bot 1 had four gates, Bot 2 had three, Bot 3 had two. Bot 4 has SEVEN
-— the longest list by a wide margin — worth understanding as a real,
-counted fact about this bot's specific mechanics, not an
-approximation.
+Bot 4 already had the longest gate list of any bot in this curriculum
+before a real confluence checklist was added to its code by direct
+request: *"4H POI or zone of interest / Liquidity sweep / Market
+structure shift or CHOCH / FVG / Change in the state of delivery /
+Trade should follow the HTF 4H trend - BOS direction."* Three of
+those six items (liquidity sweep, CHoCH, market structure shift) were
+already this bot's existing Spring/Upthrust+CHoCH mechanics under a
+new name — but three were genuinely NEW hard gates layered on top:
+a 4H point-of-interest check, an FVG-plus-ordering check, and a 4H
+BOS trend-agreement check (itself two gates: BOS must exist, AND it
+must agree). That's 4 new gates on top of the original 7, for eleven
+total — the longest gate list of any bot in this curriculum by an
+even wider margin now: Bot 1 (four), Bot 2 (three), Bot 3 (two), Bot 4
+(eleven), Bot 5 (six), Bot 6 (BOT6-06).
 
 ### Core Teaching
 
 **Plain-English explanation.** Reading through
-`VolumeLiquidityBot.analyze()` in order, there are seven distinct
+`VolumeLiquidityBot.analyze()` in order, there are eleven distinct
 points where it stops and returns no signal: (1) fewer than 6 total 4H
 swing points (BOT4-02); (2) fewer than 3 recent swing highs OR fewer
 than 3 recent swing lows (BOT4-02); (3) a degenerate zero-size range
 (BOT4-02); (4) current price isn't within 15% of either range extreme
-(BOT4-03); (5) neither a Spring nor an Upthrust pattern is found
-(BOT4-04); (6) no CHoCH is detected on the 1H timeframe at all
-(BOT4-03); (7) the found pattern (Spring/Upthrust) and the CHoCH type
-don't actually agree — e.g., a Spring found alongside a BEARISH CHoCH,
-which satisfies neither the Spring-needs-bullish-CHoCH branch nor the
-Upthrust-needs-bearish-CHoCH branch.
+(BOT4-03); (5) **[NEW]** the range extreme price doesn't actually sit
+inside a real, ACTIVE 4H order-block zone — the "4H POI or zone of
+interest" confluence item, checked using the SAME `ZoneDetector` Bots
+2, 5, and 6 already use; (6) neither a Spring nor an Upthrust pattern
+is found (BOT4-04); (7) no CHoCH is detected on the 1H timeframe at
+all (BOT4-03); (8) the found pattern (Spring/Upthrust) and the CHoCH
+type don't actually agree; (9) **[NEW]** no 1H FVG exists in the
+signal's direction that formed STRICTLY AFTER the CHoCH's own
+timestamp — the "FVG / Change in the state of delivery" confluence
+item; (10) **[NEW]** no 4H break of structure has formed at all; (11)
+**[NEW]** the 4H BOS's own direction disagrees with the Spring/
+Upthrust+CHoCH direction — the "HTF 4H trend - BOS direction"
+confluence item.
 
-**Technical explanation.** This is the longest verified gate list in
-this curriculum's cross-bot comparison — seven, versus Bot 1's four,
-Bot 2's three, and Bot 3's two. The final gate (7) is worth special
-attention: it's not a single `if` check but an `if/elif/else`
-structure — `if spring and last_choch["type"] == "bullish_choch":
-... elif upthrust and last_choch["type"] == "bearish_choch": ... else:
-return None` — meaning a Spring paired with a bearish CHoCH, or an
-Upthrust paired with a bullish CHoCH (both real, if less common,
-combinations), fall through to this final `None`, exactly as much as
-having no CHoCH at all.
+**Technical explanation.** This is now the longest verified gate list
+in this curriculum's cross-bot comparison by a wider margin than
+before — eleven, versus Bot 1's four, Bot 2's three, Bot 3's two, Bot
+5's six, and Bot 6's own count (BOT6-06). Gate 5 (`if not any(z.bottom
+<= poi_price <= z.top for z in active_zones_4h): return None`) sits
+between the proximity test (gate 4) and the Spring/Upthrust search
+(gate 6) — it runs on the 4H timeframe, using `poi_price = range_high
+if near_high else range_low` as the point that must fall inside a real
+zone. Gates 9-11 all run AFTER the pairing gate (8) passes, in this
+order: `if not valid_fvg: return None` (gate 9 — the FVG must be
+`f.candle1.timestamp >= choch_timestamp`, same-direction `gap_type`,
+and is found with a first-match `break`, not last-match); `if not
+bos_4h: return None` (gate 10); `if trend_4h != direction: return
+None` (gate 11, where `trend_4h` is derived from the LAST 4H BOS's own
+type). Unlike gate 8's pairing check, gates 9-11 are three fully
+independent, sequential `if` statements, not a combined branch.
 
 ### Visual Model
 
-See diagram: `visuals/bot4-05-seven-gates.svg` — a seven-step
-sequential gate list, shown at true relative length next to Bot 1's
-four, Bot 2's three, and Bot 3's two gate sequences from earlier
-lessons, visually emphasizing Bot 4 as the longest.
+See diagram: `visuals/bot4-05-eleven-gates.svg` — an eleven-step
+sequential gate list with the four NEW gates (5, 9, 10, 11) visually
+highlighted against the original seven, shown at true relative length
+next to Bot 1's four, Bot 2's three, Bot 3's two, and Bot 5's six gate
+sequences from earlier lessons — Bot 4 remains the longest, now by a
+wider margin.
 
 ### Worked Example
 
-A setup passes gates 1 through 6: 8 total swings, 3+ of each type, a
-real range, price near the low, a confirmed Spring with qualifying
-volume, and a detected CHoCH. If that CHoCH is BULLISH (matching the
-Spring's required pairing), gate 7 also passes and a long signal is
+A setup passes gates 1-4 (valid range, price near the low), and gate 5
+(the range low sits inside a real ACTIVE 4H order block). A Spring is
+confirmed with qualifying volume (gate 6), a CHoCH is detected and is
+BULLISH, matching the Spring's required pairing (gates 7-8). A
+same-direction (bullish) 1H FVG formed AFTER that CHoCH's timestamp
+(gate 9). The last 4H BOS is bullish (gate 10) and agrees with the
+long direction (gate 11) — all eleven gates pass, and a long signal is
 produced.
 
 ### Counterexample
 
-The same setup passes gates 1 through 6 identically — Spring
-confirmed, CHoCH detected — but the detected CHoCH is BEARISH, not
-bullish. Gate 7 fails (the Spring-needs-bullish-CHoCH branch doesn't
-match, and there's no Upthrust to check against the bearish CHoCH
-either), and `analyze()` returns `None` even though six of seven gates
-looked fully satisfied.
+The same setup passes gates 1-8 identically — Spring confirmed, CHoCH
+bullish, pairing correct — but the only 1H FVG in the bullish direction
+formed BEFORE the CHoCH's own timestamp (old, pre-shift delivery bias,
+not evidence of a genuine change). Gate 9 fails, and `analyze()`
+returns `None` even though eight of eleven gates looked fully
+satisfied — the new confluence gates can block a setup that would have
+produced a signal under the original seven-gate logic.
 
 ### Good Example / Bad Example
 
-Good: Checking that the found pattern TYPE (Spring/Upthrust) and the
-CHoCH TYPE (bullish/bearish) actually pair correctly, not just that
-both exist independently. Bad: Assuming any Spring plus any CHoCH is
-sufficient, regardless of whether their directions actually agree.
+Good: Checking the three new confluence gates (4H POI, post-CHoCH FVG,
+4H BOS agreement) as genuinely independent hard requirements, in
+addition to the original seven — not as optional context. Bad: Still
+evaluating a Bot 4 setup against only the original seven gates, or
+treating any of the three new checks as a soft/advisory signal rather
+than a real `return None` point.
 
 ### What to Look Out For
 
-- Bot 4 has SEVEN real gates — the longest of any bot covered so far.
-- The final gate is a pairing check, not just an existence check — a
-  Spring needs specifically a BULLISH CHoCH; an Upthrust needs
-  specifically a BEARISH one.
-- Gates 1-3 are all part of the initial range-definition stage
-  (BOT4-02) — three of the seven gates happen before the range is
-  even confirmed usable.
+- Bot 4 has ELEVEN real gates today, not seven — three new confluence
+  checks (4H POI, FVG+state-of-delivery, 4H BOS agreement) were added
+  by direct request, and the 4H-BOS check is itself two gates
+  (existence, then agreement).
+- Gate 5 (4H POI) sits BETWEEN the proximity test and the
+  Spring/Upthrust search — it can block a setup before the pattern
+  search ever runs.
+- Gates 9-11 all run AFTER the pattern/CHoCH pairing gate (8) passes —
+  a textbook Spring+bullish-CHoCH setup can still fail here.
+- The FVG check (gate 9) uses first-match `break`, unlike BOT4-04's
+  Spring/Upthrust loop, which keeps iterating to last-match.
 
 ### Common Mistakes
 
-Confirming a Spring exists and a CHoCH exists separately, without
-checking that their TYPES actually agree with each other, is the most
-consequential Bot-4-specific gate-checking mistake.
+Citing "seven gates" (the pre-confluence-checklist count) is now the
+most common outdated read of this bot's pipeline — the real count is
+eleven. A second, separate mistake: assuming the three new confluence
+checks are satisfied automatically whenever the ORIGINAL seven gates
+pass, when in fact each is its own independent `return None` point
+that a textbook Spring/Upthrust+CHoCH setup can still fail.
 
 ### Key Takeaways
 
-1. Bot 4 has seven real gates — the longest list of any bot covered
-   in this curriculum.
-2. The final gate is a pairing check: Spring requires a bullish CHoCH;
-   Upthrust requires a bearish CHoCH — not just any CHoCH's existence.
-3. Three of the seven gates (swing count, high/low count, zero-size
-   range) occur before the range is even confirmed usable.
+1. Bot 4 has ELEVEN real gates — up from seven, after three new
+   confluence checks (4H POI, FVG+state-of-delivery, 4H BOS agreement)
+   were added by direct request; it remains the longest gate list of
+   any bot in this curriculum.
+2. The 4H POI gate (5) runs BEFORE the Spring/Upthrust search; the FVG
+   (9) and BOS (10-11) gates all run AFTER the pattern/CHoCH pairing
+   gate (8) passes.
+3. The three new gates are genuinely independent — none of them is
+   satisfied just because the original seven gates already passed.
 
 ### Practice Drill
 
-Given nine scenario summaries (provided in Practise) describing which
-of the seven gates pass or fail — including at least one mismatched
-pattern/CHoCH pairing — determine the outcome for each.
+Given eleven scenario summaries (provided in Practise) describing
+which of the eleven gates pass or fail — including at least one
+textbook Spring/Upthrust+CHoCH setup that fails a new confluence
+gate — determine the outcome for each.
 
 ### Scenario Challenge
 
-A trader confirms a clean Upthrust with qualifying volume, and a
-CHoCH is also detected — but it's bullish, not bearish. They assume
-this should still count as a valid signal since "both conditions are
-present." Using this lesson's exact pairing rule, explain why it
-doesn't.
+A trader confirms a clean Spring with qualifying volume and a matching
+bullish CHoCH, and stops checking there — exactly as they would have
+before the confluence checklist was added. Using this lesson's exact
+eleven-gate list, name the three additional checks their read is
+missing, and what would make each one fail.
 
 ### Mini Quiz
 
-Q1 (True/False): Any CHoCH, regardless of its type, satisfies Bot 4's
-final confirmation gate once a Spring or Upthrust is found.
-Answer: False — the CHoCH type must specifically match the pattern
-type: bullish CHoCH for a Spring, bearish CHoCH for an Upthrust.
+Q1 (True/False): A Spring confirmed with qualifying volume and a
+matching bullish CHoCH is, by itself, enough to produce a Bot 4 signal
+today.
+Answer: False — three further confluence gates (4H POI, post-CHoCH
+FVG, 4H BOS agreement) must also pass; none of them is implied by the
+original seven gates alone.
 
-Q2 (Multiple choice): How many real gates does Bot 4's pipeline have?
-(a) Two
-(b) Four
-(c) Five
-(d) Seven
+Q2 (Multiple choice): How many real gates does Bot 4's pipeline have
+today?
+(a) Seven
+(b) Eight
+(c) Nine
+(d) Eleven
 
 Answer: (d).
 
 ### Flashcards
 
-- Front: How many real gates does Bot 4's pipeline have, and how does
-  that compare to the other bots? Back: Seven — the most of any bot
-  covered (Bot 1: four, Bot 2: three, Bot 3: two).
-- Front: What's Bot 4's final gate, precisely? Back: A pairing check —
-  a Spring requires specifically a bullish CHoCH; an Upthrust requires
-  specifically a bearish CHoCH; any mismatch (or no CHoCH) returns
-  `None`.
+- Front: How many real gates does Bot 4's pipeline have today, and how
+  does that compare to the other bots? Back: Eleven — up from seven,
+  after a confluence checklist was added by direct request; still the
+  longest of any bot covered (Bot 1: four, Bot 2: three, Bot 3: two,
+  Bot 5: six).
+- Front: What are the three NEW confluence gates added to Bot 4's
+  pipeline? Back: (1) the range extreme must sit inside a real ACTIVE
+  4H order-block zone; (2) a same-direction 1H FVG must form STRICTLY
+  AFTER the CHoCH's timestamp; (3) the 4H BOS must exist AND agree with
+  the Spring/Upthrust+CHoCH direction.
 
 ### Mastery Criteria
 
-Correctly determine the outcome for all nine practice-drill scenarios.
+Correctly determine the outcome for all eleven practice-drill
+scenarios.
 
 ### Reflection
 
-Why might a bot built around a more nuanced, two-signal confirmation
-(a specific pattern paired with a specific CHoCH type) need more real
-gates than a bot relying on a single confirming event? What does the
-gate-count comparison across all four bots covered so far suggest
-about each one's relative complexity?
+Why might adding independent confluence gates AFTER an already-strong
+pattern+CHoCH pairing (rather than relying on that pairing alone)
+reduce false signals, even at the cost of also blocking some setups
+that would have been valid before? What does the new eleven-gate count
+suggest about how much more selective this bot became?
 
 ### Spaced Review
 
 Day 1, Day 3, Day 7, Day 14, Day 30 — this is the assembly point for
-BOT4-02 through BOT4-04.
+BOT4-02 through BOT4-04, plus the three confluence gates this lesson
+introduces for the first time.
 
 ### Bot Connection
 
 Every gate here is a direct `return None` line (or the terminal `else`
-branch) inside `VolumeLiquidityBot.analyze()` — confirmed as seven by
-tracing the function's complete control flow in `bot_strategies.py`.
+branch) inside `VolumeLiquidityBot.analyze()` — confirmed as eleven by
+tracing the function's complete, current control flow in
+`bot_strategies.py`, including the three confluence gates added by
+direct request (quoted verbatim in that function's own code comments).
 
 ---
 
@@ -819,7 +903,13 @@ was confirmed: Spring → long, Upthrust → short.
 `entry_price = upthrust["close"]`. Neither branch calls
 `EntryExitEngine.calculate_entry` at all — matching Bot 3's pattern of
 hand-computed entry logic (BOT3-04), though the actual formula is
-different (a candle's close, not an average of two prices).
+different (a candle's close, not an average of two prices). Setting
+`entry_price` and `direction` here does NOT guarantee a signal: the
+three confluence gates added after this curriculum was first written
+(BOT4-05's gates 9-11 — FVG, 4H BOS existence, 4H BOS agreement) all
+run AFTER this step, using this exact `direction` value, and any of
+them can still return `None` even once entry price and direction are
+both already set.
 
 ### Visual Model
 
@@ -1116,16 +1206,18 @@ one, with this bot's own characteristic failure pattern.
 ### Why This Matters
 
 Same discipline as the three earlier failure lessons, applied to
-Bot 4's own seven-gate pipeline — the longest and most nuanced of any
+Bot 4's own eleven-gate pipeline — the longest and most nuanced of any
 bot, which produces its own distinct characteristic bad-loss pattern.
 
 ### Core Teaching
 
 **Plain-English explanation.** A valid Bot 4 loss looks like this: all
-seven real gates (BOT4-05) genuinely passed — a real range, price
-genuinely near an extreme, a genuine volume-confirmed Spring or
-Upthrust, and a CHoCH whose type actually matched the pattern — and
-the trade still hit its stop. A bad Bot 4 loss most often comes from a
+eleven real gates (BOT4-05) genuinely passed — a real range, price
+genuinely near an extreme, a genuine 4H point of interest, a genuine
+volume-confirmed Spring or Upthrust, a CHoCH whose type actually
+matched the pattern, a genuine post-CHoCH FVG in the same direction,
+and an agreeing 4H BOS — and the trade still hit its stop. A bad Bot 4
+loss most often comes from a
 trader treating an ordinary false-break WICK as a Spring or Upthrust
 without actually checking the volume-divergence condition (BOT4-04) —
 the single most Bot-4-specific mistake, since none of the other three
@@ -1153,9 +1245,9 @@ manually").
 
 A genuine Bot 4 signal fires: a real 6+-swing range, price near the
 low, a confirmed Spring with volume at 60% of average, and a matching
-bullish CHoCH. The trade hits its stop. Since all seven gates
-genuinely passed, this is a valid loss (C9-02) — no process change is
-warranted.
+bullish CHoCH, with a qualifying post-CHoCH FVG and an agreeing 4H
+BOS. The trade hits its stop. Since all eleven gates genuinely passed,
+this is a valid loss (C9-02) — no process change is warranted.
 
 ### Counterexample
 
@@ -1178,9 +1270,10 @@ verifying the volume condition this bot's real logic actually requires.
   volume-divergence check — trading the price shape alone.
 - A genuine, bot-generated Bot 4 signal that loses is a valid loss by
   construction, same as the other three bots.
-- Bot 4's seven-gate pipeline also means a second, subtler bad-loss
+- Bot 4's eleven-gate pipeline also means a second, subtler bad-loss
   source: ignoring the pattern-type/CHoCH-type pairing rule
-  (BOT4-05's gate 7).
+  (BOT4-05's gate 8), or either of the three confluence gates added
+  after this curriculum was first written (BOT4-05's gates 5, 9-11).
 
 ### Common Mistakes
 
@@ -1192,11 +1285,12 @@ the other three bots' failure lessons would have prepared a trader for.
 ### Key Takeaways
 
 1. A genuine, bot-generated Bot 4 signal that loses is a valid loss by
-   construction — all seven real gates were already enforced.
+   construction — all eleven real gates were already enforced.
 2. The most common Bot-4-specific bad loss comes from skipping the
    volume-divergence check and trading price shape alone.
 3. A second, subtler Bot-4-specific bad-loss source is ignoring the
-   pattern-type/CHoCH-type pairing rule (BOT4-05's final gate).
+   pattern-type/CHoCH-type pairing rule or any of the three confluence
+   gates added after this curriculum was first written (BOT4-05).
 
 ### Practice Drill
 
@@ -1232,7 +1326,7 @@ Answer: (b).
 ### Flashcards
 
 - Front: Is a losing, genuinely bot-generated Bot 4 signal a valid or
-  bad loss? Back: Valid — all seven BOT4-05 gates were already
+  bad loss? Back: Valid — all eleven BOT4-05 gates were already
   enforced by construction.
 - Front: What's the most common Bot-4-specific bad-loss pattern? Back:
   Trading a false-break candle's price shape without checking that its
@@ -1275,40 +1369,49 @@ pipeline, in order, to one continuous scenario.
 ### Why This Matters
 
 Same discipline as the three earlier Practice lessons, now applied to
-Bot 4's seven-gate pipeline — the most steps of any bot covered, and
-the first to require checking volume data as part of the exercise.
+Bot 4's eleven-gate pipeline — the most steps of any bot covered, and
+the first to require checking volume data AND three independent
+confluence conditions as part of the exercise.
 
 ### Core Teaching
 
 **Plain-English explanation.** Given a full 4H+1H scenario with volume
 data included, work through Bot 4's pipeline in order: define the
 range from at least 6 swings (BOT4-02), confirm price is within 15% of
-an extreme (BOT4-03), search the last 10 1H candles for a volume-
-confirmed Spring or Upthrust (BOT4-04), confirm a matching-type CHoCH
-(BOT4-05), set entry from the pattern candle's close and direction
-from the pattern type (BOT4-06), and calculate the 2%-of-range stop
-and 5%-of-range-buffered target (BOT4-07).
+an extreme (BOT4-03), confirm that extreme sits inside a real ACTIVE
+4H order-block zone (BOT4-05's gate 5), search the last 10 1H candles
+for a volume-confirmed Spring or Upthrust (BOT4-04), confirm a
+matching-type CHoCH (BOT4-05), set entry from the pattern candle's
+close and direction from the pattern type (BOT4-06), confirm a
+same-direction 1H FVG formed strictly AFTER the CHoCH (BOT4-05's
+gate 9), confirm a 4H BOS exists and agrees with that direction
+(BOT4-05's gates 10-11), and calculate the 2%-of-range stop and
+5%-of-range-buffered target (BOT4-07).
 
 **Technical explanation.** This exercise mirrors
-`VolumeLiquidityBot.analyze()`'s real, longest control flow — seven
-gates, two hand-computed values (entry, stop AND target — three
-hand-computed values total, more than any other bot), and a volume
-condition none of the other bots' exercises required checking.
+`VolumeLiquidityBot.analyze()`'s real, longest control flow — eleven
+gates, three hand-computed values (entry, stop, target — more than
+any other bot), a volume condition, and the three confluence checks
+(4H POI, post-CHoCH FVG, 4H BOS agreement) added to this bot's logic
+after this curriculum was first written — none of which any other
+bot's exercise required checking.
 
 ### Visual Model
 
-See diagram: `visuals/bot4-09-full-pipeline-worksheet.svg` — a
-seven-row worksheet mirroring `analyze()`'s real, longest step
+See diagram: `visuals/bot4-09-full-pipeline-worksheet.svg` — an
+eleven-row worksheet mirroring `analyze()`'s real, longest step
 sequence, with an explicit volume-data column for the pattern-search
-row.
+row and three further columns for the 4H POI, FVG, and 4H BOS
+confluence checks.
 
 ### Worked Example
 
 A full worked scenario (provided in Practise) walks a 4H chart with 7
-swings defining a range, a 1H chart with price near the range low, a
-confirmed Spring at 58% of average volume, and a matching bullish
-CHoCH — producing the exact entry, stop, and target Bot 4's real code
-would compute for that data.
+swings defining a range, price near the range low that sits inside a
+real ACTIVE 4H order block, a 1H chart with a confirmed Spring at 58%
+of average volume, a matching bullish CHoCH, a qualifying post-CHoCH
+bullish FVG, and an agreeing bullish 4H BOS — producing the exact
+entry, stop, and target Bot 4's real code would compute for that data.
 
 ### Counterexample
 
@@ -1316,37 +1419,46 @@ A trader completes the exercise but skips checking the pattern
 candle's volume entirely, assuming the price shape alone was
 sufficient — their answer doesn't match what the real, volume-gated
 code would actually produce for a scenario where that volume happens
-to fail the 80% threshold.
+to fail the 80% threshold. A second, equally common shortcut: checking
+volume and CHoCH correctly but skipping the 4H POI, FVG, or 4H BOS
+confluence checks entirely, since those three gates didn't exist when
+this bot was first documented.
 
 ### Good Example / Bad Example
 
-Good: Checking every one of the seven real gates in order, including
-the volume condition, before producing a final signal. Bad: Skipping
-the volume check because "the price pattern looked right," or
-assuming a TP2-style multi-target exists the way it does for the
-other three bots.
+Good: Checking every one of the eleven real gates in order, including
+the volume condition and all three confluence checks, before producing
+a final signal. Bad: Skipping the volume check because "the price
+pattern looked right," stopping at the original seven gates without
+checking the three newer confluence gates, or assuming a TP2-style
+multi-target exists the way it does for the other three bots.
 
 ### What to Look Out For
 
-- This exercise has the most real gates (seven) and hand-computed
+- This exercise has the most real gates (eleven) and hand-computed
   values (three: entry, stop, target) of any BOT-track Practice lesson
   so far.
 - The volume condition must actually be checked numerically (below
   80% of the 20-candle average) — not assumed from the price shape
   alone.
+- The three confluence gates (4H POI, post-CHoCH FVG, 4H BOS
+  agreement) are independent checks, not automatically satisfied by a
+  correct pattern+CHoCH read.
 - There is no TP2 field to compute — Bot 4 produces a single flat
   target only.
 
 ### Common Mistakes
 
-Skipping the volume check, or inventing a TP2-style second target that
-doesn't exist in this bot's real output, are the two most common
-shortcuts this exercise exists to catch.
+Skipping the volume check, stopping at the original seven gates
+without checking the three confluence additions, or inventing a
+TP2-style second target that doesn't exist in this bot's real output,
+are the most common shortcuts this exercise exists to catch.
 
 ### Key Takeaways
 
-1. Bot 4's full pipeline has the most real gates (seven) of any bot
-   covered, and requires checking actual volume data.
+1. Bot 4's full pipeline has the most real gates (eleven) of any bot
+   covered, and requires checking actual volume data plus three
+   independent confluence conditions.
 2. Three values are hand-computed (entry, stop, target) — more than
    any other bot's pipeline.
 3. There is no multi-target/TP2 structure — a single flat target only.
@@ -1375,8 +1487,8 @@ Q2 (Multiple choice): How many real gates does this exercise need to
 check, at most?
 (a) Two
 (b) Four
-(c) Five
-(d) Seven
+(c) Seven
+(d) Eleven
 
 Answer: (d).
 
@@ -1386,7 +1498,9 @@ Answer: (d).
   Back: Three — entry price, stop price, and target price — more than
   any other bot covered.
 - Front: How many real gates does this exercise need to check? Back:
-  Up to seven — the most of any BOT-track Practice lesson so far.
+  Up to eleven — the most of any BOT-track Practice lesson so far,
+  including three confluence gates (4H POI, post-CHoCH FVG, 4H BOS
+  agreement) added after this curriculum was first written.
 
 ### Mastery Criteria
 
@@ -1426,19 +1540,23 @@ or correctly-identified `None` with the specific failing gate.
 ### Why This Matters
 
 This capstone is the practical payoff of the entire BOT4 track — the
-most demanding of the four bots' capstones so far, given seven real
-gates and a genuine volume-data requirement, none of which the earlier
-three bots' capstones needed.
+most demanding of all six bots' capstones, given eleven real gates
+(up from seven, after a confluence checklist was added by direct
+request), a genuine volume-data requirement, and three independent
+confluence checks (4H POI, post-CHoCH FVG, 4H BOS agreement), none of
+which the earlier bots' capstones needed.
 
 ### Core Teaching
 
 **Plain-English explanation.** Given raw 4H and 1H candle data
 (including volume), work the entire pipeline from scratch: detect
-swings and define the range, check proximity to an extreme, search for
-a volume-confirmed Spring or Upthrust, confirm a matching-type CHoCH,
-calculate entry from the pattern candle's close, and calculate the
-hand-computed stop and single flat target — or correctly stop at
-whichever of the seven BOT4-05 gates fails.
+swings and define the range, check proximity to an extreme, confirm
+that extreme sits inside a real ACTIVE 4H order block, search for a
+volume-confirmed Spring or Upthrust, confirm a matching-type CHoCH,
+calculate entry from the pattern candle's close, confirm a
+same-direction post-CHoCH 1H FVG, confirm an agreeing 4H BOS, and
+calculate the hand-computed stop and single flat target — or correctly
+stop at whichever of the eleven BOT4-05 gates fails.
 
 **Technical explanation.** This exercise mirrors
 `BotOrchestrator.run_all()`'s real invocation of
@@ -1446,7 +1564,7 @@ whichever of the seven BOT4-05 gates fails.
 contains both `"4H"` and `"1H"`. A correct capstone answer matches
 every field of the real `BotSignal` (with confidence FIXED at `0.78`
 — verify no variation) or a precise `None` with the specific failing
-gate, out of all seven possible.
+gate, out of all eleven possible.
 
 ### Visual Model
 
@@ -1458,11 +1576,13 @@ every BOT4-01 through BOT4-09 stage to a final signal-or-None outcome.
 
 A full capstone scenario (provided in Practise) supplies raw 4H and 1H
 data with volume. Working the complete pipeline: 7 total swings define
-a valid range, price sits within 15% of the range low, a Spring is
-confirmed at 71% of average volume (passes the <80% threshold), a
-matching bullish CHoCH confirms, producing a long entry at the Spring
-candle's close, a stop 2% of the range below the Spring's extreme, and
-a flat target 5% short of the range high — matching what
+a valid range, price sits within 15% of the range low, that range low
+sits inside a real ACTIVE 4H order block, a Spring is confirmed at 71%
+of average volume (passes the <80% threshold), a matching bullish
+CHoCH confirms, producing a long entry at the Spring candle's close, a
+qualifying bullish 1H FVG forms after that CHoCH, an agreeing bullish
+4H BOS confirms, a stop 2% of the range below the Spring's extreme,
+and a flat target 5% short of the range high — matching what
 `VolumeLiquidityBot.analyze()` would output for this exact data.
 
 ### Counterexample
@@ -1484,7 +1604,7 @@ qualifies without calculating its actual volume ratio.
 ### What to Look Out For
 
 - A correct `None` answer, with the specific gate identified out of
-  all seven possible, is just as complete a capstone answer as a full
+  all eleven possible, is just as complete a capstone answer as a full
   signal.
 - The volume percentage must be genuinely calculated against the
   20-candle average — not assumed from the price pattern alone.
@@ -1501,10 +1621,10 @@ BOT4-07's confirmed findings about this bot's actual code.
 
 ### Key Takeaways
 
-1. The capstone works Bot 4's complete, seven-gate pipeline from raw
+1. The capstone works Bot 4's complete, eleven-gate pipeline from raw
    candle data — the longest of any bot's capstone in this curriculum.
 2. A correctly-identified `None`, with the specific failing gate out
-   of seven, is just as valid a capstone answer as a complete signal.
+   of eleven, is just as valid a capstone answer as a complete signal.
 3. A correct signal answer has no TP2 field and no visible `rr` value
    — Bot 4 produces a single flat target and a fixed 0.78 confidence.
 
@@ -1530,10 +1650,10 @@ multi-target structure exists anywhere in the real code.
 
 Q2 (Multiple choice): How many possible gates could a correct `None`
 answer for Bot 4 need to identify?
-(a) Two
-(b) Four
-(c) Five
-(d) Seven
+(a) Four
+(b) Seven
+(c) Nine
+(d) Eleven
 
 Answer: (d).
 
@@ -1543,8 +1663,10 @@ Answer: (d).
   and 1H candle data, including volume — no swings, range, pattern, or
   CHoCH pre-identified.
 - Front: How many possible failing gates might a correct `None` answer
-  need to identify? Back: Up to seven — the most of any bot's capstone
-  in this curriculum.
+  need to identify? Back: Up to eleven — the most of any bot's
+  capstone in this curriculum, including three confluence gates (4H
+  POI, post-CHoCH FVG, 4H BOS agreement) added after this curriculum
+  was first written.
 
 ### Mastery Criteria
 

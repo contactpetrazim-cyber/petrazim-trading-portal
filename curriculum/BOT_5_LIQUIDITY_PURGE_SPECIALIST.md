@@ -39,9 +39,11 @@ expected to follow the purge.
 
 **Technical explanation.** `JeafxSMCBot.analyze()` takes THREE candle
 series — `candles_1h`, `candles_15m`, `candles_5m` — the same COUNT as
-Bot 2, but a genuinely different, and faster, combination: Bot 5 is
-the only bot in this platform whose pipeline reads 5-minute candle
-data at all. Its `EntryExitEngine` defaults to `rr=4.0` and its
+Bot 2, but a genuinely different, and faster, combination: Bot 5 was
+the first bot in this platform whose pipeline reads 5-minute candle
+data at all — Bot 6 (BOT6-01), added later, shares this same
+three-timeframe input exactly. Its `EntryExitEngine` defaults to
+`rr=4.0` and its
 `RiskManager` uses `base_risk_percent=1.0`. Its `setup_quality=1.3`
 (used in `calculate_position_risk`) and its `confidence=0.88` are both
 the HIGHEST fixed values of any bot in this curriculum — reflecting
@@ -79,8 +81,9 @@ timing.
 
 ### What to Look Out For
 
-- Bot 5 is the only bot whose pipeline reads 5-minute candle data —
-  the fastest timeframe used anywhere in this platform.
+- Bot 5 was the first bot whose pipeline reads 5-minute candle data —
+  the fastest timeframe used anywhere in this platform. Bot 6
+  (BOT6-01) shares this exact three-timeframe input.
 - Its `setup_quality` (1.3) and fixed `confidence` (0.88) are both the
   highest of any bot covered in this curriculum.
 - "Liquidity Purge Specialist" is this bot's Phase 1 rebrand name —
@@ -95,8 +98,9 @@ the real `JeafxSMCBot` class and its logic are unchanged.
 
 ### Key Takeaways
 
-1. Bot 5 reads 1H, 15M, and 5M data — the only bot whose pipeline
-   touches 5-minute candles at all.
+1. Bot 5 reads 1H, 15M, and 5M data — it was the first bot whose
+   pipeline touches 5-minute candles at all; Bot 6 (BOT6-01) shares
+   this exact input.
 2. Its `setup_quality` (1.3) and fixed confidence (0.88) are both the
    highest of any bot in this curriculum.
 3. "Liquidity Purge Specialist" is a rebrand of the same underlying
@@ -118,8 +122,9 @@ why that assumption is wrong.
 
 Q1 (True/False): Bot 5 is the only bot in this platform whose pipeline
 reads 5-minute candle data.
-Answer: True — `candles_5m` appears only in `JeafxSMCBot.analyze()`'s
-signature among all five bots.
+Answer: False — Bot 6 (`JeafxSMCv2Bot`, BOT6-01) shares this exact
+three-timeframe (1H/15M/5M) input; Bot 5 was simply the first to use
+it.
 
 Q2 (Multiple choice): What is Bot 5's fixed reported confidence value?
 (a) 0.70
@@ -133,7 +138,8 @@ curriculum.
 ### Flashcards
 
 - Front: What three timeframes does Bot 5 use? Back: 1H, 15M, and 5M
-  — the only bot whose pipeline reads 5-minute candle data.
+  — Bot 5 was the first bot whose pipeline reads 5-minute candle data;
+  Bot 6 (BOT6-01) shares this exact input.
 - Front: What are Bot 5's setup-quality and confidence values, and how
   do they compare to the other bots? Back: 1.3 and 0.88 respectively
   — both the highest fixed values of any bot in this curriculum.
@@ -169,7 +175,7 @@ signature in `bot_strategies.py`.
 **Prerequisites:** BOT5-01, C4-04, BOT1-04
 **Learning objectives:** State Bot 5's zone-refinement test — ACTIVE
 status AND a low test count — the strictest zone qualification of any
-bot covered.
+bot covered (Bot 6, BOT6-02, shares this exact test).
 
 ### Why This Matters
 
@@ -195,8 +201,9 @@ swings_1h)`; `fresh_zones = [z for z in zones if z.status.name ==
 If `fresh_zones` is empty, `analyze()` returns `None`. This is a
 strictly narrower test than Bot 1's (ACTIVE + direction only, no test-
 count check) or Bot 2's (ACTIVE, with a 4H-then-1H fallback, also no
-test-count check) — Bot 5 is the only bot in this curriculum that
-reads a zone's `test_count` field at all.
+test-count check). Bot 5 was the first bot in this curriculum to read
+a zone's `test_count` field at all — Bot 6 (BOT6-02) uses this exact
+same refinement test, by direct design ("identical to Bot 5").
 
 ### Visual Model
 
@@ -229,8 +236,9 @@ would.
 
 ### What to Look Out For
 
-- Bot 5 is the only bot in this curriculum that reads a zone's
-  `test_count` field — none of the other four check it at all.
+- Bot 5 was the first bot in this curriculum to read a zone's
+  `test_count` field — none of Bots 1-4 check it at all. Bot 6
+  (BOT6-02) uses this exact same refinement test.
 - BOTH conditions (ACTIVE AND `test_count <= 1`) are required
   together — an ACTIVE-but-well-tested zone still fails.
 - This is a strictly narrower filter than either Bot 1's or Bot 2's
@@ -245,9 +253,10 @@ Bot 5's real filter is meaningfully stricter.
 ### Key Takeaways
 
 1. Bot 5 requires a zone to be BOTH ACTIVE and tested at most once
-   (`test_count <= 1`) — the strictest zone filter of any bot covered.
-2. Bot 5 is the only bot that reads a zone's `test_count` field at
-   all.
+   (`test_count <= 1`) — the strictest zone filter of any bot covered
+   (tied with Bot 6, which uses the identical test).
+2. Bot 5 was the first bot to read a zone's `test_count` field at
+   all — Bots 1-4 never check it; Bot 6 (BOT6-02) does, identically.
 3. An ACTIVE zone that's been tested multiple times is excluded
    entirely, even though it would still qualify for Bot 1 or Bot 2.
 
@@ -284,8 +293,9 @@ Answer: (b).
 
 - Front: What's Bot 5's exact zone-eligibility test? Back: ACTIVE
   status AND `test_count <= 1` — both required together.
-- Front: What zone field is unique to Bot 5's logic among all five
-  bots? Back: `test_count` — no other bot's `analyze()` reads it.
+- Front: What zone field does Bot 5 check that Bots 1-4 never do?
+  Back: `test_count` — Bots 1-4's `analyze()` never reads it; Bot 6
+  (BOT6-02) does, using this exact same refinement test.
 
 ### Reflection
 
@@ -311,163 +321,211 @@ z.test_count <= 1` condition quoted directly from source.
 
 ---
 
-## BOT5-03 — Context: The Tight-Tolerance Purge and First-Match Alignment
+## BOT5-03 — Context: Direction from the 4H Trend, Then the Tight-Tolerance Purge
 
 **Level:** 3
-**Estimated study time:** 14 minutes
-**Prerequisites:** BOT5-02, C3-04
-**Learning objectives:** State Bot 5's tighter liquidity-sweep
-tolerance, and explain its "first match wins" zone-alignment loop —
-the opposite loop behavior from Bot 4's.
+**Estimated study time:** 16 minutes
+**Prerequisites:** BOT5-02, C3-04, C2-09
+**Learning objectives:** State where Bot 5's long/short direction
+actually comes from today (the 4H BOS — NOT the liquidity sweep),
+explain why that changed, and describe the tighter-tolerance purge and
+"first match wins" zone-alignment loop that follows it.
 
 ### Why This Matters
 
-Bot 5's liquidity-purge detection uses a real, tighter tolerance
-setting than the default — worth knowing precisely — and its
-zone-alignment logic makes a real implementation choice (stopping at
-the FIRST match) that directly contrasts with Bot 4's "last match
-wins" behavior (BOT4-04).
+This is the single most important correction in this whole track.
+Bot 5's direction call used to come from which side the 15M liquidity
+sweep hit — by direct user report, that "often miss[ed] the price[']s
+direction." The real fix replaced it with the 4H trend's own last
+break of structure, and demoted the sweep to a pure entry-timing/
+zone-alignment gate it still has to pass, just no longer the thing
+deciding long versus short. Any curriculum content written before
+this fix is actively wrong about how Bot 5 decides direction — this
+lesson is the one that makes sure that's not still true here.
 
 ### Core Teaching
 
-**Plain-English explanation.** On the 15M timeframe, Bot 5 looks for a
-liquidity sweep (C3-04) of equal highs/lows — but using a TIGHTER
-price tolerance than the platform default, meaning it's more precise
-about what counts as "equal" highs/lows in the first place. Once a
-sweep is found, Bot 5 looks through its refined zones (BOT5-02) for
-the FIRST one whose range contains the sweep's price — and stops
-looking as soon as it finds one, unlike Bot 4's pattern-detection loop
-(BOT4-04), which checks every candle in its window and lets a later
-match overwrite an earlier one.
+**Plain-English explanation.** Bot 5 now asks "which way is the 4-hour
+trend actually going?" before it asks anything about a 15-minute
+sweep. It looks at the last confirmed break of structure on the 4H
+timeframe: if the most recent one broke upward, Bot 5 will only
+consider LONGS; if it broke downward, only SHORTS. If there's no 4H
+break of structure at all yet, there's nothing to trade — no signal.
+Only once direction is settled this way does Bot 5 move on to its
+original job: waiting for a 15-minute liquidity purge (a stop-hunt
+through a cluster of equal highs or lows) to confirm the TIMING is
+right and to find which of its refined zones (BOT5-02) the purge
+lines up with — using a tighter tolerance than the platform default,
+and stopping at the FIRST matching zone it finds, not the last.
 
-**Technical explanation.** `liq_detector = LiquidityDetector
-(tolerance_pips=1.0)` — an explicit, tighter tolerance passed at
-construction, contrasted with Bot 2's `LiquidityDetector()` default
-(no explicit tolerance argument). `pools = detect_equal_highs_lows
-(candles_15m, lookback=30)` — an explicit 30-candle lookback, also
-distinct from Bot 2's. `sweeps = detect_liquidity_sweeps(pools,
-candles_15m[-5:])`; if empty, return `None`. Then: `for z in
+**Technical explanation.** Step 2 of `JeafxSMCBot.analyze()`:
+`swings_4h = detect_swing_highs(candles_4h) + detect_swing_lows
+(candles_4h)`; `bos_4h = self.structure_detector.detect_bos
+(candles_4h, swings_4h)`. If `not bos_4h`, return `None` — no signal.
+Otherwise `last_bos_4h = bos_4h[-1]`; if its `"type"` is
+`"bullish_bos"`, `direction = "long"`; if `"bearish_bos"`,
+`direction = "short"`. This is a REAL, intentional reversal of the
+original design — the code's own comment is explicit: this step
+"replaced the ORIGINAL liquidity-sweep-side logic... the step the
+user reported as the bot 'often miss[ing] the price[']s direction.'"
+The sweep step that follows (`liq_detector = LiquidityDetector
+(tolerance_pips=1.0)`, `pools = detect_equal_highs_lows(candles_15m,
+lookback=30)`, `sweeps = detect_liquidity_sweeps(pools,
+candles_15m[-5:])`; empty → `None`) is UNCHANGED in its own mechanics
+from before — still a tighter, explicit tolerance than Bot 2's
+default `LiquidityDetector()`, still an explicit 30-candle lookback —
+it has simply stopped being where `direction` comes from. The
+zone-alignment loop right after it is also unchanged: `for z in
 fresh_zones: if z.bottom <= sweep_price <= z.top: aligned_zone = z;
-break` — the loop explicitly `break`s on the FIRST match, meaning if
-multiple refined zones happen to contain the sweep price, the
-EARLIEST one in `fresh_zones`'s order wins — the exact opposite
-behavior from Bot 4's non-breaking Spring/Upthrust loop (BOT4-04),
-where the LAST match wins.
+break` — stops at the FIRST matching zone, the exact opposite of Bot
+4's non-breaking Spring/Upthrust loop (BOT4-04), where the LAST match
+wins.
 
 ### Visual Model
 
-See diagram: `visuals/bot5-03-first-match-loop.svg` — two zones both
-containing the same sweep price, with an arrow showing Bot 5's loop
-stopping at the FIRST (earliest-listed) one — captioned "opposite of
-Bot 4's non-breaking loop, where the LAST match wins."
+See diagram: `visuals/bot5-03-bos-then-purge.svg` — a 4H chart panel
+showing the last BOS deciding direction, feeding into a 15M panel
+showing the purge/alignment step below it, with an arrow labeled
+"direction is already decided before this point" — plus the original
+two-zones-same-sweep-price diagram, captioned "opposite of Bot 4's
+non-breaking loop, where the LAST match wins."
 
 ### Worked Example
 
-A confirmed 15M sweep's price falls inside TWO refined zones from
-`fresh_zones` — an earlier one and a later one in the list. Bot 5's
-loop checks them in order and `break`s at the first match — the
-EARLIER zone becomes `aligned_zone`, and the later one is never
-checked at all.
+The last 4H BOS is bullish — `direction = "long"` is locked in before
+Bot 5 looks at the 15M timeframe at all. A 15M sweep then confirms,
+and its price falls inside TWO refined zones from `fresh_zones` — an
+earlier one and a later one in the list. Bot 5's loop checks them in
+order and `break`s at the first match — the EARLIER zone becomes
+`aligned_zone`. Direction was never in question by this point; only
+timing and which zone was.
 
 ### Counterexample
 
-A trader familiar with Bot 4's loop behavior (BOT4-04, last match
-wins) assumes Bot 5 would also keep the later of two matching zones.
-Bot 5's loop explicitly `break`s on the first match — the earlier zone
-wins here, the opposite of Bot 4's real behavior.
+A 15M sell-side sweep fires — under the OLD logic, that alone would
+have meant "short." Under the current code, it means nothing for
+direction at all: if the last 4H BOS was bullish, Bot 5 is only
+looking for LONGS, and this sweep's role is purely to confirm timing
+and find an aligned zone, in the SAME direction the 4H trend already
+decided. A trader who still reads "sell-side sweep = short" here is
+reading the bot's old behavior, not its current one.
 
 ### Good Example / Bad Example
 
-Good: Checking `fresh_zones` in order and stopping at the first zone
-whose range contains the sweep price, exactly matching the real
-`break` behavior. Bad: Assuming the same "last match wins" rule
-applies here that governs Bot 4's pattern-detection loop.
+Good: Checking the 4H BOS FIRST to know which direction is even on
+the table, then treating the 15M sweep purely as a timing/alignment
+gate, stopping at the first zone match. Bad: Reading a 15M sweep's own
+side as the direction call (the bot's old, now-removed behavior), or
+assuming the same "last match wins" rule from Bot 4 applies to Bot
+5's zone-alignment loop.
 
 ### What to Look Out For
 
-- Bot 5's liquidity detector uses a tighter tolerance (`1.0` pip) and
-  an explicit 30-candle lookback — both distinct, real parameters.
-- The zone-alignment loop explicitly `break`s on the first match — the
+- No 4H BOS at all → no signal, before the 15M timeframe is ever
+  considered.
+- The 4H BOS's own type (bullish/bearish) is the ONLY source of
+  `direction` — the 15M sweep's side plays no role in it anymore.
+- Bot 5's liquidity detector still uses a tighter tolerance (`1.0`
+  pip) and an explicit 30-candle lookback — both real, unchanged
+  parameters.
+- The zone-alignment loop still `break`s on the first match — the
   OPPOSITE of Bot 4's non-breaking loop (BOT4-04).
-- No aligned zone found among all of `fresh_zones` returns `None`.
 
 ### Common Mistakes
 
-Assuming every loop in this codebase behaves the same way (either all
-"first match wins" or all "last match wins") is a common cross-bot
-mistake — Bot 4 and Bot 5 have genuinely opposite loop behaviors for
-their respective pattern/zone searches.
+Assuming Bot 5's direction still comes from the liquidity sweep's own
+side is the single most dangerous outdated read of this bot — it
+describes genuinely removed behavior. A second, separate mistake:
+assuming every loop in this codebase resolves ties the same way — Bot
+4 and Bot 5 have genuinely opposite zone/pattern-match behaviors.
 
 ### Key Takeaways
 
-1. Bot 5's liquidity detector uses a tighter, explicit tolerance
-   (1.0 pip) and a 30-candle lookback — distinct real parameters.
-2. The zone-alignment loop `break`s on the FIRST matching zone — the
+1. Direction comes from the last 4H BOS — bullish → longs only,
+   bearish → shorts only, no 4H BOS at all → no signal.
+2. This replaced the ORIGINAL sweep-side direction logic, by direct
+   user report that it "often miss[ed] the price[']s direction."
+3. The 15M sweep is now a pure timing/zone-alignment gate — still a
+   tighter 1.0-pip tolerance and 30-candle lookback, just no longer
+   where `direction` comes from.
+4. The zone-alignment loop `break`s on the FIRST matching zone — the
    opposite of Bot 4's non-breaking, last-match-wins loop.
-3. No zone aligning with the sweep price, among any of `fresh_zones`,
-   returns `None`.
 
 ### Practice Drill
 
-Given five sweep-price/zone-list scenarios (provided in Practise, at
-least one with multiple matching zones), determine which zone Bot 5's
-real loop would select.
+Given five scenarios (provided in Practise) pairing a 4H BOS reading
+with a 15M sweep side that sometimes agrees and sometimes conflicts
+with it, determine Bot 5's real direction call for each — and, for
+the ones that reach it, which zone its alignment loop would select.
 
 ### Scenario Challenge
 
-A trader assumes Bot 5 and Bot 4 use the same "which match wins" rule
-since both involve searching through a list for a condition. Using
-this lesson's exact contrast, explain why they don't.
+A trader sees a clean 15M sell-side sweep and expects a short. The
+last 4H BOS was bullish. Using this lesson's exact mechanics, what
+does Bot 5 actually do here, and why?
 
 ### Mini Quiz
 
-Q1 (True/False): If two refined zones both contain the sweep price,
-Bot 5 selects the LAST (most recently listed) one, the same as Bot
-4's pattern-detection loop.
-Answer: False — Bot 5's loop `break`s on the FIRST match; Bot 4's
-loop never breaks, so the LAST match wins there instead — opposite
-behaviors.
+Q1 (True/False): A 15M sell-side liquidity sweep, by itself, is enough
+to make Bot 5 go short.
+Answer: False — direction comes from the last 4H BOS only; the
+sweep's own side plays no role in `direction` at all anymore.
 
-Q2 (Multiple choice): What liquidity-detector tolerance does Bot 5
-use?
-(a) The platform default, same as Bot 2
-(b) A tighter, explicit 1.0 pip tolerance
-(c) A looser 5.0 pip tolerance
-(d) No tolerance check at all
+Q2 (Multiple choice): What happens if no 4H BOS has formed at all?
+(a) Bot 5 falls back to the sweep's own side for direction
+(b) Bot 5 defaults to long
+(c) `analyze()` returns `None` — no signal
+(d) Bot 5 waits for the next 15M candle and retries
+
+Answer: (c).
+
+Q3 (Multiple choice): If two refined zones both contain the sweep
+price, which does Bot 5 select?
+(a) The LAST (most recently listed) one, same as Bot 4
+(b) The FIRST one — the loop `break`s immediately on a match
+(c) Whichever is closer to the current price
+(d) Both, splitting the position
 
 Answer: (b).
 
 ### Flashcards
 
-- Front: What tolerance does Bot 5's `LiquidityDetector` use? Back: A
-  tighter, explicit `tolerance_pips=1.0` — distinct from Bot 2's
-  default.
+- Front: What decides Bot 5's long/short direction today? Back: The
+  last 4H BOS's own type (bullish → long, bearish → short) — NOT the
+  15M liquidity sweep's side, which used to decide it before this fix.
+- Front: What tolerance does Bot 5's `LiquidityDetector` use, and what
+  is it used FOR now? Back: A tighter, explicit `tolerance_pips=1.0`
+  — used purely as an entry-timing/zone-alignment gate, not direction.
 - Front: Does Bot 5's zone-alignment loop keep the first or last
   matching zone? Back: The FIRST — it `break`s immediately on a
   match, the opposite of Bot 4's non-breaking, last-match-wins loop.
 
 ### Reflection
 
-Why might tightening the liquidity-sweep tolerance make sense for a
-bot specifically designed around PRECISE, mechanical zone refinement
-(BOT5-01, BOT5-02)?
+Why might reading direction from a higher timeframe (4H) while reading
+timing/entry refinement from lower ones (15M, 5M) produce a more
+reliable directional call than reading direction from the same fast
+timeframe the entry trigger itself comes from?
 
 ### Mastery Criteria
 
-Correctly determine the selected zone for all five practice-drill
-scenarios.
+Correctly determine both the direction call AND (where reached) the
+selected zone for all five practice-drill scenarios.
 
 ### Spaced Review
 
-Day 1, Day 3, Day 7, Day 14, Day 30 — this alignment feeds directly
-into BOT5-04's confirmation-candle search.
+Day 1, Day 3, Day 7, Day 14, Day 30 — this direction call, and the
+alignment that follows it, feed directly into BOT5-04's
+confirmation-candle search.
 
 ### Bot Connection
 
-Verified against `JeafxSMCBot.analyze()` Step 2-3 in
-`bot_strategies.py` — the `tolerance_pips=1.0`, `lookback=30`, and the
-`break`-on-first-match loop, all quoted directly from source and
-confirmed as the exact opposite loop behavior from Bot 4's.
+Verified against `JeafxSMCBot.analyze()` Step 2 (4H BOS direction) and
+Step 3-4 (15M purge + zone alignment) in `bot_strategies.py`, including
+that step's own code comment explaining the sweep-side-to-4H-BOS
+change and the direct user report that motivated it — `tolerance_pips
+=1.0`, `lookback=30`, and the `break`-on-first-match loop all quoted
+directly from source.
 
 ---
 
@@ -618,137 +676,153 @@ and the `break`-on-first-match loop quoted directly from source.
 
 ---
 
-## BOT5-05 — Invalidation: The Five Conditions That Return No Signal
+## BOT5-05 — Invalidation: The Six Conditions That Return No Signal
 
 **Level:** 3
-**Estimated study time:** 13 minutes
+**Estimated study time:** 14 minutes
 **Prerequisites:** BOT5-02 through BOT5-04, C2-09
-**Learning objectives:** List, in order, all five points in Bot 5's
+**Learning objectives:** List, in order, all six points in Bot 5's
 pipeline where it returns no signal, and place Bot 5's gate count in
-the complete five-bot comparison.
+the complete six-bot comparison.
 
 ### Why This Matters
 
-This closes out the gate-count comparison across all five bots in this
-curriculum: Bot 1 (four), Bot 2 (three), Bot 3 (two), Bot 4 (seven),
-and now Bot 5 (five) — a complete, verified picture of how differently
-each bot's real mechanics are structured.
+The 4H-BOS direction fix (BOT5-03) didn't just change WHERE direction
+comes from — it changed the gate count too. The old "sweep type not
+recognized" defensive gate is gone entirely (direction no longer reads
+`last_sweep["type"]` at all, so there's nothing left to defensively
+check there); two new, genuinely reachable gates took its place. Six
+real gates today, not five — this closes out the gate-count comparison
+across all six bots now covered in this curriculum: Bot 1 (four), Bot
+2 (three), Bot 3 (two), Bot 4 (eleven), Bot 5 (six), Bot 6 (BOT6-06).
 
 ### Core Teaching
 
 **Plain-English explanation.** Reading through `JeafxSMCBot.analyze()`
-in order, there are exactly five points where it stops and returns no
+in order, there are exactly six points where it stops and returns no
 signal: (1) no refined (ACTIVE + `test_count <= 1`) 1H zone exists
-(BOT5-02); (2) no 15M liquidity sweep is detected at all (BOT5-03);
-(3) none of the refined zones align with the sweep's price (BOT5-03);
-(4) no 5M confirmation candle satisfies both momentum and re-entry
-(BOT5-04); (5) the confirmed sweep's type is neither buy-side nor
-sell-side — a defensive final branch, same shape as Bot 4's final
-pairing gate (BOT4-05).
+(BOT5-02); (2) no 4H break of structure has formed at all (BOT5-03);
+(3) the last 4H BOS's own type is neither bullish nor bearish — a
+defensive catch-all, same spirit as the OLD gate 5 this fix removed,
+just moved to guard the NEW direction source instead; (4) no 15M
+liquidity sweep is detected at all (BOT5-03); (5) none of the refined
+zones align with the sweep's price (BOT5-03); (6) no 5M confirmation
+candle satisfies both momentum and re-entry (BOT5-04).
 
-**Technical explanation.** Unlike Bot 4's pairing gate (a genuine,
-reachable mismatch between two independent signals), Bot 5's final
-gate is more of a defensive catch-all — `last_sweep["type"]` should
-always be one of the two recognized values if `detect_liquidity_sweeps`
-returned anything at all, making this fifth gate rarely, if ever,
-actually reached in practice, though it's still real code worth
-knowing about. Note that the FVG check (a later step) is NOT among
-these five gates — like Bot 2's sweep/FVG checks (BOT2-04/05), it's a
-soft signal that changes HOW the entry is calculated (BOT5-06), never
-whether a signal fires at all.
+**Technical explanation.** Gates 2 and 3 are new, direct consequences
+of the BOT5-03 fix: `if not bos_4h: return None` and the `else:
+return None` after the `bullish_bos`/`bearish_bos` check. Gates 1, 4,
+5, 6 are unchanged in their own mechanics from before that fix — only
+their ORDER shifted (the direction gates now sit between gate 1 and
+the purge/alignment gates, where direction used to be decided). The
+FVG check (a later step) is still NOT among these six gates — like Bot
+2's sweep/FVG checks (BOT2-04/05), it's a soft signal that changes HOW
+the entry is calculated (BOT5-06), never whether a signal fires at
+all.
 
 ### Visual Model
 
-See diagram: `visuals/bot5-05-five-gates-final-tally.svg` — Bot 5's
-five sequential gates, shown alongside a final summary table of all
-five bots' gate counts (Bot 1: 4, Bot 2: 3, Bot 3: 2, Bot 4: 7, Bot 5:
-5) — completing the cross-bot comparison begun in BOT1-05.
+See diagram: `visuals/bot5-05-six-gates-final-tally.svg` — Bot 5's six
+sequential gates (the two new BOS ones highlighted, with a note that
+the old sweep-type gate they replaced is gone), alongside a final
+summary table of all six bots' gate counts (Bot 1: 4, Bot 2: 3, Bot 3:
+2, Bot 4: 11, Bot 5: 6, Bot 6: see BOT6-06) — completing the cross-bot
+comparison begun in BOT1-05.
 
 ### Worked Example
 
-A setup passes gates 1 through 4: a refined zone, a detected sweep, an
-aligned zone, and a qualifying confirmation candle. If the sweep's
-type is genuinely `"buy_side_sweep"` or `"sell_side_sweep"` (the
-expected case), gate 5 also passes, and the pipeline proceeds to
-BOT5-06's entry calculation.
+A setup passes gate 1 (a refined zone exists). The last 4H BOS is
+bullish — gates 2 and 3 both pass, `direction = "long"` is locked in.
+A 15M sweep confirms (gate 4), aligns with the refined zone (gate 5),
+and a qualifying 5M confirmation candle follows (gate 6) — the
+pipeline proceeds to BOT5-06's entry calculation.
 
 ### Counterexample
 
-A setup passes gates 1 through 4 identically, but no 15M sweep was
-ever actually detected at gate 2 (no equal highs/lows pool existed to
-sweep) — `analyze()` returns `None` at gate 2, well before gates 3
-and 4 are ever reached.
+A setup passes gate 1 identically, but no 4H break of structure has
+formed at all yet — `analyze()` returns `None` at gate 2, before the
+15M timeframe (gates 4-6) is ever even looked at. A trader checking
+only "is there a sweep and a confirmation candle" would wrongly expect
+a signal here; direction is decided, and can block the whole pipeline,
+BEFORE either of those is ever read.
 
 ### Good Example / Bad Example
 
-Good: Checking each of the five gates in the pipeline's real order,
-recognizing that the FVG check is a soft signal outside this gate
-sequence entirely. Bad: Treating the FVG check as a sixth hard gate,
-or assuming any single strong signal (a big sweep, a clean confirmation
-candle) can substitute for a different failed gate.
+Good: Checking the 4H BOS gates (2-3) before expecting any 15M/5M
+activity to matter at all, and recognizing the FVG check is a soft
+signal outside this six-gate sequence entirely. Bad: Still looking for
+a "sweep type recognized" gate (removed with the BOS fix), or treating
+the FVG check as a seventh hard gate.
 
 ### What to Look Out For
 
-- Bot 5 has five real gates — placing it between Bot 2/Bot 3 (fewer)
-  and Bot 1/Bot 4 (Bot 1 has four, close; Bot 4 has seven, the most).
-- The FVG check (BOT5-06) is a soft signal, NOT a sixth gate — it
-  changes the entry-price SOURCE, never whether a signal fires.
-- Gate 5 (sweep type recognized) is a defensive catch-all, rarely
-  actually triggered in practice, but still real code.
+- Bot 5 has SIX real gates today, not five — the BOT5-03 direction fix
+  removed one defensive gate (sweep type) and added two reachable ones
+  (no 4H BOS at all; BOS type unrecognized).
+- The FVG check (BOT5-06) is still a soft signal, NOT a seventh gate —
+  it changes the entry-price SOURCE, never whether a signal fires.
+- Gate 3 (BOS type recognized) is a defensive catch-all, rarely
+  actually triggered in practice, but still real code — same
+  reasoning the old sweep-type gate it replaced always had.
 
 ### Common Mistakes
 
-Treating the FVG check as an additional hard gate, the way the actual
-five gates work, is the most common structural misread of this bot's
-pipeline — it's a soft signal affecting entry calculation only.
+Citing "five gates" (or still expecting a sweep-type gate) is the most
+common outdated read of this bot's pipeline post-fix — the real count
+is six, with two of them now guarding the 4H BOS direction step
+instead of the old sweep-type check. Treating the FVG check as an
+additional hard gate is a separate, still-current mistake.
 
 ### Key Takeaways
 
-1. Bot 5 has five real gates: refined-zone availability, sweep
-   detection, zone-sweep alignment, confirmation-candle detection, and
-   a defensive sweep-type check.
-2. Across all five bots, gate counts range from two (Bot 3) to seven
-   (Bot 4) — each bot's own mechanics determine its count, not a
-   shared template.
-3. Bot 5's FVG check is a soft signal outside the five-gate sequence
-   — it shapes entry calculation, never gates the signal itself.
+1. Bot 5 has SIX real gates: refined-zone availability, 4H-BOS
+   existence, BOS-type recognition, sweep detection, zone-sweep
+   alignment, and confirmation-candle detection.
+2. The old "sweep type recognized" gate is gone — direction no longer
+   reads `last_sweep["type"]`, so there's nothing left to defend there.
+3. Across all six bots, gate counts range from two (Bot 3) to eleven
+   (Bot 4, after its own confluence-checklist addition) — each bot's
+   own mechanics determine its count, not a shared template.
+4. Bot 5's FVG check is a soft signal outside the six-gate sequence —
+   it shapes entry calculation, never gates the signal itself.
 
 ### Practice Drill
 
 Given eight scenario summaries (provided in Practise) describing which
-of the five gates pass or fail, determine the outcome for each.
+of the six gates pass or fail, determine the outcome for each.
 
 ### Scenario Challenge
 
 A trader sees a confirmed sweep, an aligned zone, and a qualifying
-confirmation candle, but no FVG forms afterward. Using this lesson's
-vocabulary, does the missing FVG block the signal?
+confirmation candle, but no 4H BOS had ever formed before any of that.
+Using this lesson's gate order, does the pipeline ever reach the
+sweep/alignment/confirmation gates at all?
 
 ### Mini Quiz
 
-Q1 (True/False): A missing FVG after the confirmation candle blocks a
-Bot 5 signal from firing.
-Answer: False — the FVG check is a soft signal (BOT5-06) that changes
-HOW the entry is calculated, not one of the five hard gates.
+Q1 (True/False): Bot 5's pipeline still has a gate checking whether
+the liquidity sweep's own type is recognized.
+Answer: False — that gate is gone; direction no longer reads the
+sweep's type at all, so there's nothing left to defensively check.
 
 Q2 (Multiple choice): How many real hard gates does Bot 5's pipeline
-have?
-(a) Three
-(b) Four
-(c) Five
+have today?
+(a) Four
+(b) Five
+(c) Six
 (d) Seven
 
 Answer: (c).
 
 ### Flashcards
 
-- Front: How many real hard gates does Bot 5's pipeline have? Back:
-  Five — refined-zone availability, sweep detection, zone-sweep
-  alignment, confirmation-candle detection, and a defensive sweep-type
-  check.
-- Front: Across all five bots, what's the full range of gate counts?
-  Back: Two (Bot 3) to seven (Bot 4) — Bot 1 has four, Bot 2 has
-  three, Bot 5 has five.
+- Front: How many real hard gates does Bot 5's pipeline have today?
+  Back: Six — refined-zone availability, 4H-BOS existence, BOS-type
+  recognition, sweep detection, zone-sweep alignment, and
+  confirmation-candle detection.
+- Front: Across all six bots, what's the full range of gate counts?
+  Back: Two (Bot 3) to eleven (Bot 4) — Bot 1 has four, Bot 2 has
+  three, Bot 5 has six.
 
 ### Mastery Criteria
 
@@ -757,21 +831,22 @@ scenarios.
 
 ### Reflection
 
-Having now seen the real gate count for all five bots, what does the
-range (two to seven) suggest about the danger of assuming any single
-"typical" number of confirmation checks applies across a whole
-platform's worth of genuinely different strategies?
+Having now seen that a single behavioral fix (BOT5-03) changed this
+bot's own gate count, what does that suggest about treating any bot's
+"gate count" as a fixed fact rather than something that can shift as
+real logic changes?
 
 ### Spaced Review
 
-Day 1, Day 3, Day 7, Day 14, Day 30 — this completes the five-bot gate-
+Day 1, Day 3, Day 7, Day 14, Day 30 — this completes the six-bot gate-
 count comparison begun in BOT1-05.
 
 ### Bot Connection
 
 Every gate here is a direct `return None` line inside
-`JeafxSMCBot.analyze()` — confirmed as five by tracing the function's
-complete control flow in `bot_strategies.py`.
+`JeafxSMCBot.analyze()` — confirmed as six by tracing the function's
+complete control flow fresh in `bot_strategies.py` (lines ~925, 955,
+963, 974, 988, 1005), not assumed from this file's own prior count.
 
 ---
 
@@ -794,23 +869,27 @@ prices to average) branches on whether a matching FVG formed.
 
 **Plain-English explanation.** After the confirmation candle confirms
 (BOT5-04), Bot 5 checks whether a Fair Value Gap formed on or after
-that candle, matching the sweep's direction. If one did, the entry
-price is calculated from that FVG's own midpoint — a more precise
-reference. If no matching FVG formed, the entry price falls back to
-the confirmation candle's own midpoint (average of its open and
-close) instead.
+that candle, matching the DIRECTION already decided back in BOT5-03
+(the last 4H BOS — NOT the sweep's own side, which stopped deciding
+direction with that fix). If one did, the entry price is calculated
+from that FVG's own midpoint — a more precise reference. If no
+matching FVG formed, the entry price falls back to the confirmation
+candle's own midpoint (average of its open and close) instead.
 
 **Technical explanation.** `valid_fvg` is searched for among 5M FVGs
-formed on or after the confirmation candle's timestamp, matching the
-sweep's direction (`gap_type == "bullish"` with a `buy_side_sweep`, or
-`"bearish"` with a `sell_side_sweep`); the loop `break`s on the first
-match. Then: `if valid_fvg: entry_price = (valid_fvg.top +
+formed on or after the confirmation candle's timestamp, matching
+`direction` — the SAME variable BOT5-03's 4H-BOS step set
+(`gap_type == "bullish"` with `direction == "long"`, or `"bearish"`
+with `direction == "short"`); the loop `break`s on the first match.
+Before the BOT5-03 fix, this cross-check read the sweep's own
+`last_sweep["type"]` instead — it was updated alongside that fix to
+stay internally consistent with whatever is actually driving the
+trade, the same way every other step downstream of direction already
+had to be. Then: `if valid_fvg: entry_price = (valid_fvg.top +
 valid_fvg.bottom) / 2` — a hand-computed midpoint, same style as Bot
 3's entry (BOT3-04). `else: entry_price = (confirmation_candle.open +
 confirmation_candle.close) / 2` — a different hand-computed average,
-from the confirmation candle itself. Direction is set separately, from
-`last_sweep["type"]` (`buy_side_sweep` → long, `sell_side_sweep` →
-short), unrelated to which entry-price branch fires.
+from the confirmation candle itself.
 
 ### Visual Model
 
@@ -850,8 +929,9 @@ rather than this bot's conditional SOURCE choice.
   works.
 - Both branches are hand-computed midpoints — neither calls the
   shared `EntryExitEngine.calculate_entry` helper.
-- Direction (from `last_sweep["type"]`) is set independently of this
-  branch — the FVG check never affects direction, only entry price.
+- Direction (from BOT5-03's 4H BOS, NOT the sweep's own side) is
+  already locked in before this step — the FVG check never affects
+  direction, only entry price.
 
 ### Common Mistakes
 
@@ -968,7 +1048,7 @@ NEVER assigned anywhere in this function; only `entry_price` (a plain
 float) was ever computed. `EntryExitEngine.calculate_targets` requires
 a dict with an `"entry_price"` key (`smc_algorithms.py`), so this line
 raised `NameError: name 'entry' is not defined` every single time
-execution reached it — meaning every time all five real gates (BOT5-05)
+execution reached it — meaning every time all six real gates (BOT5-05)
 actually passed. Bot 5 could never successfully return a `BotSignal`.
 The fix, applied directly to `bot_strategies.py`: construct
 `entry = {"entry_price": entry_price, "direction": direction}`
@@ -1062,7 +1142,7 @@ happening, and at which specific line?
 ### Mini Quiz
 
 Q1 (True/False): Before the fix described in this lesson, Bot 5 could
-successfully produce a `BotSignal` whenever all five real gates
+successfully produce a `BotSignal` whenever all six real gates
 (BOT5-05) passed.
 Answer: False — a `NameError` crash at the target-calculation line
 meant it could never successfully complete, regardless of how well
@@ -1133,14 +1213,15 @@ was never a valid trade at all, since it would never have completed.
 ### Core Teaching
 
 **Plain-English explanation.** A valid Bot 5 loss looks like this: all
-five real gates (BOT5-05) genuinely passed — a genuinely refined zone
+six real gates (BOT5-05) genuinely passed — a genuinely refined zone
 (tested at most once), a real 15M sweep with the correct tight
 tolerance, an aligned zone, a genuine momentum-plus-re-entry
 confirmation candle — and the trade still hit its stop. A bad Bot 5
 loss most often comes from a trader treating a WELL-TESTED zone
 (`test_count > 1`) as if it were still "fresh," since the refinement
-concept (BOT5-02) is unique to this bot among the five and easy to
-overlook if a trader is used to Bot 1 or Bot 2's simpler zone checks.
+concept (BOT5-02) is absent from Bots 1-4 and easy to overlook if a
+trader is used to Bot 1 or Bot 2's simpler zone checks (Bot 6 shares
+this exact refinement check, so the same mistake applies there too).
 
 **Technical explanation.** Because `JeafxSMCBot.analyze()` (post-fix)
 only ever returns a complete signal or `None`, a genuine bot-generated
@@ -1164,7 +1245,7 @@ this bot").
 
 A genuine Bot 5 signal fires: a refined zone (`test_count=1`), a real
 15M sweep, an aligned zone, and a qualifying 5M confirmation candle.
-The trade hits its stop. Since all five gates genuinely passed, this
+The trade hits its stop. Since all six gates genuinely passed, this
 is a valid loss (C9-02) — no process change is warranted.
 
 ### Counterexample
@@ -1187,7 +1268,8 @@ Bot 5 setup, missing the refinement requirement entirely.
 
 - The most common Bot-5-specific bad-loss pattern is trading a
   well-tested (not fresh) zone, missing the `test_count` refinement
-  check unique to this bot.
+  check absent from Bots 1-4 (Bot 6 shares this same check, so the
+  same mistake applies there too).
 - A genuine, bot-generated Bot 5 signal that loses is a valid loss by
   construction, same as every other bot — but only once the BOT5-07
   bug fix is in place; a pre-fix "signal" was never a real trade at
@@ -1204,7 +1286,7 @@ field, is the single most consequential mistake for this bot.
 ### Key Takeaways
 
 1. A genuine, bot-generated Bot 5 signal that loses is a valid loss by
-   construction — all five real gates were already enforced.
+   construction — all six real gates were already enforced.
 2. The most common Bot-5-specific bad loss comes from trading a
    well-tested zone, missing this bot's unique refinement check.
 3. This completes a full five-bot set of distinct, documented
@@ -1243,11 +1325,11 @@ Answer: (b).
 ### Flashcards
 
 - Front: Is a losing, genuinely bot-generated Bot 5 signal a valid or
-  bad loss? Back: Valid — all five BOT5-05 gates were already enforced
+  bad loss? Back: Valid — all six BOT5-05 gates were already enforced
   by construction (once the BOT5-07 bug fix is in place).
 - Front: What's the most common Bot-5-specific bad-loss pattern? Back:
   Trading a well-tested (not fresh) zone — missing the `test_count`
-  refinement check that's unique to this bot.
+  refinement check absent from Bots 1-4 (Bot 6 shares it too).
 
 ### Reflection
 
@@ -1279,7 +1361,7 @@ verified directly against `bot_strategies.py`.
 **Level:** 4
 **Estimated study time:** 17 minutes
 **Prerequisites:** BOT5-01 through BOT5-08
-**Learning objectives:** Apply every real stage of Bot 5's five-gate
+**Learning objectives:** Apply every real stage of Bot 5's six-gate
 pipeline, in order, to one continuous scenario, using the CORRECTED
 (post-fix) target calculation.
 
@@ -1302,7 +1384,7 @@ price from the matching FVG or the confirmation candle itself
 fixed-2:1 TP2 target (BOT5-07).
 
 **Technical explanation.** This exercise mirrors `JeafxSMCBot.analyze()`'s
-real, POST-FIX control flow — five gates, two first-match-wins loops
+real, POST-FIX control flow — six gates, two first-match-wins loops
 (zone alignment, confirmation candle), and a conditional entry-price
 SOURCE choice, ending in the corrected target calculation that
 properly constructs an `entry` dict before calling
@@ -1311,7 +1393,7 @@ properly constructs an `entry` dict before calling
 ### Visual Model
 
 See diagram: `visuals/bot5-09-full-pipeline-worksheet.svg` — a
-five-row worksheet mirroring `analyze()`'s real, corrected control
+six-row worksheet mirroring `analyze()`'s real, corrected control
 flow, explicitly marking the entry-dict-construction step that didn't
 exist before the BOT5-07 fix.
 
@@ -1357,7 +1439,7 @@ to catch.
 
 ### Key Takeaways
 
-1. Bot 5's full pipeline has five real gates and two first-match-wins
+1. Bot 5's full pipeline has six real gates and two first-match-wins
    loops — genuinely distinct from every other bot's pipeline shape.
 2. The refinement test (`test_count <= 1`) must be checked as part of
    zone eligibility, not just ACTIVE status.
@@ -1396,8 +1478,8 @@ Answer: (b).
 ### Flashcards
 
 - Front: What must be checked before treating a zone as eligible for
-  Bot 5? Back: Both ACTIVE status AND `test_count <= 1` — the
-  refinement test unique to this bot.
+  Bot 5? Back: Both ACTIVE status AND `test_count <= 1` — a refinement
+  test absent from Bots 1-4 (Bot 6 shares this exact test).
 - Front: What must happen immediately before Bot 5's target
   calculation, per the real BOT5-07 fix? Back: An `entry` dict
   (`{"entry_price": ..., "direction": ...}`) must be constructed —
@@ -1456,7 +1538,7 @@ detect a tight-tolerance sweep and align it with the first matching
 zone, find the first qualifying confirmation candle, determine entry
 price from the FVG-or-candle source rule, and calculate the strict
 stop and the actual fixed-2:1 target — or correctly stop at whichever
-of the five BOT5-05 gates fails.
+of the six BOT5-05 gates fails.
 
 **Technical explanation.** This exercise mirrors
 `BotOrchestrator.run_all()`'s real invocation of `JeafxSMCBot.analyze()`
@@ -1464,7 +1546,7 @@ of the five BOT5-05 gates fails.
 all together. A correct capstone answer matches every field of the
 real, POST-FIX `BotSignal` (confidence fixed at `0.88`, `setup_quality`
 1.3, reported take-profit a fixed 2:1) or a precise `None` with the
-specific failing gate, out of five possible.
+specific failing gate, out of six possible.
 
 ### Visual Model
 
@@ -1503,7 +1585,7 @@ is specifically a Bot 5 scenario.
 ### What to Look Out For
 
 - A correct `None` answer, with the specific gate identified out of
-  five, is just as complete a capstone answer as a full signal.
+  six, is just as complete a capstone answer as a full signal.
 - Both search loops (zone alignment, confirmation candle) use
   first-match-wins — the opposite of Bot 4's rule.
 - The reported take-profit is a fixed 2:1, exactly like Bot 1, Bot 2,
@@ -1519,12 +1601,12 @@ individually, never a shared template.
 
 ### Key Takeaways
 
-1. The capstone works Bot 5's complete, five-gate, POST-FIX pipeline
+1. The capstone works Bot 5's complete, six-gate, POST-FIX pipeline
    from raw candle data — nothing pre-identified.
 2. A correctly-identified `None`, with the specific failing gate out
-   of five, is just as valid a capstone answer as a complete signal.
+   of six, is just as valid a capstone answer as a complete signal.
 3. Across the full five-bot roster, gate counts range from two to
-   seven, confidence is fixed for four bots and conditional for one
+   eleven, confidence is fixed for four bots and conditional for one
    (Bot 2), and every reported take-profit that goes through
    `calculate_targets` is a fixed 2:1 — verified facts, not
    assumptions carried over from any single bot's docstring.
@@ -1553,8 +1635,8 @@ Q2 (Multiple choice): Across all five bots in this curriculum, which
 has the most real hard gates?
 (a) Bot 1 (four)
 (b) Bot 2 (three)
-(c) Bot 4 (seven)
-(d) Bot 5 (five)
+(c) Bot 4 (eleven)
+(d) Bot 5 (six)
 
 Answer: (c).
 
