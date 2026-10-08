@@ -579,6 +579,7 @@ class ExecutionEngine:
             # closed at — two different, both real, numbers.
             initial_stop_loss=trade_data["stop_loss"],
             initial_take_profit_1=trade_data["take_profit"],
+            initial_lot_size=trade_data["lot_size"],
             lot_size=trade_data["lot_size"],
             risk_percent=trade_data["risk_percent"],
             risk_amount=trade_data["risk_amount"],

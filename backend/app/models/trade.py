@@ -77,6 +77,17 @@ class Trade(Base):
     initial_stop_loss = Column(Float)
     initial_take_profit_1 = Column(Float)
 
+    # Immutable snapshot of lot_size AT CREATION — same shape as the
+    # two columns above, for the same reason: lot_size itself is
+    # mutated LIVE (position_monitor.py's _partial_close decrements it
+    # as each TP leg fires, _close zeros it out entirely once nothing
+    # is left open), so the real opening size is unrecoverable from
+    # lot_size alone once a trade has gone through even one partial
+    # close — every closed trade's card was showing "Qty: 0.000"
+    # regardless of what was actually traded. See migrations/
+    # 023_initial_lot_size.sql.
+    initial_lot_size = Column(Float)
+
     # Which intermediate take-profit levels the position_monitor.py
     # background worker has already auto-triggered for this trade —
     # see migrations/013_position_monitor.sql's own comment for why

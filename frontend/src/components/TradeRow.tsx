@@ -153,7 +153,7 @@ export function TradeRow({ trade, onApprove, onReject, onCancel, onChanged, onAr
                 the relative-time line's own text-xs/gray-500 size. */}
             <div className="text-xs text-gray-500">
               Risk: {trade.risk_amount != null ? `$${trade.risk_amount.toFixed(2)}` : '—'}
-              {' '}&nbsp;·&nbsp; Qty: {trade.lot_size.toFixed(3)}
+              {' '}&nbsp;·&nbsp; Qty: {(trade.initial_lot_size ?? trade.lot_size).toFixed(3)}
             </div>
           </div>
 
@@ -177,7 +177,7 @@ export function TradeRow({ trade, onApprove, onReject, onCancel, onChanged, onAr
               const rr = computeRR(trade.entry_price, trade.stop_loss, trade.take_profit);
               return rr != null ? (
                 <div>
-                  <span className="text-gray-500">R:R:</span>
+                  <span className="text-gray-500">R:R (TP1 plan):</span>
                   <span className="ml-1 font-mono">1:{rr.toFixed(2)}</span>
                 </div>
               ) : null;
@@ -393,7 +393,7 @@ export function TradeRow({ trade, onApprove, onReject, onCancel, onChanged, onAr
           where these numbers matter most and there's no live position
           to fall back on managing instead. */}
       {trade.status === 'closed' && (
-        <div className={`mt-3 pt-3 border-t grid grid-cols-2 sm:grid-cols-6 gap-x-3 gap-y-2 text-xs ${dark ? 'border-smc-border' : 'border-corporate-bg'}`}>
+        <div className={`mt-3 pt-3 border-t grid grid-cols-2 sm:grid-cols-7 gap-x-3 gap-y-2 text-xs ${dark ? 'border-smc-border' : 'border-corporate-bg'}`}>
           {/* Label on its own line, price on the line below — by
               direct request ("the corresponding prices should be
               under each of the following Entry, SL, TP, Close etc -
@@ -419,7 +419,7 @@ export function TradeRow({ trade, onApprove, onReject, onCancel, onChanged, onAr
             const rr = computeRR(trade.entry_price, trade.stop_loss, trade.take_profit);
             return (
               <div className="flex flex-col gap-0.5">
-                <span className="text-gray-500">R:R:</span>
+                <span className="text-gray-500">R:R (TP1 plan):</span>
                 <span className="font-mono">{rr != null ? `1:${rr.toFixed(2)}` : '—'}</span>
               </div>
             );
@@ -428,11 +428,25 @@ export function TradeRow({ trade, onApprove, onReject, onCancel, onChanged, onAr
             <span className="text-gray-500">Closed:</span>
             <span className="font-mono">{trade.exit_price?.toFixed(2) ?? '—'}</span>
           </div>
+          {/* The ratio above is the fixed TP1 plan, not what this trade
+              actually earned — on a multi-target trade, partial exits
+              at TP1/TP2 bank profit at THEIR OWN ratios before the
+              final leg closes at whatever price it closes at, so the
+              blended outcome (this r_multiple, already the backend's
+              realized_pnl/risk_amount — see migrations/
+              020_backfill_blended_r_multiple.sql) can land anywhere,
+              including below the TP1 plan ratio shown above even on a
+              WIN. By direct report ("reconcile the RR 1:1.0 to the
+              final win of $8 since the risk is $10"). */}
+          <div className="flex flex-col gap-0.5">
+            <span className="text-gray-500">Actual R:</span>
+            <span className="font-mono">{trade.r_multiple != null ? `${trade.r_multiple.toFixed(2)}R` : '—'}</span>
+          </div>
           <div className="flex flex-col gap-0.5">
             <span className="text-gray-500">Result:</span>
             <span className={`font-semibold ${outcomeColorCls}`}>{outcomeLabel}</span>
           </div>
-          <div className="flex flex-col gap-0.5 col-span-2 sm:col-span-6">
+          <div className="flex flex-col gap-0.5 col-span-2 sm:col-span-7">
             <button
               onClick={() => setSnapshotOpen(true)}
               className={`self-start flex items-center gap-1.5 text-xs font-medium mt-1 ${dark ? 'text-smc-accent hover:text-white' : 'text-corporate-hero hover:text-corporate-text-on-bg'}`}

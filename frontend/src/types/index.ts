@@ -11,6 +11,14 @@ export interface Trade {
   take_profit_2?: number | null;
   take_profit_3?: number | null;
   lot_size: number;
+  /** The ORIGINAL position size at open — by direct report ("the
+   * quantity on the card shows 0.000"): lot_size above is live-
+   * mutated down to 0 as partial take-profit legs close (see backend
+   * Trade.initial_lot_size's own comment), so it reads 0 for EVERY
+   * closed trade regardless of what was actually traded. Null only
+   * for a pre-migration row with no way to recover it — fall back to
+   * lot_size itself in that case. */
+  initial_lot_size?: number | null;
   risk_percent: number;
   /** Dollar risk on this trade — by direct request ("include the Risk
    * Amount and the Unit Quantity traded"); lot_size above is the

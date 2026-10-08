@@ -424,6 +424,7 @@ async def place_manual_order(
             # own comment for why these are separate from the mutable
             # columns modify_targets edits below.
             initial_stop_loss=req.stop_loss, initial_take_profit_1=req.take_profit,
+            initial_lot_size=lot_size,
             take_profit_1=req.take_profit, take_profit_2=req.take_profit_2, take_profit_3=req.take_profit_3,
             lot_size=lot_size, risk_percent=risk_percent,
             risk_amount=lot_size * risk_dist, requires_approval=False, is_test=is_test,
