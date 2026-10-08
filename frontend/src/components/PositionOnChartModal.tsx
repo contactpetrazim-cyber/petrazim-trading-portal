@@ -1104,16 +1104,23 @@ export function PositionOnChartModal({
   // above — pan/zoom only moves the visible slice, not the pool
   // itself), then converted to `candles`-relative and dropped if that
   // lands outside the currently visible window, same as drawings do.
+  // Floor-match on candle OPEN time, not nearest-by-distance — same
+  // fix, same reason as TradeSnapshotModal's own nearestCandleIndex
+  // (see its comment): an entry/exit in the second half of its own
+  // candle's duration is numerically closer to the NEXT candle's open
+  // than to its own, so "nearest" pointed one candle too late roughly
+  // half the time. By direct report, same bug confirmed here too
+  // ("Fix portal wide ... same for on chart").
   function nearestCandleIndex(pool: Candle[], iso: string | null | undefined): number | null {
     if (!iso || pool.length === 0) return null;
     const target = new Date(iso).getTime();
-    let best = 0, bestDiff = Infinity;
-    pool.forEach((c, i) => {
-      const t = c.time ?? 0;
-      const diff = Math.abs(t - target);
-      if (diff < bestDiff) { bestDiff = diff; best = i; }
-    });
-    return best;
+    let idx = 0;
+    for (let i = 0; i < pool.length; i++) {
+      const t = pool[i].time ?? 0;
+      if (t <= target) idx = i;
+      else break;
+    }
+    return idx;
   }
   const markers: ChartMarker[] = useMemo(() => {
     if (!allCandles || !candles) return [];

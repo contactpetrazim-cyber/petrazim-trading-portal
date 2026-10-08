@@ -93,8 +93,25 @@ export function PositionManager({ trade, dark = false, onChanged }: { trade: Tra
   // unrealized_pnl yet (a trade the crypto price feed can't resolve).
   const impliedPrice = trade.lot_size > 0 ? entry + (pnl / trade.lot_size) * (isLong ? 1 : -1) : entry;
   const riskDistance = trade.stop_loss ? Math.abs(entry - trade.stop_loss) : null;
-  const rMultiple = riskDistance && riskDistance > 0
-    ? ((impliedPrice - entry) * (isLong ? 1 : -1)) / riskDistance
+  // Overall position R-multiple — by direct report ("while the trade
+  // is active and has crossed maybe TP1 and TP2 - does the RR show
+  // the overall position RR or Partial TP RR"). This used to be
+  // (impliedPrice - entry)/riskDistance — current price vs. entry,
+  // AS IF the full original position were still open and marked at
+  // today's price. That's wrong the moment any TP leg has already
+  // partially closed: trade.lot_size shrinks with each partial exit
+  // (position_monitor.py's _partial_close), so pnl (unrealized_pnl)
+  // only reflects what's STILL open — it silently drops whatever
+  // profit TP1/TP2 already banked into realized_pnl. Using
+  // realized_pnl + unrealized_pnl against the fixed, never-mutated
+  // risk_amount gives the true blended R so far — identical to the
+  // old formula for a trade with zero partial closes yet (lot_size
+  // cancels out algebraically), and the live equivalent of the
+  // backend's own closed-trade r_multiple (realized_pnl/risk_amount —
+  // see migrations/020_backfill_blended_r_multiple.sql) for one still
+  // open.
+  const rMultiple = trade.risk_amount && trade.risk_amount > 0
+    ? ((trade.realized_pnl || 0) + pnl) / trade.risk_amount
     : null;
   // Planned Risk:Reward to TP1 — by direct request ("RR on every
   // trade/position card"). A different number from rMultiple above:
@@ -372,7 +389,7 @@ export function PositionManager({ trade, dark = false, onChanged }: { trade: Tra
         </div>
         {!isPending && (
           <div>
-            <div className={labelCls}>R-multiple</div>
+            <div className={labelCls}>R-multiple (Overall)</div>
             <div className={`text-sm font-mono font-semibold ${rMultiple != null && rMultiple < 0 ? 'text-red-500' : rMultiple != null ? 'text-emerald-500' : statCls}`}>
               {rMultiple != null ? `${rMultiple >= 0 ? '+' : ''}${rMultiple.toFixed(2)}R` : '—'}
             </div>

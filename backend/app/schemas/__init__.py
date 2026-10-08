@@ -46,6 +46,12 @@ class TradeResponse(BaseModel):
     take_profit_2: Optional[float] = None
     take_profit_3: Optional[float] = None
     lot_size: float
+    # The ORIGINAL position size at open — distinct from lot_size
+    # above, which is live-mutated down to 0 as partial TP legs close
+    # (see Trade.initial_lot_size's own comment). Falls back to None
+    # for a pre-migration row with no way to recover it; the frontend
+    # falls back to lot_size itself in that case.
+    initial_lot_size: Optional[float] = None
     risk_percent: float
     # Dollar risk on this trade — the Trade.risk_amount column always
     # existed but was never actually exposed in this response, by
