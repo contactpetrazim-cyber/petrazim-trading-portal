@@ -20,7 +20,15 @@ import { botsApi } from '../services/api';
  *     — no per-trade approval — until either cap is hit; the daily cap
  *     just pauses today (resumes tomorrow), the total cap ends the
  *     engagement and restores whatever execution_mode this bot had
- *     before Sub-Auto was turned on.
+ *     before Sub-Auto was turned on. An optional Schedule (session/
+ *     days/half-day — see SESSIONS/DAYS below) further restricts WHEN
+ *     pre-approval applies: outside it, a signal falls back to manual
+ *     approval even while Sub-Auto is otherwise active — by direct
+ *     request ("additional quick filters for semi auto for bot
+ *     trading : session, days, am and pm etc"). Each schedule
+ *     dimension defaults to/can be reset to "All" (no restriction) —
+ *     by direct request ("Add option for All - which includes
+ *     everything - not filtered").
  *
  * Both have a "Reset" action that interrupts and reverts immediately,
  * independent of any preset/custom values chosen.
@@ -37,6 +45,23 @@ const SLEEP_PRESETS: { label: string; hours: number }[] = [
 
 const TOTAL_PRESETS = [10, 20, 30, 50];
 const DAILY_PRESETS = [1, 2, 3, 5, 10];
+
+// Sub-Auto Schedule — by direct request ("additional quick filters
+// for semi auto for bot trading : session, days, am and pm etc"), an
+// execution gate (see execution_engine.py's _sub_auto_window_allows):
+// outside the chosen window(s), a signal falls back to manual
+// approval instead of Sub-Auto's usual pre-approved execution. Each
+// group defaults to/can be reset to "All" — by direct request ("Add
+// option for All - which includes everything - not filtered").
+const SESSIONS: { key: string; label: string }[] = [
+  { key: 'asian', label: 'Asian' },
+  { key: 'london', label: 'London' },
+  { key: 'new_york', label: 'New York' },
+];
+const DAYS: { key: number; label: string }[] = [
+  { key: 0, label: 'Mon' }, { key: 1, label: 'Tue' }, { key: 2, label: 'Wed' },
+  { key: 3, label: 'Thu' }, { key: 4, label: 'Fri' }, { key: 5, label: 'Sat' }, { key: 6, label: 'Sun' },
+];
 
 function Chip({ active, dark, onClick, children }: { active: boolean; dark: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
@@ -78,6 +103,40 @@ export function BotSleepAndSubAuto({ bot, dark, onChanged }: { bot: BotConfig; d
   const [rrRatio, setRrRatio] = useState('');
   const [savingOverrides, setSavingOverrides] = useState(false);
 
+  // Sub-Auto Schedule — see SESSIONS/DAYS' own comment above. Empty
+  // Set and 'all' both mean "All" (no restriction) for that
+  // dimension, same default every engagement starts from.
+  const [selSessions, setSelSessions] = useState<Set<string>>(new Set());
+  const [selDays, setSelDays] = useState<Set<number>>(new Set());
+  const [selHalfDay, setSelHalfDay] = useState<'all' | 'am' | 'pm'>('all');
+  const [savingSchedule, setSavingSchedule] = useState(false);
+
+  function toggleSession(key: string) {
+    setSelSessions((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }
+  function toggleDay(key: number) {
+    setSelDays((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }
+
+  function scheduleLabel(sessions?: string[] | null, days?: number[] | null, halfDay?: string | null) {
+    const sessionsLabel = sessions && sessions.length > 0
+      ? sessions.map((s) => SESSIONS.find((x) => x.key === s)?.label || s).join(', ')
+      : 'All';
+    const daysLabel = days && days.length > 0
+      ? days.map((d) => DAYS.find((x) => x.key === d)?.label || d).join(', ')
+      : 'All';
+    const halfDayLabel = halfDay === 'am' ? 'AM' : halfDay === 'pm' ? 'PM' : 'All';
+    return `Sessions: ${sessionsLabel} · Days: ${daysLabel} · Half-day: ${halfDayLabel}`;
+  }
+
   async function sleepFor(hours: number) {
     setSleeping(true);
     try {
@@ -111,9 +170,10 @@ export function BotSleepAndSubAuto({ bot, dark, onChanged }: { bot: BotConfig; d
         enabled: true, total_cap: totalValue, daily_cap: dailyValue,
         risk_amount: riskAmount ? Number(riskAmount) : undefined,
         min_rr_ratio: rrRatio ? Number(rrRatio) : undefined,
+        sessions: Array.from(selSessions), days: Array.from(selDays), half_day: selHalfDay,
       });
       setSelTotal(null); setSelDaily(null); setCustomTotal(''); setCustomDaily('');
-      setRiskAmount(''); setRrRatio('');
+      setRiskAmount(''); setRrRatio(''); setSelSessions(new Set()); setSelDays(new Set()); setSelHalfDay('all');
       onChanged();
     } catch (e: any) {
       setSubAutoError(e?.response?.data?.detail || 'Could not engage Sub-Auto Mode.');
@@ -153,6 +213,27 @@ export function BotSleepAndSubAuto({ bot, dark, onChanged }: { bot: BotConfig; d
       setSubAutoError(e?.response?.data?.detail || 'Could not update the override.');
     } finally {
       setSavingOverrides(false);
+    }
+  }
+
+  // Updates just the Sub-Auto Schedule on an ALREADY-active engagement
+  // — same re-affirmation pattern as updateOverrides above (enabled:
+  // true is a no-op re-send, required only because total_cap/
+  // daily_cap are mandatory whenever enabled=true). Always sends all
+  // three fields, since "All" (empty set / 'all') is itself a real,
+  // explicit value here, not something to omit.
+  async function updateSchedule() {
+    setSavingSchedule(true);
+    try {
+      await botsApi.setBotSubAuto(bot.bot_id, {
+        enabled: true, total_cap: bot.sub_auto_total_cap ?? undefined, daily_cap: bot.sub_auto_daily_cap ?? undefined,
+        sessions: Array.from(selSessions), days: Array.from(selDays), half_day: selHalfDay,
+      });
+      onChanged();
+    } catch (e: any) {
+      setSubAutoError(e?.response?.data?.detail || 'Could not update the schedule.');
+    } finally {
+      setSavingSchedule(false);
     }
   }
 
@@ -245,6 +326,40 @@ export function BotSleepAndSubAuto({ bot, dark, onChanged }: { bot: BotConfig; d
                 {savingOverrides ? 'Saving…' : 'Set Override'}
               </button>
             </div>
+
+            {/* Sub-Auto Schedule — see SESSIONS/DAYS' own comment
+                above. Outside the saved window, this bot's signals
+                fall back to manual approval even while Sub-Auto is
+                otherwise active. */}
+            <div className="text-[11px] text-gray-500 pt-1 border-t border-dashed border-current/10">
+              {scheduleLabel(bot.sub_auto_sessions, bot.sub_auto_days, bot.sub_auto_half_day)}
+            </div>
+            <div className="space-y-1.5">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <Chip active={selSessions.size === 0} dark={dark} onClick={() => setSelSessions(new Set())}>All Sessions</Chip>
+                {SESSIONS.map((s) => (
+                  <Chip key={s.key} active={selSessions.has(s.key)} dark={dark} onClick={() => toggleSession(s.key)}>{s.label}</Chip>
+                ))}
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <Chip active={selDays.size === 0} dark={dark} onClick={() => setSelDays(new Set())}>All Days</Chip>
+                {DAYS.map((d) => (
+                  <Chip key={d.key} active={selDays.has(d.key)} dark={dark} onClick={() => toggleDay(d.key)}>{d.label}</Chip>
+                ))}
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <Chip active={selHalfDay === 'all'} dark={dark} onClick={() => setSelHalfDay('all')}>All Day</Chip>
+                <Chip active={selHalfDay === 'am'} dark={dark} onClick={() => setSelHalfDay('am')}>AM</Chip>
+                <Chip active={selHalfDay === 'pm'} dark={dark} onClick={() => setSelHalfDay('pm')}>PM</Chip>
+                <button
+                  onClick={updateSchedule}
+                  disabled={savingSchedule}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold disabled:opacity-40 ${dark ? 'bg-white/10 text-white' : 'bg-gray-200 text-gray-700'}`}
+                >
+                  {savingSchedule ? 'Saving…' : 'Set Schedule'}
+                </button>
+              </div>
+            </div>
           </div>
         ) : (
           <div className="space-y-2">
@@ -293,6 +408,30 @@ export function BotSleepAndSubAuto({ bot, dark, onChanged }: { bot: BotConfig; d
                   onChange={(e) => setRrRatio(e.target.value)}
                   className={`w-16 px-2 py-1.5 rounded-lg text-xs border ${dark ? 'bg-white/5 border-white/10 text-white' : 'bg-white border-gray-200'}`}
                 />
+              </div>
+            </div>
+            <div>
+              <div className="text-[11px] text-gray-500 mb-1">
+                Schedule — restricts pre-approval to these sessions/days/half-day; outside it, falls back to manual approval. Defaults to All.
+              </div>
+              <div className="space-y-1.5">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <Chip active={selSessions.size === 0} dark={dark} onClick={() => setSelSessions(new Set())}>All Sessions</Chip>
+                  {SESSIONS.map((s) => (
+                    <Chip key={s.key} active={selSessions.has(s.key)} dark={dark} onClick={() => toggleSession(s.key)}>{s.label}</Chip>
+                  ))}
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <Chip active={selDays.size === 0} dark={dark} onClick={() => setSelDays(new Set())}>All Days</Chip>
+                  {DAYS.map((d) => (
+                    <Chip key={d.key} active={selDays.has(d.key)} dark={dark} onClick={() => toggleDay(d.key)}>{d.label}</Chip>
+                  ))}
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <Chip active={selHalfDay === 'all'} dark={dark} onClick={() => setSelHalfDay('all')}>All Day</Chip>
+                  <Chip active={selHalfDay === 'am'} dark={dark} onClick={() => setSelHalfDay('am')}>AM</Chip>
+                  <Chip active={selHalfDay === 'pm'} dark={dark} onClick={() => setSelHalfDay('pm')}>PM</Chip>
+                </div>
               </div>
             </div>
             {subAutoError && <p className="text-xs text-red-400">{subAutoError}</p>}

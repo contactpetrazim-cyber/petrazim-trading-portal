@@ -114,6 +114,12 @@ export interface BotConfig {
    * same as every other mode. */
   sub_auto_risk_amount?: number | null;
   sub_auto_min_rr_ratio?: number | null;
+  /** Sub-Auto Schedule — see BotConfig.sub_auto_sessions' own backend
+   * comment. Empty/null on any of these means "All" (no restriction)
+   * for that dimension. */
+  sub_auto_sessions?: string[] | null;
+  sub_auto_days?: number[] | null;
+  sub_auto_half_day?: string | null;
   /** Starting Reference Capital/Balance — this bot's own setting (null
    * = no override). See BotConfig.account_balance_usd's own backend
    * comment; the effective value (accounting for the Admin master

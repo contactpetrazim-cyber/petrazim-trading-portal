@@ -199,7 +199,13 @@ export const botsApi = {
   // Sub-Auto Mode — pre-approved autonomous execution up to a total
   // AND a daily trade cap. enabled=false is the "Reset" action. By
   // direct request.
-  setBotSubAuto: (botId: string, update: { enabled: boolean; total_cap?: number; daily_cap?: number; risk_amount?: number; min_rr_ratio?: number }) =>
+  setBotSubAuto: (botId: string, update: {
+    enabled: boolean; total_cap?: number; daily_cap?: number; risk_amount?: number; min_rr_ratio?: number;
+    // Sub-Auto Schedule — see BotConfig.sub_auto_sessions' own backend
+    // comment. Omit a field to leave it untouched; send [] (sessions/
+    // days) or "all" (half_day) to explicitly clear it to "All".
+    sessions?: string[]; days?: number[]; half_day?: 'am' | 'pm' | 'all';
+  }) =>
     api.patch<BotConfig>(`/bots/${botId}/sub-auto`, update).then(r => r.data),
   // Starting Reference Capital/Balance master control — by direct
   // request ("Create a master bot control for bot starting reference
