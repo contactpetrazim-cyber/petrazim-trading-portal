@@ -60,7 +60,7 @@ function PositionGroup({
         <FoldedCard
           key={t.trade_id}
           title={`${t.direction === 'long' ? 'Long' : 'Short'} — ${t.status === 'pending' ? 'Pending' : 'Active'}`}
-          summary={t.entry_price != null ? `Entry ${t.entry_price.toFixed(2)}` : 'No entry price yet'}
+          summary={t.entry_price != null ? `Entry ${t.entry_price.toFixed(4)}` : 'No entry price yet'}
           dark={dark}
           defaultOpen={i === 0}
         >

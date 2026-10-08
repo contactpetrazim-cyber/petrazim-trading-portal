@@ -241,7 +241,7 @@ function SnapshotChart({ snapshot, dark }: { snapshot: TradeSnapshot; dark: bool
                   x={AXIS_W - 6} y={y} textAnchor="end" dominantBaseline="middle"
                   fontSize={9} fontFamily="monospace" fill={dark ? '#9ca3af' : '#6b7280'}
                 >
-                  {p.toFixed(2)}
+                  {p.toFixed(4)}
                 </text>
               </g>
             );
@@ -251,7 +251,7 @@ function SnapshotChart({ snapshot, dark }: { snapshot: TradeSnapshot; dark: bool
       <div className="flex items-center gap-3 flex-wrap mt-2 text-xs">
         {refLines.map((r) => (
           <span key={r.label} className="flex items-center gap-1" style={{ color: r.color }}>
-            <span className="w-3 h-0.5" style={{ background: r.color }} /> {r.label}: {r.price.toFixed(2)}
+            <span className="w-3 h-0.5" style={{ background: r.color }} /> {r.label}: {r.price.toFixed(4)}
           </span>
         ))}
         <span className={`ml-auto ${dark ? 'text-white/40' : 'text-gray-400'}`}>

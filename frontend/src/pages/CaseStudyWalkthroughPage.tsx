@@ -126,7 +126,7 @@ export function CaseStudyWalkthroughPage() {
       cutIndex: data.candles.length,
       markers: [],
       lines: [{ price: startPrice, label: 'start', dashed: true }],
-      text: `From ${startPrice.toFixed(startPrice >= 100 ? 0 : 2)} to ${endPrice.toFixed(endPrice >= 100 ? 0 : 2)} — a real ${pctChange >= 0 ? '+' : ''}${pctChange.toFixed(2)}% over this window. This is what actually happened, already settled — the point of a case study isn't "this proves the strategy," it's practicing reading real structure calmly, after the fact.`,
+      text: `From ${startPrice.toFixed(startPrice >= 100 ? 0 : 4)} to ${endPrice.toFixed(endPrice >= 100 ? 0 : 4)} — a real ${pctChange >= 0 ? '+' : ''}${pctChange.toFixed(2)}% over this window. This is what actually happened, already settled — the point of a case study isn't "this proves the strategy," it's practicing reading real structure calmly, after the fact.`,
     },
   ];
 

@@ -172,7 +172,7 @@ function AddFromRecentTrades({ dark, onPick, closedOnly = false }: { dark: boole
                       </span>
                     </span>
                     <span className={`shrink-0 font-mono ${dark ? 'text-white/50' : 'text-gray-500'}`}>
-                      {t.entry_price?.toFixed(2) ?? '—'}
+                      {t.entry_price?.toFixed(4) ?? '—'}
                     </span>
                   </label>
                 ))}

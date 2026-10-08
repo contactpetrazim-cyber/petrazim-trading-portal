@@ -20,8 +20,12 @@ const SL_LINE_COLOR = '#ef4444';
 const TP_LINE_COLOR = '#22c55e';
 const EXIT_LINE_COLOR = '#f59e0b';
 
+// 4 decimal places (was 2), by direct report ("Increase decimal
+// points to 4 decimal points ... so prices can be properly
+// differentiated ... see TP1 and TP2 and TP3") — same reasoning as
+// PositionOnChartModal's own fmtPrice, which this was ported from.
 export function fmtPrice(p: number): string {
-  return p.toFixed(2);
+  return p.toFixed(4);
 }
 
 /** Floor-match on candle OPEN time — the candle a timestamp actually

@@ -281,7 +281,7 @@ export function PositionManager({ trade, dark = false, onChanged }: { trade: Tra
       if (result?.broker_synced === false) {
         setMessage({ ok: false, text: result.broker_message || "Your own record was updated, but your broker's real order wasn't." });
       } else {
-        setMessage({ ok: true, text: `Stop loss moved to breakeven (${entry.toFixed(2)}).` });
+        setMessage({ ok: true, text: `Stop loss moved to breakeven (${entry.toFixed(4)}).` });
       }
       onChanged?.();
     } catch (err: any) {
@@ -328,7 +328,7 @@ export function PositionManager({ trade, dark = false, onChanged }: { trade: Tra
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div>
           <div className={labelCls}>{isPending ? 'Trigger price' : 'Entry'}</div>
-          <div className={statCls}>{entry ? entry.toFixed(2) : '—'}</div>
+          <div className={statCls}>{entry ? entry.toFixed(4) : '—'}</div>
         </div>
         {isPending ? (
           <>
@@ -338,14 +338,14 @@ export function PositionManager({ trade, dark = false, onChanged }: { trade: Tra
             </div>
             <div>
               <div className={labelCls}>Current Price</div>
-              <div className={statCls}>{livePrice != null ? livePrice.toFixed(2) : '—'}</div>
+              <div className={statCls}>{livePrice != null ? livePrice.toFixed(4) : '—'}</div>
             </div>
           </>
         ) : (
           <>
             <div>
               <div className={labelCls}>Mark (est.)</div>
-              <div className={statCls}>{impliedPrice ? impliedPrice.toFixed(2) : '—'}</div>
+              <div className={statCls}>{impliedPrice ? impliedPrice.toFixed(4) : '—'}</div>
             </div>
             <div>
               <div className={labelCls}>Unrealized P/L</div>
@@ -440,30 +440,35 @@ export function PositionManager({ trade, dark = false, onChanged }: { trade: Tra
           // stacked layout as TradeRow's closed-trade details, by
           // direct request ("the corresponding prices should be under
           // each of the following ... the second or following line -
-          // for consistency"). Also 2 decimal places (was 5), matching
-          // every other price on this card.
+          // for consistency"). 4 decimal places (was 2), by direct
+          // report ("Increase decimal points to 4 decimal points ...
+          // so prices can be properly differentiated"): a 2-decimal
+          // pair like EURUSDT.P moves in increments far smaller than
+          // its own price level, so TP1/TP2/TP3 could all round to the
+          // identical displayed number despite being genuinely
+          // different real prices.
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-3 gap-y-2 text-sm font-mono">
             {isPending && (
               <div className="flex flex-col gap-0.5">
                 <span className="text-corporate-hero">Trigger</span>
-                <span className="font-semibold">{trade.entry_price?.toFixed(2) ?? '—'}</span>
+                <span className="font-semibold">{trade.entry_price?.toFixed(4) ?? '—'}</span>
               </div>
             )}
             <div className="flex flex-col gap-0.5">
               <span className="text-red-500">SL</span>
-              <span className="font-semibold">{trade.stop_loss?.toFixed(2) ?? '—'}</span>
+              <span className="font-semibold">{trade.stop_loss?.toFixed(4) ?? '—'}</span>
             </div>
             <div className="flex flex-col gap-0.5">
               <span className="text-emerald-500">TP1</span>
-              <span className="font-semibold">{trade.take_profit?.toFixed(2) ?? '—'}</span>
+              <span className="font-semibold">{trade.take_profit?.toFixed(4) ?? '—'}</span>
             </div>
             <div className="flex flex-col gap-0.5">
               <span className="text-emerald-500">TP2</span>
-              <span className="font-semibold">{trade.take_profit_2?.toFixed(2) ?? '—'}</span>
+              <span className="font-semibold">{trade.take_profit_2?.toFixed(4) ?? '—'}</span>
             </div>
             <div className="flex flex-col gap-0.5">
               <span className="text-emerald-500">TP3</span>
-              <span className="font-semibold">{trade.take_profit_3?.toFixed(2) ?? '—'}</span>
+              <span className="font-semibold">{trade.take_profit_3?.toFixed(4) ?? '—'}</span>
             </div>
           </div>
         ) : (
