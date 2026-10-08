@@ -145,7 +145,20 @@ class MacroSwingStructureBot:
         highs = [s for s in recent_swings if s.structure_type.name == "SWING_HIGH"]
         lows = [s for s in recent_swings if s.structure_type.name == "SWING_LOW"]
 
-        if not highs or not lows:
+        # Real crash, confirmed live the moment the market scanner first
+        # ran against real production data (this path is never hit by a
+        # TradingView webhook alert, which bypasses Python analysis
+        # entirely — MARKET_SCANNER_ENABLED had silently been off for
+        # the portal's whole history until now): `not highs or not
+        # lows` only guards against an EMPTY list, but the very next
+        # line indexes highs[-2]/lows[-2], which still raises
+        # IndexError on a list of exactly 1 — an easy, common split
+        # when `recent_swings` (the last 4 swings total, highs and lows
+        # mixed) lands asymmetric, e.g. 3 highs + 1 low. Same len<2
+        # guard smc_algorithms.py's own MarketStructureDetector.
+        # detect_choch already uses correctly for this identical
+        # highs[-1]/highs[-2] need.
+        if len(highs) < 2 or len(lows) < 2:
             return None
 
         bullish_trend = highs[-1].price > highs[-2].price and lows[-1].price > lows[-2].price
@@ -1350,12 +1363,40 @@ class BotOrchestrator:
 
         def _run_family(bot_key: str, *candle_args: List[Candle]) -> None:
             for entry in _entries(bot_key):
-                sig = self.bots[bot_key].analyze(
-                    *candle_args,
-                    account_balance, market_data.get("symbol", "UNKNOWN"),
-                    risk_per_trade=entry.get("risk_per_trade"), min_rr_ratio=entry.get("min_rr_ratio"),
-                    bot_id=entry.get("bot_id"),
-                )
+                # Real bug, found live the first time the market
+                # scanner ever actually ran in production (confirmed by
+                # a "list index out of range" crash in bot_1's own
+                # analyze() — see its own fix comment): this call had
+                # NO exception isolation at all, so one strategy's edge
+                # case (an unlucky swing-structure split, a symbol with
+                # too little history, anything) propagated straight up
+                # through run_all -> market_scanner.scan_once, aborting
+                # that ENTIRE cycle — not just this one bot, but every
+                # OTHER bot in this same (exchange, symbol, balance)
+                # group, AND every other (exchange, symbol) group still
+                # left in that cycle's own loop, silently, with nothing
+                # distinguishing "this bot found no setup" from "this
+                # bot crashed and took the rest of the portal's
+                # scanning down with it" in the logs. Isolated per-bot
+                # here so a single strategy's bug degrades to "this one
+                # bot skips this one cycle" — exactly what every other
+                # failure mode in this codebase already does (a bad
+                # candle fetch, a broker error, ...) — instead of a
+                # blast radius covering bots that have nothing to do
+                # with whatever broke.
+                try:
+                    sig = self.bots[bot_key].analyze(
+                        *candle_args,
+                        account_balance, market_data.get("symbol", "UNKNOWN"),
+                        risk_per_trade=entry.get("risk_per_trade"), min_rr_ratio=entry.get("min_rr_ratio"),
+                        bot_id=entry.get("bot_id"),
+                    )
+                except Exception as e:
+                    logger.error(
+                        "bot_analyze_failed", bot_key=bot_key, bot_id=entry.get("bot_id"),
+                        symbol=market_data.get("symbol", "UNKNOWN"), error=str(e),
+                    )
+                    continue
                 self._collect(signals, sig)
 
         # Bot 1: Needs 1D + 4H
