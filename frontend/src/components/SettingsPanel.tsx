@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   X, Home, CreditCard, GraduationCap, CalendarClock, LayoutGrid,
-  HardDriveDownload, Link2, ChevronRight, Sun, Moon, Map, LogOut, Crown, Wallet, ScrollText, Activity,
+  HardDriveDownload, Link2, ChevronRight, Sun, Moon, Map, LogOut, Crown, Wallet, ScrollText, Activity, Landmark,
 } from 'lucide-react';
 import { HERO_GRADIENT } from '../config/theme';
 import type { ThemeName } from '../hooks/useTheme';
@@ -130,6 +130,12 @@ export function SettingsPanel({
     // is reachable from every page while that sidebar only covers the
     // Trader console's own five pages.
     { icon: Link2, label: 'Add Exchange', detail: 'Connect your own exchange account for manual or bot trading', to: '/exchange-connections' },
+    // Embedded here too, by direct request ("Include an exchange
+    // balance page link embedded in the settings and search icons and
+    // pages") — alongside Layout.tsx's own trader-console nav entry
+    // and the GlobalSearchModal entry (featureRegistry.ts), since the
+    // gear icon is reachable from every page.
+    { icon: Landmark, label: 'Exchange Balance', detail: 'Live balance per exchange account — bot sub-accounts and your own connected exchanges', to: '/exchange-balances' },
     ...(user?.role === 'trader' && feesOwed ? [{
       icon: Wallet, label: 'Trading Fees',
       detail: feesOwed.amount > 0

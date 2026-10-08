@@ -13,6 +13,7 @@ import {
   Shield,
   Link2,
   ClipboardCheck,
+  Landmark,
   LucideIcon,
 } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
@@ -48,6 +49,11 @@ const TRADER_NAV_ITEMS: NavItem[] = [
   // action from the site-wide light/dark/notification SettingsPanel
   // this gear icon already opens.
   { path: '/exchange-connections', label: 'Add Exchange', icon: Link2 },
+  // Embedded here too, by direct request ("Include an exchange
+  // balance page link embedded in the settings and search icons and
+  // pages") — same own-top-level-entry reasoning as "Add Exchange"
+  // just above.
+  { path: '/exchange-balances', label: 'Exchange Balance', icon: Landmark },
   { path: '/settings', label: 'Settings', icon: SettingsIcon },
 ];
 

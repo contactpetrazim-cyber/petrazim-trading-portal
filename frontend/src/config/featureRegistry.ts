@@ -79,6 +79,9 @@ export const FEATURE_REGISTRY: FeatureEntry[] = [
     description: 'Approve, reject, and review individual trades.' },
   { id: 'trade-bots', label: 'Bot Configuration', area: 'trade', route: '/bots',
     description: 'Enable/disable bots, switch modes, tune risk.' },
+  { id: 'trade-exchange-balances', label: 'Exchange Balance', area: 'trade', route: '/exchange-balances',
+    description: 'Live trading-capital/margin balance per exchange account — bot sub-accounts and your own connected exchanges.',
+    keywords: ['exchange bal', 'margin', 'capital', 'funds', 'wallet', 'auto', 'preferred exchange'] },
 
   // --- TradingView ---
   { id: 'tv-frame', label: 'Full TradingView', area: 'tradingview', route: '/tradingview',
