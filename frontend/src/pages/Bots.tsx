@@ -6,6 +6,7 @@ import { BotSleepAndSubAuto } from '../components/BotSleepAndSubAuto';
 import { BotConfig, BotPerformance, BotMetricsUpdate } from '../types';
 import { useThemeStore } from '../hooks/useTheme';
 import { formatApiError } from '../lib/apiError';
+import { getStrategySummary } from '../config/botStrategySummaries';
 
 
 /**
@@ -106,6 +107,21 @@ export function BotsPage() {
   const [instrumentResults, setInstrumentResults] = useState<InstrumentResult[]>([]);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
+  // Strategy summary fold — by direct request ("Add the bot strategy
+  // summary under a 'Strategy' link similar to the Reasoning style in
+  // the individual Bot cards"). A Set, not a single id, so more than
+  // one card's Strategy section can be open at once — same
+  // independent-per-card behavior TradeRow's own reasonOpen has,
+  // since each trade card there owns its own local state instead of
+  // sharing one id across a list.
+  const [openStrategyIds, setOpenStrategyIds] = useState<Set<string>>(new Set());
+  const toggleStrategyOpen = (botId: string) => {
+    setOpenStrategyIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(botId)) next.delete(botId); else next.add(botId);
+      return next;
+    });
+  };
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -489,6 +505,35 @@ export function BotsPage() {
                 <TrendingUp size={12} />
                 <span>{bot.symbols.join(', ')}</span>
               </div>
+
+              {/* Strategy summary — by direct request ("Add the bot
+                  strategy summary under a 'Strategy' link similar to
+                  the Reasoning style in the individual Bot cards -
+                  portal wide"). Same fold-by-default pattern as
+                  TradeRow's own "Reason summary": folded until
+                  clicked, and only rendered when a real summary
+                  exists for this bot's strategy_key. */}
+              {(() => {
+                const summary = getStrategySummary(bot.bot_id, bot.strategy_key);
+                if (!summary) return null;
+                const isOpen = openStrategyIds.has(bot.bot_id);
+                return (
+                  <div className="mt-3 pt-3 border-t border-dashed border-gray-200 dark:border-smc-border">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); toggleStrategyOpen(bot.bot_id); }}
+                      className={`flex items-center gap-1.5 text-xs font-medium ${dark ? 'text-white/60 hover:text-white' : 'text-gray-500 hover:text-corporate-text-on-bg'}`}
+                    >
+                      <ChevronDown size={13} className={`transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+                      Strategy
+                    </button>
+                    {isOpen && (
+                      <p className={`mt-2 text-xs leading-relaxed ${dark ? 'text-white/70' : 'text-gray-600'}`}>
+                        {summary}
+                      </p>
+                    )}
+                  </div>
+                );
+              })()}
 
               {selectedBot === bot.bot_id && editing && (
                 <div className={`mt-4 pt-4 border-t space-y-4 ${dark ? "border-smc-border" : "border-corporate-bg"}`} onClick={(e) => e.stopPropagation()}>
