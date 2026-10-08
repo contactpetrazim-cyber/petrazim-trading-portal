@@ -100,22 +100,32 @@ function ReasonSummary({ text, dark }: { text: string; dark: boolean }) {
   );
 }
 
-// Nearest candle index to a given ISO timestamp — by direct request
-// ("Include a triangle on the specific candle to indicate the
-// specific candle for either entry and also either SL or TP").
-// entry_timestamp/exit_timestamp rarely land EXACTLY on a candle open
-// (a trade can enter/exit mid-candle), so "nearest" is the honest
-// match, same spirit as the backend's own lookback-window math.
+// Candle index whose bar the event (entry/exit) actually happened
+// DURING — by direct request ("Include a triangle on the specific
+// candle to indicate the specific candle for either entry and also
+// either SL or TP"). c.timestamp is each candle's OPEN time (standard
+// OHLCV), so the right match is the LAST candle whose open is at or
+// before the event — a floor-match, not "closest by absolute time
+// distance": an event in the second half of its own candle's duration
+// (e.g. 10 minutes into a 15M bar) is numerically CLOSER to the NEXT
+// candle's open than to its own, so nearest-by-distance silently
+// picked the following candle roughly half the time — a real,
+// confirmed bug, by direct report ("the correct candles are ones just
+// before what is currently indicated"), not a display preference.
+// candles is sorted ascending by time (ccxt convention), so a single
+// forward scan works; clamps to the first candle when the event
+// predates every candle in the fetched window (shouldn't happen given
+// the backend's own lookback buffer, but a last/first candle is a
+// safer fallback than null).
 function nearestCandleIndex(candles: { timestamp: string }[], iso: string | null): number | null {
   if (!iso || candles.length === 0) return null;
   const target = new Date(iso).getTime();
-  let best = 0;
-  let bestDiff = Infinity;
-  candles.forEach((c, i) => {
-    const diff = Math.abs(new Date(c.timestamp).getTime() - target);
-    if (diff < bestDiff) { bestDiff = diff; best = i; }
-  });
-  return best;
+  let idx = 0;
+  for (let i = 0; i < candles.length; i++) {
+    if (new Date(candles[i].timestamp).getTime() <= target) idx = i;
+    else break;
+  }
+  return idx;
 }
 
 function SnapshotChart({ snapshot, dark }: { snapshot: TradeSnapshot; dark: boolean }) {
