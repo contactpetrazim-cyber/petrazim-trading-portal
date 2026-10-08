@@ -4,6 +4,7 @@ import { Shield, Save, AlertTriangle, DollarSign, Calculator, TrendingDown } fro
 import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, BarChart, Bar, Cell } from 'recharts';
 import { StatCard } from '../components/StatCard';
 import { FoldedCard } from '../components/FoldedCard';
+import { PnlDrawdownPeriodPills } from '../components/PnlDrawdownPeriodPills';
 import { botsApi, tradesApi } from '../services/api';
 import { BotConfig, BotMetricsUpdate, Trade } from '../types';
 import { useThemeStore } from '../hooks/useTheme';
@@ -192,14 +193,25 @@ export function RiskPage() {
           value={`${totalPnl >= 0 ? '+' : ''}$${totalPnl.toFixed(2)}`}
           icon={<DollarSign size={20} />}
           color={totalPnl >= 0 ? 'green' : 'red'} dark={dark}
-        />
+        >
+          {/* Today/Week/Month quick filter — by direct request ("make
+              it portal wide update of dashboard quick filters"), same
+              reused component Dashboard.tsx's own Daily P&L card
+              already uses. The headline value above stays this page's
+              own (up to 200 recent closed trades, not strictly
+              "today"); the pills add the same Week/Month cut everyone
+              else already has. */}
+          <PnlDrawdownPeriodPills metric="pnl" todayValue={totalPnl} />
+        </StatCard>
         <StatCard
           title="Max Drawdown"
           subtitle="Peak-to-trough, closed trades below"
           value={`-$${maxDrawdown.toFixed(2)}`}
           icon={<TrendingDown size={20} />}
           color={maxDrawdown > 0 ? 'amber' : 'blue'} dark={dark}
-        />
+        >
+          <PnlDrawdownPeriodPills metric="drawdown" todayValue={maxDrawdown} />
+        </StatCard>
         <StatCard
           title="Trades Today"
           value={`${todayTrades.length} / ${totalDailyCap || '—'}`}
