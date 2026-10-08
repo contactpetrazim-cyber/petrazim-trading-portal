@@ -30,10 +30,12 @@ USAGE IN A ROUTE:
 from __future__ import annotations
 
 import os
+import uuid
 from typing import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import declarative_base
+from sqlalchemy.pool import NullPool
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 
@@ -48,11 +50,26 @@ if not DATABASE_URL:
 
 engine = create_async_engine(
     DATABASE_URL, pool_pre_ping=True, echo=False,
+    # NullPool — SQLAlchemy's own asyncpg+pgbouncer docs explicitly
+    # warn this is required whenever prepared_statement_name_func is
+    # used with a pgbouncer-fronted database: without it, SQLAlchemy's
+    # OWN connection pool holds physical connections open and reuses
+    # them on top of pgbouncer ALSO rotating physical connections
+    # underneath, letting prepared statements accumulate across both
+    # layers instead of being cleanly discarded.
+    poolclass=NullPool,
     # Same required fix as app/database.py's own engine — see its
-    # connect_args comment for why: DATABASE_URL now points at
-    # Supabase's transaction-mode pooler, which doesn't support
-    # asyncpg's prepared-statement caching.
-    connect_args={"statement_cache_size": 0},
+    # connect_args comment for the full story: DATABASE_URL now points
+    # at Supabase's transaction-mode pooler, and statement_cache_size=0
+    # alone wasn't enough — SQLAlchemy's own asyncpg dialect generates
+    # prepared-statement names from a per-process counter independent
+    # of that setting, which collides across pgbouncer's rotating
+    # physical connections. prepared_statement_name_func forces a
+    # genuinely unique name per prepare call instead.
+    connect_args={
+        "statement_cache_size": 0,
+        "prepared_statement_name_func": lambda: f"__asyncpg_{uuid.uuid4()}__",
+    },
 )
 AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
 
