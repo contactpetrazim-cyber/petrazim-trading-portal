@@ -193,7 +193,13 @@ export const botsApi = {
   // retrieve exchange account trading capital or margin capital
   // balance and create a exchange balance page to check such
   // balances").
-  getExchangeBalances: () => api.get<ExchangeBalancesResponse>('/bots/exchange-balances').then(r => r.data),
+  // 30s, not the default 20s: this endpoint makes a real, concurrent
+  // live balance call per exchange account (routers/bots.py's own
+  // per-call 8s cap bounds the typical worst case well under 20s, but
+  // a genuinely slow/misconfigured account — confirmed live, a
+  // MetaApi connection not yet linked to its broker — is real-world
+  // defense-in-depth here too, not just a backend concern).
+  getExchangeBalances: () => api.get<ExchangeBalancesResponse>('/bots/exchange-balances', { timeout: 30_000 }).then(r => r.data),
   // Rename/delete — by direct request ("create options to edit bot
   // names and also to delete bots").
   renameBot: (botId: string, botName: string) =>
