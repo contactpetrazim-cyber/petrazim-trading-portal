@@ -253,6 +253,12 @@ class BotConfigResponse(BaseModel):
     # BotConfig.sub_auto_risk_amount's own comment.
     sub_auto_risk_amount: Optional[float] = None
     sub_auto_min_rr_ratio: Optional[float] = None
+    # Sub-Auto Schedule — see BotConfig.sub_auto_sessions' own comment.
+    # Empty/null on any of these means "All" (no restriction) for that
+    # dimension.
+    sub_auto_sessions: Optional[List[str]] = None
+    sub_auto_days: Optional[List[int]] = None
+    sub_auto_half_day: Optional[str] = None
 
     # Real bug: these 3 columns are plain SQLAlchemy `default=False`/
     # `default=0` — a Python-side INSERT-time default, not a DB
@@ -298,12 +304,34 @@ class BotSubAutoUpdate(BaseModel):
     min_rr_ratio are always optional (unset leaves whatever override
     — if any — was already saved untouched) and apply regardless of
     enabled, so a trader can update just the override on an already-
-    active engagement without having to re-send total_cap/daily_cap."""
+    active engagement without having to re-send total_cap/daily_cap.
+
+    sessions/days/half_day (Sub-Auto Schedule — see BotConfig.
+    sub_auto_sessions' own comment) follow the SAME "field omitted ==
+    leave untouched" convention as risk_amount/min_rr_ratio above —
+    but, unlike those two, an explicitly-sent EMPTY list (`[]` for
+    sessions/days) or `"all"` (for half_day) is a real, meaningful
+    value: "All," i.e. explicitly clear this dimension's restriction,
+    by direct request ("Add option for All - which includes
+    everything - not filtered") — not the same as leaving the field
+    out of the request entirely."""
     enabled: bool
     total_cap: Optional[int] = Field(default=None, ge=1, le=10_000)
     daily_cap: Optional[int] = Field(default=None, ge=1, le=1000)
     risk_amount: Optional[float] = Field(default=None, gt=0)
     min_rr_ratio: Optional[float] = Field(default=None, gt=0)
+    sessions: Optional[List[Literal["asian", "london", "new_york"]]] = None
+    days: Optional[List[int]] = Field(default=None, description="ISO weekday ints, Monday=0..Sunday=6")
+    half_day: Optional[Literal["am", "pm", "all"]] = None
+
+    @field_validator("days")
+    @classmethod
+    def _validate_days(cls, v):
+        if v is not None:
+            for d in v:
+                if not (0 <= d <= 6):
+                    raise ValueError("days must be ISO weekday ints 0 (Monday) through 6 (Sunday)")
+        return v
 
 class BotTradingModeUpdate(BaseModel):
     """PATCH /bots/{bot_id}/trading-mode body — mirrors

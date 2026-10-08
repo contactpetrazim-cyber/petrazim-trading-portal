@@ -26,6 +26,47 @@ settings = get_settings()
 # endpoint's own crypto-exchange allowlist.
 _LEVERAGE_CAPABLE_BROKERS = {"bingx", "binance", "bybit", "mexc"}
 
+# Sub-Auto Schedule — by direct request ("additional quick filters for
+# semi auto for bot trading : session, days, am and pm etc"), confirmed
+# as an execution gate. Standard, widely-cited approximate trading-
+# session ranges in UTC (end-exclusive); real sessions overlap each
+# other (e.g. London/New York), which is realistic and intentional —
+# a trader wanting a tighter window picks fewer sessions, not the
+# other way around.
+_SUB_AUTO_SESSION_UTC_RANGES = {
+    "asian": (0, 9),
+    "london": (7, 16),
+    "new_york": (12, 21),
+}
+
+
+def _sub_auto_window_allows(bot_cfg, now: datetime) -> bool:
+    """True iff `now` (UTC) satisfies every ONE of this bot's
+    configured Sub-Auto Schedule dimensions (sessions/days/half_day —
+    see BotConfig.sub_auto_sessions' own comment). Each dimension is
+    independent: empty/None means "All" for that dimension (never
+    blocks), by direct request ("Add option for All - which includes
+    everything - not filtered"); a configured dimension must pass on
+    its own for the overall result to stay True."""
+    if bot_cfg.sub_auto_days:
+        if now.weekday() not in bot_cfg.sub_auto_days:
+            return False
+    if bot_cfg.sub_auto_half_day:
+        is_am = now.hour < 12
+        if bot_cfg.sub_auto_half_day == "am" and not is_am:
+            return False
+        if bot_cfg.sub_auto_half_day == "pm" and is_am:
+            return False
+    if bot_cfg.sub_auto_sessions:
+        hour = now.hour
+        if not any(
+            _SUB_AUTO_SESSION_UTC_RANGES[s][0] <= hour < _SUB_AUTO_SESSION_UTC_RANGES[s][1]
+            for s in bot_cfg.sub_auto_sessions
+            if s in _SUB_AUTO_SESSION_UTC_RANGES
+        ):
+            return False
+    return True
+
 # Which bot_id actually HOLDS the dedicated BotBrokerCredential rows
 # for a given strategy_key — by direct request ("let each bot make use
 # of the parent strategy dedicated accounts"). A BotConfig row sharing
@@ -416,7 +457,23 @@ class ExecutionEngine:
                             "success": True, "status": "sub_auto_daily_capped",
                             "message": f"Skipped — {signal.bot_id} already hit today's Sub-Auto cap ({bot_cfg.sub_auto_daily_cap}); resumes tomorrow.",
                         }
-                    mode = "fully_autonomous"
+                    # Sub-Auto Schedule (session/days/half_day) — see
+                    # _sub_auto_window_allows' own docstring. Outside
+                    # the configured window, this signal falls back to
+                    # requiring manual approval, exactly as if Sub-Auto
+                    # weren't engaged at all right now — the daily/
+                    # total caps and pre_sub_auto_execution_mode
+                    # snapshot are untouched either way, since this
+                    # only affects THIS signal's own `mode`, overriding
+                    # bot_cfg.execution_mode (FULLY_AUTONOMOUS for the
+                    # whole duration of the engagement — see routers/
+                    # bots.py's set_bot_sub_auto) right back down for
+                    # just this one decision.
+                    if _sub_auto_window_allows(bot_cfg, datetime.utcnow()):
+                        mode = "fully_autonomous"
+                    else:
+                        logger.info("sub_auto_outside_schedule_window", bot_id=signal.bot_id, symbol=signal.symbol)
+                        mode = "human_in_loop"
 
         # Computed once, up front, so it's baked into trade_data before
         # _persist_trade writes the Trade row below — a Human-in-the-

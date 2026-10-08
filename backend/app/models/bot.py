@@ -235,3 +235,28 @@ class BotConfig(Base):
     # persists across every other mode switch.
     sub_auto_risk_amount = Column(Float, nullable=True)
     sub_auto_min_rr_ratio = Column(Float, nullable=True)
+
+    # Sub-Auto Schedule — by direct request ("additional quick filters
+    # for semi auto for bot trading : session, days, am and pm etc"),
+    # confirmed as an EXECUTION GATE (not a display filter): outside
+    # the configured window(s), a signal that would otherwise have
+    # been pre-approved by Sub-Auto instead falls back to this bot's
+    # own normal execution_mode (human-in-loop, in the common case),
+    # same as if Sub-Auto weren't active at all for that one signal.
+    # See execution_engine.py's own _sub_auto_window_allows for the
+    # real enforcement and exact session UTC ranges.
+    #   - sub_auto_sessions: list of "asian"/"london"/"new_york" — a
+    #     signal's UTC hour must fall inside at least one selected
+    #     session. NULL/[] means "All" (no session restriction) — by
+    #     direct request ("Add option for All - which includes
+    #     everything - not filtered").
+    #   - sub_auto_days: list of ISO weekday ints, Monday=0..Sunday=6.
+    #     NULL/[] means "All" (every day allowed).
+    #   - sub_auto_half_day: "am" (00:00-11:59 UTC) or "pm" (12:00-
+    #     23:59 UTC). NULL means "All" (no half-day restriction).
+    # All three are independent AND'd conditions — a configured
+    # dimension must pass on its own; an unconfigured ("All") one
+    # never blocks anything.
+    sub_auto_sessions = Column(JSON, nullable=True)
+    sub_auto_days = Column(JSON, nullable=True)
+    sub_auto_half_day = Column(String(2), nullable=True)

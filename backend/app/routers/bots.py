@@ -473,6 +473,17 @@ async def set_bot_sub_auto(
         bot.sub_auto_risk_amount = update.risk_amount
     if update.min_rr_ratio is not None:
         bot.sub_auto_min_rr_ratio = update.min_rr_ratio
+    # Sub-Auto Schedule — by direct request. Same "omitted == leave
+    # untouched" rule as risk_amount/min_rr_ratio above, but an
+    # explicitly-sent empty list / "all" is itself a real value
+    # ("All" — clear this dimension's restriction), not a no-op — see
+    # BotSubAutoUpdate's own comment.
+    if update.sessions is not None:
+        bot.sub_auto_sessions = update.sessions
+    if update.days is not None:
+        bot.sub_auto_days = update.days
+    if update.half_day is not None:
+        bot.sub_auto_half_day = None if update.half_day == "all" else update.half_day
     await db.commit()
     await db.refresh(bot)
     return bot
