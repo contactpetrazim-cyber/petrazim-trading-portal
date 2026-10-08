@@ -84,6 +84,12 @@ class TradeResponse(BaseModel):
     exit_price: Optional[float] = None
     exit_type: Optional[str] = None
     exit_timestamp: Optional[datetime] = None
+    # Why a trade landed at status=ERROR — by direct report ("critically
+    # review this error ... fix ... permanently"). See Trade.error_message's
+    # own comment / execution_engine.py's _mark_trade_error for why this
+    # needed to be persisted at all (a container log line doesn't
+    # survive a redeploy).
+    error_message: Optional[str] = None
     # The Trade row already records which exchange actually filled (or
     # would have filled, for a paper/test trade — _determine_broker
     # runs unconditionally in execution_engine.py, only the final

@@ -123,6 +123,17 @@ class Trade(Base):
     exit_timestamp = Column(DateTime)
     exit_type = Column(Enum(ExitType))
 
+    # Why a trade landed at status=ERROR — by direct report ("critically
+    # review this error ... fix"): investigating a real ERROR trade live
+    # meant reconstructing what failed entirely from `docker logs`,
+    # which don't survive a redeploy (confirmed directly — the container
+    # that logged this exact trade's own failure was already gone by
+    # the time it was investigated). Persisting the reason ON the trade
+    # itself means every future occurrence is self-diagnosing from the
+    # DB/UI, not dependent on ephemeral container logs. See
+    # execution_engine.py's _mark_trade_error for where this is set.
+    error_message = Column(Text)
+
     # MTF Context
     higher_tf_bias = Column(String(20))  # bullish, bearish, neutral
     intermediate_tf_direction = Column(String(20))

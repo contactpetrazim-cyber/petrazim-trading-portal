@@ -40,6 +40,12 @@ export interface Trade {
   exit_price?: number | null;
   exit_type?: string | null;
   exit_timestamp?: string | null;
+  /** Why a trade landed at status "error" — by direct report
+   * ("critically review this error ... fix ... permanently"). Null for
+   * any trade that never errored, and for one that did before this
+   * field existed (the reason only ever reached a container log line,
+   * which doesn't survive a redeploy). */
+  error_message?: string | null;
   /** Which exchange this trade actually filled on (or would have,
    * for a paper/test trade) — "binance", "bybit", "bingx", "mexc",
    * "tradelocker", "metatrader". Null for a trade placed before this

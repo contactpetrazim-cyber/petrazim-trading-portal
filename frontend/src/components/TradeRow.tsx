@@ -396,6 +396,20 @@ export function TradeRow({ trade, onApprove, onReject, onCancel, onChanged, onAr
           report), since a closed trade's history is exactly the case
           where these numbers matter most and there's no live position
           to fall back on managing instead. */}
+      {/* Error reason — by direct report ("critically review this
+          error ... fix ... permanently"). Previously undiagnosable
+          after the fact: the real failure reason only ever reached a
+          container log line, which doesn't survive a redeploy — this
+          card had nothing but the bare "ERROR" badge. Falls back to a
+          plain explanation for an error trade that predates this field
+          existing. */}
+      {trade.status === 'error' && (
+        <div className={`mt-3 pt-3 border-t text-xs ${dark ? 'border-smc-border text-red-300' : 'border-corporate-bg text-red-600'}`}>
+          <span className="text-gray-500">Reason: </span>
+          {trade.error_message || 'No reason recorded — this trade errored before error reasons were persisted.'}
+        </div>
+      )}
+
       {trade.status === 'closed' && (
         <div className={`mt-3 pt-3 border-t grid grid-cols-2 sm:grid-cols-7 gap-x-3 gap-y-2 text-xs ${dark ? 'border-smc-border' : 'border-corporate-bg'}`}>
           {/* Label on its own line, price on the line below — by
