@@ -1107,10 +1107,30 @@ class EntryExitEngine:
         lot_step = 0.001
         normalized_lots = math.floor(lots / lot_step) * lot_step
 
+        # Portal-wide fix, by direct request ("FIX THIS FOR THE ENTIRE
+        # PORTAL FOR MANUAL AND ALL BOTS current and future"): this
+        # function's own returned "risk_amount" used to be the PRE-floor
+        # intended value (account_balance * risk_percent/100), which
+        # silently stops matching reality the moment flooring to
+        # lot_step actually shrinks the position (confirmed live: a
+        # real trade's stored risk_amount was ~$10, its real lot_size *
+        # stop distance was only ~$3). No bot currently reads this
+        # field directly (each one recomputes risk_amount itself from
+        # its OWN final signal.lot_size in execution_engine.py, which
+        # is what actually reaches the DB/UI today — that's why this
+        # wasn't an active bug for any CURRENT trade) — but that made it
+        # a silent trap for any future caller that reasonably expects a
+        # function literally named calculate_lot_size's own returned
+        # "risk_amount" to be trustworthy. Now derived from the ACTUAL,
+        # final (floored) lot_size, so it can never disagree with the
+        # position that's actually sized, for any caller, present or
+        # future.
+        actual_risk_amount = normalized_lots * stop_loss_distance * (contract_size * pip_value if is_forex else 1)
+
         return {
             "lot_size": normalized_lots,
             "raw_lot_size": round(lots, 4),
-            "risk_amount": round(risk_amount, 2),
+            "risk_amount": round(actual_risk_amount, 2),
             "risk_percent": risk_percent,
             "stop_loss_distance": stop_loss_distance,
             "pip_value": pip_value,
