@@ -264,9 +264,15 @@ export const orderFlowApi = {
   // can't do (see TradingViewChart.tsx's own docstring on why). A 400
   // here for an unsupported symbol (e.g. a forex pair) is expected and
   // handled by the caller, not a bug.
-  getKlines: (symbol: string, interval: string = '1h', limit: number = 100) =>
+  // `exchange` — by direct report ("No display for EURUSDT.P for on
+  // chart"): a symbol exclusive to a non-Binance exchange (e.g. MEXC's
+  // JPY/EUR perpetuals) has no Binance candle source at all. Omitted
+  // (every call site before this) keeps the original Binance-only
+  // path exactly as it was; see order_flow.py's own
+  // _non_binance_klines for the exchanges this now also covers.
+  getKlines: (symbol: string, interval: string = '1h', limit: number = 100, exchange?: string | null) =>
     api.get<{ symbol: string; interval: string; candles: KlineBar[] }>(
-      '/order-flow/klines', { params: { symbol, interval, limit } }
+      '/order-flow/klines', { params: { symbol, interval, limit, ...(exchange ? { exchange } : {}) } }
     ).then(r => r.data),
 };
 

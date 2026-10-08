@@ -9,6 +9,7 @@ import { NoPositionCard, PositionLoadingCard } from '../components/ChartPanel';
 import { oandaApi, tradesApi, type OandaInstrument } from '../services/api';
 import { useThemeStore } from '../hooks/useTheme';
 import type { Trade } from '../types';
+import { positionOverlayLines, positionOverlayMarkers } from '../lib/positionChartOverlay';
 
 // Same idea as PositionOnChartModal's own COLOR_PRESETS (and the same
 // reason it's a small local copy, not the shared CandleColorPicker
@@ -327,6 +328,22 @@ export function ChartOPage() {
     ];
   }, [showMA, candles]);
 
+  // Entry/SL/TP/Exit reference lines + entry/exit triangle markers —
+  // by direct report ("No entry and exit triangle fix ... implement
+  // on all charts portal wide ... same positioning style and
+  // snapshot for triangles"): this page never had either at all, only
+  // PositionOnChartModal (the main /chart On Chart tool) did. Shared
+  // logic with that modal and MT5Page — see positionChartOverlay.ts's
+  // own comment for why it's a simpler, flat-index version here (this
+  // page has no pan/zoom offset to account for).
+  const allPositionTrades: Trade[] = position ? [position, ...otherOpenTrades] : [];
+  const positionLines = useMemo(() => (
+    allPositionTrades.flatMap((t, i) => positionOverlayLines(t, allPositionTrades.length > 1 ? ` #${i + 1}` : ''))
+  ), [allPositionTrades]);
+  const positionMarkers = useMemo(() => (
+    candles ? positionOverlayMarkers(allPositionTrades, candles) : []
+  ), [allPositionTrades, candles]);
+
   const results = useMemo(() => {
     if (!query.trim()) return instruments.slice(0, 20);
     const q = query.trim().toUpperCase();
@@ -510,7 +527,7 @@ export function ChartOPage() {
         {!error && candles && (
           <div ref={chartPaneRef} className="relative" style={{ touchAction: 'none', cursor: drawShape ? 'crosshair' : undefined }}>
             <div ref={chartBoxRef}>
-              <CandleChart candles={candles} height={CHART_HEIGHT} dark={dark} bullColor={bullColor} bearColor={bearColor} overlaySeries={maSeries} drawings={visibleDrawings} zones={quickTradeZones} />
+              <CandleChart candles={candles} height={CHART_HEIGHT} dark={dark} bullColor={bullColor} bearColor={bearColor} overlaySeries={maSeries} drawings={visibleDrawings} zones={quickTradeZones} lines={positionLines} markers={positionMarkers} />
             </div>
             {quickTradeDraft && (
               <div
