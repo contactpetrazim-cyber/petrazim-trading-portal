@@ -1,6 +1,6 @@
 
 import axios from 'axios';
-import { Trade, BotConfig, BotPerformance, BotMetricsUpdate, DashboardStats, SignalPreview, PerformanceSummary, TradeBreakdown, TradeBreakdownPeriod, TodayTradeBreakdown, ExchangeMetaResponse, TraderBrokerConnection, AvailableBot, TraderBotSubscription, OutboundIpsResponse, FeeSettings, FeeLedgerEntry, MyFeesResponse, FeeGateStatus, FeeCheckoutSession, FeeCheckoutProvider, FeeVerifyResult, DeployStateResponse, TradeSnapshot, EncroachmentResponse, SnapshotTimeframe, ExchangeBalancesResponse } from '../types';
+import { Trade, BotConfig, BotPerformance, BotMetricsUpdate, DashboardStats, SignalPreview, PerformanceSummary, TradeBreakdown, TradeBreakdownPeriod, TodayTradeBreakdown, ExchangeMetaResponse, TraderBrokerConnection, AvailableBot, TraderBotSubscription, OutboundIpsResponse, FeeSettings, FeeLedgerEntry, MyFeesResponse, FeeGateStatus, FeeCheckoutSession, FeeCheckoutProvider, FeeVerifyResult, DeployStateResponse, TradeSnapshot, EncroachmentResponse, SnapshotTimeframe, ExchangeBalancesResponse, MasterExchangeBalancesResponse } from '../types';
 import { useAuthStore } from '../hooks/useAuth';
 import { triggerAccessExpired } from '../components/AccessExpiredGate';
 import { triggerFeesOwed } from '../components/TradingFeeGate';
@@ -200,6 +200,11 @@ export const botsApi = {
   // MetaApi connection not yet linked to its broker — is real-world
   // defense-in-depth here too, not just a backend concern).
   getExchangeBalances: () => api.get<ExchangeBalancesResponse>('/bots/exchange-balances', { timeout: 30_000 }).then(r => r.data),
+  // Master Exchange Balance — Admin portal, sees every bot sub-account
+  // and every trader's own connected exchange, platform-wide. By
+  // direct request ("Create a Master Exchange Balance card in the
+  // Admin portal that sees all"). Super Admin only (backend-enforced).
+  getMasterExchangeBalances: () => api.get<MasterExchangeBalancesResponse>('/bots/master-exchange-balances', { timeout: 30_000 }).then(r => r.data),
   // Rename/delete — by direct request ("create options to edit bot
   // names and also to delete bots").
   renameBot: (botId: string, botName: string) =>

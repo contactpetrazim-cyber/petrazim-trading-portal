@@ -260,8 +260,29 @@ export interface BotExchangeBalanceEntry extends ExchangeBalanceEntry {
 }
 export interface TraderExchangeBalanceEntry extends ExchangeBalanceEntry {
   connection_id: string;
+  /** Only set on GET /bots/master-exchange-balances (Admin's Master
+   * card) — whose connection this is. Absent on the trader-facing
+   * endpoint, since that one is always already scoped to the caller's
+   * own connections. */
+  user_id?: string;
+  user_name?: string | null;
+  user_email?: string | null;
 }
 export interface ExchangeBalancesResponse {
+  bot_accounts: BotExchangeBalanceEntry[];
+  /** True when `bot_accounts` was deliberately left empty because the
+   * caller isn't Admin/Super Admin — see routers/bots.py's own
+   * get_exchange_balances docstring ("the exchange balance info
+   * should be gated based on user"). Distinguishes "nothing to show"
+   * from "you can't see this" so the page can say which one it is. */
+  bot_accounts_restricted: boolean;
+  trader_accounts: TraderExchangeBalanceEntry[];
+}
+/** GET /bots/master-exchange-balances — the Admin portal's "sees all"
+ * view (no ownership scoping on either side). Same shape as
+ * ExchangeBalancesResponse minus bot_accounts_restricted (never
+ * applicable here — Super Admin always sees everything). */
+export interface MasterExchangeBalancesResponse {
   bot_accounts: BotExchangeBalanceEntry[];
   trader_accounts: TraderExchangeBalanceEntry[];
 }
