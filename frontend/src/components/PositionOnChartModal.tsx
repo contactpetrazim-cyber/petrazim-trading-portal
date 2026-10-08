@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { X, Loader2, RotateCcw, Sun, Moon, Palette, Target, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Maximize2, Crosshair, TrendingUp, PenLine, Square, Eraser, Zap, Search, Receipt, Eye, EyeOff, Globe2, MonitorSmartphone, Check, Clock3, RefreshCw, Ban, Percent, ArrowUpCircle, ArrowDownCircle, BarChart3 } from 'lucide-react';
-import { CandleChart, CHART_LAYOUT, computeChartRange, type Candle, type ChartLine, type ChartZone, type OverlaySeries, type DrawnSegment } from './CandleChart';
+import { CandleChart, CHART_LAYOUT, computeChartRange, type Candle, type ChartLine, type ChartZone, type ChartMarker, type OverlaySeries, type DrawnSegment } from './CandleChart';
 import { formatSignedMoney, type ChartPosition } from './TradingViewChart';
 import { PositionManager } from './PositionManager';
 import { FoldedCard } from './FoldedCard';
@@ -1095,6 +1095,49 @@ export function PositionOnChartModal({
     ...fibLines,
   ];
 
+  // Entry/exit triangle markers — by direct request ("Put entry and
+  // exit triangles in the on chart also"), same visual language as
+  // TradeSnapshotModal's own markers (triangle-up at entry, pointing
+  // up into the candle from below; triangle-down at exit, pointing
+  // down into it from above). Indices are found against the STABLE
+  // `allCandles` pool (same reasoning as `visibleStart`'s own comment
+  // above — pan/zoom only moves the visible slice, not the pool
+  // itself), then converted to `candles`-relative and dropped if that
+  // lands outside the currently visible window, same as drawings do.
+  function nearestCandleIndex(pool: Candle[], iso: string | null | undefined): number | null {
+    if (!iso || pool.length === 0) return null;
+    const target = new Date(iso).getTime();
+    let best = 0, bestDiff = Infinity;
+    pool.forEach((c, i) => {
+      const t = c.time ?? 0;
+      const diff = Math.abs(t - target);
+      if (diff < bestDiff) { bestDiff = diff; best = i; }
+    });
+    return best;
+  }
+  const markers: ChartMarker[] = useMemo(() => {
+    if (!allCandles || !candles) return [];
+    const out: ChartMarker[] = [];
+    for (const t of allPositionTrades) {
+      if (hiddenPositionIds.has(t.trade_id)) continue;
+      const entryAbs = t.entry_price != null ? nearestCandleIndex(allCandles, t.entry_timestamp) : null;
+      if (entryAbs != null) {
+        const rel = entryAbs - visibleStart;
+        if (rel >= 0 && rel < candles.length) {
+          out.push({ index: rel, price: t.entry_price!, label: '', color: ENTRY_LINE_COLOR, shape: 'triangle-up' });
+        }
+      }
+      const exitAbs = t.exit_price != null ? nearestCandleIndex(allCandles, t.exit_timestamp) : null;
+      if (exitAbs != null) {
+        const rel = exitAbs - visibleStart;
+        if (rel >= 0 && rel < candles.length) {
+          out.push({ index: rel, price: t.exit_price!, label: '', color: '#f59e0b', shape: 'triangle-down' });
+        }
+      }
+    }
+    return out;
+  }, [allCandles, candles, visibleStart, allPositionTrades, hiddenPositionIds]);
+
   /** Volume Profile bins — see `volumeProfileOpen`'s own comment.
    * Buckets the CURRENTLY VISIBLE candles' real volume into 24 equal
    * price bins spanning the same price range CandleChart itself is
@@ -1585,7 +1628,7 @@ export function PositionOnChartModal({
           <>
             <div ref={chartBoxRef} className="relative">
               <CandleChart
-                candles={candles} lines={lines} zones={quickTradeZones} overlaySeries={maSeries} drawings={visibleDrawings}
+                candles={candles} lines={lines} zones={quickTradeZones} markers={markers} overlaySeries={maSeries} drawings={visibleDrawings}
                 height={CHART_HEIGHT} dark={localDark} bullColor={localBull} bearColor={localBear} rightMargin={rightMargin}
               />
               {/* Volume Profile — a right-edge histogram, classic

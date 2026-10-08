@@ -30,6 +30,15 @@ export interface ChartMarker {
   color?: string;
   /** 'above' places the label above the price point, 'below' below it. */
   side?: 'above' | 'below';
+  /** 'dot' (default, unchanged) or a small directional triangle — by
+   * direct request ("Put entry and exit triangles in the on chart
+   * also"), matching TradeSnapshotModal's own entry/exit triangle
+   * language: 'triangle-up' points upward (apex above its base, sits
+   * just below the price point reaching up toward it — the entry
+   * convention), 'triangle-down' points downward (apex below its
+   * base, sits just above the price point reaching down toward it —
+   * the exit convention). */
+  shape?: 'dot' | 'triangle-up' | 'triangle-down';
 }
 
 export interface ChartLine {
@@ -338,10 +347,28 @@ export function CandleChart({
           />
         ))}
 
-        {/* Point markers (dots only — labels live in the HTML overlay below) */}
-        {markers.map((m, i) => (
-          <circle key={i} cx={x(m.index)} cy={y(m.price)} r={0.9} fill={m.color ?? textColor} />
-        ))}
+        {/* Point markers — dots, or a small directional triangle sitting
+            just off the price point (labels live in the HTML overlay
+            below). Triangle vertical offset scales with chart height
+            so it reads at a consistent visual size across callers. */}
+        {markers.map((m, i) => {
+          if (m.shape === 'triangle-up' || m.shape === 'triangle-down') {
+            const cx = x(m.index);
+            const cy = y(m.price);
+            const dy = height * 0.035;
+            const dx = 1.3;
+            const base = m.shape === 'triangle-up' ? cy + dy : cy - dy;
+            const apex = m.shape === 'triangle-up' ? cy + dy - dy * 1.8 : cy - dy + dy * 1.8;
+            return (
+              <polygon
+                key={i}
+                points={`${cx - dx},${base} ${cx + dx},${base} ${cx},${apex}`}
+                fill={m.color ?? textColor}
+              />
+            );
+          }
+          return <circle key={i} cx={x(m.index)} cy={y(m.price)} r={0.9} fill={m.color ?? textColor} />;
+        })}
       </svg>
 
       {/* HTML label overlay — see this component's own docstring for
