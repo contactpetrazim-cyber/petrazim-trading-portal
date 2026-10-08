@@ -12,8 +12,12 @@ import { formatApiError } from '../lib/apiError';
  * balances"). Two sections:
  *   - Platform bot sub-accounts (BotBrokerCredential) — the real money
  *     backing each strategy's own dedicated exchange account(s), one
- *     row per (bot, exchange). Linked to from each bot card's own
- *     "Exchange Bal" button (Bots.tsx).
+ *     row per (bot, exchange). Admin/Super Admin only (see
+ *     `bot_accounts_restricted`, by direct follow-up request — "the
+ *     exchange balance info should be gated based on user"); a Trader
+ *     sees a clear note instead of an empty list. The full, platform-
+ *     wide, every-trader's-own-accounts-too view is the Admin portal's
+ *     own Master Exchange Balance card, not this page.
  *   - Your own connected exchanges (TraderBrokerConnection) — your
  *     personal account(s), used for manual trading and copy-trading a
  *     subscribed bot. Linked to from the Manual Trading order form's
@@ -100,7 +104,14 @@ export function ExchangeBalancesPage() {
         <>
           <div className={cardCls}>
             <h2 className="text-sm font-semibold mb-3">Platform Bot Accounts</h2>
-            {!data?.bot_accounts.length ? (
+            {data?.bot_accounts_restricted ? (
+              // By direct request ("the exchange balance info should
+              // be gated based on user") — platform bot sub-accounts
+              // are the platform's own money, not any one trader's to
+              // see; distinguishes "you can't see this" from "nothing
+              // here" rather than implying no accounts exist at all.
+              <p className={`text-sm ${mutedCls}`}>Bot sub-account balances are visible to Admins only.</p>
+            ) : !data?.bot_accounts.length ? (
               <p className={`text-sm ${mutedCls}`}>No dedicated bot sub-accounts found.</p>
             ) : (
               <div className="space-y-1.5">

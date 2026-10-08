@@ -15,6 +15,7 @@ import { useAuth } from '../hooks/useAuth';
 import { useThemeStore } from '../hooks/useTheme';
 import { apiFetch } from '../components/AccessExpiredGate';
 import { PremiumOverviewCard } from '../components/PremiumOverviewCard';
+import { MasterExchangeBalanceCard } from '../components/MasterExchangeBalanceCard';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -675,6 +676,25 @@ export function AdminConsolePage() {
               ? <button type="button" onClick={loadAdminToggles} className="text-xs text-red-500 underline">Could not load — try again</button>
               : <span className="text-xs text-gray-500">Loading…</span>)}
           </div>
+        </FoldedCard>
+      )}
+
+      {/* Master Exchange Balance — by direct request ("the exchange
+          balance info should be gated based on user ... Create a
+          Master Exchange Balance card in the Admin portal that sees
+          all"). The one place every platform bot sub-account AND
+          every trader's own connected exchange is visible together,
+          platform-wide, tagged by owner — the trader-facing Exchange
+          Balances page only ever shows the caller's own. Super Admin
+          only (backend-enforced; frontend gate matches every other
+          Master card on this page). */}
+      {isSuperAdmin && (
+        <FoldedCard
+          title="Master Exchange Balance"
+          summary="Live balance, every account, platform-wide"
+          icon={<Wallet size={18} />} accent="#0ea5e9" dark={dark}
+        >
+          <MasterExchangeBalanceCard dark={dark} />
         </FoldedCard>
       )}
 

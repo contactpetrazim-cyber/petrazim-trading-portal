@@ -25,6 +25,116 @@ import structlog
 router = APIRouter(prefix="/bots", tags=["bots"])
 logger = structlog.get_logger()
 
+# Shared by GET /bots/exchange-balances (trader-facing, gated — see
+# that function's own docstring) and GET /bots/master-exchange-balances (the
+# platform-wide Master view, super-admin only) — by direct request
+# ("the exchange balance info should be gated based on user ... Create
+# a Master Exchange Balance card in the Admin portal that sees all").
+# Real bug fixed here, found live: every balance read used to run
+# sequentially, and one slow/misconfigured account (confirmed live — a
+# MetaApi connection not yet linked to its broker) was enough alone to
+# blow past the frontend's own request timeout even though this
+# endpoint eventually returned 200. Each read now has its own short
+# timeout and all of them run concurrently (asyncio.gather at each
+# call site below) — see _read_exchange_balance's own docstring.
+_BALANCE_READ_TIMEOUT = 8.0
+
+
+async def _read_exchange_balance(client) -> dict:
+    from app.services.margin_switch_engine import _extract_available_balance
+    try:
+        raw = await asyncio.wait_for(client.get_balance(), timeout=_BALANCE_READ_TIMEOUT)
+    except asyncio.TimeoutError:
+        return {"balance": None, "unrecognized_shape": False, "error": f"Timed out after {_BALANCE_READ_TIMEOUT:.0f}s."}
+    except Exception as e:
+        return {"balance": None, "unrecognized_shape": False, "error": str(e)}
+    if isinstance(raw, dict) and raw.get("success") is False:
+        return {"balance": None, "unrecognized_shape": False, "error": raw.get("error") or "Balance call failed."}
+    balance = _extract_available_balance(raw)
+    return {"balance": balance, "unrecognized_shape": balance is None, "error": None}
+
+
+async def _bot_balance_entry(db: AsyncSession, credential_bot_id: str, display_name: str, credential, used_by: dict) -> dict:
+    from app.services.broker_credentials import build_broker_client
+    entry = {
+        "bot_id": credential_bot_id, "bot_name": display_name, "exchange": credential.exchange,
+        "label": credential.sub_account_label,
+        "used_by": used_by.get((credential_bot_id, credential.exchange), []),
+    }
+    try:
+        client = await build_broker_client(db, credential_bot_id, credential.exchange)
+    except Exception as e:
+        entry.update(balance=None, unrecognized_shape=False, error=str(e))
+        return entry
+    if client is None:
+        entry.update(balance=None, unrecognized_shape=False, error="No credential client could be built.")
+        return entry
+    entry.update(await _read_exchange_balance(client))
+    return entry
+
+
+async def _trader_balance_entry(connection, include_owner: bool = False) -> dict:
+    from app.services.trader_broker_connections import build_client_from_connection
+    entry = {"connection_id": str(connection.id), "exchange": connection.exchange, "label": connection.label}
+    if include_owner:
+        entry["user_id"] = str(connection.user_id)
+    try:
+        client = build_client_from_connection(connection)
+    except Exception as e:
+        entry.update(balance=None, unrecognized_shape=False, error=str(e))
+        return entry
+    entry.update(await _read_exchange_balance(client))
+    return entry
+
+
+def _credential_owner_of(bot: BotConfig) -> str:
+    from app.services.broker_credentials import STRATEGY_CREDENTIAL_OWNER
+    strategy_key = bot.strategy_key or "_".join(bot.bot_id.split("_")[:2])
+    return STRATEGY_CREDENTIAL_OWNER.get(strategy_key, bot.bot_id)
+
+
+def _compute_used_by(bots: list[BotConfig]) -> dict[tuple[str, str], list[dict]]:
+    """(credential owner, exchange) -> every bot in `bots` CURRENTLY
+    preferring that exact pair right now — see get_exchange_balances'
+    own docstring for the fixed/auto resolution rule this mirrors
+    (exchange_engine.py's own resolve_exchange)."""
+    default_exchange = get_settings().MARKET_SCANNER_DEFAULT_EXCHANGE
+    used_by: dict[tuple[str, str], list[dict]] = {}
+    for bot in bots:
+        owner_id = _credential_owner_of(bot)
+        mode = bot.exchange_mode or "fixed"
+        if mode == "auto":
+            preferred_exchange = bot.active_exchange
+            reason = bot.active_exchange_reason
+        else:
+            preferred_exchange = bot.exchange or default_exchange
+            reason = None
+        if not preferred_exchange:
+            continue  # Auto-mode bot that hasn't had its first scan yet — nothing to attribute yet.
+        used_by.setdefault((owner_id, preferred_exchange), []).append(
+            {"bot_id": bot.bot_id, "bot_name": bot.bot_name, "mode": mode, "reason": reason}
+        )
+    return used_by
+
+
+async def _bot_accounts_for(db: AsyncSession, bots: list[BotConfig]) -> list[dict]:
+    from app.services.broker_credentials import list_credentials_for_bot
+    credential_bot_ids: dict[str, str] = {}
+    for bot in bots:
+        owner_id = _credential_owner_of(bot)
+        if owner_id not in credential_bot_ids:
+            owner_bot = next((b for b in bots if b.bot_id == owner_id), None)
+            if owner_bot is None:
+                owner_bot = (await db.execute(select(BotConfig).where(BotConfig.bot_id == owner_id))).scalar_one_or_none()
+            credential_bot_ids[owner_id] = owner_bot.bot_name if owner_bot else owner_id
+    used_by = _compute_used_by(bots)
+    tasks = [
+        _bot_balance_entry(db, credential_bot_id, display_name, credential, used_by)
+        for credential_bot_id, display_name in sorted(credential_bot_ids.items())
+        for credential in await list_credentials_for_bot(db, credential_bot_id)
+    ]
+    return list(await asyncio.gather(*tasks))
+
 # Admin/Super Admin see every bot (same principle as roster.py's
 # get_roster) — everyone else only ever sees or touches their own,
 # with one exception: a Fund Manager/Partner may also manage a bot
@@ -245,19 +355,24 @@ async def get_exchange_balances(db: AsyncSession = Depends(get_db), user: User =
     """Live trading-capital/margin balance per real exchange account —
     by direct request ("Can we retrieve exchange account trading
     capital or margin capital balance and create a exchange balance
-    page to check such balances"). Two groups:
+    page to check such balances"), gated by direct follow-up request
+    ("the exchange balance info should be gated based on user"). Two
+    groups:
 
-      - `bot_accounts`: every DEDICATED sub-account (BotBrokerCredential)
-        actually backing one of the caller's own visible bots (Admin/
-        Super Admin see every bot's accounts, same scoping as list_bots
-        above) — deduplicated by the real credential-holding bot_id
-        (STRATEGY_CREDENTIAL_OWNER), so Bot 6's variants, which share
-        Bot 5's own account, aren't double-counted or shown as a
-        separate, nonexistent "bot_6" account.
+      - `bot_accounts`: every DEDICATED platform sub-account
+        (BotBrokerCredential) — ADMIN/SUPER ADMIN ONLY. This is the
+        platform's own money, on its own sub-accounts, not any one
+        trader's to see just because they own a BotConfig row that
+        happens to trade through it — a regular trader always gets an
+        empty list here with `bot_accounts_restricted: true`, so the
+        page can say exactly why rather than implying no accounts
+        exist. See GET /bots/master-exchange-balances below for the real,
+        platform-wide Admin view this was split out of.
       - `trader_accounts`: the CALLER's own connected exchange accounts
-        (TraderBrokerConnection) — always just the caller's, regardless
-        of role, since another trader's personal exchange balance is
-        their own, never shown to anyone browsing this same page.
+        (TraderBrokerConnection) only — never another trader's, at any
+        role, since another trader's personal exchange balance is
+        their own, never shown to anyone browsing their own copy of
+        this page.
 
     Reuses exactly the same get_balance()/_extract_available_balance
     call exchange_engine.py's own candidate-ranking already makes, so
@@ -267,124 +382,71 @@ async def get_exchange_balances(db: AsyncSession = Depends(get_db), user: User =
     Exchange Engine itself is actually deciding against, not a second,
     possibly-divergent read.
 
-    Each `bot_accounts` entry also carries `used_by` — every one of the
-    caller's own visible bots CURRENTLY preferring that exact
-    (credential owner, exchange) pair right now, by direct request
-    ("exchange balance page should somehow integrate with the
-    preferred exchange and auto"): a "fixed"-mode bot matches its own
-    `exchange` (or the scanner default when unset, same fallback
-    exchange_engine.py's own resolve_exchange always receives); an
-    "auto"-mode bot matches its live `active_exchange` (empty until
-    its first scan actually picks one) — so this page answers not just
-    "what's the balance" but "which of my bots is this balance actually
-    backing, and why" in one place, rather than two disconnected
-    screens."""
-    from app.services.broker_credentials import STRATEGY_CREDENTIAL_OWNER, build_broker_client, list_credentials_for_bot
-    from app.services.margin_switch_engine import _extract_available_balance
-    from app.services.trader_broker_connections import build_client_from_connection, list_connections_for_trader
+    Each `bot_accounts` entry also carries `used_by` — every bot
+    CURRENTLY preferring that exact (credential owner, exchange) pair
+    right now, by direct request ("exchange balance page should
+    somehow integrate with the preferred exchange and auto"): a
+    "fixed"-mode bot matches its own `exchange` (or the scanner default
+    when unset, same fallback exchange_engine.py's own resolve_exchange
+    always receives); an "auto"-mode bot matches its live
+    `active_exchange` (empty until its first scan actually picks one)
+    — so this page answers not just "what's the balance" but "which
+    bot is this balance actually backing, and why" in one place."""
+    from app.services.trader_broker_connections import list_connections_for_trader
 
-    query = select(BotConfig).order_by(BotConfig.bot_id)
+    trader_connections = await list_connections_for_trader(db, user.id)
+    trader_accounts = list(await asyncio.gather(*[_trader_balance_entry(c) for c in trader_connections]))
+
     if user.role not in STAFF_ROLES:
-        query = query.where(BotConfig.user_id == user.id)
-    bots = (await db.execute(query)).scalars().all()
+        return {"bot_accounts": [], "bot_accounts_restricted": True, "trader_accounts": trader_accounts}
 
-    def _credential_owner(bot: BotConfig) -> str:
-        strategy_key = bot.strategy_key or "_".join(bot.bot_id.split("_")[:2])
-        return STRATEGY_CREDENTIAL_OWNER.get(strategy_key, bot.bot_id)
+    bots = (await db.execute(select(BotConfig).order_by(BotConfig.bot_id))).scalars().all()
+    bot_accounts = await _bot_accounts_for(db, bots)
+    return {"bot_accounts": bot_accounts, "bot_accounts_restricted": False, "trader_accounts": trader_accounts}
 
-    credential_bot_ids: dict[str, str] = {}  # credential_bot_id -> display name
-    for bot in bots:
-        owner_id = _credential_owner(bot)
-        if owner_id not in credential_bot_ids:
-            owner_bot = next((b for b in bots if b.bot_id == owner_id), None)
-            if owner_bot is None:
-                owner_bot = (await db.execute(select(BotConfig).where(BotConfig.bot_id == owner_id))).scalar_one_or_none()
-            credential_bot_ids[owner_id] = owner_bot.bot_name if owner_bot else owner_id
 
-    # (credential_owner, exchange) -> every visible bot currently
-    # preferring it — see this function's own docstring above.
-    default_exchange = get_settings().MARKET_SCANNER_DEFAULT_EXCHANGE
-    used_by: dict[tuple[str, str], list[dict]] = {}
-    for bot in bots:
-        owner_id = _credential_owner(bot)
-        mode = bot.exchange_mode or "fixed"
-        if mode == "auto":
-            preferred_exchange = bot.active_exchange
-            reason = bot.active_exchange_reason
-        else:
-            preferred_exchange = bot.exchange or default_exchange
-            reason = None
-        if not preferred_exchange:
-            continue  # Auto-mode bot that hasn't had its first scan yet — nothing to attribute yet.
-        used_by.setdefault((owner_id, preferred_exchange), []).append(
-            {"bot_id": bot.bot_id, "bot_name": bot.bot_name, "mode": mode, "reason": reason}
-        )
+@router.get("/master-exchange-balances")
+async def get_master_exchange_balances(db: AsyncSession = Depends(get_db), admin: User = Depends(require_super_admin)):
+    """The Master Exchange Balance view — by direct request ("Create a
+    Master Exchange Balance card in the Admin portal that sees all").
+    Super Admin only (same gate as every other platform-wide MASTER
+    override in this router — Master Leverage, Master Account Balance,
+    the Margin Auto-Switch master switch): unlike GET /bots/exchange-
+    balances above (gated to the caller's own trader_accounts, and to
+    bot_accounts for staff only), this endpoint has NO ownership
+    scoping at all on either side —
+      - `bot_accounts`: every platform bot sub-account, platform-wide
+        (same dedup-by-credential-owner and `used_by` attribution as
+        the trader-facing endpoint, just computed over EVERY BotConfig
+        row that exists, not just the caller's own visible ones).
+      - `trader_accounts`: every TRADER's own connected exchange
+        account, platform-wide, each tagged with whose it is
+        (`user_id`/`user_name`/`user_email`) — the one place this
+        platform-wide aggregation is appropriate, since a Super Admin
+        overseeing real capital across every trader is exactly what
+        this card exists for."""
+    from sqlalchemy import select as _select
+    from app.models.trader_broker_connection import TraderBrokerConnection
 
-    # Per-call timeout (real bug, found live: a trader's own MetaApi/MT5
-    # connection that isn't actually connected to its broker yet can
-    # take the FULL 30s httpx timeout every broker client uses before
-    # erroring — sequentially, that alone blows well past the
-    # frontend's own 20s axios timeout, so the page reported "Could not
-    # load" even though this endpoint eventually returned 200. Fixed
-    # two ways: every balance read now has its OWN short timeout (a
-    # slow/misconfigured account degrades to "Unreadable" for just that
-    # one row, never the whole page), AND every read for every account
-    # runs CONCURRENTLY (asyncio.gather) instead of one-at-a-time, so
-    # the real wall-clock cost is the SLOWEST single call, not the sum
-    # of all of them.
-    _BALANCE_READ_TIMEOUT = 8.0
+    all_bots = (await db.execute(select(BotConfig).order_by(BotConfig.bot_id))).scalars().all()
+    bot_accounts = await _bot_accounts_for(db, all_bots)
 
-    async def _read_balance(client) -> dict:
-        try:
-            raw = await asyncio.wait_for(client.get_balance(), timeout=_BALANCE_READ_TIMEOUT)
-        except asyncio.TimeoutError:
-            return {"balance": None, "unrecognized_shape": False, "error": f"Timed out after {_BALANCE_READ_TIMEOUT:.0f}s."}
-        except Exception as e:
-            return {"balance": None, "unrecognized_shape": False, "error": str(e)}
-        if isinstance(raw, dict) and raw.get("success") is False:
-            return {"balance": None, "unrecognized_shape": False, "error": raw.get("error") or "Balance call failed."}
-        balance = _extract_available_balance(raw)
-        return {"balance": balance, "unrecognized_shape": balance is None, "error": None}
+    connections = (await db.execute(_select(TraderBrokerConnection).order_by(TraderBrokerConnection.exchange))).scalars().all()
+    owner_ids = {c.user_id for c in connections}
+    owners = {}
+    if owner_ids:
+        owner_rows = (await db.execute(_select(User).where(User.id.in_(owner_ids)))).scalars().all()
+        owners = {o.id: o for o in owner_rows}
 
-    async def _bot_entry(credential_bot_id: str, display_name: str, credential) -> dict:
-        entry = {
-            "bot_id": credential_bot_id, "bot_name": display_name, "exchange": credential.exchange,
-            "label": credential.sub_account_label,
-            "used_by": used_by.get((credential_bot_id, credential.exchange), []),
-        }
-        try:
-            client = await build_broker_client(db, credential_bot_id, credential.exchange)
-        except Exception as e:
-            entry.update(balance=None, unrecognized_shape=False, error=str(e))
-            return entry
-        if client is None:
-            entry.update(balance=None, unrecognized_shape=False, error="No credential client could be built.")
-            return entry
-        entry.update(await _read_balance(client))
+    async def _owned_trader_entry(connection) -> dict:
+        entry = await _trader_balance_entry(connection, include_owner=True)
+        owner = owners.get(connection.user_id)
+        entry["user_name"] = owner.full_name if owner else None
+        entry["user_email"] = owner.email if owner else None
         return entry
 
-    async def _trader_entry(connection) -> dict:
-        entry = {"connection_id": str(connection.id), "exchange": connection.exchange, "label": connection.label}
-        try:
-            client = build_client_from_connection(connection)
-        except Exception as e:
-            entry.update(balance=None, unrecognized_shape=False, error=str(e))
-            return entry
-        entry.update(await _read_balance(client))
-        return entry
-
-    bot_entry_tasks = [
-        _bot_entry(credential_bot_id, display_name, credential)
-        for credential_bot_id, display_name in sorted(credential_bot_ids.items())
-        for credential in await list_credentials_for_bot(db, credential_bot_id)
-    ]
-    trader_entry_tasks = [_trader_entry(connection) for connection in await list_connections_for_trader(db, user.id)]
-
-    bot_accounts, trader_accounts = await asyncio.gather(
-        asyncio.gather(*bot_entry_tasks), asyncio.gather(*trader_entry_tasks),
-    )
-
-    return {"bot_accounts": list(bot_accounts), "trader_accounts": list(trader_accounts)}
+    trader_accounts = list(await asyncio.gather(*[_owned_trader_entry(c) for c in connections]))
+    return {"bot_accounts": bot_accounts, "trader_accounts": trader_accounts}
 
 @router.post("/", response_model=BotConfigResponse)
 async def create_bot(
