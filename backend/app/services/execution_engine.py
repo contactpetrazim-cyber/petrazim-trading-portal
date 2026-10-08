@@ -14,7 +14,7 @@ from app.services.broker_integrations import (
     BingXBroker, TradeLockerBroker, BinanceBroker, BybitBroker, MexcBroker, MetaApiBroker,
     _FAILOVER_EXCEPTIONS,
 )
-from app.services.broker_credentials import build_broker_client
+from app.services.broker_credentials import build_broker_client, STRATEGY_CREDENTIAL_OWNER
 
 logger = structlog.get_logger()
 settings = get_settings()
@@ -67,29 +67,11 @@ def _sub_auto_window_allows(bot_cfg, now: datetime) -> bool:
             return False
     return True
 
-# Which bot_id actually HOLDS the dedicated BotBrokerCredential rows
-# for a given strategy_key — by direct request ("let each bot make use
-# of the parent strategy dedicated accounts"). A BotConfig row sharing
-# an existing strategy_key (e.g. "bot_2_ob_reversal_2", instrument-pair
-# variants of the same algorithm BotOrchestrator.run_all dispatches by
-# strategy_key, not by bot_id — see bot_strategies.py's own "lets ONE
-# strategy-family instance run on behalf of several real BotConfig
-# rows" comment) never gets its OWN credential row created; it's meant
-# to trade through its strategy's existing dedicated sub-account(s),
-# not fall straight through to the shared global key. "bot_6" has no
-# credentialed bot_id of its own (SMC v2 was added after the original
-# 5 sub-accounts were set up) — it shares Bot 5's own zone/purge/
-# confirmation mechanics (see JeafxSMCv2Bot's own module docstring:
-# "Bot 5's own zone/purge/confirmation setup, direction from Bot 2 +
-# Bot 3's own consensus"), so Bot 5's account is the natural parent.
-STRATEGY_CREDENTIAL_OWNER = {
-    "bot_1": "bot_1_macro_swing",
-    "bot_2": "bot_2_ob_reversal",
-    "bot_3": "bot_3_fvg_expansion",
-    "bot_4": "bot_4_volume_liq",
-    "bot_5": "bot_5_jeafx",
-    "bot_6": "bot_5_jeafx",
-}
+# STRATEGY_CREDENTIAL_OWNER now lives in broker_credentials.py (so
+# services/exchange_engine.py can import it too without a circular
+# import) — imported above; this module still exposes
+# `execution_engine.STRATEGY_CREDENTIAL_OWNER` unchanged for every
+# existing caller.
 
 
 class ExecutionEngine:
@@ -1469,6 +1451,13 @@ class ExecutionEngine:
             # see margin_switch_engine.py's own docstring for why a
             # fallback-funded fill needs to stay visibly distinguishable.
             result["margin_switch_used"] = trade.get("margin_switch_used", False)
+            # Feeds exchange_engine.py's own reliability ranking — a
+            # REAL attempt against this broker (client is not None,
+            # i.e. not the "no broker configured" paper fallback)
+            # either succeeded or didn't.
+            if client is not None and broker != "paper":
+                from app.services.exchange_engine import record_result
+                record_result(broker, bool(result.get("success")))
             return result
         except _FAILOVER_EXCEPTIONS as e:
             # A TRANSPORT failure (proxy down, connection refused,
@@ -1477,6 +1466,9 @@ class ExecutionEngine:
             # Real, non-paper orders only: a paper fill has nothing to
             # relay to another backend for, it's pure local simulation.
             logger.error("broker_execution_failed_transport", error=str(e), trade_id=trade["trade_id"], broker=broker)
+            if broker != "paper":
+                from app.services.exchange_engine import record_result
+                record_result(broker, False)
             if not paper and not is_relay and self.settings.VM_API_URL and self.settings.INTERNAL_RELAY_SECRET:
                 relay_result = await self._relay_to_other_backend(trade, paper)
                 if relay_result is not None:
@@ -1484,6 +1476,9 @@ class ExecutionEngine:
             return {"success": False, "error": str(e), "error_class": "transport"}
         except Exception as e:
             logger.error("broker_execution_failed", error=str(e), trade_id=trade["trade_id"])
+            if broker != "paper":
+                from app.services.exchange_engine import record_result
+                record_result(broker, False)
             return {"success": False, "error": str(e)}
 
     async def _relay_to_other_backend(self, trade: Dict, paper: bool) -> Optional[Dict]:

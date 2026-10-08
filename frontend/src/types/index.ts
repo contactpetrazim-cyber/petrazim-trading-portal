@@ -87,6 +87,15 @@ export interface BotConfig {
   min_rr_ratio: number;
   use_trailing_stop: boolean;
   exchange?: string | null;
+  /** Exchange Engine — see BotConfig.exchange_mode's own backend
+   * comment. "fixed" (default) means `exchange` above is what's
+   * actually used; "auto" means exchange_engine.py picks from this
+   * bot's own credentialed exchanges, reflected live in
+   * active_exchange/active_exchange_reason/active_exchange_picked_at. */
+  exchange_mode?: 'fixed' | 'auto';
+  active_exchange?: string | null;
+  active_exchange_reason?: string | null;
+  active_exchange_picked_at?: string | null;
   // Same Test/Live + Paper Trading pair the Manual Trading order form
   // already has, now per-bot — see BotConfig's own backend comment.
   trading_mode?: 'test' | 'live';
@@ -218,6 +227,43 @@ export interface BotPerformance {
   win_rate: number;
   profit_factor: number;
   average_r: number;
+}
+
+/** GET /bots/exchange-balances — see routers/bots.py's own
+ * get_exchange_balances docstring. `balance` is null when either the
+ * read failed (`error` set) or the broker's own get_balance() shape
+ * isn't normalized yet (`unrecognized_shape: true`, `error: null`) —
+ * these are two different, distinguishable reasons for "no number
+ * here," not one. */
+export interface ExchangeBalanceEntry {
+  exchange: string;
+  label?: string | null;
+  balance: number | null;
+  unrecognized_shape: boolean;
+  error?: string | null;
+}
+/** Which of the caller's own visible bots is CURRENTLY preferring
+ * this exact account, and how — see routers/bots.py's own
+ * get_exchange_balances docstring ("integrate with the preferred
+ * exchange and auto"). `mode: "auto"` carries exchange_engine.py's
+ * own live `reason` string; `"fixed"` never does. */
+export interface ExchangeBalanceUsedBy {
+  bot_id: string;
+  bot_name: string;
+  mode: 'fixed' | 'auto';
+  reason: string | null;
+}
+export interface BotExchangeBalanceEntry extends ExchangeBalanceEntry {
+  bot_id: string;
+  bot_name: string;
+  used_by: ExchangeBalanceUsedBy[];
+}
+export interface TraderExchangeBalanceEntry extends ExchangeBalanceEntry {
+  connection_id: string;
+}
+export interface ExchangeBalancesResponse {
+  bot_accounts: BotExchangeBalanceEntry[];
+  trader_accounts: TraderExchangeBalanceEntry[];
 }
 
 export interface BotMetricsUpdate {

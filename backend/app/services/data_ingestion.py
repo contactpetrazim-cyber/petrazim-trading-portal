@@ -9,6 +9,7 @@ from typing import List, Optional, Dict, AsyncGenerator
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import asyncio
+import time
 import aiohttp
 import pandas as pd
 import structlog
@@ -98,6 +99,9 @@ class MarketDataIngestion:
         )
     """
 
+    # See symbol_is_tradeable's own docstring.
+    _MARKETS_CACHE_TTL_SECONDS = 3600.0
+
     def __init__(self):
         self.active_streams: Dict[str, asyncio.Task] = {}
         self.candle_buffer: Dict[str, List[Candle]] = {}
@@ -131,6 +135,9 @@ class MarketDataIngestion:
         # comment above) — see _get_exchange_client's own docstring.
         self._exchange_backup_clients: Dict[str, object] = {}
         self._exchange_direct_clients: Dict[str, object] = {}
+        # (loaded_at_monotonic, markets_dict) per exchange — see
+        # symbol_is_tradeable's own docstring.
+        self._markets_cache: Dict[str, "tuple[float, dict]"] = {}
 
     def _build_exchange_client(self, exchange: str, proxy_url: Optional[str]):
         import ccxt.async_support as ccxt_async
@@ -258,6 +265,37 @@ class MarketDataIngestion:
         # No `finally: await ex.close()` any more — every client is
         # long-lived (cached per exchange+route), not a one-shot
         # resource. Cleaned up when the process exits.
+
+    async def symbol_is_tradeable(self, exchange: str, symbol: str) -> bool:
+        """True iff `symbol` (TradingView/BotConfig format, e.g.
+        "BTCUSDT.P") is a real, active market on `exchange` — used by
+        services/exchange_engine.py to decide whether a bot's OWN
+        credentialed exchange is even a legitimate Auto-mode candidate
+        for its configured symbol, rather than assuming every
+        credentialed exchange carries every symbol. Markets are loaded
+        once per exchange and cached for _MARKETS_CACHE_TTL_SECONDS
+        (a real exchange's listed markets change rarely enough that
+        reloading on every single call would be pure waste). Fails
+        OPEN (returns True) on a markets-load error — a transient
+        exchange-API hiccup should never by itself block a bot from
+        trading on an exchange it's otherwise fully credentialed for;
+        a genuinely bad symbol still gets caught downstream the normal
+        way (the candle fetch itself raising)."""
+        ccxt_symbol = to_ccxt_symbol(symbol)
+        now = time.monotonic()
+        cached = self._markets_cache.get(exchange)
+        if cached and (now - cached[0]) < self._MARKETS_CACHE_TTL_SECONDS:
+            markets = cached[1]
+        else:
+            try:
+                client = self._get_exchange_client(exchange)
+                markets = await client.load_markets()
+                self._markets_cache[exchange] = (now, markets)
+            except Exception as e:
+                logger.warning("symbol_tradeable_check_failed", exchange=exchange, symbol=symbol, error=str(e))
+                return True
+        market = markets.get(ccxt_symbol)
+        return bool(market and market.get("active", True))
 
     async def fetch_historical_yahoo(self,
                                      symbol: str,

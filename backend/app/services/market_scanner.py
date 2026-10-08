@@ -211,11 +211,21 @@ class MarketScanner:
 
             # Group by (exchange, symbol) so bots sharing a symbol on
             # the same exchange don't each trigger their own redundant
-            # candle fetch.
+            # candle fetch. The exchange itself comes from
+            # exchange_engine.resolve_exchange — a "fixed"-mode bot
+            # (the default) gets back the exact same bot.exchange-or-
+            # default value this loop always used; an "auto"-mode bot
+            # gets whichever of its OWN credentialed exchanges the
+            # engine currently judges best, and THAT exchange is what
+            # both the candle fetch below AND signal.preferred_broker
+            # resolve to — see exchange_engine.py's own module
+            # docstring for why those two can no longer disagree.
+            from app.services.exchange_engine import resolve_exchange, record_result
             groups: Dict[tuple, List[BotConfig]] = {}
             for bot in active_bots:
-                exchange = bot.exchange or settings.MARKET_SCANNER_DEFAULT_EXCHANGE
+                default_exchange = bot.exchange or settings.MARKET_SCANNER_DEFAULT_EXCHANGE
                 for symbol in (bot.symbols or []):
+                    exchange, _reason = await resolve_exchange(db, bot, symbol, default_exchange)
                     groups.setdefault((exchange, symbol), []).append(bot)
 
             for (exchange, symbol), bots_here in groups.items():
@@ -224,13 +234,16 @@ class MarketScanner:
                 except Exception as e:
                     logger.error("market_scan_fetch_failed", exchange=exchange, symbol=symbol, error=str(e))
                     await self._record_scan_result(db, bots_here, error=str(e))
+                    record_result(exchange, False)
                     continue
 
                 if len(market_data) <= 1:  # only "symbol" key, no candles at all
                     await self._record_scan_result(db, bots_here, error="No candle data returned for any timeframe — see recent market_scan_timeframe_fetch_failed logs.")
+                    record_result(exchange, False)
                     continue
 
                 await self._record_scan_result(db, bots_here, error=None)
+                record_result(exchange, True)
 
                 # Sub-grouped by each bot's own EFFECTIVE account
                 # balance (master override, else its own

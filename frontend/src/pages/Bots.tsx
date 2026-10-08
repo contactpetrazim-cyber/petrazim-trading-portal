@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { Bot, Play, Pause, Settings, TrendingUp, Save, Plus, X, Pencil, Trash2, ChevronDown } from 'lucide-react';
 import { botsApi } from '../services/api';
 import { BotSleepAndSubAuto } from '../components/BotSleepAndSubAuto';
+import { ExchangeEngineControl } from '../components/ExchangeEngineControl';
 import { BotConfig, BotPerformance, BotMetricsUpdate } from '../types';
 import { useThemeStore } from '../hooks/useTheme';
 import { formatApiError } from '../lib/apiError';
@@ -591,6 +592,19 @@ export function BotsPage() {
                       Paper Trading: {bot.paper_trading_enabled ? 'On' : 'Off'}
                     </button>
                   </div>
+
+                  {/* Exchange Engine — Fixed vs Auto (Best Available),
+                      by direct request ("Develop an optimal prefered
+                      exchange engine ... also integrate the auto
+                      switch to available margin capital"). Reuses the
+                      same Admin master switch (marginAutoSwitchMode)
+                      the Margin Account dropdown above already warns
+                      against — Auto mode is dormant without it. */}
+                  <ExchangeEngineControl
+                    bot={bot} dark={dark}
+                    marginAutoSwitchEnabled={!!marginAutoSwitchMode?.enabled}
+                    onChanged={loadBots}
+                  />
 
                   {/* Sleep / Sub-Auto Mode — by direct request. */}
                   <BotSleepAndSubAuto bot={bot} dark={dark} onChanged={loadBots} />

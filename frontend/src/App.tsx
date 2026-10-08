@@ -20,6 +20,7 @@ const ManagerConsolePage = lazy(() => import('./pages/ManagerConsolePage').then(
 const PartnerConsolePage = lazy(() => import('./pages/PartnerConsolePage').then((module) => ({ default: module.PartnerConsolePage })));
 const AdminConsolePage = lazy(() => import('./pages/AdminConsolePage').then((module) => ({ default: module.AdminConsolePage })));
 const ConnectExchangePage = lazy(() => import('./pages/ConnectExchangePage').then((module) => ({ default: module.ConnectExchangePage })));
+const ExchangeBalancesPage = lazy(() => import('./pages/ExchangeBalancesPage').then((module) => ({ default: module.ExchangeBalancesPage })));
 const AdminExchangeConnectionsPage = lazy(() => import('./pages/AdminExchangeConnectionsPage').then((module) => ({ default: module.AdminExchangeConnectionsPage })));
 const AdminFeeSettingsPage = lazy(() => import('./pages/AdminFeeSettingsPage').then((module) => ({ default: module.AdminFeeSettingsPage })));
 const OnboardingPage = lazy(() => import('./pages/OnboardingPage').then((module) => ({ default: module.OnboardingPage })));
@@ -219,6 +220,11 @@ function App() {
         <Route path="/exchange-connections" element={
           <ProtectedRoute allowedRoles={TRADER_CONSOLE_ROLES}>
             <Layout><ConnectExchangePage /></Layout>
+          </ProtectedRoute>
+        } />
+        <Route path="/exchange-balances" element={
+          <ProtectedRoute allowedRoles={TRADER_CONSOLE_ROLES}>
+            <Layout><ExchangeBalancesPage /></Layout>
           </ProtectedRoute>
         } />
         <Route path="/admin/exchange-connections" element={
