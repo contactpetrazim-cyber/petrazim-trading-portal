@@ -364,6 +364,17 @@ class OrderBlockReversalBot:
                 "method": "sweep_extreme"
             }
         else:
+            # Found during the same audit as bot_1's own [-2]-on-a-
+            # length-1-list crash: swings_15m is never actually checked
+            # for emptiness before this indexing — a genuinely quiet
+            # 15M window can produce zero detected swing points, same
+            # root cause class as that bug (an unguarded index past
+            # what a real, sparse detector result can return). Low
+            # probability, but exception isolation alone (run_all) only
+            # stops it from taking OTHER bots down with it — it would
+            # still silently cost this bot every cycle it hit.
+            if not swings_15m:
+                return None
             sl_swing = swings_15m[-1]
             sl = self.entry_engine.calculate_stop_loss(entry, target_ob, sl_swing, "structure_swing")
 
