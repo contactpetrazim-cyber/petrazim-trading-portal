@@ -519,9 +519,19 @@ async def place_manual_order(
             await guard.finalize(response)
             return response
 
-        trade.status = TradeStatus.ERROR
-        await db.commit()
-        raise HTTPException(status_code=502, detail=result.get("message") or result.get("error") or "Order failed.")
+        # Same two fixes as execution_engine.py's own _mark_trade_error,
+        # by direct report ("critically review this error ... fix ...
+        # permanently"): don't clobber a trade that's already reached a
+        # terminal state (a race against position_monitor.py's own
+        # poller is possible here too, just rarer given this whole
+        # request/response is one synchronous cycle), and persist WHY,
+        # since a container log line doesn't survive a redeploy.
+        error_text = result.get("message") or result.get("error") or "Order failed."
+        if trade.status not in (TradeStatus.CLOSED, TradeStatus.CANCELLED):
+            trade.status = TradeStatus.ERROR
+            trade.error_message = str(error_text)
+            await db.commit()
+        raise HTTPException(status_code=502, detail=error_text)
 
 
 class PartialCloseRequest(BaseModel):

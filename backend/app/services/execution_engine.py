@@ -640,15 +640,44 @@ class ExecutionEngine:
 
     async def _mark_trade_error(self, db: AsyncSession, trade_id: str, result: Dict) -> None:
         """Counterpart to _update_trade_after_execution for the failure
-        case — see process_signal's own comment on why this exists."""
+        case — see process_signal's own comment on why this exists.
+
+        Two real bugs fixed here, found live by direct report
+        ("critically review this error") against two actual ERROR
+        trades: (1) this used to set status=ERROR unconditionally, with
+        no check for whether the trade had already reached a TERMINAL
+        state by the time this ran — confirmed directly against one of
+        the two real trades: position_monitor.py's own _close had
+        already correctly set it to CLOSED (right realized_pnl, right
+        exit_price/timestamp/type, a matching TradeLog row) moments
+        earlier, and this then silently overwrote that back to ERROR,
+        clobbering a trade that had actually closed fine. A race
+        between this (execution failing/completing late) and
+        position_monitor's own 20s poll is exactly the kind of timing
+        this needs to tolerate, not blindly win. (2) the real failure
+        reason only ever reached a container log line — which does NOT
+        survive a redeploy (confirmed directly: the container that
+        logged one of these two trades' own failure was already gone
+        by the time it was investigated, hours later) — with nothing
+        on the trade itself recording why. Now persisted to
+        Trade.error_message so every future occurrence is
+        self-diagnosing from the DB/UI."""
         from sqlalchemy import select
         from app.models.trade import Trade, TradeStatus
 
         row = (await db.execute(select(Trade).where(Trade.trade_id == trade_id))).scalar_one_or_none()
         if row:
+            error_text = str(result.get("error") or result.get("message") or "Unknown execution failure")
+            if row.status in (TradeStatus.CLOSED, TradeStatus.CANCELLED):
+                logger.warning(
+                    "trade_error_skipped_already_terminal", trade_id=trade_id,
+                    existing_status=row.status.value, attempted_error=error_text,
+                )
+                return
             row.status = TradeStatus.ERROR
+            row.error_message = error_text
             await db.commit()
-            logger.error("autonomous_trade_execution_failed", trade_id=trade_id, error=result.get("error") or result.get("message"))
+            logger.error("autonomous_trade_execution_failed", trade_id=trade_id, error=error_text)
 
     async def _update_trade_after_execution(self, db: AsyncSession, trade_id: str, result: Dict) -> None:
         from sqlalchemy import select
