@@ -7,6 +7,7 @@ import { PositionManager } from './PositionManager';
 import { FoldedCard } from './FoldedCard';
 import { PairsPanel } from './PairsPanel';
 import { useQuickPairsStore } from '../hooks/useQuickPairs';
+import { useYAxisZoom, applyYZoom } from '../hooks/useYAxisZoom';
 import { orderFlowApi, oandaApi } from '../services/api';
 import { formatApiError } from '../lib/apiError';
 import { useQuickPrice } from '../hooks/useQuickPrice';
@@ -367,6 +368,12 @@ export function PositionOnChartModal({
   const [visibleCount, setVisibleCount] = useState(DEFAULT_VISIBLE);
   const [panOffset, setPanOffset] = useState(0);
   const maxPanOffset = Math.max(0, (allCandles?.length ?? 0) - visibleCount);
+  // Vertical (price) axis zoom — by direct request ("make the
+  // vertical axis adjustable for all charts portal wide ... on
+  // charts, snapshots and approval charts"). Same X-axis pan/zoom
+  // pattern this component already owns (DEFAULT_VISIBLE/panOffset
+  // above), just for the Y-axis — see useYAxisZoom's own comment.
+  const { yZoom, zoomInY, zoomOutY, resetY } = useYAxisZoom();
   // `visibleStart` — the index into the STABLE `allCandles` pool where
   // the current visible window begins. Exposed (not just used inline)
   // because drawings/crosshair below anchor to `allCandles`-relative
@@ -412,7 +419,7 @@ export function PositionOnChartModal({
   function zoomOut() { setVisibleCount((v) => Math.min(allCandles?.length ?? POOL_SIZE, Math.round(v * 1.4))); }
   function panOlder() { setPanOffset((p) => Math.min(maxPanOffset, p + Math.max(1, Math.round(visibleCount * 0.5)))); }
   function panNewer() { setPanOffset((p) => Math.max(0, p - Math.max(1, Math.round(visibleCount * 0.5)))); }
-  function resetView() { setVisibleCount(DEFAULT_VISIBLE); setPanOffset(0); }
+  function resetView() { setVisibleCount(DEFAULT_VISIBLE); setPanOffset(0); resetY(); }
 
   const CHART_HEIGHT = 520;
   // Click-drag / touch-drag pan + two-finger pinch-zoom, attached to
@@ -636,7 +643,14 @@ export function PositionOnChartModal({
   // effect last (re-)attached.
   const liveRef = useRef({ visibleCount, panOffset, visibleStart, candlesLength: 0, yTop: 0, yBottom: 0, rr: quickTradeRR });
   useEffect(() => {
-    const range = candles && candles.length > 0 ? computeChartRange(candles, [], lines, []) : { yTop: 0, yBottom: 0 };
+    // yZoom applied here too — by direct request ("make the vertical
+    // axis adjustable"): this range feeds pixelToChartLive (crosshair
+    // AND drawing pixel math), which must agree with whatever
+    // CandleChart is ACTUALLY rendering against (its own
+    // priceRangeOverride, same yZoom) or a click/drag would compute
+    // the wrong real price the instant the axis is zoomed.
+    const autoRange = candles && candles.length > 0 ? computeChartRange(candles, [], lines, []) : { yTop: 0, yBottom: 0 };
+    const range = applyYZoom(autoRange.yTop, autoRange.yBottom, yZoom);
     liveRef.current = { visibleCount, panOffset, visibleStart, candlesLength: candles?.length ?? 0, yTop: range.yTop, yBottom: range.yBottom, rr: quickTradeRR };
   });
 
@@ -1212,7 +1226,12 @@ export function PositionOnChartModal({
     if (!candles || candles.length === 0) return null;
     const hasVolume = candles.some((c) => (c.volume ?? 0) > 0);
     if (!hasVolume) return null;
-    const { yTop, yBottom } = computeChartRange(candles, quickTradeZones, lines, []);
+    // yZoom applied here too (see priceRangeOverride's own comment
+    // below) — otherwise these bins would span the UNZOOMED range
+    // while drawn as an overlay on top of the actually-zoomed chart,
+    // visually misaligning every bar the instant the axis is zoomed.
+    const autoRange = computeChartRange(candles, quickTradeZones, lines, []);
+    const { yTop, yBottom } = applyYZoom(autoRange.yTop, autoRange.yBottom, yZoom);
     const range = yTop - yBottom;
     if (range <= 0) return null;
     const binSize = range / VOLUME_PROFILE_BINS;
@@ -1228,7 +1247,7 @@ export function PositionOnChartModal({
     const maxVol = Math.max(...bins, 1e-9);
     const pocBin = bins.indexOf(maxVol);
     return { bins, maxVol, pocBin, yTop, yBottom, binSize };
-  }, [candles, quickTradeZones, lines]);
+  }, [candles, quickTradeZones, lines, yZoom]);
 
   // Same shared quick-links store every other chart's Pairs panel
   // reads/writes — a pair picked here shows up everywhere else too.
@@ -1253,6 +1272,17 @@ export function PositionOnChartModal({
   const pillActiveCls = 'bg-corporate-hero text-white';
   const toggleWrapCls = localDark ? 'bg-white/5' : 'bg-black/5';
   const popoverCls = localDark ? 'bg-corporate-surface-dark border-corporate-border-dark' : 'bg-white border-gray-200';
+
+  // Manually zoomed price axis — by direct request ("make the
+  // vertical axis adjustable"). Same inputs CandleChart's own internal
+  // computeChartRange would use (candles/zones/lines/markers), with
+  // the yZoom factor applied around the auto-fit range's center. null
+  // candles -> CandleChart isn't even rendering yet, nothing to range.
+  let priceRangeOverride: { yTop: number; yBottom: number } | undefined;
+  if (candles && candles.length > 0) {
+    const autoRange = computeChartRange(candles, quickTradeZones, lines, markers);
+    priceRangeOverride = applyYZoom(autoRange.yTop, autoRange.yBottom, yZoom);
+  }
 
   return (
     <div className={`fixed inset-0 z-[210] ${overlayCls} p-4 flex flex-col`}>
@@ -1540,6 +1570,20 @@ export function PositionOnChartModal({
             <ZoomIn size={14} />
           </button>
           <span className={`w-px self-stretch mx-0.5 ${localDark ? 'bg-white/10' : 'bg-black/10'}`} />
+          {/* Vertical (price) axis zoom — by direct request ("make the
+              vertical axis adjustable for all charts portal wide").
+              Same ZoomOut/ZoomIn icons as the X-axis pair just above,
+              distinguished by the "Y" label (the X pair needs none —
+              it's the first/default zoom control a trader reaches
+              for). */}
+          <span className={`text-[10px] font-semibold px-0.5 ${chromeMutedCls}`}>Y</span>
+          <button onClick={zoomOutY} disabled={yZoom <= 0.25} aria-label="Zoom out price axis (more headroom above/below)" title="Zoom out price axis" className={`p-1.5 rounded-md disabled:opacity-30 ${chromeMutedCls}`}>
+            <ZoomOut size={14} />
+          </button>
+          <button onClick={zoomInY} disabled={yZoom >= 6} aria-label="Zoom in price axis (taller candles)" title="Zoom in price axis" className={`p-1.5 rounded-md disabled:opacity-30 ${chromeMutedCls}`}>
+            <ZoomIn size={14} />
+          </button>
+          <span className={`w-px self-stretch mx-0.5 ${localDark ? 'bg-white/10' : 'bg-black/10'}`} />
           <button onClick={panOlder} disabled={panOffset >= maxPanOffset} aria-label="Scroll left (older candles)" title="Scroll left" className={`p-1.5 rounded-md disabled:opacity-30 ${chromeMutedCls}`}>
             <ChevronLeft size={14} />
           </button>
@@ -1547,7 +1591,7 @@ export function PositionOnChartModal({
             <ChevronRight size={14} />
           </button>
           <span className={`w-px self-stretch mx-0.5 ${localDark ? 'bg-white/10' : 'bg-black/10'}`} />
-          <button onClick={resetView} disabled={visibleCount === DEFAULT_VISIBLE && panOffset === 0} aria-label="Reset zoom and scroll" title="Reset to the live view" className={`flex items-center gap-1 px-2 py-1.5 rounded-md text-[11px] font-medium disabled:opacity-30 ${chromeMutedCls}`}>
+          <button onClick={resetView} disabled={visibleCount === DEFAULT_VISIBLE && panOffset === 0 && yZoom === 1} aria-label="Reset zoom and scroll" title="Reset to the live view" className={`flex items-center gap-1 px-2 py-1.5 rounded-md text-[11px] font-medium disabled:opacity-30 ${chromeMutedCls}`}>
             <Maximize2 size={12} /> Reset
           </button>
           <span className={`w-px self-stretch mx-0.5 ${localDark ? 'bg-white/10' : 'bg-black/10'}`} />
@@ -1688,6 +1732,7 @@ export function PositionOnChartModal({
               <CandleChart
                 candles={candles} lines={lines} zones={quickTradeZones} markers={markers} overlaySeries={maSeries} drawings={visibleDrawings}
                 height={CHART_HEIGHT} dark={localDark} bullColor={localBull} bearColor={localBear} rightMargin={rightMargin}
+                priceRangeOverride={priceRangeOverride}
               />
               {/* Volume Profile — a right-edge histogram, classic
                   placement, drawn as a plain HTML overlay (same

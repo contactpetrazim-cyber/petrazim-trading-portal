@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Search, LineChart, Palette, TrendingUp, PenLine, Square, Eraser, Target, Receipt, Zap, X } from 'lucide-react';
+import { Search, LineChart, Palette, TrendingUp, PenLine, Square, Eraser, Target, Receipt, Zap, X, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { PageHeader } from '../components/PageHeader';
 import { FoldedCard } from '../components/FoldedCard';
@@ -10,6 +10,7 @@ import { metatraderApi, tradesApi } from '../services/api';
 import { useThemeStore } from '../hooks/useTheme';
 import type { Trade } from '../types';
 import { positionOverlayLines, positionOverlayMarkers } from '../lib/positionChartOverlay';
+import { useYAxisZoom, applyYZoom } from '../hooks/useYAxisZoom';
 
 const COLOR_PRESETS: { label: string; up: string; down: string }[] = [
   { label: 'Classic', up: '#22c55e', down: '#ef4444' },
@@ -67,6 +68,16 @@ export function MT5Page() {
   const chartPaneRef = useRef<HTMLDivElement>(null);
   const chartBoxRef = useRef<HTMLDivElement>(null);
   const quickTradeAnchorRef = useRef<{ index: number; price: number } | null>(null);
+  // Vertical (price) axis zoom — moved up here (not declared next to
+  // its own priceRangeOverride useMemo below) so pixelToChart's own
+  // effect (which doesn't list yZoom as a dependency — re-running it
+  // mid-drag would cancel whatever drag was in progress, same reason
+  // PositionOnChartModal's own gesture effect avoids this) can read
+  // the LATEST value via yZoomRef at call time instead of closing over
+  // a stale one from whenever that effect last attached.
+  const { yZoom, zoomInY, zoomOutY, resetY } = useYAxisZoom();
+  const yZoomRef = useRef(yZoom);
+  yZoomRef.current = yZoom;
 
   const [quickTradeDraft, setQuickTradeDraft] = useState<{ entryIndex: number; entryPrice: number; stopLoss: number; takeProfit: number; direction: 'long' | 'short' } | null>(null);
   const [quickTradeRR, setQuickTradeRR] = useState(2);
@@ -174,7 +185,13 @@ export function MT5Page() {
       const index = Math.round(Math.max(0, Math.min(candles.length - 1, idx)));
       const relY = ((clientY - rect.top) / rect.height) * CHART_HEIGHT;
       const priceFrac = (relY - padTop) / plotHeight;
-      const { yTop, yBottom } = computeChartRange(candles);
+      // Auto-fit range PLUS the current yZoom (read from the ref so
+      // this always uses the latest value without re-attaching this
+      // effect mid-drag — see yZoomRef's own comment) — ignoring
+      // yZoom would misalign every drawn line/box the instant the
+      // price axis is zoomed.
+      const autoRange = computeChartRange(candles);
+      const { yTop, yBottom } = applyYZoom(autoRange.yTop, autoRange.yBottom, yZoomRef.current);
       const price = yTop - priceFrac * (yTop - yBottom);
       return { index, price };
     }
@@ -275,6 +292,16 @@ export function MT5Page() {
   const positionMarkers = useMemo(() => (
     candles ? positionOverlayMarkers(allPositionTrades, candles) : []
   ), [allPositionTrades, candles]);
+
+  // priceRangeOverride — yZoom itself is declared up near chartBoxRef
+  // (see its own comment for why). Same priceRangeOverride pattern as
+  // PositionOnChartModal, by direct request ("make the vertical axis
+  // adjustable for all charts portal wide").
+  const priceRangeOverride = useMemo(() => {
+    if (!candles || candles.length === 0) return undefined;
+    const autoRange = computeChartRange(candles, quickTradeZones, positionLines, positionMarkers);
+    return applyYZoom(autoRange.yTop, autoRange.yBottom, yZoom);
+  }, [candles, quickTradeZones, positionLines, positionMarkers, yZoom]);
 
   const inputCls = `w-full pl-8 pr-3 py-2 text-sm rounded-lg border uppercase ${
     dark ? 'bg-smc-dark border-smc-border text-white placeholder:text-white/30' : 'bg-white border-corporate-bg text-corporate-text-on-bg'
@@ -406,6 +433,20 @@ export function MT5Page() {
                 <Eraser size={14} />
               </button>
             )}
+            <span className={`w-px self-stretch mx-0.5 ${dark ? 'bg-white/10' : 'bg-black/10'}`} />
+            {/* Vertical (price) axis zoom — by direct request ("make
+                the vertical axis adjustable for all charts portal
+                wide"). Same pattern as On Chart's own Y-axis zoom. */}
+            <span className={`text-[10px] font-semibold px-0.5 ${dark ? 'text-white/50' : 'text-gray-500'}`}>Y</span>
+            <button onClick={zoomOutY} disabled={yZoom <= 0.25} aria-label="Zoom out price axis" title="Zoom out price axis" className={`p-1.5 rounded-md disabled:opacity-30 ${dark ? 'text-white/50 hover:text-white/80' : 'text-gray-500 hover:text-gray-700'}`}>
+              <ZoomOut size={14} />
+            </button>
+            <button onClick={zoomInY} disabled={yZoom >= 6} aria-label="Zoom in price axis" title="Zoom in price axis" className={`p-1.5 rounded-md disabled:opacity-30 ${dark ? 'text-white/50 hover:text-white/80' : 'text-gray-500 hover:text-gray-700'}`}>
+              <ZoomIn size={14} />
+            </button>
+            <button onClick={resetY} disabled={yZoom === 1} aria-label="Reset price axis zoom" title="Reset price axis zoom" className={`flex items-center gap-1 px-2 py-1.5 rounded-md text-[11px] font-medium disabled:opacity-30 ${dark ? 'text-white/50 hover:text-white/80' : 'text-gray-500 hover:text-gray-700'}`}>
+              <Maximize2 size={12} /> Reset
+            </button>
           </div>
         )}
 
@@ -422,7 +463,7 @@ export function MT5Page() {
         {!error && candles && (
           <div ref={chartPaneRef} className="relative" style={{ touchAction: 'none', cursor: drawShape ? 'crosshair' : undefined }}>
             <div ref={chartBoxRef}>
-              <CandleChart candles={candles} height={CHART_HEIGHT} dark={dark} bullColor={bullColor} bearColor={bearColor} overlaySeries={maSeries} drawings={visibleDrawings} zones={quickTradeZones} lines={positionLines} markers={positionMarkers} />
+              <CandleChart candles={candles} height={CHART_HEIGHT} dark={dark} bullColor={bullColor} bearColor={bearColor} overlaySeries={maSeries} drawings={visibleDrawings} zones={quickTradeZones} lines={positionLines} markers={positionMarkers} priceRangeOverride={priceRangeOverride} />
             </div>
             {quickTradeDraft && (
               <div

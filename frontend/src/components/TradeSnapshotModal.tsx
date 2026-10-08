@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { X, Clock3, ChevronDown } from 'lucide-react';
+import { X, Clock3, ChevronDown, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
 import { tradesApi } from '../services/api';
 import type { TradeSnapshot, SnapshotTimeframe } from '../types';
+import { useYAxisZoom, applyYZoom } from '../hooks/useYAxisZoom';
 
 const GREEN = '#10b981';
 const RED = '#ef4444';
@@ -130,6 +131,13 @@ function nearestCandleIndex(candles: { timestamp: string }[], iso: string | null
 
 function SnapshotChart({ snapshot, dark }: { snapshot: TradeSnapshot; dark: boolean }) {
   const { candles, entry_price, entry_timestamp, stop_loss, take_profit_1, take_profit_2, take_profit_3, exit_price, exit_timestamp, direction } = snapshot;
+  // Vertical (price) axis zoom — by direct request ("make the
+  // vertical axis adjustable for all charts portal wide ... on
+  // charts, snapshots and approval charts"). This component has no
+  // CandleChart under it (its own hand-rolled SVG, same reasoning as
+  // its own module docstring), so it owns this state directly rather
+  // than going through CandleChart's priceRangeOverride prop.
+  const { yZoom, zoomInY, zoomOutY, resetY } = useYAxisZoom();
   if (candles.length === 0) {
     return <p className={`text-sm ${dark ? 'text-white/40' : 'text-gray-400'}`}>No candle data for this window.</p>;
   }
@@ -143,7 +151,7 @@ function SnapshotChart({ snapshot, dark }: { snapshot: TradeSnapshot; dark: bool
   const maxP = Math.max(...allHighs, ...refPrices);
   const minP = Math.min(...allLows, ...refPrices);
   const pad = (maxP - minP) * 0.08 || maxP * 0.01 || 1;
-  const yMax = maxP + pad, yMin = minP - pad;
+  const { yTop: yMax, yBottom: yMin } = applyYZoom(maxP + pad, minP - pad, yZoom);
 
   // Price axis — by direct request ("Include a price axis ....").
   // Reserves a left margin for tick labels; candles/lines/markers all
@@ -186,6 +194,22 @@ function SnapshotChart({ snapshot, dark }: { snapshot: TradeSnapshot; dark: bool
 
   return (
     <div>
+      {/* Vertical (price) axis zoom — by direct request ("make the
+          vertical axis adjustable for all charts portal wide ... on
+          charts, snapshots and approval charts"). Same icons/pattern
+          as On Chart's own Y-axis zoom buttons. */}
+      <div className={`flex items-center gap-1 mb-2 rounded-lg p-1 w-fit ${dark ? 'bg-white/5' : 'bg-black/5'}`}>
+        <span className={`text-[10px] font-semibold px-0.5 ${dark ? 'text-white/50' : 'text-gray-500'}`}>Y</span>
+        <button onClick={zoomOutY} disabled={yZoom <= 0.25} aria-label="Zoom out price axis" title="Zoom out price axis" className={`p-1.5 rounded-md disabled:opacity-30 ${dark ? 'text-white/50 hover:text-white' : 'text-gray-500 hover:text-gray-700'}`}>
+          <ZoomOut size={14} />
+        </button>
+        <button onClick={zoomInY} disabled={yZoom >= 6} aria-label="Zoom in price axis" title="Zoom in price axis" className={`p-1.5 rounded-md disabled:opacity-30 ${dark ? 'text-white/50 hover:text-white' : 'text-gray-500 hover:text-gray-700'}`}>
+          <ZoomIn size={14} />
+        </button>
+        <button onClick={resetY} disabled={yZoom === 1} aria-label="Reset price axis zoom" title="Reset price axis zoom" className={`flex items-center gap-1 px-2 py-1.5 rounded-md text-[11px] font-medium disabled:opacity-30 ${dark ? 'text-white/50 hover:text-white' : 'text-gray-500 hover:text-gray-700'}`}>
+          <Maximize2 size={12} /> Reset
+        </button>
+      </div>
       <div className="overflow-x-auto">
         <svg viewBox={`0 0 ${w} ${h}`} width={w} height={h} className="block">
           {candles.map((c, i) => {

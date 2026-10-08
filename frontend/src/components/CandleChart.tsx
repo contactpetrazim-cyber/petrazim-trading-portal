@@ -184,6 +184,7 @@ export function CandleChart({
   bullColor = '#22c55e',
   bearColor = '#ef4444',
   rightMargin = 0,
+  priceRangeOverride,
 }: {
   candles: Candle[];
   zones?: ChartZone[];
@@ -210,6 +211,19 @@ export function CandleChart({
    * real candles keep their existing width/spacing; they just stop
    * short of the right edge instead of being squeezed thinner. */
   rightMargin?: number;
+  /** Manually zoomed/panned price range — by direct request ("make
+   * the vertical axis adjustable for all charts portal wide"). Omitted
+   * (every caller before this feature) keeps the original auto-fit
+   * behavior (computeChartRange: every visible candle/zone/line/marker
+   * price, plus an 8% margin) byte-for-byte. A caller wanting a
+   * manual axis computes its own auto-fit range (computeChartRange,
+   * exported above) and passes it through useYAxisZoom's own
+   * applyYZoom — CandleChart itself stays the simple, stateless
+   * renderer its own docstring already describes; the zoom STATE and
+   * controls live in the caller, same pattern as the X-axis's own
+   * pan/zoom (PositionOnChartModal/ChartOPage/MT5Page already own
+   * that, not this component). */
+  priceRangeOverride?: { yTop: number; yBottom: number };
 }) {
   if (candles.length === 0) return null;
 
@@ -217,7 +231,7 @@ export function CandleChart({
   const plotWidth = width - padLeft - padRight;
   const plotHeight = height - padTop - padBottom;
 
-  const { yTop, yBottom } = computeChartRange(candles, zones, lines, markers);
+  const { yTop, yBottom } = priceRangeOverride ?? computeChartRange(candles, zones, lines, markers);
   const yRange = yTop - yBottom;
 
   const slotWidth = plotWidth / (candles.length + Math.max(0, rightMargin));

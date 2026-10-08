@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Search, LineChart, Palette, TrendingUp, PenLine, Square, Eraser, Target, Receipt, Zap, X } from 'lucide-react';
+import { Search, LineChart, Palette, TrendingUp, PenLine, Square, Eraser, Target, Receipt, Zap, X, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { PageHeader } from '../components/PageHeader';
 import { FoldedCard } from '../components/FoldedCard';
@@ -10,6 +10,7 @@ import { oandaApi, tradesApi, type OandaInstrument } from '../services/api';
 import { useThemeStore } from '../hooks/useTheme';
 import type { Trade } from '../types';
 import { positionOverlayLines, positionOverlayMarkers } from '../lib/positionChartOverlay';
+import { useYAxisZoom, applyYZoom } from '../hooks/useYAxisZoom';
 
 // Same idea as PositionOnChartModal's own COLOR_PRESETS (and the same
 // reason it's a small local copy, not the shared CandleColorPicker
@@ -96,6 +97,16 @@ export function ChartOPage() {
   const chartPaneRef = useRef<HTMLDivElement>(null);
   const chartBoxRef = useRef<HTMLDivElement>(null);
   const quickTradeAnchorRef = useRef<{ index: number; price: number } | null>(null);
+  // Vertical (price) axis zoom — moved up here (not declared next to
+  // its own priceRangeOverride useMemo below) so pixelToChart's own
+  // effect (which doesn't list yZoom as a dependency — re-running it
+  // mid-drag would cancel whatever drag was in progress, same reason
+  // PositionOnChartModal's own gesture effect avoids this) can read
+  // the LATEST value via yZoomRef at call time instead of closing over
+  // a stale one from whenever that effect last attached.
+  const { yZoom, zoomInY, zoomOutY, resetY } = useYAxisZoom();
+  const yZoomRef = useRef(yZoom);
+  yZoomRef.current = yZoom;
 
   // Quick Trade — by direct request ("add the quick trade tool to
   // Oanda"). Same drag-to-set-Entry+Stop mechanic PositionOnChartModal
@@ -228,11 +239,15 @@ export function ChartOPage() {
       const index = Math.round(Math.max(0, Math.min(candles.length - 1, idx)));
       const relY = ((clientY - rect.top) / rect.height) * CHART_HEIGHT;
       const priceFrac = (relY - padTop) / plotHeight;
-      // Must match CandleChart's own computeChartRange exactly (it
-      // adds an 8% price margin) — a hand-rolled min/max here would
+      // Must match CandleChart's own rendered range exactly (auto-fit
+      // PLUS the current yZoom, read from the ref so this always uses
+      // the latest value without re-attaching this effect mid-drag —
+      // see yZoomRef's own comment) — a hand-rolled min/max here would
       // silently misalign every drawn line/box from where you actually
-      // dragged.
-      const { yTop, yBottom } = computeChartRange(candles);
+      // dragged, and ignoring yZoom specifically would misalign it the
+      // instant the price axis is zoomed.
+      const autoRange = computeChartRange(candles);
+      const { yTop, yBottom } = applyYZoom(autoRange.yTop, autoRange.yBottom, yZoomRef.current);
       const price = yTop - priceFrac * (yTop - yBottom);
       return { index, price };
     }
@@ -343,6 +358,15 @@ export function ChartOPage() {
   const positionMarkers = useMemo(() => (
     candles ? positionOverlayMarkers(allPositionTrades, candles) : []
   ), [allPositionTrades, candles]);
+
+  // priceRangeOverride — yZoom itself is declared up near chartBoxRef
+  // (see its own comment for why). Same priceRangeOverride pattern as
+  // PositionOnChartModal.
+  const priceRangeOverride = useMemo(() => {
+    if (!candles || candles.length === 0) return undefined;
+    const autoRange = computeChartRange(candles, quickTradeZones, positionLines, positionMarkers);
+    return applyYZoom(autoRange.yTop, autoRange.yBottom, yZoom);
+  }, [candles, quickTradeZones, positionLines, positionMarkers, yZoom]);
 
   const results = useMemo(() => {
     if (!query.trim()) return instruments.slice(0, 20);
@@ -519,6 +543,20 @@ export function ChartOPage() {
                 <Eraser size={14} />
               </button>
             )}
+            <span className={`w-px self-stretch mx-0.5 ${dark ? 'bg-white/10' : 'bg-black/10'}`} />
+            {/* Vertical (price) axis zoom — by direct request ("make
+                the vertical axis adjustable for all charts portal
+                wide"). Same pattern as On Chart's own Y-axis zoom. */}
+            <span className={`text-[10px] font-semibold px-0.5 ${dark ? 'text-white/50' : 'text-gray-500'}`}>Y</span>
+            <button onClick={zoomOutY} disabled={yZoom <= 0.25} aria-label="Zoom out price axis" title="Zoom out price axis" className={`p-1.5 rounded-md disabled:opacity-30 ${dark ? 'text-white/50 hover:text-white/80' : 'text-gray-500 hover:text-gray-700'}`}>
+              <ZoomOut size={14} />
+            </button>
+            <button onClick={zoomInY} disabled={yZoom >= 6} aria-label="Zoom in price axis" title="Zoom in price axis" className={`p-1.5 rounded-md disabled:opacity-30 ${dark ? 'text-white/50 hover:text-white/80' : 'text-gray-500 hover:text-gray-700'}`}>
+              <ZoomIn size={14} />
+            </button>
+            <button onClick={resetY} disabled={yZoom === 1} aria-label="Reset price axis zoom" title="Reset price axis zoom" className={`flex items-center gap-1 px-2 py-1.5 rounded-md text-[11px] font-medium disabled:opacity-30 ${dark ? 'text-white/50 hover:text-white/80' : 'text-gray-500 hover:text-gray-700'}`}>
+              <Maximize2 size={12} /> Reset
+            </button>
           </div>
         )}
 
@@ -527,7 +565,7 @@ export function ChartOPage() {
         {!error && candles && (
           <div ref={chartPaneRef} className="relative" style={{ touchAction: 'none', cursor: drawShape ? 'crosshair' : undefined }}>
             <div ref={chartBoxRef}>
-              <CandleChart candles={candles} height={CHART_HEIGHT} dark={dark} bullColor={bullColor} bearColor={bearColor} overlaySeries={maSeries} drawings={visibleDrawings} zones={quickTradeZones} lines={positionLines} markers={positionMarkers} />
+              <CandleChart candles={candles} height={CHART_HEIGHT} dark={dark} bullColor={bullColor} bearColor={bearColor} overlaySeries={maSeries} drawings={visibleDrawings} zones={quickTradeZones} lines={positionLines} markers={positionMarkers} priceRangeOverride={priceRangeOverride} />
             </div>
             {quickTradeDraft && (
               <div
