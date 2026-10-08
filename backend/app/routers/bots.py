@@ -239,6 +239,127 @@ async def list_bots(db: AsyncSession = Depends(get_db), user: User = Depends(req
     result = await db.execute(query)
     return result.scalars().all()
 
+@router.get("/exchange-balances")
+async def get_exchange_balances(db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access)):
+    """Live trading-capital/margin balance per real exchange account —
+    by direct request ("Can we retrieve exchange account trading
+    capital or margin capital balance and create a exchange balance
+    page to check such balances"). Two groups:
+
+      - `bot_accounts`: every DEDICATED sub-account (BotBrokerCredential)
+        actually backing one of the caller's own visible bots (Admin/
+        Super Admin see every bot's accounts, same scoping as list_bots
+        above) — deduplicated by the real credential-holding bot_id
+        (STRATEGY_CREDENTIAL_OWNER), so Bot 6's variants, which share
+        Bot 5's own account, aren't double-counted or shown as a
+        separate, nonexistent "bot_6" account.
+      - `trader_accounts`: the CALLER's own connected exchange accounts
+        (TraderBrokerConnection) — always just the caller's, regardless
+        of role, since another trader's personal exchange balance is
+        their own, never shown to anyone browsing this same page.
+
+    Reuses exactly the same get_balance()/_extract_available_balance
+    call exchange_engine.py's own candidate-ranking already makes, so
+    a balance shown here is the SAME number (and the SAME "unrecognized
+    shape" caveat for a broker like BingX whose get_balance() isn't
+    normalized yet — see margin_switch_engine.py's own comment) the
+    Exchange Engine itself is actually deciding against, not a second,
+    possibly-divergent read.
+
+    Each `bot_accounts` entry also carries `used_by` — every one of the
+    caller's own visible bots CURRENTLY preferring that exact
+    (credential owner, exchange) pair right now, by direct request
+    ("exchange balance page should somehow integrate with the
+    preferred exchange and auto"): a "fixed"-mode bot matches its own
+    `exchange` (or the scanner default when unset, same fallback
+    exchange_engine.py's own resolve_exchange always receives); an
+    "auto"-mode bot matches its live `active_exchange` (empty until
+    its first scan actually picks one) — so this page answers not just
+    "what's the balance" but "which of my bots is this balance actually
+    backing, and why" in one place, rather than two disconnected
+    screens."""
+    from app.services.broker_credentials import STRATEGY_CREDENTIAL_OWNER, build_broker_client, list_credentials_for_bot
+    from app.services.margin_switch_engine import _extract_available_balance
+    from app.services.trader_broker_connections import build_client_from_connection, list_connections_for_trader
+
+    query = select(BotConfig).order_by(BotConfig.bot_id)
+    if user.role not in STAFF_ROLES:
+        query = query.where(BotConfig.user_id == user.id)
+    bots = (await db.execute(query)).scalars().all()
+
+    def _credential_owner(bot: BotConfig) -> str:
+        strategy_key = bot.strategy_key or "_".join(bot.bot_id.split("_")[:2])
+        return STRATEGY_CREDENTIAL_OWNER.get(strategy_key, bot.bot_id)
+
+    credential_bot_ids: dict[str, str] = {}  # credential_bot_id -> display name
+    for bot in bots:
+        owner_id = _credential_owner(bot)
+        if owner_id not in credential_bot_ids:
+            owner_bot = next((b for b in bots if b.bot_id == owner_id), None)
+            if owner_bot is None:
+                owner_bot = (await db.execute(select(BotConfig).where(BotConfig.bot_id == owner_id))).scalar_one_or_none()
+            credential_bot_ids[owner_id] = owner_bot.bot_name if owner_bot else owner_id
+
+    # (credential_owner, exchange) -> every visible bot currently
+    # preferring it — see this function's own docstring above.
+    default_exchange = get_settings().MARKET_SCANNER_DEFAULT_EXCHANGE
+    used_by: dict[tuple[str, str], list[dict]] = {}
+    for bot in bots:
+        owner_id = _credential_owner(bot)
+        mode = bot.exchange_mode or "fixed"
+        if mode == "auto":
+            preferred_exchange = bot.active_exchange
+            reason = bot.active_exchange_reason
+        else:
+            preferred_exchange = bot.exchange or default_exchange
+            reason = None
+        if not preferred_exchange:
+            continue  # Auto-mode bot that hasn't had its first scan yet — nothing to attribute yet.
+        used_by.setdefault((owner_id, preferred_exchange), []).append(
+            {"bot_id": bot.bot_id, "bot_name": bot.bot_name, "mode": mode, "reason": reason}
+        )
+
+    async def _read_balance(client) -> dict:
+        try:
+            raw = await client.get_balance()
+        except Exception as e:
+            return {"balance": None, "unrecognized_shape": False, "error": str(e)}
+        if isinstance(raw, dict) and raw.get("success") is False:
+            return {"balance": None, "unrecognized_shape": False, "error": raw.get("error") or "Balance call failed."}
+        balance = _extract_available_balance(raw)
+        return {"balance": balance, "unrecognized_shape": balance is None, "error": None}
+
+    bot_accounts = []
+    for credential_bot_id, display_name in sorted(credential_bot_ids.items()):
+        for credential in await list_credentials_for_bot(db, credential_bot_id):
+            entry = {
+                "bot_id": credential_bot_id, "bot_name": display_name, "exchange": credential.exchange,
+                "label": credential.sub_account_label,
+                "used_by": used_by.get((credential_bot_id, credential.exchange), []),
+            }
+            try:
+                client = await build_broker_client(db, credential_bot_id, credential.exchange)
+            except Exception as e:
+                client = None
+                entry.update(balance=None, unrecognized_shape=False, error=str(e))
+            if client is not None:
+                entry.update(await _read_balance(client))
+            elif "error" not in entry:
+                entry.update(balance=None, unrecognized_shape=False, error="No credential client could be built.")
+            bot_accounts.append(entry)
+
+    trader_accounts = []
+    for connection in await list_connections_for_trader(db, user.id):
+        entry = {"connection_id": str(connection.id), "exchange": connection.exchange, "label": connection.label}
+        try:
+            client = build_client_from_connection(connection)
+            entry.update(await _read_balance(client))
+        except Exception as e:
+            entry.update(balance=None, unrecognized_shape=False, error=str(e))
+        trader_accounts.append(entry)
+
+    return {"bot_accounts": bot_accounts, "trader_accounts": trader_accounts}
+
 @router.post("/", response_model=BotConfigResponse)
 async def create_bot(
     config: BotConfigCreate, db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access)
@@ -354,7 +475,7 @@ async def set_bot_trading_mode(
     await db.refresh(bot)
     return bot
 
-@router.patch("/{bot_id}/exchange")
+@router.patch("/{bot_id}/exchange", response_model=BotConfigResponse)
 async def set_bot_exchange(
     bot_id: str,
     update: BotExchangeUpdate,
@@ -364,16 +485,39 @@ async def set_bot_exchange(
     """
     Pin which exchange this bot executes on (and which live ticker the
     cross-exchange price-deviation guard checks against — see
-    execution_engine.py::_check_price_deviation). Changeable anytime:
-    it's read straight from the DB on every incoming signal for this
-    bot, so this takes effect on the very next trade, no restart or
-    redeploy needed.
+    execution_engine.py::_check_price_deviation), and/or switch its
+    Exchange Engine mode (see BotConfig.exchange_mode's own comment).
+    Both fields are optional and independent — send either, or both.
+    Changeable anytime: read straight from the DB on every incoming
+    signal for this bot, so this takes effect on the very next trade,
+    no restart or redeploy needed.
+
+    Switching `mode` to "fixed" clears the Auto engine's own live pick
+    (active_exchange/active_exchange_reason/active_exchange_picked_at)
+    — a stale Auto pick sitting around after a trader deliberately
+    switched back to Fixed would be confusing, dead state, not a real
+    decision anymore. Sending `mode: "auto"` ALWAYS clears
+    active_exchange_picked_at (even when the bot is already in Auto
+    mode) — exchange_engine.py's own sticky cooldown treats a null
+    picked_at as "never picked," so this is also the real "re-check
+    now" action the Bots page exposes: re-sending the same mode forces
+    an immediate re-evaluation on this bot's very next scan instead of
+    waiting out the cooldown.
     """
     bot = await _get_owned_bot(bot_id, user, db)
-    bot.exchange = update.exchange.strip().lower()
+    if update.exchange is not None:
+        bot.exchange = update.exchange.strip().lower()
+    if update.mode is not None:
+        bot.exchange_mode = update.mode
+        if update.mode == "fixed":
+            bot.active_exchange = None
+            bot.active_exchange_reason = None
+            bot.active_exchange_picked_at = None
+        elif update.mode == "auto":
+            bot.active_exchange_picked_at = None
     await db.commit()
-
-    return {"success": True, "bot_id": bot_id, "exchange": bot.exchange}
+    await db.refresh(bot)
+    return bot
 
 @router.patch("/{bot_id}/name", response_model=BotConfigResponse)
 async def rename_bot(

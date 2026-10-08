@@ -1,6 +1,6 @@
 
 import axios from 'axios';
-import { Trade, BotConfig, BotPerformance, BotMetricsUpdate, DashboardStats, SignalPreview, PerformanceSummary, TradeBreakdown, TradeBreakdownPeriod, TodayTradeBreakdown, ExchangeMetaResponse, TraderBrokerConnection, AvailableBot, TraderBotSubscription, OutboundIpsResponse, FeeSettings, FeeLedgerEntry, MyFeesResponse, FeeGateStatus, FeeCheckoutSession, FeeCheckoutProvider, FeeVerifyResult, DeployStateResponse, TradeSnapshot, EncroachmentResponse, SnapshotTimeframe } from '../types';
+import { Trade, BotConfig, BotPerformance, BotMetricsUpdate, DashboardStats, SignalPreview, PerformanceSummary, TradeBreakdown, TradeBreakdownPeriod, TodayTradeBreakdown, ExchangeMetaResponse, TraderBrokerConnection, AvailableBot, TraderBotSubscription, OutboundIpsResponse, FeeSettings, FeeLedgerEntry, MyFeesResponse, FeeGateStatus, FeeCheckoutSession, FeeCheckoutProvider, FeeVerifyResult, DeployStateResponse, TradeSnapshot, EncroachmentResponse, SnapshotTimeframe, ExchangeBalancesResponse } from '../types';
 import { useAuthStore } from '../hooks/useAuth';
 import { triggerAccessExpired } from '../components/AccessExpiredGate';
 import { triggerFeesOwed } from '../components/TradingFeeGate';
@@ -187,11 +187,25 @@ export const botsApi = {
   updateMetrics: (botId: string, update: BotMetricsUpdate) =>
     api.patch<BotConfig>(`/bots/${botId}/metrics`, update).then(r => r.data),
   getPerformance: (botId: string) => api.get<BotPerformance>(`/bots/${botId}/performance`).then(r => r.data),
+  // Exchange Balances — live trading-capital/margin balance per real
+  // exchange account, both the platform's own bot sub-accounts and
+  // the caller's own connected exchanges. By direct request ("Can we
+  // retrieve exchange account trading capital or margin capital
+  // balance and create a exchange balance page to check such
+  // balances").
+  getExchangeBalances: () => api.get<ExchangeBalancesResponse>('/bots/exchange-balances').then(r => r.data),
   // Rename/delete — by direct request ("create options to edit bot
   // names and also to delete bots").
   renameBot: (botId: string, botName: string) =>
     api.patch<BotConfig>(`/bots/${botId}/name`, { bot_name: botName }).then(r => r.data),
   deleteBot: (botId: string) => api.delete(`/bots/${botId}`).then(r => r.data),
+  // Exchange Engine — pin a Fixed exchange and/or switch mode
+  // ("fixed" or "auto"). Either field alone is enough; omit the one
+  // you're not changing. By direct request ("Develop an optimal
+  // prefered exchange engine ... also integrate the auto switch to
+  // available margin capital").
+  setBotExchange: (botId: string, update: { exchange?: string; mode?: 'fixed' | 'auto' }) =>
+    api.patch<BotConfig>(`/bots/${botId}/exchange`, update).then(r => r.data),
   // Sleep — pauses this bot's scanning for `hours`; hours=null wakes
   // it up right now (the "Reset" action). By direct request.
   setBotSleep: (botId: string, hours: number | null) =>

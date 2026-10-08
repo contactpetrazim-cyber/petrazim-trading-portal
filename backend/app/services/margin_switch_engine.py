@@ -150,7 +150,18 @@ async def maybe_switch_broker(
         # applies to it.
         return preferred_broker, dedicated_client, False
 
-    if config_row.margin_mode != MarginMode.AUTO_SWITCH:
+    # A bot on the NEW exchange_mode == "auto" (services/
+    # exchange_engine.py) already gets margin-aware exchange picking
+    # BEFORE a signal even exists — by direct request ("integrate the
+    # auto switch to available margin capital"), this check still
+    # runs as its POST-signal backstop too (now that lot_size/
+    # entry_price are known, a precise required_margin can finally be
+    # compared), without the trader ALSO having to separately opt
+    # into margin_mode == AUTO_SWITCH — exchange_mode == "auto" already
+    # implies it. A tier="trader" config_row (TraderBrokerConnection)
+    # has no exchange_mode column, so getattr defaults to None, which
+    # correctly never matches here.
+    if config_row.margin_mode != MarginMode.AUTO_SWITCH and getattr(config_row, "exchange_mode", None) != "auto":
         return preferred_broker, dedicated_client, False
 
     if not await get_margin_auto_switch_enabled(db):

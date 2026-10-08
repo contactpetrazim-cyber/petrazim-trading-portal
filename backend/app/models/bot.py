@@ -100,8 +100,44 @@ class BotConfig(Base):
     # sanity-check ticker from exactly this exchange. Changeable anytime
     # via PATCH /bots/{bot_id}/exchange — takes effect on the very next
     # signal for this bot, since it's read fresh from the DB each time,
-    # never cached.
+    # never cached. Only meaningful when exchange_mode == "fixed" — see
+    # exchange_mode's own comment below; an "auto" bot ignores this
+    # field entirely in favor of active_exchange.
     exchange = Column(String(20), nullable=True)
+
+    # Exchange Engine — by direct request ("Develop an optimal
+    # prefered exchange engine that's easy to use ... and reliable ...
+    # also integrate the auto switch to available margin capital").
+    # Before this, `exchange` above was a one-time, create-only pin
+    # with no way to change it from the UI, and margin_mode's own
+    # auto-switch only ever reacted to a margin SHORTFALL at the exact
+    # moment an order was about to be placed — it never touched which
+    # exchange a bot's CANDLES came from, so a "switched" trade's entry
+    # price and its actual execution venue could still disagree.
+    #   - exchange_mode: "fixed" (default — exactly today's behavior,
+    #     `exchange` above pins both data and execution) or "auto"
+    #     (services/exchange_engine.py picks the best of this bot's OWN
+    #     credentialed exchanges where this bot's symbol is actually
+    #     tradeable, ranked by live free margin then by a rolling
+    #     reliability score, and resolves BOTH the candle source and
+    #     signal.preferred_broker from that SAME call — the two can
+    #     never disagree by construction, unlike the old exchange/
+    #     margin_mode split).
+    #   - active_exchange/active_exchange_reason/
+    #     active_exchange_picked_at: the Auto engine's current pick,
+    #     a short human-readable reason, and when it was picked —
+    #     persisted (not just in-memory) so the choice survives a
+    #     restart and is "easy to use": a trader can SEE what's
+    #     actually running and why, not just trust a black box. The
+    #     engine stays on this pick for a cooldown window rather than
+    #     re-deciding every scan cycle, so a strategy's own zone/sweep/
+    #     FVG detection isn't fed a different exchange's slightly
+    #     different candles trade to trade — see exchange_engine.py's
+    #     own STICKY_COOLDOWN.
+    exchange_mode = Column(String(10), nullable=False, default="fixed")
+    active_exchange = Column(String(20), nullable=True)
+    active_exchange_reason = Column(String(200), nullable=True)
+    active_exchange_picked_at = Column(DateTime, nullable=True)
 
     # Risk Parameters
     risk_per_trade = Column(Float, default=1.0)

@@ -37,6 +37,35 @@ _BROKER_CLASSES = {
     "tradelocker": TradeLockerBroker,
 }
 
+# Which bot_id actually HOLDS the dedicated BotBrokerCredential rows
+# for a given strategy_key — by direct request ("let each bot make use
+# of the parent strategy dedicated accounts"). A BotConfig row sharing
+# an existing strategy_key (e.g. "bot_2_ob_reversal_2", instrument-pair
+# variants of the same algorithm BotOrchestrator.run_all dispatches by
+# strategy_key, not by bot_id — see bot_strategies.py's own "lets ONE
+# strategy-family instance run on behalf of several real BotConfig
+# rows" comment) never gets its OWN credential row created; it's meant
+# to trade through its strategy's existing dedicated sub-account(s),
+# not fall straight through to the shared global key. "bot_6" has no
+# credentialed bot_id of its own (SMC v2 was added after the original
+# 5 sub-accounts were set up) — it shares Bot 5's own zone/purge/
+# confirmation mechanics (see JeafxSMCv2Bot's own module docstring:
+# "Bot 5's own zone/purge/confirmation setup, direction from Bot 2 +
+# Bot 3's own consensus"), so Bot 5's account is the natural parent.
+#
+# Lives here (not in execution_engine.py, where it was originally
+# defined) so services/exchange_engine.py can import it too without
+# a circular import — execution_engine.py re-exports it below for
+# every existing caller that still imports it from there.
+STRATEGY_CREDENTIAL_OWNER = {
+    "bot_1": "bot_1_macro_swing",
+    "bot_2": "bot_2_ob_reversal",
+    "bot_3": "bot_3_fvg_expansion",
+    "bot_4": "bot_4_volume_liq",
+    "bot_5": "bot_5_jeafx",
+    "bot_6": "bot_5_jeafx",
+}
+
 # Same Fixie static-IP proxies (primary + backup) per exchange as the
 # global-key brokers in execution_engine.py — the exchange's IP
 # whitelist is per-account-key, not per our internal bot/credential

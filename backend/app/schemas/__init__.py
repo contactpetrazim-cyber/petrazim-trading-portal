@@ -216,6 +216,15 @@ class BotConfigResponse(BaseModel):
     min_rr_ratio: float
     use_trailing_stop: bool
     exchange: Optional[str] = None
+    # Exchange Engine — see BotConfig.exchange_mode's own comment.
+    # "fixed" (default) means `exchange` above is what's actually
+    # used; "auto" means the engine picks from this bot's own
+    # credentialed exchanges and active_exchange/active_exchange_
+    # reason/active_exchange_picked_at reflect its current live pick.
+    exchange_mode: str = "fixed"
+    active_exchange: Optional[str] = None
+    active_exchange_reason: Optional[str] = None
+    active_exchange_picked_at: Optional[datetime] = None
     # Starting Reference Capital/Balance — this bot's own setting (null
     # = no override, falls back to the Admin master override when
     # enabled, else the platform default). See BotConfig.
@@ -344,9 +353,16 @@ class BotRename(BaseModel):
     bot_name: str = Field(..., min_length=1, max_length=100)
 
 class BotExchangeUpdate(BaseModel):
-    # Same loosening as BotConfigCreate.exchange above, for consistency
-    # between creating a bot and re-pinning its exchange later.
-    exchange: str = Field(max_length=50)
+    """PATCH /bots/{bot_id}/exchange body. `exchange` alone (the only
+    field this endpoint used to accept) still works exactly as before
+    — same loosening as BotConfigCreate.exchange, for consistency
+    between creating a bot and re-pinning its exchange later. `mode`
+    is the Exchange Engine's own Fixed/Auto switch (see BotConfig.
+    exchange_mode's own comment) — both fields are independently
+    optional so a trader can change either one, or both at once, in a
+    single request."""
+    exchange: Optional[str] = Field(default=None, max_length=50)
+    mode: Optional[Literal["fixed", "auto"]] = None
 
 class BotMetricsUpdate(BaseModel):
     """The editable risk/entry metrics a Trader can tune on their own

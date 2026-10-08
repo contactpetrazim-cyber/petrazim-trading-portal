@@ -13,7 +13,7 @@ import { LoadingIndicator } from '../components/LoadingIndicator';
 import { tradesApi, botsApi } from '../services/api';
 import { PairsPanel } from '../components/PairsPanel';
 import { useQuickPairsStore, pairFromResult, pairFromTradeSymbol } from '../hooks/useQuickPairs';
-import type { Trade } from '../types';
+import type { Trade, TraderExchangeBalanceEntry } from '../types';
 
 
 // Same labels AdvancedTradeAnalytics.tsx's own Exit Reason Breakdown
@@ -155,6 +155,18 @@ export function ManualTradingPage() {
   const { token } = useAuth();
   const { theme } = useThemeStore();
   const dark = theme === 'dark';
+  // Live exchange balance info — by direct request ("add it to the
+  // Manual trading order form - exchange balance info"). Fetched once
+  // per page visit (not re-fetched per pair switch — the full list is
+  // cheap to keep and filter client-side by quickSymbol.brokerId
+  // further below); null while loading or on a failed fetch, in which
+  // case this section just stays hidden rather than showing an error
+  // on what's meant to be a lightweight reference line.
+  const [myExchangeBalances, setMyExchangeBalances] = useState<TraderExchangeBalanceEntry[] | null>(null);
+  useEffect(() => {
+    if (!token) return;
+    botsApi.getExchangeBalances().then((r) => setMyExchangeBalances(r.trader_accounts)).catch(() => {});
+  }, [token]);
   // Same wake mechanism WakeBackendButton/BackendStatusBadge already
   // use in the NAV. Order placement previously only widened its OWN
   // timeout to 60s and hoped a single attempt landed after a cold
@@ -222,6 +234,11 @@ export function ManualTradingPage() {
   const quickSymbol = pairs.find((p) => p.tv === selectedTv) ?? preselectPair ?? pairs[0];
 
   const symbol = { label: quickSymbol.label, trade: quickSymbol.trade, tv: quickSymbol.tv };
+  // Your own connected balance for THIS pair's exchange, if any — see
+  // myExchangeBalances' own comment above.
+  const myBalanceForPair = quickSymbol.brokerId
+    ? myExchangeBalances?.find((b) => b.exchange === quickSymbol.brokerId) ?? null
+    : null;
 
   const [direction, setDirection] = useState<'long' | 'short'>('long');
   const [orderType, setOrderType] = useState<'market' | 'limit' | 'stop'>('market');
@@ -1034,11 +1051,33 @@ export function ManualTradingPage() {
             {/* Trade value / Available margin — Available margin
                 doubles as the account-equity input this app's risk
                 sizing needs (this app has no live broker margin feed
-                to read a real number from, unlike a real exchange). */}
+                to read a real number from, unlike a real exchange).
+                The live reference line just below is real, by direct
+                request ("add it to the Manual trading order form -
+                exchange balance info") — shown only when this pair's
+                exchange has a connected account to read; the Available
+                Margin field above still drives sizing either way, so
+                nothing about risk calculation silently changes. */}
             <div className="flex items-center justify-between py-1.5 text-sm">
               <span className={dark ? 'text-white/40' : 'text-gray-400'}>Trade Value</span>
               <span className={`font-semibold ${dark ? 'text-white/80' : 'text-gray-700'}`}>${tradeValuePreview ? tradeValuePreview.toFixed(2) : '0.00'}</span>
             </div>
+            {myBalanceForPair && (
+              <div className="flex items-center justify-between py-1 text-xs">
+                <span className={dark ? 'text-white/30' : 'text-gray-400'}>
+                  Your {quickSymbol.brokerId} balance
+                </span>
+                {myBalanceForPair.error ? (
+                  <span className="text-red-400">Unreadable</span>
+                ) : myBalanceForPair.unrecognized_shape ? (
+                  <span className={dark ? 'text-white/30' : 'text-gray-400'}>Unknown</span>
+                ) : (
+                  <Link to="/exchange-balances" className={`font-semibold hover:underline ${dark ? 'text-white/60' : 'text-gray-600'}`}>
+                    ${(myBalanceForPair.balance ?? 0).toFixed(2)}
+                  </Link>
+                )}
+              </div>
+            )}
             <div className="flex items-center justify-between py-1.5 mb-3">
               <span className={`text-sm ${dark ? 'text-white/40' : 'text-gray-400'}`}>Available Margin</span>
               <DollarInput value={accountEquity} onChange={setAccountEquity} dark={dark} />
