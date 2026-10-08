@@ -1,4 +1,5 @@
 
+import asyncio
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -319,9 +320,25 @@ async def get_exchange_balances(db: AsyncSession = Depends(get_db), user: User =
             {"bot_id": bot.bot_id, "bot_name": bot.bot_name, "mode": mode, "reason": reason}
         )
 
+    # Per-call timeout (real bug, found live: a trader's own MetaApi/MT5
+    # connection that isn't actually connected to its broker yet can
+    # take the FULL 30s httpx timeout every broker client uses before
+    # erroring — sequentially, that alone blows well past the
+    # frontend's own 20s axios timeout, so the page reported "Could not
+    # load" even though this endpoint eventually returned 200. Fixed
+    # two ways: every balance read now has its OWN short timeout (a
+    # slow/misconfigured account degrades to "Unreadable" for just that
+    # one row, never the whole page), AND every read for every account
+    # runs CONCURRENTLY (asyncio.gather) instead of one-at-a-time, so
+    # the real wall-clock cost is the SLOWEST single call, not the sum
+    # of all of them.
+    _BALANCE_READ_TIMEOUT = 8.0
+
     async def _read_balance(client) -> dict:
         try:
-            raw = await client.get_balance()
+            raw = await asyncio.wait_for(client.get_balance(), timeout=_BALANCE_READ_TIMEOUT)
+        except asyncio.TimeoutError:
+            return {"balance": None, "unrecognized_shape": False, "error": f"Timed out after {_BALANCE_READ_TIMEOUT:.0f}s."}
         except Exception as e:
             return {"balance": None, "unrecognized_shape": False, "error": str(e)}
         if isinstance(raw, dict) and raw.get("success") is False:
@@ -329,36 +346,45 @@ async def get_exchange_balances(db: AsyncSession = Depends(get_db), user: User =
         balance = _extract_available_balance(raw)
         return {"balance": balance, "unrecognized_shape": balance is None, "error": None}
 
-    bot_accounts = []
-    for credential_bot_id, display_name in sorted(credential_bot_ids.items()):
-        for credential in await list_credentials_for_bot(db, credential_bot_id):
-            entry = {
-                "bot_id": credential_bot_id, "bot_name": display_name, "exchange": credential.exchange,
-                "label": credential.sub_account_label,
-                "used_by": used_by.get((credential_bot_id, credential.exchange), []),
-            }
-            try:
-                client = await build_broker_client(db, credential_bot_id, credential.exchange)
-            except Exception as e:
-                client = None
-                entry.update(balance=None, unrecognized_shape=False, error=str(e))
-            if client is not None:
-                entry.update(await _read_balance(client))
-            elif "error" not in entry:
-                entry.update(balance=None, unrecognized_shape=False, error="No credential client could be built.")
-            bot_accounts.append(entry)
+    async def _bot_entry(credential_bot_id: str, display_name: str, credential) -> dict:
+        entry = {
+            "bot_id": credential_bot_id, "bot_name": display_name, "exchange": credential.exchange,
+            "label": credential.sub_account_label,
+            "used_by": used_by.get((credential_bot_id, credential.exchange), []),
+        }
+        try:
+            client = await build_broker_client(db, credential_bot_id, credential.exchange)
+        except Exception as e:
+            entry.update(balance=None, unrecognized_shape=False, error=str(e))
+            return entry
+        if client is None:
+            entry.update(balance=None, unrecognized_shape=False, error="No credential client could be built.")
+            return entry
+        entry.update(await _read_balance(client))
+        return entry
 
-    trader_accounts = []
-    for connection in await list_connections_for_trader(db, user.id):
+    async def _trader_entry(connection) -> dict:
         entry = {"connection_id": str(connection.id), "exchange": connection.exchange, "label": connection.label}
         try:
             client = build_client_from_connection(connection)
-            entry.update(await _read_balance(client))
         except Exception as e:
             entry.update(balance=None, unrecognized_shape=False, error=str(e))
-        trader_accounts.append(entry)
+            return entry
+        entry.update(await _read_balance(client))
+        return entry
 
-    return {"bot_accounts": bot_accounts, "trader_accounts": trader_accounts}
+    bot_entry_tasks = [
+        _bot_entry(credential_bot_id, display_name, credential)
+        for credential_bot_id, display_name in sorted(credential_bot_ids.items())
+        for credential in await list_credentials_for_bot(db, credential_bot_id)
+    ]
+    trader_entry_tasks = [_trader_entry(connection) for connection in await list_connections_for_trader(db, user.id)]
+
+    bot_accounts, trader_accounts = await asyncio.gather(
+        asyncio.gather(*bot_entry_tasks), asyncio.gather(*trader_entry_tasks),
+    )
+
+    return {"bot_accounts": list(bot_accounts), "trader_accounts": list(trader_accounts)}
 
 @router.post("/", response_model=BotConfigResponse)
 async def create_bot(
