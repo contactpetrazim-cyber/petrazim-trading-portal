@@ -46,7 +46,14 @@ if not DATABASE_URL:
         "Format: postgresql+asyncpg://user:password@host:5432/dbname"
     )
 
-engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, echo=False)
+engine = create_async_engine(
+    DATABASE_URL, pool_pre_ping=True, echo=False,
+    # Same required fix as app/database.py's own engine — see its
+    # connect_args comment for why: DATABASE_URL now points at
+    # Supabase's transaction-mode pooler, which doesn't support
+    # asyncpg's prepared-statement caching.
+    connect_args={"statement_cache_size": 0},
+)
 AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
 
 Base = declarative_base()
