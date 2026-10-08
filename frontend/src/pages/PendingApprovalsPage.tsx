@@ -40,6 +40,18 @@ export function PendingApprovalsPage() {
   const { colors } = useEffectiveChartColors();
 
   const [trades, setTrades] = useState<Trade[]>([]);
+  // Today/Week/Month quick filter — by direct request ("make it
+  // portal wide update of dashboard quick filters"). Defaults to "All"
+  // rather than "Today" like the dashboard's own breakdown pills:
+  // this is a work queue, not a historical stat — a pending
+  // recommendation silently dropping out of view just because it's a
+  // few days old would hide something that still genuinely needs a
+  // decision, not declutter a stale number. Purely client-side (the
+  // full pending list is already fetched unbounded), unlike
+  // TodayTradeBreakdownPills/PnlDrawdownPeriodPills, which fetch
+  // Week/Month on demand from a closed-trades-only endpoint that
+  // doesn't apply here.
+  const [periodFilter, setPeriodFilter] = useState<'all' | 'today' | 'week' | 'month'>('all');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [deferredIds, setDeferredIds] = useState<Set<string>>(new Set());
@@ -87,7 +99,17 @@ export function PendingApprovalsPage() {
     return () => clearInterval(id);
   }, []);
 
-  const visible = trades.filter((t) => !deferredIds.has(t.trade_id));
+  function withinPeriod(iso: string): boolean {
+    if (periodFilter === 'all') return true;
+    const created = new Date(iso).getTime();
+    const now = Date.now();
+    const windowMs = periodFilter === 'today' ? 24 * 60 * 60 * 1000
+      : periodFilter === 'week' ? 7 * 24 * 60 * 60 * 1000
+      : 30 * 24 * 60 * 60 * 1000;
+    return now - created <= windowMs;
+  }
+
+  const visible = trades.filter((t) => !deferredIds.has(t.trade_id) && withinPeriod(t.created_at));
   const chartTrade = chartTradeId
     ? trades.find((t) => t.trade_id === chartTradeId) ?? invalidated[chartTradeId] ?? null
     : null;
@@ -197,6 +219,26 @@ export function PendingApprovalsPage() {
         </button>
       </div>
 
+      {/* Today/Week/Month quick filter — see periodFilter's own
+          comment above for why "All" is the default here, unlike the
+          dashboard's breakdown pills. */}
+      <div className="flex gap-1.5">
+        {(['all', 'today', 'week', 'month'] as const).map((p) => (
+          <button
+            key={p}
+            type="button"
+            onClick={() => setPeriodFilter(p)}
+            className={`text-xs font-semibold px-2.5 py-1 rounded-full transition-colors capitalize ${
+              periodFilter === p
+                ? 'bg-gray-900 text-white'
+                : dark ? 'bg-smc-border text-gray-300 hover:text-white' : 'bg-gray-100 text-gray-600 hover:text-corporate-text-on-bg'
+            }`}
+          >
+            {p}
+          </button>
+        ))}
+      </div>
+
       {error && <div className="text-sm text-red-400">{error}</div>}
 
       {loading && trades.length === 0 && (
@@ -205,7 +247,11 @@ export function PendingApprovalsPage() {
 
       {!loading && visible.length === 0 && (
         <div className={`text-center py-12 rounded-xl border ${dark ? 'bg-smc-card border-smc-border text-gray-400' : 'bg-white border-corporate-bg text-gray-500'}`}>
-          {trades.length > 0 ? 'Nothing left to review right now — everything deferred is still pending, just out of this view until you reload.' : 'Nothing pending — every bot recommendation has already been decided on.'}
+          {trades.length === 0
+            ? 'Nothing pending — every bot recommendation has already been decided on.'
+            : periodFilter !== 'all' && trades.some((t) => !deferredIds.has(t.trade_id))
+            ? `Nothing pending in the last ${periodFilter === 'today' ? '24 hours' : periodFilter} — switch to "All" to see older recommendations still waiting on a decision.`
+            : 'Nothing left to review right now — everything deferred is still pending, just out of this view until you reload.'}
         </div>
       )}
 

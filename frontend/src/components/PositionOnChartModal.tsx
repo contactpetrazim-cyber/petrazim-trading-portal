@@ -1068,6 +1068,18 @@ export function PositionOnChartModal({
     if (t.take_profit != null) out.push({ price: t.take_profit, color: TP_LINE_COLOR, dashed: true, label: `TP1${tag} ${fmtPrice(t.take_profit)}` });
     if (t.take_profit_2 != null) out.push({ price: t.take_profit_2, color: TP_LINE_COLOR, dashed: true, label: `TP2${tag} ${fmtPrice(t.take_profit_2)}` });
     if (t.take_profit_3 != null) out.push({ price: t.take_profit_3, color: TP_LINE_COLOR, dashed: true, label: `TP3${tag} ${fmtPrice(t.take_profit_3)}` });
+    // Exit price — real gap, by direct report ("the correct entry and
+    // exit price lines"): every OTHER reference price here (Entry, SL,
+    // TP1-3) draws its own dashed line, but exit_price never did, even
+    // though the exit triangle marker (see markers below) has existed
+    // since "Put entry and exit triangles in the on chart also" — there
+    // was nothing for that triangle to visually sit on, unlike
+    // TradeSnapshotModal, which has always drawn both. Only for a
+    // CLOSED trade (exit_price is null for anything still open), same
+    // amber TradeSnapshotModal's own exitColor uses — dashed, so it
+    // stays visually distinct from the live-price line above even
+    // though they share a color.
+    if (t.exit_price != null) out.push({ price: t.exit_price, color: '#f59e0b', dashed: true, label: `Exit${tag} ${fmtPrice(t.exit_price)}` });
     return out;
   }
 
