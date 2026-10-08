@@ -26,6 +26,30 @@ settings = get_settings()
 # endpoint's own crypto-exchange allowlist.
 _LEVERAGE_CAPABLE_BROKERS = {"bingx", "binance", "bybit", "mexc"}
 
+# Which bot_id actually HOLDS the dedicated BotBrokerCredential rows
+# for a given strategy_key — by direct request ("let each bot make use
+# of the parent strategy dedicated accounts"). A BotConfig row sharing
+# an existing strategy_key (e.g. "bot_2_ob_reversal_2", instrument-pair
+# variants of the same algorithm BotOrchestrator.run_all dispatches by
+# strategy_key, not by bot_id — see bot_strategies.py's own "lets ONE
+# strategy-family instance run on behalf of several real BotConfig
+# rows" comment) never gets its OWN credential row created; it's meant
+# to trade through its strategy's existing dedicated sub-account(s),
+# not fall straight through to the shared global key. "bot_6" has no
+# credentialed bot_id of its own (SMC v2 was added after the original
+# 5 sub-accounts were set up) — it shares Bot 5's own zone/purge/
+# confirmation mechanics (see JeafxSMCv2Bot's own module docstring:
+# "Bot 5's own zone/purge/confirmation setup, direction from Bot 2 +
+# Bot 3's own consensus"), so Bot 5's account is the natural parent.
+STRATEGY_CREDENTIAL_OWNER = {
+    "bot_1": "bot_1_macro_swing",
+    "bot_2": "bot_2_ob_reversal",
+    "bot_3": "bot_3_fvg_expansion",
+    "bot_4": "bot_4_volume_liq",
+    "bot_5": "bot_5_jeafx",
+    "bot_6": "bot_5_jeafx",
+}
+
 
 class ExecutionEngine:
     """Core execution engine with multi-broker support."""
@@ -930,30 +954,62 @@ class ExecutionEngine:
     async def _resolve_dedicated(
         self, broker: str, bot_id: Optional[str], db: Optional[AsyncSession], user_id=None,
     ):
-        """The actual "bot credential -> trader connection -> global
-        key" priority chain _get_broker_client has always used — pulled
-        out on its own so _get_broker_client_for_new_order can also see
-        WHICH tier resolved (and that tier's own config row), since
+        """The actual "bot credential -> parent-strategy credential ->
+        trader connection -> global key" priority chain
+        _get_broker_client has always used — pulled out on its own so
+        _get_broker_client_for_new_order can also see WHICH tier
+        resolved (and that tier's own config row), since
         margin_switch_engine.py needs to know whose margin_mode to
         check, not just the resulting client. Returns
-        (tier, client, config_row): tier is "bot" | "trader" | "global";
-        config_row is the BotConfig (tier="bot") or TraderBrokerConnection
-        (tier="trader") whose own margin_mode governs auto-switch
-        eligibility, or None for "global" (no such setting applies to
-        the shared key).
+        (tier, client, config_row, credential_bot_id): tier is "bot" |
+        "trader" | "global"; config_row is the BotConfig (tier="bot")
+        or TraderBrokerConnection (tier="trader") whose own margin_mode
+        governs auto-switch eligibility, or None for "global" (no such
+        setting applies to the shared key); credential_bot_id is the
+        bot_id whose BotBrokerCredential rows actually backed this
+        resolution — usually `bot_id` itself, but the parent-strategy's
+        own bot_id when this bot has none of its own (see
+        STRATEGY_CREDENTIAL_OWNER's own comment) — this is what
+        margin_switch_engine.py's auto-switch candidate pool needs to
+        search, not necessarily `bot_id`.
         """
+        bot_config = None
         if db is not None and bot_id is not None:
+            from sqlalchemy import select as _select
+            from app.models.bot import BotConfig
+            bot_config = (await db.execute(
+                _select(BotConfig).where(BotConfig.bot_id == bot_id)
+            )).scalar_one_or_none()
             try:
                 credential_client = await build_broker_client(db, bot_id, broker)
                 if credential_client is not None:
-                    from sqlalchemy import select as _select
-                    from app.models.bot import BotConfig
-                    bot_config = (await db.execute(
-                        _select(BotConfig).where(BotConfig.bot_id == bot_id)
-                    )).scalar_one_or_none()
-                    return "bot", credential_client, bot_config
+                    return "bot", credential_client, bot_config, bot_id
             except Exception as e:
                 logger.error("per_bot_credential_lookup_failed", bot_id=bot_id, broker=broker, error=str(e))
+            # This bot's own credential doesn't exist for this exchange
+            # — by direct request ("let each bot make use of the parent
+            # strategy dedicated accounts"), fall back to whichever
+            # bot_id actually holds the dedicated sub-account(s) for
+            # this bot's strategy, rather than dropping straight to the
+            # shared global key. `bot_config` can be None for a bot_id
+            # with no real BotConfig row at all (shouldn't happen in
+            # practice, but this stays as tolerant as every other path
+            # here) — nothing to key a strategy off in that case. A
+            # missing bot_config.strategy_key (a row created before
+            # that column existed) falls back to the same bot_id-prefix
+            # heuristic market_scanner.py's own dispatch already uses
+            # ("_".join(bot_id.split("_")[:2])), not a separate
+            # inference that could disagree with which strategy that
+            # bot actually runs.
+            strategy_key = (bot_config.strategy_key or "_".join(bot_id.split("_")[:2])) if bot_config else None
+            owner_bot_id = STRATEGY_CREDENTIAL_OWNER.get(strategy_key) if strategy_key else None
+            if owner_bot_id and owner_bot_id != bot_id:
+                try:
+                    parent_client = await build_broker_client(db, owner_bot_id, broker)
+                    if parent_client is not None:
+                        return "bot", parent_client, bot_config, owner_bot_id
+                except Exception as e:
+                    logger.error("parent_strategy_credential_lookup_failed", bot_id=bot_id, owner_bot_id=owner_bot_id, broker=broker, error=str(e))
         if db is not None and user_id is not None:
             try:
                 # Local imports — same reason as _persist_trade's own
@@ -972,10 +1028,10 @@ class ExecutionEngine:
                         # reads, so it covers all of those, not just a
                         # fresh order.
                         await mark_connection_activity(db, connection)
-                    return "trader", build_client_from_connection(connection), connection
+                    return "trader", build_client_from_connection(connection), connection, None
             except Exception as e:
                 logger.error("trader_connection_lookup_failed", user_id=str(user_id), broker=broker, error=str(e))
-        return "global", self.brokers.get(broker), None
+        return "global", self.brokers.get(broker), None, None
 
     async def _get_broker_client(
         self, broker: str, bot_id: Optional[str], db: Optional[AsyncSession], paper: bool = False,
@@ -1016,7 +1072,7 @@ class ExecutionEngine:
         """
         if paper:
             return self.paper_brokers.get(broker)
-        _, client, _ = await self._resolve_dedicated(broker, bot_id, db, user_id=user_id)
+        _, client, _, _ = await self._resolve_dedicated(broker, bot_id, db, user_id=user_id)
         return client
 
     async def _estimate_required_margin(self, trade: Dict) -> Optional[float]:
@@ -1048,11 +1104,11 @@ class ExecutionEngine:
         docstring for every reason that can be true."""
         if paper:
             return broker, self.paper_brokers.get(broker), False
-        tier, client, config_row = await self._resolve_dedicated(broker, bot_id, db, user_id=user_id)
+        tier, client, config_row, credential_bot_id = await self._resolve_dedicated(broker, bot_id, db, user_id=user_id)
         if client is None or required_margin is None:
             return broker, client, False
         from app.services.margin_switch_engine import maybe_switch_broker
-        return await maybe_switch_broker(db, tier, config_row, bot_id, user_id, broker, client, required_margin)
+        return await maybe_switch_broker(db, tier, config_row, credential_bot_id, user_id, broker, client, required_margin)
 
     async def cancel_broker_order(
         self, broker: Optional[str], order_id: Optional[str], symbol: str,

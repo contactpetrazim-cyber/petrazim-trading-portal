@@ -295,7 +295,22 @@ class MarketScanner:
                     )
 
                 for balance, bots_at_balance in balance_groups.items():
-                    signals = self.orchestrator.run_all(market_data, balance, bot_settings_by_balance[balance])
+                    # Defense-in-depth, same reasoning as the fetch
+                    # guard above this loop: BotOrchestrator.run_all
+                    # now isolates each individual bot's own analyze()
+                    # call (see bot_strategies.py's own fix comment for
+                    # the real crash this closes), but this catches
+                    # anything unforeseen in run_all's OWN orchestration
+                    # code too, so a bug there degrades to "this one
+                    # (exchange, symbol, balance) group skips this
+                    # cycle" rather than aborting the `for groups.items()`
+                    # loop and silently skipping every OTHER symbol this
+                    # cycle was about to scan.
+                    try:
+                        signals = self.orchestrator.run_all(market_data, balance, bot_settings_by_balance[balance])
+                    except Exception as e:
+                        logger.error("market_scan_run_all_failed", exchange=exchange, symbol=symbol, balance=balance, error=str(e))
+                        continue
                     if not signals:
                         continue
 
