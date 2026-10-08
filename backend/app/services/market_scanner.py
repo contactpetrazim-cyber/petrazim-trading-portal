@@ -326,7 +326,29 @@ class MarketScanner:
                             # intent.
                             continue
 
-                        signal.preferred_broker = bot.exchange
+                        # Real bug, found via direct audit request ("check
+                        # all instrument pairs per exchange and bot ...
+                        # ready to go live"): this used to read the RAW
+                        # `bot.exchange` column, which is None for every
+                        # bot with no exchange explicitly pinned — unlike
+                        # the `exchange` loop variable above (line ~217),
+                        # which already resolved that same None to
+                        # MARKET_SCANNER_DEFAULT_EXCHANGE for the candle
+                        # fetch this very signal was generated from.
+                        # _determine_broker's own docstring warns about
+                        # exactly this: a null preferred_broker falls
+                        # through to a symbol-based heuristic that tries
+                        # "bingx" FIRST for crypto symbols — so a
+                        # null-exchange bot's entry price (computed from
+                        # Binance candles) could silently execute on
+                        # BingX instead, with no cross-exchange guard
+                        # catching it (that guard fails OPEN in paper
+                        # mode, which every bot here currently is).
+                        # Using the already-resolved `exchange` instead
+                        # keeps the data source and the execution venue
+                        # the same exchange, exactly as that docstring
+                        # says they should be.
+                        signal.preferred_broker = exchange
                         mode = bot.execution_mode.value
                         exec_result = await self.execution_engine.process_signal(signal, mode, db)
                         logger.info(
