@@ -216,6 +216,7 @@ BOT_TRACKS = [
     ("bot_3", "Bot 3 — Imbalance Expansion"),
     ("bot_4", "Bot 4 — Volume & Liquidity Sweep"),
     ("bot_5", "Bot 5 — Liquidity Purge Specialist"),
+    ("bot_6", "Bot 6 — SMC v2"),
 ]
 
 # Each bot's authored .md file, keyed the same as BOT_TRACKS above — a
@@ -231,6 +232,7 @@ BOT_LESSON_FILES = {
     "bot_3": "BOT_3_IMBALANCE_EXPANSION.md",
     "bot_4": "BOT_4_VOLUME_LIQUIDITY_SWEEP.md",
     "bot_5": "BOT_5_LIQUIDITY_PURGE_SPECIALIST.md",
+    "bot_6": "BOT_6_SMC_V2.md",
 }
 
 TRACKS = [
