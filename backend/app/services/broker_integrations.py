@@ -337,9 +337,30 @@ class BingXBroker:
         return await self._request("GET", endpoint, params=params)
 
     async def get_balance(self) -> Dict:
-        """Get account balance."""
+        """Get account balance. By direct report (the Exchange Balances
+        page showing every BingX account as "Unknown") — this used to
+        return the RAW, un-normalized `/openApi/swap/v2/user/balance`
+        response verbatim (no `available_balance`/`free_margin`/
+        `margin_available` key margin_switch_engine.py's own
+        _extract_available_balance looks for), a known, previously-
+        documented gap. Confirmed live against a real credentialed
+        account before fixing: BingX's real shape is `{"success":
+        true, "data": {"balance": {"asset": "USDT", "balance": "...",
+        "equity": "...", "availableMargin": "...", ...}}}` — parsed
+        the same way BinanceBroker/BybitBroker's own get_balance()
+        already normalize their own exchange's shape."""
         endpoint = "/openApi/swap/v2/user/balance"
-        return await self._request("GET", endpoint)
+        result = await self._request("GET", endpoint)
+        if result["success"]:
+            balance = (result.get("data") or {}).get("balance") or {}
+            if balance:
+                return {
+                    "success": True,
+                    "balance": float(balance.get("balance", 0) or 0),
+                    "equity": float(balance.get("equity", 0) or 0),
+                    "available_balance": float(balance.get("availableMargin", 0) or 0),
+                }
+        return result
 
     async def set_leverage(self, symbol: str, leverage: int) -> Dict:
         """Set leverage for a symbol."""
