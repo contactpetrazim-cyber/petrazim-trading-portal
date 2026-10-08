@@ -128,7 +128,22 @@ async def maybe_switch_broker(
     execution_engine.py to dispatch the order to the matching
     per-exchange method. `switched` is False whenever the dedicated
     account is returned unchanged, for every reason described in this
-    module's own docstring."""
+    module's own docstring.
+
+    `bot_id` (tier="bot" only) is the CREDENTIAL-OWNING bot_id —
+    execution_engine.py's own `_resolve_dedicated` return value, which
+    is the strategy's parent bot_id (STRATEGY_CREDENTIAL_OWNER) when
+    the bot that actually produced this signal has no dedicated
+    credential of its own, by direct request ("let each bot make use
+    of the parent strategy dedicated accounts ... with the auto switch
+    engine providing option to switch to the account that has margin
+    capital"). `config_row` is still the REQUESTING bot's own
+    BotConfig, so its own margin_mode/eligibility is what actually
+    gets checked below — only the account pool searched (list_
+    credentials_for_bot) is the parent's, so every bot sharing a
+    strategy searches and can switch across that strategy's FULL
+    shared sub-account pool, not just its own (usually nonexistent)
+    one."""
     if tier == "global" or config_row is None:
         # No per-account margin_mode exists for the global shared-key
         # fallback — nothing to opt into auto-switch, so this never
