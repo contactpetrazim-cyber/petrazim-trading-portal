@@ -13,20 +13,20 @@ import type { Trade } from '../types';
  * "pending/executed/won" breakdown for something that's already open.
  *
  * Same "no fabricated numbers" rule PositionManager follows: P&L is
- * the trade's own real unrealized_pnl, and R-multiple is derived from
- * that same live P&L backed out to an implied current price (the
- * identical formula PositionManager.tsx already uses) rather than any
- * separate estimate — so this card and the position's own management
- * card never show two different numbers for the same trade.
+ * the trade's own real unrealized_pnl, and R-multiple is the overall
+ * position's blended R so far — realized_pnl (whatever TP1/TP2
+ * partial exits already banked) plus unrealized_pnl (live P&L on
+ * what's still open), against the fixed risk_amount — the identical
+ * formula PositionManager.tsx now uses (see its own comment for why
+ * the old "current price vs. entry" version silently dropped already-
+ * banked partial-TP profit), so this card and the position's own
+ * management card never show two different numbers for the same
+ * trade.
  */
 function positionMetrics(trade: Trade) {
-  const isLong = trade.direction === 'long';
-  const entry = trade.entry_price ?? 0;
   const pnl = trade.unrealized_pnl ?? 0;
-  const impliedPrice = trade.lot_size > 0 ? entry + (pnl / trade.lot_size) * (isLong ? 1 : -1) : entry;
-  const riskDistance = trade.stop_loss ? Math.abs(entry - trade.stop_loss) : null;
-  const rMultiple = riskDistance && riskDistance > 0
-    ? ((impliedPrice - entry) * (isLong ? 1 : -1)) / riskDistance
+  const rMultiple = trade.risk_amount && trade.risk_amount > 0
+    ? ((trade.realized_pnl || 0) + pnl) / trade.risk_amount
     : null;
   return { pnl, rMultiple };
 }

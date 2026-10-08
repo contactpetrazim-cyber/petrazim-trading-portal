@@ -373,7 +373,11 @@ export function PositionManager({ trade, dark = false, onChanged }: { trade: Tra
         </div>
         <div>
           <div className={labelCls}>Size</div>
-          <div className={statCls}>{trade.lot_size} {trade.symbol}</div>
+          {/* Original opening size, same "Qty: 0.000" fix as TradeRow's
+              own card — trade.lot_size alone reads 0 for ANY closed
+              trade (live-mutated down as partial TP legs close, see
+              initial_lot_size's own comment above). */}
+          <div className={statCls}>{trade.initial_lot_size ?? trade.lot_size} {trade.symbol}</div>
         </div>
         {/* Exchange — by direct request ("add exchange record for all
             trades paper or live ... a trade record in this app doesn't

@@ -325,9 +325,15 @@ export function TradesPage() {
   }
 
   function exportCsv() {
+    // lot_size, not take_profit alone — by the same "Qty: 0.000" fix
+    // as TradeRow.tsx: lot_size is live-mutated down to 0 as partial
+    // TP legs close, so every closed trade's exported row showed 0
+    // regardless of what was actually traded. initial_lot_size is the
+    // immutable opening size (falls back to lot_size for a legacy row
+    // with no way to recover it).
     const header = 'trade_id,symbol,direction,status,entry_price,stop_loss,take_profit,lot_size,realized_pnl,unrealized_pnl,bot_id,created_at,archived,deleted';
     const rows = [...trades, ...archivedTrades, ...deletedTrades].map((t) =>
-      [t.trade_id, t.symbol, t.direction, t.status, t.entry_price, t.stop_loss, t.take_profit, t.lot_size, t.realized_pnl, t.unrealized_pnl, t.bot_id, t.created_at, t.is_archived ?? false, t.is_deleted ?? false].join(',')
+      [t.trade_id, t.symbol, t.direction, t.status, t.entry_price, t.stop_loss, t.take_profit, t.initial_lot_size ?? t.lot_size, t.realized_pnl, t.unrealized_pnl, t.bot_id, t.created_at, t.is_archived ?? false, t.is_deleted ?? false].join(',')
     );
     const blob = new Blob([[header, ...rows].join('\n')], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
