@@ -4,7 +4,7 @@ Execution Engine: Updated with BingX and TradeLocker support
 """
 
 from typing import Optional, Dict, List
-from datetime import datetime
+from datetime import datetime, timedelta
 import httpx
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -269,7 +269,41 @@ class ExecutionEngine:
                             "success": True, "status": "repeat_loss_blocked",
                             "message": f"Skipped — {signal.bot_id} already lost on this exact setup ({past.trade_id}); not repeating it.",
                         }
-                    break  # same setup, but it won/broke even last time — fine to re-trade, stop checking
+                    # Portal-wide permanent fix, by direct follow-up
+                    # request ("Let's permanently solve this across the
+                    # portal - duplicates"), after finding real
+                    # duplicate trades 3m14s apart — exactly one market-
+                    # scanner cycle (180s). A WIN is still allowed to
+                    # repeat (explicit prior instruction: "if win - it
+                    # may repeat ... it can re-use") but with zero
+                    # cooldown, a still-valid, unmitigated setup (an
+                    # unmitigated FVG/zone nothing has invalidated yet)
+                    # could refire on literally the VERY NEXT scan cycle
+                    # after closing — this is the exact "5 trades deep
+                    # in 13 minutes" pattern this gate's own comment
+                    # already documents as a real, repeated production
+                    # issue, just never fully closed for the win case.
+                    # A real re-use of a winning setup (the whole point
+                    # of allowing it at all) means the SAME structure
+                    # paying off again on a later, genuinely separate
+                    # occasion — not the same win being immediately
+                    # re-entered before the market has even moved.
+                    # Requiring the win to be at least this old before
+                    # it can repeat closes that gap while leaving
+                    # same-day, hours-apart re-use (what was actually
+                    # asked for) completely untouched.
+                    REPEAT_WIN_COOLDOWN = timedelta(minutes=30)
+                    if past.exit_timestamp and (datetime.utcnow() - past.exit_timestamp) < REPEAT_WIN_COOLDOWN:
+                        logger.info(
+                            "market_scan_signal_repeat_cooldown_blocked",
+                            bot_id=signal.bot_id, symbol=signal.symbol, past_trade_id=past.trade_id,
+                            minutes_since_exit=(datetime.utcnow() - past.exit_timestamp).total_seconds() / 60,
+                        )
+                        return {
+                            "success": True, "status": "repeat_cooldown_blocked",
+                            "message": f"Skipped — {signal.bot_id} just won this exact setup ({past.trade_id}) less than {int(REPEAT_WIN_COOLDOWN.total_seconds() / 60)} minutes ago; waiting before repeating it.",
+                        }
+                    break  # same setup, won/broke even, and outside the cooldown — fine to re-trade, stop checking
 
             # Per-bot daily/concurrent caps — by direct bug report ("how
             # can I have 17 executed when the global limit is 10").
