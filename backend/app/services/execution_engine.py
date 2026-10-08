@@ -598,7 +598,20 @@ class ExecutionEngine:
         row = (await db.execute(select(Trade).where(Trade.trade_id == trade_id))).scalar_one_or_none()
         if row:
             row.status = TradeStatus.ACTIVE
-            row.entry_timestamp = datetime.utcnow()
+            # Real bug, found via direct report ("the price line for
+            # entry should intercept the entry candle"): this used to
+            # be datetime.utcnow() — the moment execution actually
+            # happened, not when entry_price was actually computed
+            # from live data (that's created_at, set once at draft
+            # time by _persist_trade). For a fully-autonomous bot the
+            # two are seconds apart, no visible drift — but anything
+            # with a delay between draft and execution (confirmed
+            # directly: a real trade's entry candle, by nearest-
+            # timestamp, didn't even contain its own entry_price — the
+            # real crossing was 2 hours earlier) left the Trade
+            # Snapshot/On Chart entry marker pointing at a candle that
+            # never actually traded at entry_price.
+            row.entry_timestamp = row.created_at or datetime.utcnow()
             row.broker_order_id = str(result.get("order_id", ""))
             row.broker_name = result.get("broker", row.broker_name)
             row.margin_switch_used = result.get("margin_switch_used", row.margin_switch_used)
@@ -821,7 +834,14 @@ class ExecutionEngine:
                 result = await self._execute_broker_order(trade, db, paper=row.is_test)
                 if result["success"]:
                     row.status = TradeStatus.ACTIVE
-                    row.entry_timestamp = datetime.utcnow()
+                    # Same fix as _update_trade_after_execution's own
+                    # comment — entry_timestamp now anchors to when
+                    # entry_price was actually computed (created_at),
+                    # not approval time, which the Human-in-the-Loop
+                    # path can genuinely delay by minutes or hours
+                    # (approved_at, right below, still correctly
+                    # records the real approval moment).
+                    row.entry_timestamp = row.created_at or datetime.utcnow()
                     row.approved_at = datetime.utcnow()
                     row.approval_notes = notes
                     row.broker_order_id = str(result.get("order_id", ""))
