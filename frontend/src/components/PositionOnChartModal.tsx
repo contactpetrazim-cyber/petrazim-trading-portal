@@ -381,6 +381,33 @@ export function PositionOnChartModal({
     const start = Math.max(0, end - visibleCount);
     return allCandles.slice(start, end);
   }, [allCandles, visibleCount, panOffset]);
+  // Auto-pan to the entry candle when this opens for a position — by
+  // direct report ("No entry and exit triangle ... on chart"): the
+  // marker logic itself (see `markers` below) was always correct, but
+  // this chart's own default pan — the most recent `visibleCount`
+  // candles, see `visibleStart`'s own comment — has no reason to
+  // include wherever entry_timestamp actually landed, especially for
+  // a position opened a while before "now." The triangle was being
+  // silently dropped as out of the CURRENT view, not missing from the
+  // data. TradeSnapshotModal never hits this because its own candle
+  // fetch is already anchored around entry/exit by construction (see
+  // routers/trades.py's own snapshot lookback/buffer) — this chart's
+  // `allCandles` pool isn't, so it has to pan there itself instead.
+  // Runs once per position (trade_id) the moment its entry candle is
+  // found in the pool, landing it a third of the way in from the left
+  // (room to see what led up to it, and what's happened since) —
+  // mirrors the Snapshot's own "lookback before, buffer after"
+  // framing without fighting your own panning afterward.
+  const autoPannedTradeId = useRef<string | null>(null);
+  useEffect(() => {
+    if (!allCandles || !trade?.entry_timestamp || !isOriginalSymbol) return;
+    if (autoPannedTradeId.current === trade.trade_id) return;
+    const entryAbs = nearestCandleIndex(allCandles, trade.entry_timestamp);
+    if (entryAbs == null) return;
+    autoPannedTradeId.current = trade.trade_id;
+    const desiredEnd = entryAbs + Math.round(visibleCount * 2 / 3);
+    setPanOffset(Math.min(maxPanOffset, Math.max(0, allCandles.length - desiredEnd)));
+  }, [allCandles, trade?.trade_id, trade?.entry_timestamp, isOriginalSymbol, visibleCount, maxPanOffset]);
   function zoomIn() { setVisibleCount((v) => Math.max(MIN_VISIBLE, Math.round(v * 0.7))); }
   function zoomOut() { setVisibleCount((v) => Math.min(allCandles?.length ?? POOL_SIZE, Math.round(v * 1.4))); }
   function panOlder() { setPanOffset((p) => Math.min(maxPanOffset, p + Math.max(1, Math.round(visibleCount * 0.5)))); }
@@ -991,9 +1018,14 @@ export function PositionOnChartModal({
     // increase all the pairs that can be displayed in the on chart -
     // from Binance, Oanda...").
     const oandaSymbol = toOandaSymbol(activeSymbol.toUpperCase());
+    // The position's own broker — by direct report ("No display for
+    // EURUSDT.P for on chart"): only trusted while actually viewing
+    // THIS position's own symbol (isOriginalSymbol), not a different
+    // pair navigated to via Pairs search, where it wouldn't apply.
+    const klineExchange = isOriginalSymbol ? trade?.broker_name : null;
     const fetchCandles = oandaSymbol !== null
       ? oandaApi.candles(oandaSymbol, interval, POOL_SIZE).then((candles) => ({ candles }))
-      : orderFlowApi.getKlines(activeSymbol, interval, POOL_SIZE);
+      : orderFlowApi.getKlines(activeSymbol, interval, POOL_SIZE, klineExchange);
     fetchCandles
       .then((res) => {
         if (cancelled) return;
@@ -1005,7 +1037,7 @@ export function PositionOnChartModal({
         setError(formatApiError(detail, 'Live candle data isn\'t available for this symbol right now.'));
       });
     return () => { cancelled = true; };
-  }, [activeSymbol, interval, retryTick]);
+  }, [activeSymbol, interval, retryTick, isOriginalSymbol, trade?.broker_name]);
 
   // Every price drawn on this chart — by direct request ("make all
   // prices text max of two decimal points"): the raw values here carry

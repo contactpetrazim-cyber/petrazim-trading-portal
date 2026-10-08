@@ -66,6 +66,7 @@ from __future__ import annotations
 import re
 import time
 from collections import defaultdict
+from datetime import timezone
 from typing import Dict, List, Literal, Optional
 
 import httpx
@@ -77,6 +78,7 @@ from app.config import get_settings
 from app.core.auth import get_current_user
 from app.models.user import User
 from app.services.broker_integrations import _FAILOVER_EXCEPTIONS, _send_with_failover
+from app.services.data_ingestion import shared_ingestion
 from app.services.live_price import COINGECKO_IDS
 from app.services.proxy_health import record_proxy_failure, record_proxy_success
 
@@ -575,16 +577,67 @@ async def _coingecko_klines_fallback(symbol: str) -> Optional[List[KlineBar]]:
     return candles
 
 
+# Exchanges `fetch_historical_ccxt` (data_ingestion.py) already knows
+# how to route, proxy and fail over for — the same set execution_
+# engine.py's own broker clients support, minus "binance" itself
+# (that one still goes through this router's own dedicated, order-
+# flow-grade Binance path below, with real tape/depth data this
+# fallback can't offer, just plain candles).
+_NON_BINANCE_KLINE_EXCHANGES = {"bingx", "bybit", "mexc"}
+
+
+async def _non_binance_klines(exchange: str, symbol: str, interval: str, limit: int) -> List[KlineBar]:
+    """Plain OHLCV candles for a symbol that isn't on Binance at all —
+    real bug, found by direct report ("No display for EURUSDT.P for on
+    chart"): PositionOnChartModal's only candle source was this
+    router's own Binance-only /klines (see this module's own docstring
+    for why — free, no-key, real order-flow tape/depth data, which
+    only Binance provides here), so a position on an exchange-exclusive
+    symbol (MEXC lists JPY/EUR as tradable USDT-margined perpetuals;
+    Binance doesn't) had no candle source to draw on at all and failed
+    with "Unsupported symbol ... not a currently tradable Binance ...
+    pair" even though the symbol is genuinely live and tradable on the
+    exchange the position actually trades on. No order-flow tape/depth
+    here (those stay Binance-only/real-data-or-nothing, per this
+    router's own standard) — just the same real OHLCV candles every
+    bot's own analyze() already trades against, via the identical
+    shared_ingestion.fetch_historical_ccxt the Trade Snapshot endpoint
+    and every bot use, so this isn't a second, divergent candle
+    pipeline."""
+    try:
+        raw = await shared_ingestion.fetch_historical_ccxt(exchange, symbol, interval, limit=limit)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Could not fetch {symbol} candles from {exchange}: {e}")
+    if not raw:
+        raise HTTPException(status_code=404, detail=f"No candle data available for {symbol} on {exchange}.")
+    return [
+        KlineBar(
+            time_ms=int(c.timestamp.replace(tzinfo=timezone.utc).timestamp() * 1000),
+            open=c.open, high=c.high, low=c.low, close=c.close, volume=c.volume or 0.0,
+        )
+        for c in raw
+    ]
+
+
 @router.get("/klines", response_model=KlinesResponse)
 async def get_klines(
     symbol: str = "BTCUSDT", interval: str = "4h", limit: int = 60,
+    # Which exchange this symbol actually trades on — by direct report
+    # ("No display for EURUSDT.P for on chart"). None (every call site
+    # before this feature, and every Binance-tradable symbol) keeps
+    # the original Binance-only path exactly as it was; see
+    # _non_binance_klines's own docstring for the rest.
+    exchange: Optional[str] = None,
     user: User = Depends(get_current_user),
 ):
     requested_symbol = symbol.upper()
-    symbol, futures = await _resolve_market(symbol)
     if interval not in ALLOWED_INTERVALS:
         raise HTTPException(status_code=400, detail=f"interval must be one of {ALLOWED_INTERVALS}")
     limit = max(10, min(limit, 500))
+    if exchange and exchange.lower() in _NON_BINANCE_KLINE_EXCHANGES:
+        candles = await _non_binance_klines(exchange.lower(), requested_symbol, interval, limit)
+        return KlinesResponse(symbol=requested_symbol, interval=interval, candles=candles)
+    symbol, futures = await _resolve_market(symbol)
     try:
         resp = await _binance_get("/klines", {"symbol": symbol, "interval": interval, "limit": limit}, futures=futures)
         candles = [
