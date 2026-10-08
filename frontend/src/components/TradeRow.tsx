@@ -157,21 +157,25 @@ export function TradeRow({ trade, onApprove, onReject, onCancel, onChanged, onAr
             </div>
           </div>
 
-          {/* Prices — 2 decimal places, matching every other price in
-              the portal, by direct request ("Use two decimal points
-              for the prices. Apply to the entire portal"). */}
+          {/* Prices — 4 decimal places (was 2), by direct report
+              ("Increase decimal points to 4 decimal points ... so
+              prices can be properly differentiated ... see TP1 and
+              TP2 and TP3"): a 2-decimal pair like EURUSDT.P moves in
+              increments far smaller than its own price level, so
+              TP1/TP2/TP3 could all round to the identical displayed
+              number despite being genuinely different real prices. */}
           <div className="hidden md:flex items-center gap-4 text-sm">
             <div>
               <span className="text-gray-500">Entry:</span>
-              <span className="ml-1 font-mono">{trade.entry_price?.toFixed(2) || 'Pending'}</span>
+              <span className="ml-1 font-mono">{trade.entry_price?.toFixed(4) || 'Pending'}</span>
             </div>
             <div>
               <span className="text-gray-500">SL:</span>
-              <span className="ml-1 font-mono text-red-400">{trade.stop_loss.toFixed(2)}</span>
+              <span className="ml-1 font-mono text-red-400">{trade.stop_loss.toFixed(4)}</span>
             </div>
             <div>
               <span className="text-gray-500">TP:</span>
-              <span className="ml-1 font-mono text-emerald-400">{trade.take_profit?.toFixed(2) || '-'}</span>
+              <span className="ml-1 font-mono text-emerald-400">{trade.take_profit?.toFixed(4) || '-'}</span>
             </div>
             {(() => {
               const rr = computeRR(trade.entry_price, trade.stop_loss, trade.take_profit);
@@ -401,19 +405,21 @@ export function TradeRow({ trade, onApprove, onReject, onCancel, onChanged, onAr
               Entry/Closed used to wrap onto a second line only
               because their 5-decimal values ran long, while SL/TP/
               Result stayed inline — same stacked layout for all five
-              now, regardless of value length. Also 2 decimal places
-              (was 5), matching every other price shown on this row. */}
+              now, regardless of value length. 4 decimal places (was
+              2), by direct report ("Increase decimal points to 4
+              decimal points ... so prices can be properly
+              differentiated ... see TP1 and TP2 and TP3"). */}
           <div className="flex flex-col gap-0.5">
             <span className="text-gray-500">Entry:</span>
-            <span className="font-mono">{trade.entry_price?.toFixed(2) ?? '—'}</span>
+            <span className="font-mono">{trade.entry_price?.toFixed(4) ?? '—'}</span>
           </div>
           <div className="flex flex-col gap-0.5">
             <span className="text-gray-500">SL:</span>
-            <span className="font-mono text-red-400">{trade.stop_loss.toFixed(2)}</span>
+            <span className="font-mono text-red-400">{trade.stop_loss.toFixed(4)}</span>
           </div>
           <div className="flex flex-col gap-0.5">
             <span className="text-gray-500">TP:</span>
-            <span className="font-mono text-emerald-400">{trade.take_profit?.toFixed(2) ?? '—'}</span>
+            <span className="font-mono text-emerald-400">{trade.take_profit?.toFixed(4) ?? '—'}</span>
           </div>
           {(() => {
             const rr = computeRR(trade.entry_price, trade.stop_loss, trade.take_profit);
@@ -426,7 +432,7 @@ export function TradeRow({ trade, onApprove, onReject, onCancel, onChanged, onAr
           })()}
           <div className="flex flex-col gap-0.5">
             <span className="text-gray-500">Closed:</span>
-            <span className="font-mono">{trade.exit_price?.toFixed(2) ?? '—'}</span>
+            <span className="font-mono">{trade.exit_price?.toFixed(4) ?? '—'}</span>
           </div>
           {/* The ratio above is the fixed TP1 plan, not what this trade
               actually earned — on a multi-target trade, partial exits

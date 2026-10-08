@@ -100,8 +100,8 @@ function DrillDownModal({ drillDown, onClose, dark }: { drillDown: DrillDown; on
                   </span>
                 </div>
                 <div className={`grid grid-cols-2 sm:grid-cols-4 gap-x-3 gap-y-1 ${dark ? 'text-white/50' : 'text-gray-500'}`}>
-                  <div>Entry: <span className="font-mono">{r.entry_price?.toFixed(2) ?? '—'}</span></div>
-                  <div>SL: <span className="font-mono">{r.stop_loss.toFixed(2)}</span></div>
+                  <div>Entry: <span className="font-mono">{r.entry_price?.toFixed(4) ?? '—'}</span></div>
+                  <div>SL: <span className="font-mono">{r.stop_loss.toFixed(4)}</span></div>
                   <div>Exit: {EXIT_TYPE_LABELS[r.exit_type || ''] || r.exit_type || '—'}</div>
                   <div>Bot: {r.bot_name || r.strategy_type || r.bot_id}</div>
                   <div className="col-span-2">Opened: {r.entry_timestamp ? new Date(r.entry_timestamp.endsWith('Z') ? r.entry_timestamp : `${r.entry_timestamp}Z`).toLocaleString() : '—'}</div>

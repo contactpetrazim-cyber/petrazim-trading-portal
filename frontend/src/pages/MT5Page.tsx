@@ -83,7 +83,7 @@ export function MT5Page() {
     setQuickTradeDraft((d) => (d ? computeQuickTradeDraft(d.entryIndex, d.entryPrice, d.stopLoss, rr) : d));
   }
   function formatQuickTradePrice(p: number): string {
-    return p >= 1000 ? p.toFixed(0) : p >= 1 ? p.toFixed(2) : p.toPrecision(4);
+    return p >= 1000 ? p.toFixed(0) : p >= 1 ? p.toFixed(4) : p.toPrecision(4);
   }
   function toggleQuickTrade() {
     setDrawShape((v) => (v === 'position' ? null : 'position'));

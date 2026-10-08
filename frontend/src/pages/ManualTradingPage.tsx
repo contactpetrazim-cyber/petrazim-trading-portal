@@ -673,7 +673,7 @@ export function ManualTradingPage() {
     const lotSizeBasis = field === 'sl' ? slLotSizeBasis : lotSizePreview;
     const price = priceForDollarTarget(n, field === 'sl' ? 'sl' : 'tp', lotSizeBasis);
     if (price == null || price <= 0) return;
-    const priceStr = price.toFixed(2);
+    const priceStr = price.toFixed(4);
     if (field === 'sl') setStopLoss(priceStr);
     else if (field === 'tp') setTakeProfit(priceStr);
     else if (field === 'tp2') setTakeProfit2(priceStr);
@@ -949,7 +949,7 @@ export function ManualTradingPage() {
                 }`}
               >
                 <div className={`text-[11px] font-medium ${dark ? 'text-white/40' : 'text-gray-400'}`}>Sell</div>
-                <div className={`text-base font-bold ${direction === 'short' ? 'text-red-500' : dark ? 'text-white/70' : 'text-gray-700'}`}>{quickPrice != null ? quickPrice.toFixed(2) : '—'}</div>
+                <div className={`text-base font-bold ${direction === 'short' ? 'text-red-500' : dark ? 'text-white/70' : 'text-gray-700'}`}>{quickPrice != null ? quickPrice.toFixed(4) : '—'}</div>
               </button>
               <button
                 onClick={() => setDirection('long')}
@@ -958,7 +958,7 @@ export function ManualTradingPage() {
                 }`}
               >
                 <div className={`text-[11px] font-medium ${dark ? 'text-white/40' : 'text-gray-400'}`}>Buy</div>
-                <div className={`text-base font-bold ${direction === 'long' ? 'text-blue-500' : dark ? 'text-white/70' : 'text-gray-700'}`}>{quickPrice != null ? quickPrice.toFixed(2) : '—'}</div>
+                <div className={`text-base font-bold ${direction === 'long' ? 'text-blue-500' : dark ? 'text-white/70' : 'text-gray-700'}`}>{quickPrice != null ? quickPrice.toFixed(4) : '—'}</div>
               </button>
             </div>
 
@@ -1007,7 +1007,7 @@ export function ManualTradingPage() {
             </div>
             {priceDelta != null && (
               <div className={`text-right text-[11px] mb-1 mt-0.5 ${dark ? 'text-white/30' : 'text-gray-400'}`}>
-                {priceDelta >= 0 ? '+' : ''}{priceDelta.toFixed(2)} from current price
+                {priceDelta >= 0 ? '+' : ''}{priceDelta.toFixed(4)} from current price
               </div>
             )}
 
@@ -1090,7 +1090,7 @@ export function ManualTradingPage() {
               </div>
             </div>
             {tpEnabled && tpMode === 'price' && effectiveEntryForPreview > 0 && (
-              <PercentOffsetRow sign="+" dark={dark} onApply={(pct) => setTakeProfit(String((priceForPercentOffset(pct, 'tp') ?? 0).toFixed(2)))} />
+              <PercentOffsetRow sign="+" dark={dark} onApply={(pct) => setTakeProfit(String((priceForPercentOffset(pct, 'tp') ?? 0).toFixed(4)))} />
             )}
             <div className={`flex items-center justify-between py-2 mb-2`}>
               <span className={`text-sm ${dark ? 'text-white/50' : 'text-gray-500'}`}>Stop Loss ({slMode === 'amount' ? 'Amount' : 'Price'})</span>
@@ -1118,7 +1118,7 @@ export function ManualTradingPage() {
               </div>
             </div>
             {slMode === 'price' && effectiveEntryForPreview > 0 && (
-              <PercentOffsetRow sign="-" dark={dark} onApply={(pct) => setStopLoss(String((priceForPercentOffset(pct, 'sl') ?? 0).toFixed(2)))} />
+              <PercentOffsetRow sign="-" dark={dark} onApply={(pct) => setStopLoss(String((priceForPercentOffset(pct, 'sl') ?? 0).toFixed(4)))} />
             )}
 
             {!showExtraTargets ? (
@@ -1149,7 +1149,7 @@ export function ManualTradingPage() {
                       direct request ("additional TP should have the
                       same quick % options as the first TP"). */}
                   {tp2Mode === 'price' && effectiveEntryForPreview > 0 && (
-                    <PercentOffsetRow sign="+" dark={dark} onApply={(pct) => setTakeProfit2(String((priceForPercentOffset(pct, 'tp') ?? 0).toFixed(2)))} />
+                    <PercentOffsetRow sign="+" dark={dark} onApply={(pct) => setTakeProfit2(String((priceForPercentOffset(pct, 'tp') ?? 0).toFixed(4)))} />
                   )}
                 </div>
                 <div className="py-1.5">
@@ -1171,7 +1171,7 @@ export function ManualTradingPage() {
                     </div>
                   </div>
                   {tp3Mode === 'price' && effectiveEntryForPreview > 0 && (
-                    <PercentOffsetRow sign="+" dark={dark} onApply={(pct) => setTakeProfit3(String((priceForPercentOffset(pct, 'tp') ?? 0).toFixed(2)))} />
+                    <PercentOffsetRow sign="+" dark={dark} onApply={(pct) => setTakeProfit3(String((priceForPercentOffset(pct, 'tp') ?? 0).toFixed(4)))} />
                   )}
                 </div>
               </div>
@@ -1199,15 +1199,15 @@ export function ManualTradingPage() {
                 <div className="p-3 space-y-1.5">
                   <div className="flex items-center justify-between text-sm">
                     <span className={dark ? 'text-white/50' : 'text-gray-500'}>Entry (reference) price</span>
-                    <span className={`font-semibold ${dark ? 'text-white' : 'text-gray-900'}`}>{effectiveEntryForPreview > 0 ? effectiveEntryForPreview.toFixed(2) : '—'}</span>
+                    <span className={`font-semibold ${dark ? 'text-white' : 'text-gray-900'}`}>{effectiveEntryForPreview > 0 ? effectiveEntryForPreview.toFixed(4) : '—'}</span>
                   </div>
                   <div className="flex items-center justify-between text-sm">
                     <span className={dark ? 'text-white/50' : 'text-gray-500'}>Stop loss</span>
-                    <span className={`font-semibold ${dark ? 'text-white' : 'text-gray-900'}`}>{stopLoss && Number.isFinite(Number(stopLoss)) ? Number(stopLoss).toFixed(2) : '—'}</span>
+                    <span className={`font-semibold ${dark ? 'text-white' : 'text-gray-900'}`}>{stopLoss && Number.isFinite(Number(stopLoss)) ? Number(stopLoss).toFixed(4) : '—'}</span>
                   </div>
                   <div className="flex items-center justify-between text-sm">
                     <span className={dark ? 'text-white/50' : 'text-gray-500'}>Distance to stop</span>
-                    <span className={`font-semibold ${dark ? 'text-white' : 'text-gray-900'}`}>{perUnitRisk > 0 ? perUnitRisk.toFixed(2) : '—'}</span>
+                    <span className={`font-semibold ${dark ? 'text-white' : 'text-gray-900'}`}>{perUnitRisk > 0 ? perUnitRisk.toFixed(4) : '—'}</span>
                   </div>
                   <div className="flex items-center justify-between text-sm">
                     <span className={dark ? 'text-white/50' : 'text-gray-500'}>Risk amount</span>
@@ -1260,7 +1260,7 @@ export function ManualTradingPage() {
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-xs">
-                  <span className={dark ? 'text-white/40' : 'text-gray-400'}>Entry {openTrade.entry_price != null ? openTrade.entry_price.toFixed(2) : '—'} · SL {openTrade.stop_loss.toFixed(2)}</span>
+                  <span className={dark ? 'text-white/40' : 'text-gray-400'}>Entry {openTrade.entry_price != null ? openTrade.entry_price.toFixed(4) : '—'} · SL {openTrade.stop_loss.toFixed(4)}</span>
                   <span className={dark ? 'text-white/40' : 'text-gray-400'}>{openTrade.initial_lot_size ?? openTrade.lot_size} units</span>
                 </div>
               </div>

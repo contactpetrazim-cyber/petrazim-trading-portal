@@ -238,7 +238,12 @@ export function CandleChart({
 
   const gridColor = dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
   const textColor = dark ? 'rgba(255,255,255,0.75)' : 'rgba(0,0,0,0.65)';
-  const fmt = (p: number) => (p >= 1000 ? p.toFixed(0) : p >= 1 ? p.toFixed(2) : p.toPrecision(4));
+  // 4 decimal places for the 1-1000 bucket (was 2), by direct report
+  // ("Increase decimal points to 4 decimal points ... so prices can
+  // be properly differentiated"): a 2-decimal price axis couldn't
+  // distinguish TP1/TP2/TP3 on a pair like EURUSDT.P, whose real
+  // increments are far smaller than its own price level.
+  const fmt = (p: number) => (p >= 1000 ? p.toFixed(0) : p >= 1 ? p.toFixed(4) : p.toPrecision(4));
 
   // Shared "pill" look for every label — small, legible, readable
   // against busy candles/wicks underneath.

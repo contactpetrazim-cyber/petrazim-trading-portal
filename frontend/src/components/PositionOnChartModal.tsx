@@ -560,7 +560,7 @@ export function PositionOnChartModal({
    * just for the confirm card's numbers reading sensibly for both a
    * ~1.08 forex pair and a ~65000 crypto pair. */
   function formatQuickTradePrice(p: number): string {
-    return p >= 1000 ? p.toFixed(0) : p >= 1 ? p.toFixed(2) : p.toPrecision(4);
+    return p >= 1000 ? p.toFixed(0) : p >= 1 ? p.toFixed(4) : p.toPrecision(4);
   }
 
   function togglePositionTool() {
@@ -1039,12 +1039,19 @@ export function PositionOnChartModal({
     return () => { cancelled = true; };
   }, [activeSymbol, interval, retryTick, isOriginalSymbol, trade?.broker_name]);
 
-  // Every price drawn on this chart — by direct request ("make all
-  // prices text max of two decimal points"): the raw values here carry
+  // Every price drawn on this chart — 4 decimal places (was 2), by
+  // direct report ("Increase decimal points to 4 decimal points ...
+  // so prices can be properly differentiated ... see TP1 and TP2 and
+  // TP3"): a 2-decimal pair like EURUSDT.P moves in increments far
+  // smaller than its own price level, so Entry/SL/TP1/TP2/TP3 could
+  // all round to the identical displayed number despite being
+  // genuinely different real prices. The raw values here carry
   // whatever precision the backend computed them at (position sizing
   // etc. can produce e.g. "81982.92169386141"), which is real data but
-  // unreadable as a line label crowding the chart pane.
-  const fmtPrice = (p: number) => p.toFixed(2);
+  // unreadable as a line label crowding the chart pane — 4dp is still
+  // a real rounding, just no longer coarse enough to collapse distinct
+  // targets together.
+  const fmtPrice = (p: number) => p.toFixed(4);
 
   // Every position on THIS symbol — `trade` (the primary one) plus
   // every entry in `otherSamePairPositions` — by direct request ("Show
@@ -1507,7 +1514,7 @@ export function PositionOnChartModal({
               <FoldedCard
                 key={t.trade_id}
                 title={`#${i + 1} ${t.direction === 'long' ? 'Long' : 'Short'} — ${t.status === 'pending' ? 'Pending' : 'Active'}`}
-                summary={t.entry_price != null ? `Entry ${t.entry_price.toFixed(2)}` : 'No entry price yet'}
+                summary={t.entry_price != null ? `Entry ${t.entry_price.toFixed(4)}` : 'No entry price yet'}
                 dark={localDark}
               >
                 <PositionManager trade={t} dark={localDark} onChanged={onChanged} />
@@ -1767,7 +1774,7 @@ export function PositionOnChartModal({
                     <Crosshair size={10} />
                     {hoveredCandle.time ? new Date(hoveredCandle.time).toLocaleString() : `Candle ${hoverIndex + 1}`}
                   </div>
-                  O <span className="text-inherit">{hoveredCandle.open.toFixed(2)}</span> · H <span className="text-emerald-500">{hoveredCandle.high.toFixed(2)}</span> · L <span className="text-red-500">{hoveredCandle.low.toFixed(2)}</span> · C <span className="font-bold">{hoveredCandle.close.toFixed(2)}</span>
+                  O <span className="text-inherit">{hoveredCandle.open.toFixed(4)}</span> · H <span className="text-emerald-500">{hoveredCandle.high.toFixed(4)}</span> · L <span className="text-red-500">{hoveredCandle.low.toFixed(4)}</span> · C <span className="font-bold">{hoveredCandle.close.toFixed(4)}</span>
                 </div>
               </div>
             )}
