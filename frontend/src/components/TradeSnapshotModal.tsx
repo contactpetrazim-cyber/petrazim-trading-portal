@@ -195,25 +195,31 @@ function SnapshotChart({ snapshot, dark }: { snapshot: TradeSnapshot; dark: bool
               <line x1={AXIS_W} y1={toY(r.price)} x2={w} y2={toY(r.price)} stroke={r.color} strokeWidth={1} strokeDasharray={DASH} opacity={0.8} />
             </g>
           ))}
-          {/* A fast-closing trade (entry and exit within the same
-              candle's span — a real, confirmed case, not a bug: a
-              paper/test fill can close in well under one bar) would
-              otherwise stack both triangles directly on top of each
-              other. Nudging them a few px apart horizontally when they
-              land on the same index keeps both visible and still
-              unambiguously attached to that one candle — by direct
-              request ("Ensure correct placement of the triangles on
-              the correct candles"). */}
+          {/* Fixed margin strips, not anchored to the candle's own
+              price — by direct follow-up request ("the triangle ...
+              does not need to overlay the candle ... it can be placed
+              in upper section of the chart or lower section ... it
+              only needs to point at the correct candle"): anchoring to
+              the candle's low/high could land the triangle directly
+              on top of a neighboring candle's body/wick when price
+              action is dense. Entry sits in a fixed strip near the
+              bottom of the chart pointing up, exit near the top
+              pointing down — X position (which candle) is still exact;
+              only the Y position moved off the price action. A fast-
+              closing trade (entry and exit on the same candle — a
+              real, confirmed case, not a bug: a paper/test fill can
+              close in well under one bar) still gets a small
+              horizontal nudge apart so both stay visible. */}
           {entryIdx != null && (() => {
             const sameCandle = exitIdx === entryIdx;
             const x = toX(entryIdx) - (sameCandle ? 6 : 0);
-            const base = toY(candles[entryIdx].low) + 8;
+            const base = h - 6;
             return <polygon points={`${x - 5},${base} ${x + 5},${base} ${x},${base - 8}`} fill={entryColor} />;
           })()}
           {exitIdx != null && (() => {
             const sameCandle = exitIdx === entryIdx;
             const x = toX(exitIdx) + (sameCandle ? 6 : 0);
-            const base = toY(candles[exitIdx].high) - 8;
+            const base = 6;
             return <polygon points={`${x - 5},${base} ${x + 5},${base} ${x},${base + 8}`} fill={exitColor} />;
           })()}
           {priceTicks.map((p, i) => {

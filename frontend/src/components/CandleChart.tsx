@@ -213,9 +213,9 @@ export function CandleChart({
 }) {
   if (candles.length === 0) return null;
 
-  const { width, padLeft, padRight, padTop } = CHART_LAYOUT;
+  const { width, padLeft, padRight, padTop, padBottom } = CHART_LAYOUT;
   const plotWidth = width - padLeft - padRight;
-  const plotHeight = height - padTop - CHART_LAYOUT.padBottom;
+  const plotHeight = height - padTop - padBottom;
 
   const { yTop, yBottom } = computeChartRange(candles, zones, lines, markers);
   const yRange = yTop - yBottom;
@@ -347,18 +347,27 @@ export function CandleChart({
           />
         ))}
 
-        {/* Point markers — dots, or a small directional triangle sitting
-            just off the price point (labels live in the HTML overlay
-            below). Triangle vertical offset scales with chart height
-            so it reads at a consistent visual size across callers. */}
+        {/* Point markers — dots sit at the actual price point; a
+            directional triangle instead sits in a fixed strip in the
+            chart's own top/bottom margin (NOT at the price point) —
+            by direct follow-up request ("the triangle ... does not
+            need to overlay the candle ... it can be placed in upper
+            section of the chart or lower section ... it only needs to
+            point at the correct candle"): the price-anchored version
+            could land directly on top of a candle body/wick,
+            obscuring it. 'triangle-up' (the entry convention) sits in
+            the BOTTOM margin pointing up at its candle from below;
+            'triangle-down' (exit) sits in the TOP margin pointing
+            down at its candle from above — same up/down semantics as
+            before, just relocated off the price action entirely. X
+            position (which candle) is unchanged. */}
         {markers.map((m, i) => {
           if (m.shape === 'triangle-up' || m.shape === 'triangle-down') {
             const cx = x(m.index);
-            const cy = y(m.price);
-            const dy = height * 0.035;
             const dx = 1.3;
-            const base = m.shape === 'triangle-up' ? cy + dy : cy - dy;
-            const apex = m.shape === 'triangle-up' ? cy + dy - dy * 1.8 : cy - dy + dy * 1.8;
+            const dy = padTop * 0.5;
+            const base = m.shape === 'triangle-up' ? height - padBottom * 0.25 : padTop * 0.75;
+            const apex = m.shape === 'triangle-up' ? base - dy : base + dy;
             return (
               <polygon
                 key={i}
