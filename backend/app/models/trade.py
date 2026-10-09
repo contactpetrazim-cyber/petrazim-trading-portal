@@ -277,4 +277,21 @@ class ManualTradingSettings(Base):
     # services/capital_adequacy.py's get_effective_leverage.
     leverage = Column(Float, nullable=True)
 
+    # Trading Schedule — the SAME global, every-bot schedule concept
+    # as BotConfig.schedule_sessions (see that column's own comment
+    # for the full story), now also available as manual trading's own
+    # GLOBAL setting — by direct request ("also include for global
+    # settings for manual trading"). Enforced in manual_trading.py's
+    # place_manual_order: outside the configured window(s), a NEW
+    # manual order is rejected outright (never blocks managing/closing
+    # a position already open, same "new-order-only" scoping this
+    # settings row's own access-expiry/fee gates already use). NULL/[]
+    # on every field means "All" (no restriction) — the default every
+    # trader starts at, unchanged behavior until explicitly set. See
+    # services/trading_sessions.py for the shared session definitions
+    # and schedule_allows() enforcement function.
+    schedule_sessions = Column(JSON, nullable=True)
+    schedule_days = Column(JSON, nullable=True)
+    schedule_half_day = Column(String(2), nullable=True)
+
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

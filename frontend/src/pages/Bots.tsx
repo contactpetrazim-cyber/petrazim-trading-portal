@@ -4,6 +4,7 @@ import { Bot, Play, Pause, Settings, TrendingUp, Save, Plus, X, Pencil, Trash2, 
 import { botsApi } from '../services/api';
 import { BotSleepAndSubAuto } from '../components/BotSleepAndSubAuto';
 import { ExchangeEngineControl } from '../components/ExchangeEngineControl';
+import { BotScheduleControl } from '../components/BotScheduleControl';
 import { BotConfig, BotPerformance, BotMetricsUpdate } from '../types';
 import { useThemeStore } from '../hooks/useTheme';
 import { formatApiError } from '../lib/apiError';
@@ -605,6 +606,12 @@ export function BotsPage() {
                     marginAutoSwitchEnabled={!!marginAutoSwitchMode?.enabled}
                     onChanged={loadBots}
                   />
+
+                  {/* Trading Schedule — bot-level, applies regardless
+                      of Sub-Auto, by direct request ("integrate as
+                      quick filters for the semi auto AND normal bot
+                      setups"). */}
+                  <BotScheduleControl bot={bot} dark={dark} onChanged={loadBots} />
 
                   {/* Sleep / Sub-Auto Mode — by direct request. */}
                   <BotSleepAndSubAuto bot={bot} dark={dark} onChanged={loadBots} />

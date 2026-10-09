@@ -262,12 +262,12 @@ class BotConfigResponse(BaseModel):
     # BotConfig.sub_auto_risk_amount's own comment.
     sub_auto_risk_amount: Optional[float] = None
     sub_auto_min_rr_ratio: Optional[float] = None
-    # Sub-Auto Schedule — see BotConfig.sub_auto_sessions' own comment.
-    # Empty/null on any of these means "All" (no restriction) for that
-    # dimension.
-    sub_auto_sessions: Optional[List[str]] = None
-    sub_auto_days: Optional[List[int]] = None
-    sub_auto_half_day: Optional[str] = None
+    # Trading Schedule — bot-level now, applies regardless of Sub-Auto
+    # — see BotConfig.schedule_sessions' own comment. Empty/null on any
+    # of these means "All" (no restriction) for that dimension.
+    schedule_sessions: Optional[List[str]] = None
+    schedule_days: Optional[List[int]] = None
+    schedule_half_day: Optional[str] = None
 
     # Real bug: these 3 columns are plain SQLAlchemy `default=False`/
     # `default=0` — a Python-side INSERT-time default, not a DB
@@ -315,21 +315,32 @@ class BotSubAutoUpdate(BaseModel):
     enabled, so a trader can update just the override on an already-
     active engagement without having to re-send total_cap/daily_cap.
 
-    sessions/days/half_day (Sub-Auto Schedule — see BotConfig.
-    sub_auto_sessions' own comment) follow the SAME "field omitted ==
-    leave untouched" convention as risk_amount/min_rr_ratio above —
-    but, unlike those two, an explicitly-sent EMPTY list (`[]` for
-    sessions/days) or `"all"` (for half_day) is a real, meaningful
-    value: "All," i.e. explicitly clear this dimension's restriction,
-    by direct request ("Add option for All - which includes
-    everything - not filtered") — not the same as leaving the field
-    out of the request entirely."""
+    No schedule fields here anymore — Trading Schedule is a bot-level
+    setting now (PATCH /bots/{bot_id}/schedule, BotScheduleUpdate
+    below), applying regardless of whether Sub-Auto is engaged, by
+    direct request ("quick filters for the semi auto AND normal bot
+    setups")."""
     enabled: bool
     total_cap: Optional[int] = Field(default=None, ge=1, le=10_000)
     daily_cap: Optional[int] = Field(default=None, ge=1, le=1000)
     risk_amount: Optional[float] = Field(default=None, gt=0)
     min_rr_ratio: Optional[float] = Field(default=None, gt=0)
-    sessions: Optional[List[Literal["asian", "london", "new_york"]]] = None
+
+
+_TRADING_SESSION_KEYS = Literal["london_ny_overlap", "tokyo_london_overlap", "asian", "twilight"]
+
+
+class BotScheduleUpdate(BaseModel):
+    """PATCH /bots/{bot_id}/schedule body — see BotConfig.
+    schedule_sessions' own comment for the full enforcement story
+    (applies to every signal this bot produces, any mode). Every field
+    is optional and independently "field omitted == leave untouched"
+    — but an explicitly-sent EMPTY list (`[]` for sessions/days) or
+    `"all"` (for half_day) is a real, meaningful value: "All," i.e.
+    explicitly clear this dimension's restriction, by direct request
+    ("also include an 'All'") — not the same as leaving the field out
+    of the request entirely."""
+    sessions: Optional[List[_TRADING_SESSION_KEYS]] = None
     days: Optional[List[int]] = Field(default=None, description="ISO weekday ints, Monday=0..Sunday=6")
     half_day: Optional[Literal["am", "pm", "all"]] = None
 

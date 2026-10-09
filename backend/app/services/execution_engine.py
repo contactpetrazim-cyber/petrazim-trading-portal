@@ -26,46 +26,14 @@ settings = get_settings()
 # endpoint's own crypto-exchange allowlist.
 _LEVERAGE_CAPABLE_BROKERS = {"bingx", "binance", "bybit", "mexc"}
 
-# Sub-Auto Schedule — by direct request ("additional quick filters for
-# semi auto for bot trading : session, days, am and pm etc"), confirmed
-# as an execution gate. Standard, widely-cited approximate trading-
-# session ranges in UTC (end-exclusive); real sessions overlap each
-# other (e.g. London/New York), which is realistic and intentional —
-# a trader wanting a tighter window picks fewer sessions, not the
-# other way around.
-_SUB_AUTO_SESSION_UTC_RANGES = {
-    "asian": (0, 9),
-    "london": (7, 16),
-    "new_york": (12, 21),
-}
-
-
-def _sub_auto_window_allows(bot_cfg, now: datetime) -> bool:
-    """True iff `now` (UTC) satisfies every ONE of this bot's
-    configured Sub-Auto Schedule dimensions (sessions/days/half_day —
-    see BotConfig.sub_auto_sessions' own comment). Each dimension is
-    independent: empty/None means "All" for that dimension (never
-    blocks), by direct request ("Add option for All - which includes
-    everything - not filtered"); a configured dimension must pass on
-    its own for the overall result to stay True."""
-    if bot_cfg.sub_auto_days:
-        if now.weekday() not in bot_cfg.sub_auto_days:
-            return False
-    if bot_cfg.sub_auto_half_day:
-        is_am = now.hour < 12
-        if bot_cfg.sub_auto_half_day == "am" and not is_am:
-            return False
-        if bot_cfg.sub_auto_half_day == "pm" and is_am:
-            return False
-    if bot_cfg.sub_auto_sessions:
-        hour = now.hour
-        if not any(
-            _SUB_AUTO_SESSION_UTC_RANGES[s][0] <= hour < _SUB_AUTO_SESSION_UTC_RANGES[s][1]
-            for s in bot_cfg.sub_auto_sessions
-            if s in _SUB_AUTO_SESSION_UTC_RANGES
-        ):
-            return False
-    return True
+# Trading Schedule — generalized from Sub-Auto-only to every bot, by
+# direct request ("integrate as quick filters for the semi auto and
+# normal bot setups"). Real session definitions + the shared
+# schedule_allows() enforcement now live in services/trading_sessions.py
+# (used identically by manual_trading.py's own global settings too) —
+# see that module's own docstring for the real forex session hours
+# this was built from.
+from app.services.trading_sessions import schedule_allows as _bot_schedule_allows
 
 # STRATEGY_CREDENTIAL_OWNER now lives in broker_credentials.py (so
 # services/exchange_engine.py can import it too without a circular
@@ -387,6 +355,28 @@ class ExecutionEngine:
                         "message": f"Skipped — {signal.bot_id} is asleep until {bot_cfg.sleep_until.isoformat()}.",
                     }
 
+                # Trading Schedule — by direct request ("integrate as
+                # quick filters for the semi auto and normal bot
+                # setups"), a real execution gate applying to EVERY
+                # signal this bot produces, any mode (fully_autonomous,
+                # human_in_loop, or Sub-Auto-engaged), any source
+                # (market_scanner.py or a webhook) — see
+                # BotConfig.schedule_sessions' own comment and
+                # services/trading_sessions.py for the real session
+                # definitions. Outside the configured window(s), this
+                # signal is skipped entirely, same shape as the sleep
+                # gate right above — unlike Sub-Auto's OLD schedule
+                # (which only ever downgraded fully_autonomous back to
+                # human_in_loop), a schedule here means "no activity
+                # outside this window, period," which is what a trader
+                # setting one actually wants for a normal bot too.
+                if not _bot_schedule_allows(bot_cfg.schedule_sessions, bot_cfg.schedule_days, bot_cfg.schedule_half_day):
+                    logger.info("bot_outside_schedule_window", bot_id=signal.bot_id, symbol=signal.symbol)
+                    return {
+                        "success": True, "status": "outside_schedule",
+                        "message": f"Skipped — {signal.bot_id} is outside its configured Trading Schedule right now.",
+                    }
+
                 today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
                 today_count = (await db.execute(
                     _dedup_select(_cap_func.count(Trade.id)).where(
@@ -439,23 +429,12 @@ class ExecutionEngine:
                             "success": True, "status": "sub_auto_daily_capped",
                             "message": f"Skipped — {signal.bot_id} already hit today's Sub-Auto cap ({bot_cfg.sub_auto_daily_cap}); resumes tomorrow.",
                         }
-                    # Sub-Auto Schedule (session/days/half_day) — see
-                    # _sub_auto_window_allows' own docstring. Outside
-                    # the configured window, this signal falls back to
-                    # requiring manual approval, exactly as if Sub-Auto
-                    # weren't engaged at all right now — the daily/
-                    # total caps and pre_sub_auto_execution_mode
-                    # snapshot are untouched either way, since this
-                    # only affects THIS signal's own `mode`, overriding
-                    # bot_cfg.execution_mode (FULLY_AUTONOMOUS for the
-                    # whole duration of the engagement — see routers/
-                    # bots.py's set_bot_sub_auto) right back down for
-                    # just this one decision.
-                    if _sub_auto_window_allows(bot_cfg, datetime.utcnow()):
-                        mode = "fully_autonomous"
-                    else:
-                        logger.info("sub_auto_outside_schedule_window", bot_id=signal.bot_id, symbol=signal.symbol)
-                        mode = "human_in_loop"
+                    # No schedule check needed here anymore — the
+                    # universal Trading Schedule gate above already
+                    # returned early if this signal were outside this
+                    # bot's own configured window, Sub-Auto-engaged or
+                    # not.
+                    mode = "fully_autonomous"
 
         # Computed once, up front, so it's baked into trade_data before
         # _persist_trade writes the Trade row below — a Human-in-the-

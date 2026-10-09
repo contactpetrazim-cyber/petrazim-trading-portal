@@ -18,7 +18,7 @@ from app.services.market_scanner import get_market_scanner_runtime_enabled, get_
 from app.services.capital_adequacy import get_master_leverage
 from app.models.trade import TradingMode
 from app.config import get_settings
-from app.schemas import BotConfigCreate, BotConfigResponse, BotToggle, BotExchangeUpdate, BotMetricsUpdate, BotRename, BotTradingModeUpdate, BotSleepUpdate, BotSubAutoUpdate
+from app.schemas import BotConfigCreate, BotConfigResponse, BotToggle, BotExchangeUpdate, BotMetricsUpdate, BotRename, BotTradingModeUpdate, BotSleepUpdate, BotSubAutoUpdate, BotScheduleUpdate
 import json
 import structlog
 
@@ -705,17 +705,33 @@ async def set_bot_sub_auto(
         bot.sub_auto_risk_amount = update.risk_amount
     if update.min_rr_ratio is not None:
         bot.sub_auto_min_rr_ratio = update.min_rr_ratio
-    # Sub-Auto Schedule — by direct request. Same "omitted == leave
-    # untouched" rule as risk_amount/min_rr_ratio above, but an
-    # explicitly-sent empty list / "all" is itself a real value
-    # ("All" — clear this dimension's restriction), not a no-op — see
-    # BotSubAutoUpdate's own comment.
+    await db.commit()
+    await db.refresh(bot)
+    return bot
+
+
+@router.patch("/{bot_id}/schedule", response_model=BotConfigResponse)
+async def set_bot_schedule(
+    bot_id: str, update: BotScheduleUpdate,
+    db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access),
+):
+    """Trading Schedule — by direct request ("integrate as quick
+    filters for the semi auto and normal bot setups"), a BOT-LEVEL
+    setting (not Sub-Auto-specific — see BotConfig.schedule_sessions'
+    own comment for the full enforcement story: applies to every
+    signal this bot produces, any mode, any source). Same "field
+    omitted == leave untouched" convention as every other partial-
+    update endpoint in this router, except an explicitly-sent empty
+    list (`[]` for sessions/days) or `"all"` (for half_day) is itself
+    a real, meaningful value: "All" — by direct request ("also include
+    an 'All'")."""
+    bot = await _get_owned_bot(bot_id, user, db)
     if update.sessions is not None:
-        bot.sub_auto_sessions = update.sessions
+        bot.schedule_sessions = update.sessions
     if update.days is not None:
-        bot.sub_auto_days = update.days
+        bot.schedule_days = update.days
     if update.half_day is not None:
-        bot.sub_auto_half_day = None if update.half_day == "all" else update.half_day
+        bot.schedule_half_day = None if update.half_day == "all" else update.half_day
     await db.commit()
     await db.refresh(bot)
     return bot
