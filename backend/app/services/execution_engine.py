@@ -244,6 +244,31 @@ class ExecutionEngine:
                     "message": f"Skipped — {signal.bot_id} already has a pending or active trade on {signal.symbol}.",
                 }
 
+            # Trailing Loss Guard — bot-wide AND pair-wide, by direct
+            # request ("is there a trailing loss rule that's bot wide
+            # or pair wide? Develop something that is innovative").
+            # Broader than the setup-specific guard right below: this
+            # bot (or this SYMBOL, across every other bot trading it
+            # too) being cold right now, regardless of whether any one
+            # setup repeats — see trailing_loss_guard.py's own module
+            # docstring for the full mechanism and why it needs no
+            # separate cooldown bookkeeping at all.
+            from app.services.trailing_loss_guard import check_bot as _loss_guard_check_bot, check_pair as _loss_guard_check_pair
+            bot_guard = await _loss_guard_check_bot(db, signal.bot_id)
+            if bot_guard.tripped:
+                logger.info("market_scan_signal_bot_loss_guard_blocked", bot_id=signal.bot_id, symbol=signal.symbol, reason=bot_guard.reason)
+                return {
+                    "success": True, "status": "trailing_loss_guard_bot_blocked",
+                    "message": f"Skipped — {signal.bot_id} is on a cold streak ({bot_guard.reason}); pausing new signals for this bot until recent trades improve.",
+                }
+            pair_guard = await _loss_guard_check_pair(db, signal.symbol)
+            if pair_guard.tripped:
+                logger.info("market_scan_signal_pair_loss_guard_blocked", bot_id=signal.bot_id, symbol=signal.symbol, reason=pair_guard.reason)
+                return {
+                    "success": True, "status": "trailing_loss_guard_pair_blocked",
+                    "message": f"Skipped — {signal.symbol} is on a cold streak across bots ({pair_guard.reason}); pausing new signals on this pair until recent trades improve.",
+                }
+
             # Don't repeat a setup that JUST lost — by direct report,
             # with real duplicated-trade examples ("the exact same
             # setup re-fired minutes after the first one closed ...
