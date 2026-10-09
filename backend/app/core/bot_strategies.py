@@ -358,9 +358,29 @@ class OrderBlockReversalBot:
         # Step 7: Stop beyond sweep or structure
         if has_sweep:
             sl_price = sweeps[-1]["sweep_price"]
+            # Real bug, found via direct report on a live JPYUSDT.P
+            # trade: risk_amount came out at $143.33 against a $10
+            # Sub-Auto target — 14.33x oversized. Root cause: sl_distance
+            # here was computed from the RAW sweep price (sl_price),
+            # not the actual stop_loss (sl_price ± the 0.0002 buffer
+            # right above it) — the only one of this bot family's 4
+            # stop-placement branches with that mismatch (bot_3/4/5's
+            # own sl dicts all correctly compute sl_distance from the
+            # FINAL, buffered price — see their own "sl_price = X -
+            # buffer" then "sl_distance = abs(entry - sl_price)" order).
+            # Invisible for BTC/EUR/XAUT-scale prices (0.0002 is
+            # negligible next to their typical SL distances); for
+            # JPYUSDT.P's own tiny price level (~0.0063), that same
+            # fixed 0.0002 buffer was comparable to — and here, larger
+            # than — the real swept-extreme-to-entry distance itself,
+            # so excluding it from sl_distance undersized the distance
+            # used for sizing by ~14x, and calculate_lot_size's
+            # risk/distance division oversized the position by the
+            # same factor.
+            final_stop_loss = sl_price - 0.0002 if direction == "long" else sl_price + 0.0002
             sl = {
-                "stop_loss": sl_price - 0.0002 if direction == "long" else sl_price + 0.0002,
-                "sl_distance": abs(entry["entry_price"] - sl_price),
+                "stop_loss": final_stop_loss,
+                "sl_distance": abs(entry["entry_price"] - final_stop_loss),
                 "method": "sweep_extreme"
             }
         else:
@@ -1276,12 +1296,18 @@ class JeafxSMCv2Bot:
 # BOT ORCHESTRATOR
 # =============================================================================
 
-def _signal_risk_is_valid(signal: "BotSignal") -> bool:
-    """A stop_loss must sit on the PROTECTIVE side of entry_price for
-    this signal\'s own direction — a long\'s stop must be BELOW entry
-    (it loses money as price falls further), a short\'s stop must be
-    ABOVE entry (it loses money as price rises further). Anything else
-    isn\'t a real risk-managed trade, whatever produced it.
+def _signal_risk_is_valid(signal: "BotSignal", account_balance: float) -> tuple[bool, Optional[str]]:
+    """Two independent checks every signal from every bot must pass
+    before being trusted, regardless of which strategy or symbol
+    produced it. Returns (ok, reason) — reason is only meaningful when
+    ok is False, for the warning log at the call site.
+
+    1. GEOMETRY — a stop_loss must sit on the PROTECTIVE side of
+    entry_price for this signal\'s own direction — a long\'s stop must
+    be BELOW entry (it loses money as price falls further), a short\'s
+    stop must be ABOVE entry (it loses money as price rises further).
+    Anything else isn\'t a real risk-managed trade, whatever produced
+    it.
 
     Real bug, found via direct report ("some of those trades got
     closed and labeled \'STOP_LOSS\' at the exact moment price was
@@ -1300,16 +1326,46 @@ def _signal_risk_is_valid(signal: "BotSignal") -> bool:
     moment price moved favorably, closing what should have kept
     running as a winning position and mislabeling it "STOP_LOSS".
 
+    2. SIZING CONSISTENCY — the REAL dollar risk this exact (entry,
+    stop_loss, lot_size) implies must roughly match what risk_percent
+    says it should be. By direct request, permanent and bot/pair-
+    agnostic, after a live report: a JPYUSDT.P trade from
+    OrderBlockReversalBot risked $143.33 against a $10 Sub-Auto target
+    — 14.33x oversized. Root cause there (now fixed in that bot\'s own
+    has_sweep branch) was sl_distance used to SIZE lot_size
+    disagreeing with the FINAL entry/stop_loss actually stored on the
+    signal — a one-line mismatch that any future strategy, or any
+    future pair with an unusual price scale, could reintroduce the
+    exact same way. This check doesn\'t care WHERE the mismatch comes
+    from; it just recomputes the real implied risk from the signal\'s
+    own final numbers and rejects anything far above the stated
+    target, the same "reject rather than silently execute" principle
+    every other defense-in-depth guard in this codebase already uses.
+    A generous 1.5x tolerance, not 1.0x: calculate_lot_size\'s own
+    lot-step flooring is designed to land AT OR UNDER the target,
+    never over, so a correct signal should already sit at or below
+    intended_risk — 1.5x leaves slack for floating-point/step-rounding
+    noise without masking a real order-of-magnitude bug like the one
+    that triggered this.
+
     OrderBlockReversalBot (Bot 2) computes entry (from an Order Block)
-    and its own sweep-extreme stop_loss the same independent way — no
-    production trade has hit it yet, but nothing rules it out. Checked
-    centrally here, in run_all, rather than patched into one bot\'s own
-    analyze() — every bot\'s signal is protected by the same guard,
-    including any future strategy that computes entry/stop from
-    independent sources this same way."""
-    if signal.direction == "long":
-        return signal.stop_loss < signal.entry_price
-    return signal.stop_loss > signal.entry_price  # "short"
+    and its own sweep-extreme stop_loss the same independent way as
+    the geometry bug above — no production trade had hit either issue
+    before the two real reports that found them, but nothing ruled
+    either out for a future strategy. Checked centrally here, in
+    run_all, rather than patched into one bot\'s own analyze() — every
+    bot\'s signal is protected by both guards, including any future
+    strategy or pair that reproduces either failure mode."""
+    geometry_ok = signal.stop_loss < signal.entry_price if signal.direction == "long" else signal.stop_loss > signal.entry_price
+    if not geometry_ok:
+        return False, "stop_loss is on the wrong side of entry_price for this direction"
+
+    implied_risk = signal.lot_size * abs(signal.entry_price - signal.stop_loss)
+    intended_risk = account_balance * (signal.risk_percent / 100)
+    if intended_risk > 0 and implied_risk > intended_risk * 1.5:
+        return False, f"implied risk ${implied_risk:.2f} is far above the ${intended_risk:.2f} target ({signal.risk_percent}% of ${account_balance}) — sl_distance used for sizing likely doesn't match entry_price/stop_loss"
+
+    return True, None
 
 
 class BotOrchestrator:
@@ -1326,16 +1382,18 @@ class BotOrchestrator:
         }
         self.active_signals: List[BotSignal] = []
 
-    def _collect(self, signals: List[BotSignal], sig: Optional[BotSignal]) -> None:
+    def _collect(self, signals: List[BotSignal], sig: Optional[BotSignal], account_balance: float) -> None:
         """Every signal any bot produces passes through here before
         being trusted — see _signal_risk_is_valid\'s own comment for
         what this actually guards against and why it\'s centralized."""
         if not sig:
             return
-        if not _signal_risk_is_valid(sig):
+        ok, reason = _signal_risk_is_valid(sig, account_balance)
+        if not ok:
             logger.warning(
                 "bot_signal_invalid_risk_geometry", bot_id=sig.bot_id, symbol=sig.symbol,
                 direction=sig.direction, entry_price=sig.entry_price, stop_loss=sig.stop_loss,
+                lot_size=sig.lot_size, risk_percent=sig.risk_percent, reason=reason,
             )
             return
         signals.append(sig)
@@ -1408,7 +1466,7 @@ class BotOrchestrator:
                         symbol=market_data.get("symbol", "UNKNOWN"), error=str(e),
                     )
                     continue
-                self._collect(signals, sig)
+                self._collect(signals, sig, account_balance)
 
         # Bot 1: Needs 1D + 4H
         if "1D" in market_data and "4H" in market_data:
