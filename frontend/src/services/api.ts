@@ -1,6 +1,6 @@
 
 import axios from 'axios';
-import { Trade, BotConfig, BotPerformance, BotMetricsUpdate, DashboardStats, SignalPreview, PerformanceSummary, TradeBreakdown, TradeBreakdownPeriod, TodayTradeBreakdown, ExchangeMetaResponse, TraderBrokerConnection, AvailableBot, TraderBotSubscription, OutboundIpsResponse, FeeSettings, FeeLedgerEntry, MyFeesResponse, FeeGateStatus, FeeCheckoutSession, FeeCheckoutProvider, FeeVerifyResult, DeployStateResponse, TradeSnapshot, EncroachmentResponse, SnapshotTimeframe, ExchangeBalancesResponse, MasterExchangeBalancesResponse } from '../types';
+import { Trade, BotConfig, BotPerformance, BotMetricsUpdate, DashboardStats, SignalPreview, PerformanceSummary, TradeBreakdown, TradeBreakdownPeriod, TodayTradeBreakdown, ExchangeMetaResponse, TraderBrokerConnection, AvailableBot, TraderBotSubscription, OutboundIpsResponse, FeeSettings, FeeLedgerEntry, MyFeesResponse, FeeGateStatus, FeeCheckoutSession, FeeCheckoutProvider, FeeVerifyResult, DeployStateResponse, TradeSnapshot, EncroachmentResponse, SnapshotTimeframe, ExchangeBalancesResponse, MasterExchangeBalancesResponse, SystemHealthResponse } from '../types';
 import { useAuthStore } from '../hooks/useAuth';
 import { triggerAccessExpired } from '../components/AccessExpiredGate';
 import { triggerFeesOwed } from '../components/TradingFeeGate';
@@ -205,6 +205,13 @@ export const botsApi = {
   // direct request ("Create a Master Exchange Balance card in the
   // Admin portal that sees all"). Super Admin only (backend-enforced).
   getMasterExchangeBalances: () => api.get<MasterExchangeBalancesResponse>('/bots/master-exchange-balances', { timeout: 30_000 }).then(r => r.data),
+  // System Health — the memory/activity "indicator signal" by direct
+  // request ("give a memory audit or indicator signal ... what number
+  // of Bots running is safe ... auto engine that manages memory").
+  // Super Admin only (backend-enforced). Cheap, DB-and-/proc-only — no
+  // live exchange calls, so no need for a long timeout like the
+  // balance endpoints above.
+  getSystemHealth: () => api.get<SystemHealthResponse>('/bots/system-health').then(r => r.data),
   // Rename/delete — by direct request ("create options to edit bot
   // names and also to delete bots").
   renameBot: (botId: string, botName: string) =>

@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { ShieldAlert, Users, Link2, Percent, ArrowRight, Bot, Wallet, Zap, Shuffle } from 'lucide-react';
+import { ShieldAlert, Users, Link2, Percent, ArrowRight, Bot, Wallet, Zap, Shuffle, Activity } from 'lucide-react';
 import { FoldedCard } from '../components/FoldedCard';
 import { RoleBadge } from '../components/RoleBadge';
 import { RosterPanel } from '../components/RosterPanel';
@@ -16,6 +16,7 @@ import { useThemeStore } from '../hooks/useTheme';
 import { apiFetch } from '../components/AccessExpiredGate';
 import { PremiumOverviewCard } from '../components/PremiumOverviewCard';
 import { MasterExchangeBalanceCard } from '../components/MasterExchangeBalanceCard';
+import { SystemHealthCard } from '../components/SystemHealthCard';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -695,6 +696,22 @@ export function AdminConsolePage() {
           icon={<Wallet size={18} />} accent="#0ea5e9" dark={dark}
         >
           <MasterExchangeBalanceCard dark={dark} />
+        </FoldedCard>
+      )}
+
+      {/* System Health — the memory/activity "indicator signal" by
+          direct request ("give a memory audit or indicator signal ...
+          what number of Bots running is safe ... auto engine that
+          manages memory ... so a crash is avoided"). Super Admin only
+          (backend-enforced; frontend gate matches every other Master
+          card on this page). */}
+      {isSuperAdmin && (
+        <FoldedCard
+          title="System Health"
+          summary="Memory/activity audit — the engine's own safety signal"
+          icon={<Activity size={18} />} accent="#f59e0b" dark={dark}
+        >
+          <SystemHealthCard dark={dark} />
         </FoldedCard>
       )}
 

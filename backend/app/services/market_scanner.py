@@ -163,6 +163,24 @@ class MarketScanner:
         self.ingestion = shared_ingestion
         self.orchestrator = BotOrchestrator({})
         self._task: asyncio.Task | None = None
+        # Set by memory_watchdog.py when host/process memory crosses
+        # its CRITICAL tier — widens the effective scan interval so
+        # fewer concurrent candle-fetch HTTP calls/in-flight arrays are
+        # outstanding during the pressure window, then reverts the
+        # moment the watchdog clears it. Deliberately scoped to this
+        # loop only — PositionMonitor/PendingOrderMonitor keep running
+        # at full cadence regardless, since they protect money already
+        # at risk (open positions, resting orders), not just scan for
+        # new signals. See memory_watchdog.py's own docstring.
+        self._degraded = False
+
+    def set_degraded(self, degraded: bool) -> None:
+        if degraded != self._degraded:
+            logger.warning("market_scanner_degraded_mode_changed", degraded=degraded)
+        self._degraded = degraded
+
+    def is_degraded(self) -> bool:
+        return self._degraded
 
     def start(self) -> None:
         if self._task is None:
@@ -187,7 +205,50 @@ class MarketScanner:
                 # BotConfig row) should never kill the loop — log and
                 # try again next interval.
                 logger.error("market_scan_cycle_failed", error=str(e))
-            await asyncio.sleep(settings.MARKET_SCANNER_INTERVAL_SECONDS)
+            # 3x the normal interval while degraded (memory_watchdog.py)
+            # — fewer cycles, not zero; PositionMonitor/PendingOrderMonitor
+            # are unaffected, see self._degraded's own comment above.
+            interval = settings.MARKET_SCANNER_INTERVAL_SECONDS * (3 if self._degraded else 1)
+            await asyncio.sleep(interval)
+
+    async def _current_scan_groups(self, db: AsyncSession) -> Dict[tuple, List[BotConfig]]:
+        """(exchange, symbol) -> bots sharing it — the real scan-cost
+        unit, not raw bot count. Confirmed live (16 bots -> only 9
+        distinct groups today): BotOrchestrator.run_all reuses the SAME
+        fetched candles for every bot sharing a group, so a new bot on
+        an EXISTING group costs ~0 extra scan load; only a genuinely
+        NEW (exchange, symbol) combination adds a real fetch. Pulled
+        out of scan_once so GET /bots/system-health can report today's
+        real group count (see config.py's MARKET_SCANNER_GROUP_WARN_COUNT)
+        without re-deriving this logic a second time."""
+        result = await db.execute(select(BotConfig).where(BotConfig.status == BotStatus.ACTIVE))
+        active_bots = result.scalars().all()
+        # Sleeping bots are skipped here (not just in
+        # execution_engine.process_signal) purely as an
+        # optimization — no point spending a candle-fetch/rate-limit
+        # budget on a bot that's about to get skipped anyway. See
+        # BotConfig.sleep_until's own comment.
+        now = datetime.utcnow()
+        active_bots = [b for b in active_bots if not (b.sleep_until and b.sleep_until > now)]
+        if not active_bots:
+            return {}
+
+        # The exchange itself comes from exchange_engine.resolve_exchange
+        # — a "fixed"-mode bot (the default) gets back the exact same
+        # bot.exchange-or-default value this loop always used; an
+        # "auto"-mode bot gets whichever of its OWN credentialed
+        # exchanges the engine currently judges best, and THAT exchange
+        # is what both the candle fetch below AND signal.preferred_broker
+        # resolve to — see exchange_engine.py's own module docstring for
+        # why those two can no longer disagree.
+        from app.services.exchange_engine import resolve_exchange
+        groups: Dict[tuple, List[BotConfig]] = {}
+        for bot in active_bots:
+            default_exchange = bot.exchange or settings.MARKET_SCANNER_DEFAULT_EXCHANGE
+            for symbol in (bot.symbols or []):
+                exchange, _reason = await resolve_exchange(db, bot, symbol, default_exchange)
+                groups.setdefault((exchange, symbol), []).append(bot)
+        return groups
 
     async def scan_once(self) -> None:
         async with AsyncSessionLocal() as db:
@@ -197,37 +258,11 @@ class MarketScanner:
                 # one interval with no restart needed.
                 return
 
-            result = await db.execute(select(BotConfig).where(BotConfig.status == BotStatus.ACTIVE))
-            active_bots = result.scalars().all()
-            # Sleeping bots are skipped here (not just in
-            # execution_engine.process_signal) purely as an
-            # optimization — no point spending a candle-fetch/rate-limit
-            # budget on a bot that's about to get skipped anyway. See
-            # BotConfig.sleep_until's own comment.
-            now = datetime.utcnow()
-            active_bots = [b for b in active_bots if not (b.sleep_until and b.sleep_until > now)]
-            if not active_bots:
+            groups = await self._current_scan_groups(db)
+            if not groups:
                 return
 
-            # Group by (exchange, symbol) so bots sharing a symbol on
-            # the same exchange don't each trigger their own redundant
-            # candle fetch. The exchange itself comes from
-            # exchange_engine.resolve_exchange — a "fixed"-mode bot
-            # (the default) gets back the exact same bot.exchange-or-
-            # default value this loop always used; an "auto"-mode bot
-            # gets whichever of its OWN credentialed exchanges the
-            # engine currently judges best, and THAT exchange is what
-            # both the candle fetch below AND signal.preferred_broker
-            # resolve to — see exchange_engine.py's own module
-            # docstring for why those two can no longer disagree.
-            from app.services.exchange_engine import resolve_exchange, record_result
-            groups: Dict[tuple, List[BotConfig]] = {}
-            for bot in active_bots:
-                default_exchange = bot.exchange or settings.MARKET_SCANNER_DEFAULT_EXCHANGE
-                for symbol in (bot.symbols or []):
-                    exchange, _reason = await resolve_exchange(db, bot, symbol, default_exchange)
-                    groups.setdefault((exchange, symbol), []).append(bot)
-
+            from app.services.exchange_engine import record_result
             for (exchange, symbol), bots_here in groups.items():
                 try:
                     market_data = await self._fetch_market_data(exchange, symbol)

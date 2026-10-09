@@ -287,6 +287,29 @@ export interface MasterExchangeBalancesResponse {
   trader_accounts: TraderExchangeBalanceEntry[];
 }
 
+/** GET /bots/system-health — by direct request ("give a memory audit
+ * or indicator signal ... what number of Bots running is safe ...
+ * auto engine that manages memory"). Mirrors
+ * memory_watchdog.MemoryWatchdog.get_status()'s own shape exactly —
+ * single source of truth, no second copy of this math on the
+ * frontend. */
+export interface SystemHealthResponse {
+  zone: 'ok' | 'warn' | 'critical' | 'unknown';
+  note?: string;
+  process_rss_mb: number | null;
+  process_limit_mb: number;
+  process_ratio: number | null;
+  host_mem_total_mb: number | null;
+  host_mem_available_mb: number | null;
+  host_swap_used_mb: number | null;
+  host_ratio: number | null;
+  scanner_degraded: boolean | null;
+  scan_group_count: number | null;
+  scan_group_warn_count?: number;
+  scan_groups_near_limit?: boolean;
+  active_bot_count: number;
+}
+
 export interface BotMetricsUpdate {
   risk_per_trade?: number;
   max_daily_trades?: number;
