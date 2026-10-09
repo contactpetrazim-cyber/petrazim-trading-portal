@@ -313,6 +313,9 @@ export function PendingApprovalsPage() {
                   <div><span className="text-gray-500">SL:</span> <span className="ml-1 font-mono text-red-400">{t.stop_loss.toFixed(4)}</span></div>
                   <div><span className="text-gray-500">TP1:</span> <span className="ml-1 font-mono text-emerald-400">{t.take_profit?.toFixed(4) ?? '—'}</span></div>
                   <div><span className="text-gray-500">Risk:</span> <span className="ml-1 font-mono">{t.risk_percent}%</span></div>
+                  {t.trailing_activation_r != null && (
+                    <div><span className="text-gray-500">Trailing:</span> <span className="ml-1 font-mono text-amber-500">After TP{t.trailing_activation_r}</span></div>
+                  )}
                   {(t.take_profit_2 || t.take_profit_3) && (
                     <>
                       {t.take_profit_2 && <div><span className="text-gray-500">TP2:</span> <span className="ml-1 font-mono text-emerald-400">{t.take_profit_2.toFixed(4)}</span></div>}

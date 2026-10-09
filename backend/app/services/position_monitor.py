@@ -155,10 +155,22 @@ class PositionMonitor:
         sign = 1 if is_long else -1
 
         # Stop-loss — touched if price has moved against the position
-        # past it. Closes the entire remaining position.
+        # past it. Closes the entire remaining position. This is the
+        # RATCHETED stop once trailing has engaged (see _partial_close)
+        # — breakeven after TP1, TP1's own price after TP2 — so it can
+        # only ever improve, never loosen, regardless of what the
+        # trailing check below does with the runner leg.
         sl_hit = (price <= trade.stop_loss) if is_long else (price >= trade.stop_loss)
         if sl_hit:
             await self._close(db, trade, exit_price=trade.stop_loss, exit_type=ExitType.STOP_LOSS, event="auto_stop_loss_hit")
+            return
+
+        # Once trailing has activated (see _partial_close), the final
+        # runner leg is managed entirely by _check_trailing instead of
+        # the static TP-ladder loop below — see Trade.trailing_active's
+        # own comment for the full "let winners run" mechanism.
+        if trade.trailing_active:
+            await self._check_trailing(db, trade, price)
             return
 
         # Take-profit levels, in order — only the first untriggered
@@ -234,6 +246,39 @@ class PositionMonitor:
         elif level == 2:
             trade.tp2_triggered = True
 
+        # Ratchet + trailing activation — the real "let winners run"
+        # mechanism, by direct request after a real screenshot showed
+        # Actual R capped at ~2.3R repeatedly. Gated entirely on
+        # trailing_activation_r being set (None means use_trailing_stop
+        # was off at trade-creation time — old, unchanged behavior).
+        # Tighten-only (max/min guarded) so the floor can never loosen,
+        # whatever level fires.
+        if trade.trailing_activation_r is not None:
+            is_long = trade.direction == TradeDirection.LONG
+            if level == 1:
+                # Breakeven the moment the trade has proven itself at
+                # TP1 — fixes the real "give-back" bug this was built
+                # from (TRD_bot_3_fvg_expansion_2_20261009_003055: hit
+                # TP1 AND TP2, then reversed all the way back to the
+                # ORIGINAL stop, closing at 0.8R instead of something
+                # close to what TP2 had already proven).
+                trade.stop_loss = max(trade.stop_loss, trade.entry_price) if is_long else min(trade.stop_loss, trade.entry_price)
+            elif level == 2 and trade.take_profit_1 is not None:
+                trade.stop_loss = max(trade.stop_loss, trade.take_profit_1) if is_long else min(trade.stop_loss, trade.take_profit_1)
+
+            # Activation — 1.0 (after TP1) or 2.0 (after TP2, the
+            # default) matches this level's own R-multiple exactly
+            # (TP1/TP2 are defined at exactly 1R/2R by
+            # smc_algorithms.calculate_targets), so a plain equality
+            # check is all that's needed. _partial_close is only ever
+            # called for a non-last level (the last level always goes
+            # through _close instead), so there's always a genuine
+            # runner leg left once this fires.
+            if float(level) == trade.trailing_activation_r:
+                trade.trailing_active = True
+                trade.trailing_peak_price = exit_price
+                trade.trailing_stop_price = self._trailing_stop_from_peak(trade, exit_price)
+
         db.add(TradeLog(
             trade_id=trade.trade_id, event_type=event,
             event_data={"exit_price": exit_price, "closed_lot_size": round(closed_size, 8), "realized_pnl_this_close": round(pnl_this_close, 2)},
@@ -275,3 +320,57 @@ class PositionMonitor:
         ))
         await db.commit()
         logger.info("position_monitor_closed", trade_id=trade.trade_id, exit_type=exit_type.value, exit_price=exit_price, pnl=round(pnl_this_close, 2))
+
+    def _trailing_stop_from_peak(self, trade: Trade, peak: float) -> Optional[float]:
+        """The trail level implied by the given peak — the trade's own
+        ORIGINAL (pre-ratchet) risk distance behind it. Reuses
+        initial_stop_loss (not the live, already-ratcheted stop_loss)
+        as the distance basis — same "snapshot at open" column every
+        other immutable-reference field on this row already is. The
+        only trailing mode implemented in v1 regardless of BotConfig.
+        trailing_stop_distance's own "structure"/"atr"/"fixed" value —
+        see that column's own comment for why: this is the one mode
+        with zero new data dependencies (no candle/ATR fetch needed
+        here, which only ever has a ticker price)."""
+        if trade.initial_stop_loss is None:
+            return None
+        sl_distance = abs(trade.entry_price - trade.initial_stop_loss)
+        if sl_distance <= 0:
+            return None
+        is_long = trade.direction == TradeDirection.LONG
+        return peak - sl_distance if is_long else peak + sl_distance
+
+    async def _check_trailing(self, db, trade: Trade, price: float) -> None:
+        """Manages the final runner leg once trailing has activated
+        (see _partial_close) — replaces what used to be a hard,
+        fixed-price close on the last configured TP level. Advances
+        the peak/trail level only in the favorable direction each
+        cycle, and closes the entire remaining position the moment
+        price crosses the trail — which can land well beyond the old
+        static target when the move keeps going, the actual "let
+        winners run" improvement this was built for. The honest
+        trade-off, stated plainly: a trade that touches the old static
+        target and instantly reverses can close for a little LESS than
+        that guaranteed target would have — the inherent cost of
+        giving a winner room to run further the rest of the time."""
+        is_long = trade.direction == TradeDirection.LONG
+
+        if trade.initial_stop_loss is None or abs(trade.entry_price - trade.initial_stop_loss) <= 0:
+            # Shouldn't happen for a trade that reached activation
+            # (initial_stop_loss is always set at creation) — defensive
+            # fallback: close at the current price rather than trail
+            # forever with no known distance.
+            await self._close(db, trade, exit_price=price, exit_type=ExitType.TRAILING, event="auto_trailing_stop_no_distance")
+            return
+
+        peak = trade.trailing_peak_price
+        peak = max(peak, price) if is_long else min(peak, price)
+        trade.trailing_peak_price = peak
+        trail_stop = self._trailing_stop_from_peak(trade, peak)
+        trade.trailing_stop_price = trail_stop
+
+        hit = (price <= trail_stop) if is_long else (price >= trail_stop)
+        if hit:
+            await self._close(db, trade, exit_price=trail_stop, exit_type=ExitType.TRAILING, event="auto_trailing_stop_hit")
+        else:
+            await db.commit()

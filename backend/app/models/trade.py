@@ -96,6 +96,40 @@ class Trade(Base):
     tp1_triggered = Column(Boolean, default=False)
     tp2_triggered = Column(Boolean, default=False)
 
+    # Trailing exit on the final runner leg — the real "let winners
+    # run" mechanism, by direct request after a real screenshot showed
+    # Actual R capped at ~2.3R repeatedly ("how can the actual R for
+    # wins be improved"). Replaces a hard, fixed-price close on the
+    # LAST configured TP level with a trailing stop once the trade
+    # reaches trailing_activation_r — see position_monitor.py's
+    # _check_trailing for the full mechanism. Resolved ONCE at
+    # trade-creation time (not re-read from bot/global config every
+    # cycle) — same "snapshot what was true at open" convention
+    # initial_stop_loss/initial_lot_size above already use.
+    #   - trailing_activation_r: the R-multiple (1.0 = after TP1,
+    #     2.0 = after TP2, the default) at which trailing takes over
+    #     for the runner leg, resolved from the order form -> bot
+    #     config/manual global setting -> platform default cascade.
+    #     NULL means trailing is OFF for this trade entirely (the
+    #     old, unchanged static-TP3 behavior) — the column default is
+    #     NULL, not 2.0, deliberately: any Trade-creation path that
+    #     doesn't explicitly resolve this (e.g. a webhook-triggered
+    #     trade — out of scope for this feature's first pass) safely
+    #     falls back to today's exact behavior rather than silently
+    #     opting into a new mechanism it was never taught about.
+    #   - trailing_active: whether this trade has actually crossed
+    #     that activation point yet.
+    #   - trailing_peak_price / trailing_stop_price: the best price
+    #     seen since activation, and the resulting trail level —
+    #     trailing_stop_price is persisted every cycle (not
+    #     recomputed from the other two on read) so the frontend has a
+    #     single number to draw on a chart, same reasoning as every
+    #     other already-computed value on this row.
+    trailing_activation_r = Column(Float, nullable=True)
+    trailing_active = Column(Boolean, default=False)
+    trailing_peak_price = Column(Float)
+    trailing_stop_price = Column(Float)
+
     @property
     def take_profit(self) -> Optional[float]:
         """Alias for take_profit_1 — schemas.TradeResponse has always
@@ -293,5 +327,18 @@ class ManualTradingSettings(Base):
     schedule_sessions = Column(JSON, nullable=True)
     schedule_days = Column(JSON, nullable=True)
     schedule_half_day = Column(String(2), nullable=True)
+
+    # Trailing exit — manual trading's own global counterpart to
+    # BotConfig.use_trailing_stop/trailing_stop_activation, by direct
+    # request ("Provide a toggle in the bots and manual settings and
+    # order form"). NULL on trailing_activation_r means "inherit the
+    # platform default (2.0 = after TP2)" — same precedence shape
+    # leverage above already uses, not the schedule columns' "NULL/[]
+    # means All" convention (no such ambiguity here, there's only ever
+    # one active value). A manual order's own override (see
+    # ManualOrderRequest.trailing_activation_r) beats this row, which
+    # beats the 2.0 platform default.
+    use_trailing_stop = Column(Boolean, nullable=False, default=True)
+    trailing_activation_r = Column(Float, nullable=True)
 
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

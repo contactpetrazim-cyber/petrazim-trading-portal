@@ -215,6 +215,11 @@ class BotConfigResponse(BaseModel):
     max_portfolio_exposure: float
     min_rr_ratio: float
     use_trailing_stop: bool
+    # The R-multiple at which the final TP leg switches from a fixed
+    # price to a trailing exit — 1.0 (after TP1) or 2.0 (after TP2,
+    # the default). See BotConfig.trailing_stop_activation's own
+    # comment.
+    trailing_stop_activation: float = 2.0
     exchange: Optional[str] = None
     # Exchange Engine — see BotConfig.exchange_mode's own comment.
     # "fixed" (default) means `exchange` above is what's actually
@@ -387,6 +392,9 @@ class BotMetricsUpdate(BaseModel):
     max_portfolio_exposure: Optional[float] = Field(None, ge=0.1, le=100.0)
     min_rr_ratio: Optional[float] = Field(None, ge=0.1, le=20.0)
     use_trailing_stop: Optional[bool] = None
+    # 1.0 (after TP1) or 2.0 (after TP2, the default) — see
+    # BotConfig.trailing_stop_activation's own comment.
+    trailing_stop_activation: Optional[Literal[1.0, 2.0]] = None
     symbols: Optional[List[str]] = None
     timeframes: Optional[List[str]] = None
     # Starting Reference Capital/Balance — by direct request ("Create a

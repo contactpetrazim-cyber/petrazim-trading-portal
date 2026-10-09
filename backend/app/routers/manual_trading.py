@@ -193,6 +193,12 @@ class SettingsResponse(BaseModel):
     schedule_sessions: Optional[List[str]] = None
     schedule_days: Optional[List[int]] = None
     schedule_half_day: Optional[str] = None
+    # Trailing exit — manual trading's own global counterpart to
+    # BotConfig.use_trailing_stop/trailing_stop_activation. See
+    # ManualTradingSettings.use_trailing_stop's own comment.
+    use_trailing_stop: bool = True
+    trailing_activation_r: Optional[float] = None
+    effective_trailing_activation_r: float = 2.0
 
 
 async def _to_response(db: AsyncSession, row: ManualTradingSettings) -> SettingsResponse:
@@ -211,6 +217,8 @@ async def _to_response(db: AsyncSession, row: ManualTradingSettings) -> Settings
         effective_max_portfolio_exposure=eff.max_portfolio_exposure, effective_min_rr_ratio=eff.min_rr_ratio,
         leverage=row.leverage, effective_leverage=effective_leverage,
         schedule_sessions=row.schedule_sessions, schedule_days=row.schedule_days, schedule_half_day=row.schedule_half_day,
+        use_trailing_stop=row.use_trailing_stop, trailing_activation_r=row.trailing_activation_r,
+        effective_trailing_activation_r=row.trailing_activation_r if row.trailing_activation_r is not None else 2.0,
     )
 
 
@@ -250,6 +258,14 @@ class SettingsUpdateRequest(BaseModel):
     schedule_sessions: Optional[List[Literal["london_ny_overlap", "tokyo_london_overlap", "asian", "twilight"]]] = None
     schedule_days: Optional[List[int]] = Field(default=None, description="ISO weekday ints, Monday=0..Sunday=6")
     schedule_half_day: Optional[Literal["am", "pm", "all"]] = None
+    # Trailing exit — manual trading's own global counterpart to
+    # BotConfig.use_trailing_stop/trailing_stop_activation, by direct
+    # request ("Provide a toggle in the bots and manual settings and
+    # order form"). Plain "field omitted == leave untouched" (no
+    # special "explicit reset" ambiguity like the schedule fields
+    # above — there's only ever one active value here).
+    use_trailing_stop: Optional[bool] = None
+    trailing_activation_r: Optional[Literal[1.0, 2.0]] = None
 
 
 @router.patch("/settings", response_model=SettingsResponse)
@@ -288,6 +304,13 @@ class ManualOrderRequest(BaseModel):
     risk_amount: Optional[float] = Field(default=None, gt=0, description="Absolute risk in account currency — the default sizing mode, matching a real exchange's own order ticket.")
     risk_percent: Optional[float] = Field(default=None, gt=0, le=100)
     preferred_broker: Optional[str] = None
+    # Per-order trailing-activation override — by direct request
+    # ("Provide a toggle in the bots and manual settings and order
+    # form"). None falls through the cascade: this order's own choice
+    # -> ManualTradingSettings.trailing_activation_r -> platform
+    # default 2.0. Same override-beats-global shape as preferred_broker
+    # above.
+    trailing_activation_r: Optional[Literal[1.0, 2.0]] = None
 
 
 class ManualOrderResponse(BaseModel):
@@ -454,6 +477,24 @@ async def place_manual_order(
         # here on — no separate naive-instant-fill branch any more.
         is_test = paper
 
+        # Trailing-activation cascade — by direct request ("Provide a
+        # toggle in the bots and manual settings and order form"):
+        # this order's own override (which also means "on" for this
+        # order regardless of the global switch) -> this trader's
+        # global use_trailing_stop/trailing_activation_r -> off. None
+        # means trailing never engages for this trade at all (the old,
+        # unchanged static-TP3 behavior) — see position_monitor.py's
+        # _partial_close/_check_trailing. Resolved once, here, and
+        # snapshotted on the Trade row — same "decide at open, don't
+        # re-read config every cycle" convention initial_stop_loss/
+        # initial_lot_size above already use.
+        if req.trailing_activation_r is not None:
+            trailing_activation_r = req.trailing_activation_r
+        elif settings_row.use_trailing_stop:
+            trailing_activation_r = settings_row.trailing_activation_r if settings_row.trailing_activation_r is not None else 2.0
+        else:
+            trailing_activation_r = None
+
         trade = Trade(
             trade_id=trade_id, user_id=user.id, bot_id=f"manual_{user.id}", bot_name="Manual Trade",
             strategy_type="manual", symbol=req.symbol.upper(),
@@ -468,6 +509,7 @@ async def place_manual_order(
             lot_size=lot_size, risk_percent=risk_percent,
             risk_amount=lot_size * risk_dist, requires_approval=False, is_test=is_test,
             broker_name=req.preferred_broker,
+            trailing_activation_r=trailing_activation_r,
             status=TradeStatus.PENDING,
             entry_type={"limit": EntryType.LIMIT, "stop": EntryType.STOP}.get(req.order_type, EntryType.MARKET),
         )

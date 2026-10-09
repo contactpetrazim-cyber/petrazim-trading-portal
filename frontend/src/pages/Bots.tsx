@@ -243,6 +243,7 @@ export function BotsPage() {
       max_portfolio_exposure: bot.max_portfolio_exposure,
       min_rr_ratio: bot.min_rr_ratio,
       use_trailing_stop: bot.use_trailing_stop,
+      trailing_stop_activation: (bot.trailing_stop_activation === 1 ? 1 : 2) as 1 | 2,
       account_balance_usd: bot.account_balance_usd,
       leverage: bot.leverage,
       margin_mode: bot.margin_mode ?? 'dedicated',
@@ -838,6 +839,38 @@ export function BotsPage() {
                         />
                         Use trailing stop
                       </label>
+                      {/* Trailing activation — "let winners run" by
+                          direct request ("Provide a toggle in the
+                          bots and manual settings and order form ...
+                          default is TP2"). Only meaningful while the
+                          checkbox above is on. */}
+                      {editing.use_trailing_stop && (
+                        <div className="col-span-2 flex items-center gap-1.5 -mt-1">
+                          <span className="text-xs text-gray-400">Trail from:</span>
+                          <button
+                            type="button"
+                            onClick={() => setEditing({ ...editing, trailing_stop_activation: 1 })}
+                            className={`px-2 py-0.5 rounded text-xs font-medium border ${
+                              editing.trailing_stop_activation === 1
+                                ? 'bg-indigo-500 text-white border-transparent'
+                                : dark ? 'bg-white/5 text-white/60 border-white/10' : 'bg-gray-50 text-gray-600 border-gray-200'
+                            }`}
+                          >
+                            After TP1
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setEditing({ ...editing, trailing_stop_activation: 2 })}
+                            className={`px-2 py-0.5 rounded text-xs font-medium border ${
+                              (editing.trailing_stop_activation ?? 2) === 2
+                                ? 'bg-indigo-500 text-white border-transparent'
+                                : dark ? 'bg-white/5 text-white/60 border-white/10' : 'bg-gray-50 text-gray-600 border-gray-200'
+                            }`}
+                          >
+                            After TP2 · default
+                          </button>
+                        </div>
+                      )}
                     </div>
 
                     {/* Instrument pairs — by direct request ("create an

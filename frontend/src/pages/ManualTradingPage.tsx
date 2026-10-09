@@ -253,6 +253,10 @@ export function ManualTradingPage() {
   const [takeProfit3, setTakeProfit3] = useState('');
   const [tpEnabled, setTpEnabled] = useState(true);
   const [showExtraTargets, setShowExtraTargets] = useState(false);
+  // Trailing Exit per-order override — null (the default) inherits
+  // Global Settings' own choice (RiskSettingsCard). See
+  // ManualOrderRequest.trailing_activation_r's own backend comment.
+  const [trailingOverride, setTrailingOverride] = useState<1 | 2 | null>(null);
   const [accountEquity, setAccountEquity] = useState('10000');
   const [riskMode, setRiskMode] = useState<'dollar' | 'percent'>('dollar');
   // $10 default — by direct request ("Make default Risk (USD) equal
@@ -464,6 +468,10 @@ export function ManualTradingPage() {
         // preferred_broker unset for them and lets the backend's
         // own symbol-based routing decide instead.
         preferred_broker: quickSymbol.brokerId ?? null,
+        // Per-order Trailing Exit override — null inherits Global
+        // Settings. See ManualOrderRequest.trailing_activation_r's own
+        // backend comment.
+        trailing_activation_r: trailingOverride,
       };
       const res = await apiFetch(`${API_URL}/manual-trading/order`, {
         // 60s, not the default 20s: a free-tier backend waking from
@@ -1212,6 +1220,36 @@ export function ManualTradingPage() {
                   {tp3Mode === 'price' && effectiveEntryForPreview > 0 && (
                     <PercentOffsetRow sign="+" dark={dark} onApply={(pct) => setTakeProfit3(String((priceForPercentOffset(pct, 'tp') ?? 0).toFixed(4)))} />
                   )}
+                </div>
+                {/* Trailing Exit override — by direct request ("Provide
+                    a toggle in the bots and manual settings and order
+                    form"). Per-order only; leaving it on "Default"
+                    inherits your Global Settings choice (Dashboard's
+                    Risk Settings card). */}
+                <div className="py-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className={`text-sm ${dark ? 'text-white/50' : 'text-gray-500'}`}>Trailing Exit</span>
+                    <div className="flex items-center gap-1.5">
+                      {([
+                        { v: null, label: 'Default' },
+                        { v: 1 as const, label: 'After TP1' },
+                        { v: 2 as const, label: 'After TP2' },
+                      ]).map((opt) => (
+                        <button
+                          key={String(opt.v)}
+                          type="button"
+                          onClick={() => setTrailingOverride(opt.v)}
+                          className={`px-2 py-1 rounded-md text-xs font-medium border ${
+                            trailingOverride === opt.v
+                              ? 'bg-indigo-500 text-white border-transparent'
+                              : dark ? 'bg-white/5 text-white/60 border-white/10' : 'bg-gray-50 text-gray-600 border-gray-200'
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
