@@ -61,7 +61,7 @@ from app.config import get_settings
 from app.database import AsyncSessionLocal
 from app.models.bot import BotConfig
 from app.models.trade import ExitType, Trade, TradeDirection, TradeLog, TradeStatus
-from app.services.live_price import get_crypto_price
+from app.services.live_price import get_broker_ticker_price, get_crypto_price
 from app.services.manual_trading import compute_blended_r_multiple
 
 logger = structlog.get_logger()
@@ -109,6 +109,24 @@ class PositionMonitor:
             # commonly share the same instrument.
             symbols = {t.symbol for t in active_paper_trades}
             prices = dict(zip(symbols, await asyncio.gather(*(get_crypto_price(s) for s in symbols))))
+
+            # Broker-ticker fallback for any symbol Binance/CoinGecko
+            # don't cover (JPYUSDT.P, NAS100USDT.P, OILBRENTUSDT.P, ...)
+            # — asks the trade's own exchange directly instead of
+            # leaving it stuck ACTIVE forever. See
+            # live_price.get_broker_ticker_price's own docstring for
+            # the full bug this closes.
+            still_missing = [t for t in active_paper_trades if prices.get(t.symbol) is None]
+            if still_missing:
+                fallback_keys = {(t.broker_name, t.symbol) for t in still_missing}
+                fallback_prices = dict(zip(
+                    fallback_keys,
+                    await asyncio.gather(*(get_broker_ticker_price(b, s) for b, s in fallback_keys)),
+                ))
+                for t in still_missing:
+                    p = fallback_prices.get((t.broker_name, t.symbol))
+                    if p is not None:
+                        prices[t.symbol] = p
 
             for trade in active_paper_trades:
                 price = prices.get(trade.symbol)

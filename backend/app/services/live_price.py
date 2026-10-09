@@ -26,12 +26,83 @@ import httpx
 import structlog
 
 from app.config import get_settings
-from app.services.broker_integrations import _FAILOVER_EXCEPTIONS, _send_with_failover
+from app.services.broker_integrations import (
+    BingXBroker, BinanceBroker, BybitBroker, MexcBroker,
+    _FAILOVER_EXCEPTIONS, _send_with_failover,
+)
 from app.services.proxy_health import record_proxy_failure, record_proxy_success
 
 logger = structlog.get_logger()
 
 COINGECKO_IDS = {"BTCUSDT": "bitcoin", "ETHUSDT": "ethereum", "BNBUSDT": "binancecoin", "SOLUSDT": "solana"}
+
+# Permanent fallback for a symbol Binance's spot market and CoinGecko's
+# own narrow 4-symbol allowlist above don't cover at all — JPYUSDT.P,
+# NAS100USDT.P, OILBRENTUSDT.P, and any future symbol in the same boat
+# (a synthetic/index/commodity-style pair only listed on the trade's
+# own exchange, not on Binance spot). Found live: a JPYUSDT.P paper
+# trade sat ACTIVE for 17+ hours because get_crypto_price() below
+# always returned None for it (confirmed via production logs —
+# live_price_binance_non_200 status=400 symbol=JPYUSDT, nonstop —
+# Binance simply has no JPYUSDT spot pair), and both position_monitor.py
+# and pending_order_monitor.py silently skip a trade forever once price
+# comes back None. Covers every crypto broker this app actually places
+# paper/live orders through; TradeLocker/MetaApi/Oanda (MT5/forex
+# brokers) aren't included here since paper-trade symbols on those
+# routes are genuinely out of scope (see this module's own "Deliberately
+# scoped to crypto" note above) and don't share this bug.
+_BROKER_TICKER_CLASSES = {
+    "bingx": BingXBroker, "mexc": MexcBroker, "binance": BinanceBroker, "bybit": BybitBroker,
+}
+
+
+async def get_broker_ticker_price(broker_name: Optional[str], symbol: str) -> Optional[float]:
+    """Last-resort fallback once get_crypto_price() (Binance+CoinGecko)
+    both miss — asks the trade's OWN exchange directly, which obviously
+    has a real live price for any symbol it actually lists (that's how
+    the trade's own entry candles were fetched in the first place).
+    Reuses each Broker class's already-public, unsigned
+    get_ticker_price() — api_key="" works, confirmed safe: it's the
+    exact same call execution_engine.py's own _check_price_deviation
+    already trusts with no real credentials, on every one of these four
+    broker classes. Never raises; returns None exactly like
+    get_crypto_price, so callers keep their existing skip-and-retry
+    behavior for a genuinely unresolvable (broker_name, symbol)."""
+    broker_cls = _BROKER_TICKER_CLASSES.get((broker_name or "").lower())
+    if not broker_cls:
+        return None
+
+    clean = symbol.upper().replace("BINANCE:", "").replace("/", "").replace("-", "")
+    if clean.endswith(".P"):
+        clean = clean[:-2]
+
+    # BingX's get_ticker_price only replaces "/" with "-" — a plain
+    # concatenated symbol like "OILBRENTUSDT" passes straight through
+    # and BingX rejects it ("must ... end with -USDT or -USDC"),
+    # confirmed live. MEXC/Binance/Bybit all expect the concatenated
+    # form instead (MEXC's own _mexc_symbol splits it itself; Binance/
+    # Bybit's get_ticker_price explicitly strips any dash) — so only
+    # BingX needs the dash inserted here.
+    query_symbol = clean
+    if broker_cls is BingXBroker:
+        for quote in ("USDT", "USDC", "USD"):
+            if clean.endswith(quote) and clean != quote:
+                query_symbol = f"{clean[:-len(quote)]}-{quote}"
+                break
+
+    client = broker_cls(api_key="", api_secret="")
+    try:
+        ticker = await client.get_ticker_price(query_symbol)
+        if ticker.get("success") and ticker.get("price"):
+            return float(ticker["price"])
+        logger.warning("live_price_broker_ticker_miss", broker=broker_name, symbol=clean, error=ticker.get("error"))
+    except Exception as e:
+        logger.warning("live_price_broker_ticker_failed", broker=broker_name, symbol=clean, error=str(e))
+    finally:
+        await client.client.aclose()
+        if client.backup_client is not None:
+            await client.backup_client.aclose()
+    return None
 
 _settings = get_settings()
 _binance_client = httpx.AsyncClient(
