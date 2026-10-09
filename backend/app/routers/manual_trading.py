@@ -199,6 +199,11 @@ class SettingsResponse(BaseModel):
     use_trailing_stop: bool = True
     trailing_activation_r: Optional[float] = None
     effective_trailing_activation_r: float = 2.0
+    # Trailing Loss Guard — manual trading's own on/off switch, by
+    # direct request ("Can we apply similar and adapt to manual
+    # trading with an on or off guard toggle"). See
+    # ManualTradingSettings.use_loss_guard's own comment.
+    use_loss_guard: bool = True
 
 
 async def _to_response(db: AsyncSession, row: ManualTradingSettings) -> SettingsResponse:
@@ -219,6 +224,7 @@ async def _to_response(db: AsyncSession, row: ManualTradingSettings) -> Settings
         schedule_sessions=row.schedule_sessions, schedule_days=row.schedule_days, schedule_half_day=row.schedule_half_day,
         use_trailing_stop=row.use_trailing_stop, trailing_activation_r=row.trailing_activation_r,
         effective_trailing_activation_r=row.trailing_activation_r if row.trailing_activation_r is not None else 2.0,
+        use_loss_guard=row.use_loss_guard,
     )
 
 
@@ -266,6 +272,11 @@ class SettingsUpdateRequest(BaseModel):
     # above — there's only ever one active value here).
     use_trailing_stop: Optional[bool] = None
     trailing_activation_r: Optional[Literal[1.0, 2.0]] = None
+    # Trailing Loss Guard — manual trading's own on/off switch, by
+    # direct request ("Can we apply similar and adapt to manual
+    # trading with an on or off guard toggle"). Plain "field omitted
+    # == leave untouched", same as use_trailing_stop above.
+    use_loss_guard: Optional[bool] = None
 
 
 @router.patch("/settings", response_model=SettingsResponse)
@@ -354,6 +365,32 @@ async def place_manual_order(
                 status_code=400,
                 detail="Outside your configured Trading Schedule (Global Settings) — no new manual orders right now.",
             )
+
+        # Trailing Loss Guard — manual trading's own on/off switch, by
+        # direct request ("Can we apply similar and adapt to manual
+        # trading with an on or off guard toggle"). The bot-wide check
+        # already applies unmodified: every manual trade is tagged
+        # bot_id=f"manual_{user.id}" below, the exact same column
+        # check_bot reads for a bot. check_pair has no bot_id filter at
+        # all, so it's always been seeing this trader's own manual
+        # trades in its aggregate regardless of this toggle — the
+        # toggle only controls whether a NEW manual order gets BLOCKED
+        # by either check, same new-order-only scoping as the schedule
+        # gate just above.
+        if settings_row.use_loss_guard:
+            from app.services.trailing_loss_guard import check_bot as _loss_guard_check_bot, check_pair as _loss_guard_check_pair
+            own_guard = await _loss_guard_check_bot(db, f"manual_{user.id}")
+            if own_guard.tripped:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Trailing Loss Guard: your own manual trading is on a cold streak ({own_guard.reason}) — no new orders right now. Turn this off in Global Settings if you want to override it.",
+                )
+            pair_guard = await _loss_guard_check_pair(db, req.symbol.upper())
+            if pair_guard.tripped:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Trailing Loss Guard: {req.symbol.upper()} is on a cold streak across bots ({pair_guard.reason}) — no new orders on this pair right now. Turn this off in Global Settings if you want to override it.",
+                )
 
         # Paper Trading is its own, permanent toggle — independent of
         # Test/Live — by direct request ("provide a test vs live toggle

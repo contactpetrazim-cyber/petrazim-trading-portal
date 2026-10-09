@@ -341,4 +341,20 @@ class ManualTradingSettings(Base):
     use_trailing_stop = Column(Boolean, nullable=False, default=True)
     trailing_activation_r = Column(Float, nullable=True)
 
+    # Trailing Loss Guard — manual trading's own on/off switch, by
+    # direct request ("Can we apply similar and adapt to manual
+    # trading with an on or off guard toggle"). The bot-wide half
+    # (services/trailing_loss_guard.py::check_bot) already applies
+    # unmodified to a trader's own manual trading — every manual trade
+    # is already tagged bot_id=f"manual_{user.id}" (manual_trading.py's
+    # own place_manual_order), the exact same column check_bot reads.
+    # The pair-wide half (check_pair) has no bot_id filter at all, so
+    # it was already seeing manual trades in its aggregate the moment
+    # it shipped — this toggle only controls whether a NEW manual
+    # order gets blocked by either check, not whether manual trades
+    # are counted (they always are, same as a bot's own are). Defaults
+    # True — same "protective by default, opt out explicitly" choice
+    # use_trailing_stop above already makes.
+    use_loss_guard = Column(Boolean, nullable=False, default=True)
+
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

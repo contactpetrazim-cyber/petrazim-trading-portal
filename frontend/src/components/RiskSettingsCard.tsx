@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ShieldAlert, Clock3, TrendingUp } from 'lucide-react';
+import { ShieldAlert, Clock3, TrendingUp, Snowflake } from 'lucide-react';
 import { FoldedCard } from './FoldedCard';
 import { useAuth } from '../hooks/useAuth';
 import { apiFetch } from './AccessExpiredGate';
@@ -44,6 +44,12 @@ interface Settings {
   use_trailing_stop: boolean;
   trailing_activation_r: number | null;
   effective_trailing_activation_r: number;
+  // Trailing Loss Guard — manual trading's own on/off switch, by
+  // direct request ("Can we apply similar and adapt to manual trading
+  // with an on or off guard toggle"). See backend
+  // ManualTradingSettings.use_loss_guard's own comment for the full
+  // bot-wide + pair-wide mechanism this gates.
+  use_loss_guard: boolean;
 }
 
 /**
@@ -297,6 +303,27 @@ export function RiskSettingsCard({ dark = false }: { dark?: boolean }) {
                   <Chip active={settings.effective_trailing_activation_r === 2} dark={dark} onClick={() => updateSettings({ trailing_activation_r: 2 })}>After TP2 (2R) · default</Chip>
                 </>
               )}
+            </div>
+          </div>
+          {/* Trailing Loss Guard — manual trading's own on/off switch,
+              by direct request ("Can we apply similar and adapt to
+              manual trading with an on or off guard toggle"). Blocks
+              a NEW manual order (never an existing position) while
+              your own manual trading, or the pair you're about to
+              trade across every bot, is on a cold streak — see
+              services/trailing_loss_guard.py's own module docstring
+              for the full mechanism. On by default. */}
+          <div className={`mt-3 pt-3 border-t ${dark ? 'border-smc-border' : 'border-corporate-bg'}`}>
+            <div className="flex items-center gap-1.5 text-xs font-medium mb-1.5">
+              <Snowflake size={13} className={dark ? 'text-white/50' : 'text-gray-500'} />
+              Trailing Loss Guard
+            </div>
+            <p className={`text-[11px] mb-2 ${dark ? 'text-white/50' : 'text-gray-500'}`}>
+              Pauses new manual orders while your own trading, or the pair you're about to trade, is on a real cold streak (3 losses in a row, or a heavy loss within the last 4 hours).
+            </p>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Chip active={settings.use_loss_guard} dark={dark} onClick={() => updateSettings({ use_loss_guard: true })}>On · default</Chip>
+              <Chip active={!settings.use_loss_guard} dark={dark} onClick={() => updateSettings({ use_loss_guard: false })}>Off</Chip>
             </div>
           </div>
         </div>
