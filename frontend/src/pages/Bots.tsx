@@ -1,6 +1,6 @@
 
 import { useEffect, useState } from 'react';
-import { Bot, Play, Pause, Settings, TrendingUp, Save, Plus, X, Pencil, Trash2, ChevronDown } from 'lucide-react';
+import { Bot, Play, Pause, Settings, TrendingUp, Save, Plus, X, Pencil, Trash2, ChevronDown, Copy } from 'lucide-react';
 import { botsApi } from '../services/api';
 import { BotSleepAndSubAuto } from '../components/BotSleepAndSubAuto';
 import { ExchangeEngineControl } from '../components/ExchangeEngineControl';
@@ -355,6 +355,28 @@ export function BotsPage() {
     loadBots();
   }
 
+  // Duplicate — by direct request ("Provide an option to duplicate a
+  // bot - then allow for name updates or strategy settings update").
+  // The new bot starts PAUSED with every setting copied from the
+  // source — immediately opens it for rename/edit via the exact same
+  // panel every other bot already uses, rather than a separate flow.
+  const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
+  const [duplicateError, setDuplicateError] = useState<string | null>(null);
+  async function duplicateBot(bot: BotConfig) {
+    setDuplicatingId(bot.bot_id);
+    setDuplicateError(null);
+    try {
+      const clone = await botsApi.duplicateBot(bot.bot_id);
+      await loadBots();
+      openBot(clone);
+      startRename(clone);
+    } catch (e: any) {
+      setDuplicateError(formatApiError(e?.response?.data?.detail, 'Could not duplicate this bot.'));
+    } finally {
+      setDuplicatingId(null);
+    }
+  }
+
   async function deleteBot(botId: string) {
     setDeleting(true);
     setDeleteError(null);
@@ -395,6 +417,13 @@ export function BotsPage() {
         <div className="flex items-center justify-between gap-3 rounded-xl border border-smc-danger/30 bg-smc-danger/10 p-3 text-sm text-smc-danger">
           <span>{loadError}</span>
           <button type="button" onClick={loadBots} className="font-semibold underline">Try again</button>
+        </div>
+      )}
+
+      {duplicateError && (
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-smc-danger/30 bg-smc-danger/10 p-3 text-sm text-smc-danger">
+          <span>{duplicateError}</span>
+          <button type="button" onClick={() => setDuplicateError(null)} className="font-semibold underline">Dismiss</button>
         </div>
       )}
 
@@ -446,6 +475,14 @@ export function BotsPage() {
                           className="text-gray-400 hover:text-gray-300"
                         >
                           <Pencil size={12} />
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); duplicateBot(bot); }}
+                          disabled={duplicatingId === bot.bot_id}
+                          title="Duplicate bot" aria-label="Duplicate bot"
+                          className="text-gray-400 hover:text-gray-300 disabled:opacity-50"
+                        >
+                          <Copy size={12} />
                         </button>
                       </div>
                     )}

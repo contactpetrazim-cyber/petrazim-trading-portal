@@ -217,6 +217,11 @@ export const botsApi = {
   renameBot: (botId: string, botName: string) =>
     api.patch<BotConfig>(`/bots/${botId}/name`, { bot_name: botName }).then(r => r.data),
   deleteBot: (botId: string) => api.delete(`/bots/${botId}`).then(r => r.data),
+  // Duplicate — by direct request ("Provide an option to duplicate a
+  // bot - then allow for name updates or strategy settings update").
+  // Returns the new bot (PAUSED, "(Copy)" suffix) — rename/adjust it
+  // afterward with the same renameBot/updateMetrics calls above.
+  duplicateBot: (botId: string) => api.post<BotConfig>(`/bots/${botId}/duplicate`).then(r => r.data),
   // Exchange Engine — pin a Fixed exchange and/or switch mode
   // ("fixed" or "auto"). Either field alone is enough; omit the one
   // you're not changing. By direct request ("Develop an optimal
