@@ -21,6 +21,7 @@ from app.config import get_settings
 from app.schemas import BotConfigCreate, BotConfigResponse, BotToggle, BotExchangeUpdate, BotMetricsUpdate, BotRename, BotTradingModeUpdate, BotSleepUpdate, BotSubAutoUpdate, BotScheduleUpdate
 import json
 import structlog
+import uuid
 
 router = APIRouter(prefix="/bots", tags=["bots"])
 logger = structlog.get_logger()
@@ -679,6 +680,63 @@ async def rename_bot(
     await db.commit()
     await db.refresh(bot)
     return bot
+
+@router.post("/{bot_id}/duplicate", response_model=BotConfigResponse)
+async def duplicate_bot(bot_id: str, db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access)):
+    """Clone an existing bot's full configuration into a new bot — by
+    direct request ("Provide an option to duplicate a bot - then allow
+    for name updates or strategy settings update"). The new bot is
+    editable afterward through the exact same PATCH /name and PATCH
+    /metrics endpoints every other bot already uses — this endpoint
+    only creates the starting copy.
+
+    Copies every column generically (via BotConfig's own
+    __table__.columns) rather than hand-listing fields, so this stays
+    correct as BotConfig grows new settings over time — risk/RR/
+    exposure, symbols/timeframes, trailing config, exchange pin,
+    schedule, sub-auto, margin mode, etc. all carry over exactly, since
+    starting from a known-working config (then only adjusting name/
+    strategy/symbols) is the actual point of duplicating. EXCLUDED
+    (must never carry over to a new, independent bot):
+      - id/bot_id: fresh UUID + a unique bot_id (source bot_id + "_copy",
+        incrementing if that's already taken — same shape as this
+        router's own uniqueness error message already points at)
+      - bot_name: "<original> (Copy)", renamable via PATCH /name
+      - user_id: the caller, not blindly copied from the source (same
+        value in practice today, but explicit is safer if ownership
+        transfer/admin-duplication is ever added)
+      - status: starts PAUSED — a duplicate must never silently double
+        real trading activity the instant it's created
+      - created_at/updated_at/last_run/last_scan_error: fresh, this bot
+        has no run history yet
+      - active_exchange/active_exchange_reason/active_exchange_picked_at:
+        the Exchange Engine's live pick for the ORIGINAL bot — stale
+        and misleading if copied onto a bot that's never scanned once
+    """
+    source = await _get_owned_bot(bot_id, user, db)
+
+    excluded = {
+        "id", "bot_id", "bot_name", "user_id", "status",
+        "created_at", "updated_at", "last_run", "last_scan_error",
+        "active_exchange", "active_exchange_reason", "active_exchange_picked_at",
+    }
+    values = {c.name: getattr(source, c.name) for c in BotConfig.__table__.columns if c.name not in excluded}
+
+    new_bot_id = f"{bot_id}_copy"
+    suffix = 2
+    while (await db.execute(select(BotConfig).where(BotConfig.bot_id == new_bot_id))).scalar_one_or_none():
+        new_bot_id = f"{bot_id}_copy{suffix}"
+        suffix += 1
+
+    clone = BotConfig(
+        id=uuid.uuid4(), bot_id=new_bot_id, bot_name=f"{source.bot_name} (Copy)",
+        user_id=user.id, status=BotStatus.PAUSED, **values,
+    )
+    db.add(clone)
+    await db.commit()
+    await db.refresh(clone)
+    logger.info("bot_duplicated", source_bot_id=bot_id, new_bot_id=new_bot_id, user_id=str(user.id))
+    return clone
 
 @router.patch("/{bot_id}/sleep", response_model=BotConfigResponse)
 async def set_bot_sleep(
