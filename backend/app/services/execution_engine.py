@@ -279,7 +279,20 @@ class ExecutionEngine:
             # different setup, and only an UNCHANGED level (no more
             # optimal one found) ever reaches this win/loss check at all.
             direction_enum = TradeDirection.LONG if signal.direction == "long" else TradeDirection.SHORT
-            price_tolerance = 0.0005  # 0.05%
+            entry_price_tolerance = 0.0005  # 0.05% — entry comes from a stable order-block/FVG zone, rarely drifts at all between scans
+            # Real bug, found via direct report with a live pair: entry
+            # matched EXACTLY (4174.35 == 4174.35) across two scans an
+            # hour apart, but stop_loss (derived from a sweep/structure
+            # extreme ± a buffer, recomputed fresh each cycle — inherently
+            # noisier than entry's own stable zone) differed by 0.0502%,
+            # just barely OVER the single 0.05% tolerance this used to
+            # share with entry — so the second trade re-fired and lost
+            # the exact same way the first one had, 68 minutes earlier.
+            # A separate, wider tolerance for SL specifically (4x entry's
+            # own) comfortably covers that real miss while staying far
+            # tighter than what a genuinely different structural level
+            # would differ by.
+            sl_price_tolerance = 0.002  # 0.2%
             recent_same_setup = (await db.execute(
                 _dedup_select(Trade).where(
                     Trade.bot_id == signal.bot_id,
@@ -292,8 +305,8 @@ class ExecutionEngine:
             for past in recent_same_setup:
                 if past.entry_price is None or past.stop_loss is None:
                     continue
-                entry_close = abs(past.entry_price - signal.entry_price) <= signal.entry_price * price_tolerance
-                sl_close = abs(past.stop_loss - signal.stop_loss) <= signal.stop_loss * price_tolerance
+                entry_close = abs(past.entry_price - signal.entry_price) <= signal.entry_price * entry_price_tolerance
+                sl_close = abs(past.stop_loss - signal.stop_loss) <= signal.stop_loss * sl_price_tolerance
                 if entry_close and sl_close:
                     if (past.realized_pnl or 0) < 0:
                         logger.info(
