@@ -29,6 +29,7 @@ const ChartOPage = lazy(() => import('./pages/ChartOPage').then((module) => ({ d
 const MT5Page = lazy(() => import('./pages/MT5Page').then((module) => ({ default: module.MT5Page })));
 const ChartPage = lazy(() => import('./pages/ChartPage').then((module) => ({ default: module.ChartPage })));
 const SiteMapPage = lazy(() => import('./pages/SiteMapPage').then((module) => ({ default: module.SiteMapPage })));
+const UserGuidePage = lazy(() => import('./pages/UserGuidePage').then((module) => ({ default: module.UserGuidePage })));
 const PoliciesPage = lazy(() => import('./pages/PoliciesPage').then((module) => ({ default: module.PoliciesPage })));
 const MeetingsPage = lazy(() => import('./pages/MeetingsPage').then((module) => ({ default: module.MeetingsPage })));
 const CorporateHomePage = lazy(() => import('./pages/CorporateHomePage').then((module) => ({ default: module.CorporateHomePage })));
@@ -265,6 +266,7 @@ function App() {
         <Route path="/mt5" element={<CorporateLayout><MT5Page /></CorporateLayout>} />
         <Route path="/chart" element={<CorporateLayout><ChartPage /></CorporateLayout>} />
         <Route path="/sitemap" element={<CorporateLayout><SiteMapPage /></CorporateLayout>} />
+        <Route path="/guide" element={<CorporateLayout><UserGuidePage /></CorporateLayout>} />
         <Route path="/policies" element={<CorporateLayout><PoliciesPage /></CorporateLayout>} />
         <Route path="/meetings" element={<CorporateLayout><MeetingsPage /></CorporateLayout>} />
         <Route path="/payments" element={<CorporateLayout><PaymentsPage /></CorporateLayout>} />
