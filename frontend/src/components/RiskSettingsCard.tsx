@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { ShieldAlert } from 'lucide-react';
+import { ShieldAlert, Clock3 } from 'lucide-react';
 import { FoldedCard } from './FoldedCard';
 import { useAuth } from '../hooks/useAuth';
 import { apiFetch } from './AccessExpiredGate';
 import { botsApi } from '../services/api';
+import { TRADING_SESSIONS, WEEKDAYS, tradingSessionLabel } from '../config/tradingSessions';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -27,6 +28,13 @@ interface Settings {
   // fields) — null means "use the platform default/Admin master."
   leverage: number | null;
   effective_leverage: number;
+  // Trading Schedule — the same global schedule concept bots now use,
+  // as manual trading's own GLOBAL setting — by direct request ("also
+  // include for global settings for manual trading"). Empty/null on
+  // any of these means "All" (no restriction).
+  schedule_sessions?: string[] | null;
+  schedule_days?: number[] | null;
+  schedule_half_day?: string | null;
 }
 
 /**
@@ -46,10 +54,42 @@ interface Settings {
  * parallel copy that could drift out of sync with the order form's
  * own toggle.
  */
+function Chip({ active, dark, onClick, children }: { active: boolean; dark: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors border ${
+        active
+          ? 'bg-indigo-500 text-white border-transparent'
+          : dark ? 'bg-white/5 text-white/60 border-white/10 hover:bg-white/10' : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function scheduleLabel(sessions?: string[] | null, days?: number[] | null, halfDay?: string | null): string {
+  const sessionsLabel = sessions && sessions.length > 0 ? sessions.map(tradingSessionLabel).join(', ') : 'All';
+  const daysLabel = days && days.length > 0
+    ? days.map((d) => WEEKDAYS.find((x) => x.key === d)?.label || d).join(', ')
+    : 'All';
+  const halfDayLabel = halfDay === 'am' ? 'AM' : halfDay === 'pm' ? 'PM' : 'All';
+  return `Sessions: ${sessionsLabel} · Days: ${daysLabel} · Half-day: ${halfDayLabel}`;
+}
+
 export function RiskSettingsCard({ dark = false }: { dark?: boolean }) {
   const { token } = useAuth();
   const [settings, setSettings] = useState<Settings | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Trading Schedule — see Settings.schedule_sessions' own comment
+  // above. Empty Set / 'all' both mean "All" (no restriction), same
+  // default every trader starts from.
+  const [selSessions, setSelSessions] = useState<Set<string>>(new Set());
+  const [selDays, setSelDays] = useState<Set<number>>(new Set());
+  const [selHalfDay, setSelHalfDay] = useState<'all' | 'am' | 'pm'>('all');
+  const [savingSchedule, setSavingSchedule] = useState(false);
   // Only the `enabled` flag is actually needed here — settings.
   // effective_leverage (from /manual-trading/settings) already
   // resolves the master override's VALUE; this just tells the input
@@ -74,6 +114,31 @@ export function RiskSettingsCard({ dark = false }: { dark?: boolean }) {
       body: JSON.stringify(patch),
     });
     if (res.ok) setSettings(await res.json());
+  }
+
+  function toggleSession(key: string) {
+    setSelSessions((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }
+  function toggleDay(key: number) {
+    setSelDays((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }
+  async function saveSchedule() {
+    setSavingSchedule(true);
+    try {
+      await updateSettings({
+        schedule_sessions: Array.from(selSessions), schedule_days: Array.from(selDays), schedule_half_day: selHalfDay,
+      });
+    } finally {
+      setSavingSchedule(false);
+    }
   }
 
   const inputCls = `w-full mt-1 border rounded-lg px-2 py-1.5 text-sm ${
@@ -152,6 +217,52 @@ export function RiskSettingsCard({ dark = false }: { dark?: boolean }) {
                 />
               )}
             </label>
+          </div>
+          {/* Trading Schedule — the same bot-level schedule concept,
+              now manual trading's own GLOBAL setting — by direct
+              request ("also include for global settings for manual
+              trading"). Outside the saved window, a NEW manual order
+              is rejected outright (never blocks managing/closing a
+              position already open). */}
+          <div className={`mt-3 pt-3 border-t ${dark ? 'border-smc-border' : 'border-corporate-bg'}`}>
+            <div className="flex items-center gap-1.5 text-xs font-medium mb-1.5">
+              <Clock3 size={13} className={dark ? 'text-white/50' : 'text-gray-500'} />
+              Trading Schedule
+            </div>
+            <p className={`text-[11px] mb-2 ${dark ? 'text-white/50' : 'text-gray-500'}`}>
+              Outside this window, a new manual order is rejected — never affects a position already open.
+            </p>
+            <div className="text-[11px] text-gray-500 mb-2">
+              Currently: {scheduleLabel(settings.schedule_sessions, settings.schedule_days, settings.schedule_half_day)}
+            </div>
+            <div className="space-y-1.5">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <Chip active={selSessions.size === 0} dark={dark} onClick={() => setSelSessions(new Set())}>All Sessions</Chip>
+                {TRADING_SESSIONS.map((s) => (
+                  <Chip key={s.key} active={selSessions.has(s.key)} dark={dark} onClick={() => toggleSession(s.key)}>
+                    {s.label} {s.tier === 'core' ? '· core' : '· non-core'}
+                  </Chip>
+                ))}
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <Chip active={selDays.size === 0} dark={dark} onClick={() => setSelDays(new Set())}>All Days</Chip>
+                {WEEKDAYS.map((d) => (
+                  <Chip key={d.key} active={selDays.has(d.key)} dark={dark} onClick={() => toggleDay(d.key)}>{d.label}</Chip>
+                ))}
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <Chip active={selHalfDay === 'all'} dark={dark} onClick={() => setSelHalfDay('all')}>All Day</Chip>
+                <Chip active={selHalfDay === 'am'} dark={dark} onClick={() => setSelHalfDay('am')}>AM</Chip>
+                <Chip active={selHalfDay === 'pm'} dark={dark} onClick={() => setSelHalfDay('pm')}>PM</Chip>
+                <button
+                  onClick={saveSchedule}
+                  disabled={savingSchedule}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold disabled:opacity-40 ${dark ? 'bg-white/10 text-white' : 'bg-gray-200 text-gray-700'}`}
+                >
+                  {savingSchedule ? 'Saving…' : 'Set Schedule'}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

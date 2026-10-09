@@ -188,6 +188,11 @@ class SettingsResponse(BaseModel):
     # capital_adequacy.py's get_effective_leverage for resolution order.
     leverage: Optional[float] = None
     effective_leverage: float = 0.0
+    # Trading Schedule — see SettingsUpdateRequest's own comment.
+    # Empty/null on any of these means "All" (no restriction).
+    schedule_sessions: Optional[List[str]] = None
+    schedule_days: Optional[List[int]] = None
+    schedule_half_day: Optional[str] = None
 
 
 async def _to_response(db: AsyncSession, row: ManualTradingSettings) -> SettingsResponse:
@@ -205,6 +210,7 @@ async def _to_response(db: AsyncSession, row: ManualTradingSettings) -> Settings
         effective_max_concurrent_trades=eff.max_concurrent_trades,
         effective_max_portfolio_exposure=eff.max_portfolio_exposure, effective_min_rr_ratio=eff.min_rr_ratio,
         leverage=row.leverage, effective_leverage=effective_leverage,
+        schedule_sessions=row.schedule_sessions, schedule_days=row.schedule_days, schedule_half_day=row.schedule_half_day,
     )
 
 
@@ -233,6 +239,17 @@ class SettingsUpdateRequest(BaseModel):
     max_portfolio_exposure: Optional[float] = Field(default=None, gt=0, le=100)
     min_rr_ratio: Optional[float] = Field(default=None, ge=0)
     leverage: Optional[float] = Field(default=None, gt=0, le=125)
+    # Trading Schedule — the same global schedule concept as
+    # BotConfig.schedule_sessions (see that column's own comment), now
+    # manual trading's own GLOBAL setting too — by direct request
+    # ("also include for global settings for manual trading"). Same
+    # "field omitted == leave untouched" convention as every field
+    # above, except an explicitly-sent empty list (`[]` for sessions/
+    # days) or `"all"` (for half_day) is itself a real value: "All" —
+    # by direct request ("also include an 'All'").
+    schedule_sessions: Optional[List[Literal["london_ny_overlap", "tokyo_london_overlap", "asian", "twilight"]]] = None
+    schedule_days: Optional[List[int]] = Field(default=None, description="ISO weekday ints, Monday=0..Sunday=6")
+    schedule_half_day: Optional[Literal["am", "pm", "all"]] = None
 
 
 @router.patch("/settings", response_model=SettingsResponse)
@@ -240,11 +257,17 @@ async def update_settings(
     req: SettingsUpdateRequest, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user),
 ):
     row = await _get_or_create_settings(db, user.id)
-    data = req.model_dump(exclude_unset=True)
+    data = req.model_dump(exclude_unset=True, exclude={"schedule_sessions", "schedule_days", "schedule_half_day"})
     if "trading_mode" in data:
         data["trading_mode"] = TradingMode(data["trading_mode"])
     for field, value in data.items():
         setattr(row, field, value)
+    if req.schedule_sessions is not None:
+        row.schedule_sessions = req.schedule_sessions
+    if req.schedule_days is not None:
+        row.schedule_days = req.schedule_days
+    if req.schedule_half_day is not None:
+        row.schedule_half_day = None if req.schedule_half_day == "all" else req.schedule_half_day
     row.updated_at = datetime.utcnow()
     await db.commit()
     await db.refresh(row)
@@ -292,6 +315,22 @@ async def place_manual_order(
 
         settings_row = await _get_or_create_settings(db, user.id)
         limits = await effective_limits(db, settings_row)
+
+        # Trading Schedule — the same global schedule concept bots now
+        # use (execution_engine.py's own universal gate), as manual
+        # trading's own GLOBAL setting — by direct request ("also
+        # include for global settings for manual trading"). New-order-
+        # only (never gates closing/managing a position already open,
+        # same "new-order-only" scoping the access-expiry/fee gates
+        # just below already use) — a trader restricting WHEN they can
+        # open a fresh manual position still needs to manage one that's
+        # already running, any time.
+        from app.services.trading_sessions import schedule_allows
+        if not schedule_allows(settings_row.schedule_sessions, settings_row.schedule_days, settings_row.schedule_half_day):
+            raise HTTPException(
+                status_code=400,
+                detail="Outside your configured Trading Schedule (Global Settings) — no new manual orders right now.",
+            )
 
         # Paper Trading is its own, permanent toggle — independent of
         # Test/Live — by direct request ("provide a test vs live toggle

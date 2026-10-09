@@ -226,12 +226,15 @@ export const botsApi = {
   // direct request.
   setBotSubAuto: (botId: string, update: {
     enabled: boolean; total_cap?: number; daily_cap?: number; risk_amount?: number; min_rr_ratio?: number;
-    // Sub-Auto Schedule — see BotConfig.sub_auto_sessions' own backend
-    // comment. Omit a field to leave it untouched; send [] (sessions/
-    // days) or "all" (half_day) to explicitly clear it to "All".
-    sessions?: string[]; days?: number[]; half_day?: 'am' | 'pm' | 'all';
   }) =>
     api.patch<BotConfig>(`/bots/${botId}/sub-auto`, update).then(r => r.data),
+  // Trading Schedule — bot-level, applies regardless of Sub-Auto or
+  // execution mode. By direct request ("integrate as quick filters
+  // for the semi auto AND normal bot setups"). Omit a field to leave
+  // it untouched; send [] (sessions/days) or "all" (half_day) to
+  // explicitly clear it to "All".
+  setBotSchedule: (botId: string, update: { sessions?: string[]; days?: number[]; half_day?: 'am' | 'pm' | 'all' }) =>
+    api.patch<BotConfig>(`/bots/${botId}/schedule`, update).then(r => r.data),
   // Starting Reference Capital/Balance master control — by direct
   // request ("Create a master bot control for bot starting reference
   // capital and balance ... put master in Admin portal to supersede
