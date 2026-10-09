@@ -276,6 +276,32 @@ class Settings(BaseSettings):
     MEMORY_WATCHDOG_WARN_PERCENT: float = 0.70
     MEMORY_WATCHDOG_GC_PERCENT: float = 0.85
     MEMORY_WATCHDOG_LIMIT_BYTES: int = 512 * 1024 * 1024
+    # Host-level signal, ADDITIONAL to the RSS-vs-limit check above —
+    # by direct request ("what number of Bots running is safe ... auto
+    # engine that manages memory ... so a crash is avoided"), confirmed
+    # live this process's own RSS can be comfortably under its limit
+    # while the HOST it runs on (the Nube VM, shared with Coolify's own
+    # full management stack) is already under real pressure — `free -h`
+    # showed 1.1GB/4GB swap already in use, and Nube's own dashboard
+    # independently confirms host memory utilization has sat at 75-90%+
+    # continuously for the full month leading up to this, not a one-off
+    # spike. When the cgroup reports unbounded (true on this VM —
+    # `docker inspect` confirmed Memory=0), _read_memory_limit_bytes
+    # reserves this many MB for the OS + co-tenants instead of silently
+    # using the Render-specific 512MB constant above, which is the
+    # wrong reference point for a shared VM. Sized to what Coolify's own
+    # stack actually used at the time this was added (~240MB) with
+    # headroom; tune if that stack's footprint changes. Never used on
+    # Render itself — its cgroup IS readable there, so this branch never
+    # triggers.
+    MEMORY_WATCHDOG_HOST_RESERVED_MB: int = 300
+    MEMORY_WATCHDOG_HOST_WARN_PERCENT: float = 0.70
+    MEMORY_WATCHDOG_HOST_CRITICAL_PERCENT: float = 0.85
+    # A tunable early-warning line, not a hard cap — see
+    # market_scanner.py's own _current_scan_groups() docstring for why
+    # distinct (exchange, symbol) groups, not raw bot count, is the
+    # real scan-cost driver.
+    MARKET_SCANNER_GROUP_WARN_COUNT: int = 20
 
     # Per-bot broker credentials (models/broker_credential.py) are
     # encrypted at rest with this key rather than the JWT SECRET_KEY,

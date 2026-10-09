@@ -1,6 +1,6 @@
 
 import asyncio
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -447,6 +447,39 @@ async def get_master_exchange_balances(db: AsyncSession = Depends(get_db), admin
 
     trader_accounts = list(await asyncio.gather(*[_owned_trader_entry(c) for c in connections]))
     return {"bot_accounts": bot_accounts, "trader_accounts": trader_accounts}
+
+
+@router.get("/system-health")
+async def get_system_health(request: Request, db: AsyncSession = Depends(get_db), admin: User = Depends(require_super_admin)):
+    """The real "memory audit / indicator signal" — by direct request
+    ("give a memory audit or indicator signal ... what number of Bots
+    running is safe"). Super Admin only, same gate as the other
+    platform-wide views right above this one.
+
+    Reuses memory_watchdog.MemoryWatchdog.get_status() directly — the
+    exact same reads/thresholds its own background loop already acts
+    on, not a second copy of that math — plus the real scan-cost unit
+    (distinct (exchange, symbol) groups, NOT raw bot count — see
+    market_scanner.py's own _current_scan_groups docstring for why bot
+    count alone is a poor proxy for load)."""
+    watchdog = getattr(request.app.state, "memory_watchdog", None)
+    status = watchdog.get_status() if watchdog is not None else {
+        "zone": "unknown", "note": "MEMORY_WATCHDOG_ENABLED is off — no live reading available.",
+    }
+
+    scanner = getattr(request.app.state, "market_scanner", None)
+    if scanner is not None:
+        groups = await scanner._current_scan_groups(db)
+        status["scan_group_count"] = len(groups)
+        status["scan_group_warn_count"] = get_settings().MARKET_SCANNER_GROUP_WARN_COUNT
+        status["scan_groups_near_limit"] = len(groups) >= get_settings().MARKET_SCANNER_GROUP_WARN_COUNT
+    else:
+        status["scan_group_count"] = None
+
+    total_bots = (await db.execute(select(BotConfig).where(BotConfig.status == BotStatus.ACTIVE))).scalars().all()
+    status["active_bot_count"] = len(total_bots)
+    return status
+
 
 @router.post("/", response_model=BotConfigResponse)
 async def create_bot(

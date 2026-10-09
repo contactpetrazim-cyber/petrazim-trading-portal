@@ -172,6 +172,7 @@ async def lifespan(app: FastAPI):
         scanner.start()
     else:
         logger.info("market_scanner_disabled", note="set MARKET_SCANNER_ENABLED=true to turn on autonomous scanning")
+    app.state.market_scanner = scanner
 
     # Position monitor — auto-closes/partial-closes a Paper Trade for
     # real once live price touches its SL/TP (see position_monitor.py's
@@ -214,8 +215,9 @@ async def lifespan(app: FastAPI):
     # mechanism competing with Render's own.
     memory_watchdog = None
     if settings.MEMORY_WATCHDOG_ENABLED:
-        memory_watchdog = MemoryWatchdog()
+        memory_watchdog = MemoryWatchdog(scanner=scanner)
         memory_watchdog.start()
+    app.state.memory_watchdog = memory_watchdog
 
     # Pre-warm order_flow.py's in-memory Binance instrument-list cache
     # (_get_all_instruments) — real bug report ("'On Chart' not display
