@@ -358,9 +358,29 @@ class OrderBlockReversalBot:
         # Step 7: Stop beyond sweep or structure
         if has_sweep:
             sl_price = sweeps[-1]["sweep_price"]
+            # Real bug, found via direct report on a live JPYUSDT.P
+            # trade: risk_amount came out at $143.33 against a $10
+            # Sub-Auto target — 14.33x oversized. Root cause: sl_distance
+            # here was computed from the RAW sweep price (sl_price),
+            # not the actual stop_loss (sl_price ± the 0.0002 buffer
+            # right above it) — the only one of this bot family's 4
+            # stop-placement branches with that mismatch (bot_3/4/5's
+            # own sl dicts all correctly compute sl_distance from the
+            # FINAL, buffered price — see their own "sl_price = X -
+            # buffer" then "sl_distance = abs(entry - sl_price)" order).
+            # Invisible for BTC/EUR/XAUT-scale prices (0.0002 is
+            # negligible next to their typical SL distances); for
+            # JPYUSDT.P's own tiny price level (~0.0063), that same
+            # fixed 0.0002 buffer was comparable to — and here, larger
+            # than — the real swept-extreme-to-entry distance itself,
+            # so excluding it from sl_distance undersized the distance
+            # used for sizing by ~14x, and calculate_lot_size's
+            # risk/distance division oversized the position by the
+            # same factor.
+            final_stop_loss = sl_price - 0.0002 if direction == "long" else sl_price + 0.0002
             sl = {
-                "stop_loss": sl_price - 0.0002 if direction == "long" else sl_price + 0.0002,
-                "sl_distance": abs(entry["entry_price"] - sl_price),
+                "stop_loss": final_stop_loss,
+                "sl_distance": abs(entry["entry_price"] - final_stop_loss),
                 "method": "sweep_extreme"
             }
         else:
