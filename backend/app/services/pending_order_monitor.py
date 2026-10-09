@@ -141,24 +141,32 @@ class PendingOrderMonitor:
             if not pending_orders:
                 return
 
-            symbols = {t.symbol for t in pending_orders}
-            prices = dict(zip(symbols, await asyncio.gather(*(get_crypto_price(s) for s in symbols))))
-
-            # Broker-ticker fallback for any symbol Binance/CoinGecko
-            # don't cover (JPYUSDT.P, NAS100USDT.P, OILBRENTUSDT.P, ...)
-            # — same fix as position_monitor.py's own check_once; see
+            # Primary: the order's own exchange's futures/perpetual-swap
+            # ticker — same fix and same reasoning as
+            # position_monitor.py's own check_once; see
             # live_price.get_broker_ticker_price's own docstring.
-            still_missing = [o for o in pending_orders if prices.get(o.symbol) is None]
-            if still_missing:
-                fallback_keys = {(o.broker_name, o.symbol) for o in still_missing}
+            broker_keys = {(o.broker_name, o.symbol) for o in pending_orders}
+            broker_prices = dict(zip(
+                broker_keys,
+                await asyncio.gather(*(get_broker_ticker_price(b, s) for b, s in broker_keys)),
+            ))
+            prices: dict[str, float] = {}
+            still_missing_symbols = set()
+            for o in pending_orders:
+                p = broker_prices.get((o.broker_name, o.symbol))
+                if p is not None:
+                    prices[o.symbol] = p
+                else:
+                    still_missing_symbols.add(o.symbol)
+
+            if still_missing_symbols:
                 fallback_prices = dict(zip(
-                    fallback_keys,
-                    await asyncio.gather(*(get_broker_ticker_price(b, s) for b, s in fallback_keys)),
+                    still_missing_symbols,
+                    await asyncio.gather(*(get_crypto_price(s) for s in still_missing_symbols)),
                 ))
-                for o in still_missing:
-                    p = fallback_prices.get((o.broker_name, o.symbol))
+                for s, p in fallback_prices.items():
                     if p is not None:
-                        prices[o.symbol] = p
+                        prices[s] = p
 
             for order in pending_orders:
                 price = prices.get(order.symbol)

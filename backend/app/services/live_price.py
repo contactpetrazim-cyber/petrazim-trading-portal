@@ -57,17 +57,25 @@ _BROKER_TICKER_CLASSES = {
 
 
 async def get_broker_ticker_price(broker_name: Optional[str], symbol: str) -> Optional[float]:
-    """Last-resort fallback once get_crypto_price() (Binance+CoinGecko)
-    both miss — asks the trade's OWN exchange directly, which obviously
-    has a real live price for any symbol it actually lists (that's how
-    the trade's own entry candles were fetched in the first place).
-    Reuses each Broker class's already-public, unsigned
-    get_ticker_price() — api_key="" works, confirmed safe: it's the
-    exact same call execution_engine.py's own _check_price_deviation
-    already trusts with no real credentials, on every one of these four
-    broker classes. Never raises; returns None exactly like
-    get_crypto_price, so callers keep their existing skip-and-retry
-    behavior for a genuinely unresolvable (broker_name, symbol)."""
+    """THE primary price source for paper-trade monitoring — asks the
+    trade's OWN exchange directly, the actual perpetual-futures venue
+    every trade here runs on (x50 leverage), not a generic reference
+    price. Originally added only as a fallback for a symbol Binance
+    doesn't list at all (JPYUSDT.P, NAS100USDT.P, OILBRENTUSDT.P); now
+    also the PREFERRED source even for a symbol get_crypto_price CAN
+    resolve, by direct correction — Binance's own futures price can
+    still diverge from the trade's real exchange (different venue,
+    different funding/basis; ~0.06% observed live on BTC/XAUT, real
+    money at 50x leverage). Reuses each Broker class's already-public,
+    unsigned get_ticker_price() — api_key="" works, confirmed safe:
+    it's the exact same call execution_engine.py's own
+    _check_price_deviation already trusts with no real credentials, on
+    every one of these four broker classes. Never raises; returns None
+    exactly like get_crypto_price, so callers keep their existing
+    skip-and-retry behavior for a genuinely unresolvable (broker_name,
+    symbol) — e.g. a non-crypto broker (TradeLocker/MetaApi/Oanda) not
+    in the map above, where get_crypto_price's Binance-futures/
+    CoinGecko read remains the only fallback available."""
     broker_cls = _BROKER_TICKER_CLASSES.get((broker_name or "").lower())
     if not broker_cls:
         return None
@@ -105,11 +113,20 @@ async def get_broker_ticker_price(broker_name: Optional[str], symbol: str) -> Op
     return None
 
 _settings = get_settings()
+# USDⓈ-M FUTURES ticker (fapi), not spot — by direct correction ("all
+# pairs are Futures - .P ... that includes EUR/XAUT ... they are not
+# spot ... Only futures have the x50 leverage"). Was spot
+# (api.binance.com/api/v3) until a live side-by-side check showed a
+# real, non-trivial divergence from the trade's own futures venue
+# (~0.06% on BTC/XAUT at the moment checked — meaningful at 50x
+# leverage) — every trade this app places runs on a perpetual-futures
+# contract, so the reference price used to decide SL/TP-hit here needs
+# to track that same market, not Binance's separate spot order book.
 _binance_client = httpx.AsyncClient(
-    timeout=5.0, base_url="https://api.binance.com/api/v3", proxy=_settings.BINANCE_PROXY_URL or None,
+    timeout=5.0, base_url="https://fapi.binance.com/fapi/v1", proxy=_settings.BINANCE_PROXY_URL or None,
 )
 _binance_backup_client = (
-    httpx.AsyncClient(timeout=5.0, base_url="https://api.binance.com/api/v3", proxy=_settings.BINANCE_BACKUP_PROXY_URL)
+    httpx.AsyncClient(timeout=5.0, base_url="https://fapi.binance.com/fapi/v1", proxy=_settings.BINANCE_BACKUP_PROXY_URL)
     if _settings.BINANCE_BACKUP_PROXY_URL else None
 )
 # Third tier, no proxy — by direct request ("what happens when Fixie
@@ -118,14 +135,24 @@ _binance_backup_client = (
 # lookup, no API key/IP-whitelist involved, so a direct attempt is a
 # genuinely useful last resort before falling all the way to
 # CoinGecko's much narrower 4-symbol coverage below.
-_binance_direct_client = httpx.AsyncClient(timeout=5.0, base_url="https://api.binance.com/api/v3")
+_binance_direct_client = httpx.AsyncClient(timeout=5.0, base_url="https://fapi.binance.com/fapi/v1")
 
 
 async def get_crypto_price(symbol: str) -> Optional[float]:
-    """Real data, not invented — tries Binance's public ticker first
-    (via the proxy pair), CoinGecko second. Returns None (never
+    """Real data, not invented — tries Binance's public FUTURES ticker
+    first (via the proxy pair), CoinGecko second. Returns None (never
     raises) if neither has this symbol, so a caller enriching a list
     of trades can skip one bad symbol without failing the whole list.
+
+    Used as a broker-agnostic fallback/display price (manual trading's
+    "use current price", the trades list, ...) where there's no single
+    trade's own exchange to ask yet. For paper-trade price MONITORING
+    (position_monitor.py, pending_order_monitor.py), prefer
+    get_broker_ticker_price(trade.broker_name, symbol) instead — it
+    queries the trade's own actual execution venue directly, which is
+    strictly more accurate than this generic Binance-futures reference
+    whenever the two diverge (different exchange, different funding/
+    basis).
 
     CRITICAL FIX, root-caused from a direct bug report ("price reached
     my trigger point entry 81367.39933, but the trade was not
