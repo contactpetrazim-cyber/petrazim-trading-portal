@@ -5,6 +5,7 @@ import { botsApi } from '../services/api';
 import { BotSleepAndSubAuto } from '../components/BotSleepAndSubAuto';
 import { ExchangeEngineControl } from '../components/ExchangeEngineControl';
 import { BotScheduleControl } from '../components/BotScheduleControl';
+import { SystemHealthSummaryBadge } from '../components/SystemHealthSummaryBadge';
 import { BotConfig, BotPerformance, BotMetricsUpdate } from '../types';
 import { useThemeStore } from '../hooks/useTheme';
 import { formatApiError } from '../lib/apiError';
@@ -388,6 +389,10 @@ export function BotsPage() {
           <Plus size={16} /> New Bot
         </button>
       </div>
+
+      {/* System Health — the trader-facing "indicator signal", by
+          direct answer ("Put in all"). Quiet when healthy. */}
+      <SystemHealthSummaryBadge dark={dark} />
 
       {loading && <p className="text-gray-400 text-sm">Loading…</p>}
 

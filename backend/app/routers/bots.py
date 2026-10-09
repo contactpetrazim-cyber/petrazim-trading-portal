@@ -481,6 +481,33 @@ async def get_system_health(request: Request, db: AsyncSession = Depends(get_db)
     return status
 
 
+@router.get("/system-health-summary")
+async def get_system_health_summary(request: Request, db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access)):
+    """Trimmed, trader-facing counterpart to GET /system-health above —
+    by direct answer ("Put in all" — Dashboard AND the Bots/'Settings'
+    page). Any active trader, not just Super Admin: reuses the exact
+    same live reads (no second copy of the math), but returns only the
+    traffic-light zone + whether the scanner is currently throttled —
+    no raw host MB/swap numbers, which stay Super-Admin-only detail on
+    the full endpoint/card."""
+    watchdog = getattr(request.app.state, "memory_watchdog", None)
+    if watchdog is None:
+        return {"zone": "unknown", "scanner_degraded": None, "message": "Health monitoring is currently off."}
+
+    full = watchdog.get_status()
+    zone = full["zone"]
+    messages = {
+        "ok": "All systems normal.",
+        "warn": "Resource usage is elevated — being monitored, no action needed.",
+        "critical": "Resource usage is high — the engine has automatically reduced scan activity to protect stability.",
+    }
+    return {
+        "zone": zone,
+        "scanner_degraded": full.get("scanner_degraded"),
+        "message": messages.get(zone, "Status unknown."),
+    }
+
+
 @router.post("/", response_model=BotConfigResponse)
 async def create_bot(
     config: BotConfigCreate, db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access)

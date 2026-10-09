@@ -7,6 +7,7 @@ import { PnlDrawdownPeriodPills } from '../components/PnlDrawdownPeriodPills';
 import { ActivePositionsMetrics } from '../components/ActivePositionsMetrics';
 import { PendingApprovalsList } from '../components/PendingApprovalsList';
 import { RiskSettingsCard } from '../components/RiskSettingsCard';
+import { SystemHealthSummaryBadge } from '../components/SystemHealthSummaryBadge';
 import { TradeRow } from '../components/TradeRow';
 import { FoldedCard } from '../components/FoldedCard';
 import { ChartWithPairs } from '../components/ChartWithPairs';
@@ -253,6 +254,11 @@ export function DashboardPage() {
           settings endpoint ManualTradingPage's own Risk Settings panel
           already talks to — one real settings row. */}
       <RiskSettingsCard dark={dark} />
+
+      {/* System Health — the trader-facing "indicator signal", by
+          direct answer ("Put in all"). Quiet when healthy; only shows
+          up when there's actually something to say. */}
+      <SystemHealthSummaryBadge dark={dark} />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Equity Curve — by direct request ("make all the cards in

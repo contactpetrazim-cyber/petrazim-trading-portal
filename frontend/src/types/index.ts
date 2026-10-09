@@ -310,6 +310,15 @@ export interface SystemHealthResponse {
   active_bot_count: number;
 }
 
+/** GET /bots/system-health-summary — the trader-facing, trimmed
+ * counterpart to SystemHealthResponse above (no raw host MB/swap
+ * numbers, just the traffic-light zone). */
+export interface SystemHealthSummaryResponse {
+  zone: 'ok' | 'warn' | 'critical' | 'unknown';
+  scanner_degraded: boolean | null;
+  message: string;
+}
+
 export interface BotMetricsUpdate {
   risk_per_trade?: number;
   max_daily_trades?: number;
