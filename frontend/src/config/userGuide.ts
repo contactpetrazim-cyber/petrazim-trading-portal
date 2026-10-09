@@ -26,7 +26,7 @@ export const DAY1_GUIDE: GuidePhase[] = [
     id: 'learn', title: '3. Your first lesson', summary: 'Start learning before you trade.',
     steps: [
       { title: 'Start Trading Basics', body: ['Open Learn → Trading Basics and begin lesson one.', 'Lessons unlock in order, stage by stage.'], link: { label: 'Open Trading Basics', to: '/learn/basics' } },
-      { title: 'Take notes and reflect', body: ['Use the notebook and reflection prompts inside each lesson.', 'Find them later under My Notes and My Reflections.'], link: { label: 'My notes', to: '/my-notes' } },
+      { title: 'Take notes and reflect', body: ['Use the notebook and reflection prompts inside each lesson.', 'Find them later under My Notes and My Reflections.'], link: { label: 'My notes', to: '/learn/notes' } },
       { title: 'Answer the quiz', body: ['Each lesson ends with a short quiz — pass it to unlock the next.'] },
       { title: 'Practise', body: ['Try a scored drill or a game to lock in what you learned.'], link: { label: 'Practice drills', to: '/practise/drills' } },
     ],
@@ -45,6 +45,53 @@ export const DAY1_GUIDE: GuidePhase[] = [
       { title: 'Ask Trade AI', body: ['Tap the floating Trade AI bubble on any page and ask a question.'] },
       { title: 'Book a facilitator', body: ['Open Community → Trader Meetings and pick a time slot.'], link: { label: 'Book a session', to: '/meetings' } },
       { title: 'Join the community', body: ['Join the Telegram channel for updates and peer support.'], link: { label: 'Community', to: '/community' } },
+    ],
+  },
+];
+
+// Phase 2 — Master Trading, Bots & Charting guide.
+export const MASTER_TRADING_GUIDE: GuidePhase[] = [
+  {
+    id: 'charts', title: '1. Charts & pairs', summary: 'Read the market before you act.',
+    steps: [
+      { title: 'Open a chart', body: ['Go to Chart (or TradingView) to see live candles.', 'Change timeframe from the toolbar — start with 4H and 1H for direction.'], link: { label: 'Open chart', to: '/chart' } },
+      { title: 'Save quick pairs', body: ['Tap "Pairs", search a market (e.g. EURUSD, BTCUSDT) and save it.', 'Up to 8 saved pairs show on every chart; tap one to switch instantly.'] },
+      { title: 'Style the chart', body: ['Pick candle colours and chart style in the chart settings.', 'Choices are remembered on this device.'] },
+      { title: 'Full TradingView', body: ['Use the TradingView page for drawing tools and indicators.'], link: { label: 'Open TradingView', to: '/tradingview' } },
+    ],
+  },
+  {
+    id: 'connect', title: '2. Connect your account', summary: 'Link an exchange or MT5 safely.',
+    steps: [
+      { title: 'Connect an exchange', body: ['Open Exchange Connections and add your API key.', 'Use trade-only keys — never enable withdrawals.'], link: { label: 'Exchange connections', to: '/exchange-connections' } },
+      { title: 'Check balances', body: ['Confirm your funds appear before placing any order.'], link: { label: 'Exchange balances', to: '/exchange-balances' } },
+      { title: 'MetaTrader 5 (optional)', body: ['Forex traders can link MT5 from the MT5 page.'], link: { label: 'Open MT5', to: '/mt5' } },
+    ],
+  },
+  {
+    id: 'manual', title: '3. Place a manual trade', summary: 'Order, stop, target — every time.',
+    steps: [
+      { title: 'Open manual trading', body: ['The chart and order panel sit side by side.'], link: { label: 'Manual trading', to: '/trade/manual' } },
+      { title: 'Fill the order', body: ['Choose buy or sell, size, stop-loss and take-profit.', 'Never send an order without a stop-loss.'] },
+      { title: 'Use the Loss Guard', body: ['Switch on the Trailing Loss Guard to protect open profit automatically.'] },
+      { title: 'Manage open positions', body: ['Watch, adjust or close positions from Trades.', 'If an order is slow, wait up to a minute — the server may be waking.'], link: { label: 'Open trades', to: '/trades' } },
+    ],
+  },
+  {
+    id: 'bots', title: '4. Trading bots', summary: 'Five strategies that trade by rules.',
+    steps: [
+      { title: 'Learn each bot first', body: ['Read the bot lessons and try each bot Decision Lab before switching one on.'], link: { label: 'Bot lessons', to: '/learn/bots' } },
+      { title: 'Open the Bots page', body: ['See all five bots, their status and recent results.'], link: { label: 'Open bots', to: '/bots' } },
+      { title: 'Set schedule & limits', body: ['Choose trading hours, sleep times and risk per trade for each bot.'] },
+      { title: 'Start in demo', body: ['Run bots in paper mode first; go live only after the Go-Live checklist is green.'], link: { label: 'Go-Live checklist', to: '/insights/go-live' } },
+    ],
+  },
+  {
+    id: 'review', title: '5. Risk & review', summary: 'Protect capital, then improve.',
+    steps: [
+      { title: 'Set risk rules', body: ['Set max risk per trade and daily loss limit.'], link: { label: 'Risk settings', to: '/risk' } },
+      { title: 'Read your analytics', body: ['Edge Scorecard, streaks, P&L by symbol and long-vs-short show what works.'], link: { label: 'Open analytics', to: '/analytics' } },
+      { title: 'Weekly review', body: ['Each week, review trades and write one lesson learned.'], link: { label: 'Weekly review', to: '/insights/weekly-review' } },
     ],
   },
 ];
