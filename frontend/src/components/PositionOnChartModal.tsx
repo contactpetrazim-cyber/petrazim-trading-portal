@@ -1099,6 +1099,7 @@ export function PositionOnChartModal({
   const ENTRY_LINE_COLOR = '#2563eb';
   const SL_LINE_COLOR = '#ef4444';
   const TP_LINE_COLOR = '#22c55e';
+  const TRAIL_LINE_COLOR = '#f59e0b';
 
   /** One position's own Entry/SL/TP1-3 line set — same two-line Entry
    * label (price, then direction+status+live P&L) every single-position
@@ -1121,6 +1122,12 @@ export function PositionOnChartModal({
     if (t.take_profit != null) out.push({ price: t.take_profit, color: TP_LINE_COLOR, dashed: true, label: `TP1${tag} ${fmtPrice(t.take_profit)}` });
     if (t.take_profit_2 != null) out.push({ price: t.take_profit_2, color: TP_LINE_COLOR, dashed: true, label: `TP2${tag} ${fmtPrice(t.take_profit_2)}` });
     if (t.take_profit_3 != null) out.push({ price: t.take_profit_3, color: TP_LINE_COLOR, dashed: true, label: `TP3${tag} ${fmtPrice(t.take_profit_3)}` });
+    // Trailing stop — once actually engaged, replaces the old static
+    // TP3 full-close for the runner leg (see Trade.trailing_active's
+    // own backend comment) — drawn the same way SL/TP already are.
+    if (t.trailing_active && t.trailing_stop_price != null) {
+      out.push({ price: t.trailing_stop_price, color: TRAIL_LINE_COLOR, dashed: true, label: `Trail${tag} ${fmtPrice(t.trailing_stop_price)}` });
+    }
     // Exit price — real gap, by direct report ("the correct entry and
     // exit price lines"): every OTHER reference price here (Entry, SL,
     // TP1-3) draws its own dashed line, but exit_price never did, even

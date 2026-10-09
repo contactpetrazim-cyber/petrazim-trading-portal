@@ -175,6 +175,26 @@ class ExecutionEngine:
         bot = (await db.execute(_select(BotConfig).where(BotConfig.bot_id == bot_id))).scalar_one_or_none()
         return bot.user_id if bot else None
 
+    async def _bot_trailing_activation_r(self, db: Optional[AsyncSession], bot_id: str) -> Optional[float]:
+        """The R-multiple (1.0 = after TP1, 2.0 = after TP2) at which
+        this bot's trades switch their final TP leg from a fixed price
+        to a trailing exit — see Trade.trailing_activation_r's own
+        comment for the full mechanism. None when BotConfig.
+        use_trailing_stop is off (trailing never engages for this
+        trade). Defaults to 2.0 (the platform default, matching every
+        bot's own real default) when no db session is available or the
+        bot row can't be found — same tolerant-fallback shape as
+        _bot_paper_mode/_bot_owner_user_id above."""
+        if db is None:
+            return 2.0
+        from sqlalchemy import select as _select
+        from app.models.bot import BotConfig
+
+        bot = (await db.execute(_select(BotConfig).where(BotConfig.bot_id == bot_id))).scalar_one_or_none()
+        if bot is None:
+            return 2.0
+        return bot.trailing_stop_activation if bot.use_trailing_stop else None
+
     async def process_signal(self, signal: BotSignal, mode: str = "human_in_loop", db: Optional[AsyncSession] = None) -> Dict:
         """
         Process a bot signal into a trade action. `db` is optional (a
@@ -445,6 +465,19 @@ class ExecutionEngine:
         paper = await self._bot_paper_mode(db, signal.bot_id)
         owner_user_id = await self._bot_owner_user_id(db, signal.bot_id)
 
+        # Trailing-activation — resolved once, here, at draft time, same
+        # "snapshot what was true now" convention as paper/owner_user_id
+        # just above. None means trailing never engages for this trade
+        # (BotConfig.use_trailing_stop is off); otherwise the bot's own
+        # trailing_stop_activation R-multiple (1.0 = after TP1, 2.0 =
+        # after TP2, the default). A fresh lookup, not bot_cfg from the
+        # dedup/cap block above — that one only exists when `db` was
+        # passed in AND is scoped inside that block's own `if`; this
+        # mirrors _bot_paper_mode's own "works fine without a DB
+        # session" fallback (defaults to trailing ON at 2.0, matching
+        # every bot's own real default) rather than assuming db is set.
+        trailing_activation_r = await self._bot_trailing_activation_r(db, signal.bot_id)
+
         trade_data = {
             "is_test": paper,
             "user_id": owner_user_id,
@@ -471,7 +504,8 @@ class ExecutionEngine:
             "timestamp": signal.timestamp,
             "status": "pending_approval" if mode == "human_in_loop" else "executing",
             "requires_approval": mode == "human_in_loop",
-            "execution_mode": mode
+            "execution_mode": mode,
+            "trailing_activation_r": trailing_activation_r,
         }
 
         # Also persist to the real `trades` table whenever a DB session
@@ -640,6 +674,7 @@ class ExecutionEngine:
             # this bot's own Test/Paper setting shouldn't silently
             # change what an ALREADY-DRAFTED signal does once approved.
             is_test=trade_data.get("is_test", False),
+            trailing_activation_r=trade_data.get("trailing_activation_r"),
         )
         db.add(trade)
         await db.commit()

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ShieldAlert, Clock3 } from 'lucide-react';
+import { ShieldAlert, Clock3, TrendingUp } from 'lucide-react';
 import { FoldedCard } from './FoldedCard';
 import { useAuth } from '../hooks/useAuth';
 import { apiFetch } from './AccessExpiredGate';
@@ -35,6 +35,15 @@ interface Settings {
   schedule_sessions?: string[] | null;
   schedule_days?: number[] | null;
   schedule_half_day?: string | null;
+  // Trailing exit — manual trading's own global counterpart to a
+  // bot's own trailing settings, by direct request ("Provide a toggle
+  // in the bots and manual settings and order form"). null on
+  // trailing_activation_r means "inherit the platform default" (2.0,
+  // after TP2) — effective_trailing_activation_r already resolves
+  // that, same shape as effective_leverage above.
+  use_trailing_stop: boolean;
+  trailing_activation_r: number | null;
+  effective_trailing_activation_r: number;
 }
 
 /**
@@ -262,6 +271,32 @@ export function RiskSettingsCard({ dark = false }: { dark?: boolean }) {
                   {savingSchedule ? 'Saving…' : 'Set Schedule'}
                 </button>
               </div>
+            </div>
+          </div>
+          {/* Trailing Exit — "let winners run" without loosening
+              losers, by direct request ("Provide a toggle in the bots
+              and manual settings and order form ... so that it can be
+              switched in a dynamic way ... default is TP2"). Once the
+              final TP leg's activation point fires, it trails instead
+              of closing at a fixed price — see Trade.
+              trailing_activation_r's own backend comment. */}
+          <div className={`mt-3 pt-3 border-t ${dark ? 'border-smc-border' : 'border-corporate-bg'}`}>
+            <div className="flex items-center gap-1.5 text-xs font-medium mb-1.5">
+              <TrendingUp size={13} className={dark ? 'text-white/50' : 'text-gray-500'} />
+              Trailing Exit
+            </div>
+            <p className={`text-[11px] mb-2 ${dark ? 'text-white/50' : 'text-gray-500'}`}>
+              Lets the final take-profit leg run with a trailing stop instead of closing at a fixed price.
+            </p>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Chip active={settings.use_trailing_stop} dark={dark} onClick={() => updateSettings({ use_trailing_stop: true })}>On</Chip>
+              <Chip active={!settings.use_trailing_stop} dark={dark} onClick={() => updateSettings({ use_trailing_stop: false })}>Off</Chip>
+              {settings.use_trailing_stop && (
+                <>
+                  <Chip active={settings.effective_trailing_activation_r === 1} dark={dark} onClick={() => updateSettings({ trailing_activation_r: 1 })}>After TP1 (1R)</Chip>
+                  <Chip active={settings.effective_trailing_activation_r === 2} dark={dark} onClick={() => updateSettings({ trailing_activation_r: 2 })}>After TP2 (2R) · default</Chip>
+                </>
+              )}
             </div>
           </div>
         </div>

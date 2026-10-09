@@ -173,10 +173,26 @@ class BotConfig(Base):
     entry_types = Column(JSON, default=list)  # ["limit", "market"]
     limit_order_offset = Column(Float, default=0.0)  # pips/points offset
 
-    # Exit Parameters
+    # Exit Parameters — the real "let winners run" mechanism, by direct
+    # request after a real screenshot showed Actual R capped at ~2.3R
+    # repeatedly. These two columns already existed (and the checkbox
+    # was already live in the UI) but were 100% dead — confirmed zero
+    # reads anywhere in execution_engine.py/position_monitor.py before
+    # this. Now wired up: see position_monitor.py's _check_trailing.
+    #   - use_trailing_stop: on/off (unchanged default True).
+    #   - trailing_stop_activation: the R-multiple at which the FINAL
+    #     configured TP level switches from a fixed-price close to a
+    #     trailing exit — 1.0 = after TP1 (bigger change, the whole
+    #     remaining 70% becomes the runner), 2.0 = after TP2 (the
+    #     default, by direct instruction "default is TP2" — TP1/TP2's
+    #     existing 30%/40% partials stay exactly as they are, only the
+    #     final 30% trails). Default changed 1.0 -> 2.0 here; safe to
+    #     backfill existing rows the same way since this field was
+    #     never actually read/acted on before now — no bot's real
+    #     behavior changes by this default flip alone.
     use_trailing_stop = Column(Boolean, default=True)
-    trailing_stop_activation = Column(Float, default=1.0)  # R-multiple
-    trailing_stop_distance = Column(String(20), default="structure")  # structure, atr, fixed
+    trailing_stop_activation = Column(Float, default=2.0)  # R-multiple: 1.0 or 2.0
+    trailing_stop_distance = Column(String(20), default="structure")  # structure, atr, fixed — "structure"/"atr" not yet implemented; v1 always trails by the trade's own initial 1R distance regardless of this value
 
     # Multi-target
     tp1_percent = Column(Float, default=30.0)

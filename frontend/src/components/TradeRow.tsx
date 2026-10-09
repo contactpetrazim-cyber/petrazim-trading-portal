@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Trade } from '../types';
-import { ArrowUpRight, ArrowDownRight, Clock, CheckCircle, XCircle, AlertCircle, Ban, Settings2, ChevronDown, Archive, ArchiveRestore, Trash2, RotateCcw, Bot, User, CheckSquare, Square, Camera, LineChart } from 'lucide-react';
+import { ArrowUpRight, ArrowDownRight, Clock, CheckCircle, XCircle, AlertCircle, Ban, Settings2, ChevronDown, Archive, ArchiveRestore, Trash2, RotateCcw, Bot, User, CheckSquare, Square, Camera, LineChart, TrendingUp } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { useThemeStore } from '../hooks/useTheme';
 import { PositionManager } from './PositionManager';
@@ -144,6 +144,19 @@ export function TradeRow({ trade, onApprove, onReject, onCancel, onChanged, onAr
                 {isManual ? <User size={10} /> : <Bot size={10} />}
                 {isManual ? 'Manual' : 'Bot'}
               </span>
+              {/* Trailing Exit — "let winners run" badge, by direct
+                  request. Only shown once actually engaged (not for
+                  every configured-but-not-yet-active trade) — the
+                  engaged state is the actionable signal. */}
+              {trade.trailing_active && (
+                <span
+                  title={trade.trailing_stop_price != null ? `Trailing stop: ${trade.trailing_stop_price.toFixed(4)}` : 'Trailing active'}
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-amber-500/15 text-amber-500"
+                >
+                  <TrendingUp size={10} />
+                  Trailing
+                </span>
+              )}
             </div>
             <div className="text-xs text-gray-400">{trade.strategy_type}</div>
             {/* Risk Amount + Unit Quantity (lot_size) — by direct

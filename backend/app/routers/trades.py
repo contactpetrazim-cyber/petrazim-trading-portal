@@ -795,6 +795,12 @@ async def trade_snapshot(
         # longer silently dropped from the chart entirely.
         "take_profit_2": trade.take_profit_2,
         "take_profit_3": trade.take_profit_3,
+        # Trailing stop — once engaged, replaces the old static TP3
+        # full-close for the runner leg. Current (live) values, same
+        # scope as take_profit_2/3 above — see Trade.trailing_active's
+        # own comment.
+        "trailing_active": trade.trailing_active,
+        "trailing_stop_price": trade.trailing_stop_price,
         "exit_price": trade.exit_price,
         "exit_timestamp": trade.exit_timestamp,
         "status": trade.status.value,

@@ -65,6 +65,16 @@ export interface Trade {
    * is_archived, just for trades the trader wants out of every normal
    * view entirely (e.g. duplicate bot signals). */
   is_deleted?: boolean | null;
+  /** Trailing exit on the final runner leg — the "let winners run"
+   * mechanism. trailing_activation_r: the R-multiple (1.0/2.0) at
+   * which it takes over, or null if trailing is off for this trade.
+   * trailing_active: whether it's actually engaged yet.
+   * trailing_peak_price/trailing_stop_price: the live trail state
+   * once active — trailing_stop_price is what a chart should draw. */
+  trailing_activation_r?: number | null;
+  trailing_active?: boolean;
+  trailing_peak_price?: number | null;
+  trailing_stop_price?: number | null;
 }
 
 export interface BotConfig {
@@ -86,6 +96,11 @@ export interface BotConfig {
   max_portfolio_exposure: number;
   min_rr_ratio: number;
   use_trailing_stop: boolean;
+  /** 1.0 (after TP1) or 2.0 (after TP2, the default) — the R-multiple
+   * at which the final TP leg switches from a fixed price to a
+   * trailing exit. See BotConfig.trailing_stop_activation's own
+   * backend comment. */
+  trailing_stop_activation?: number;
   exchange?: string | null;
   /** Exchange Engine — see BotConfig.exchange_mode's own backend
    * comment. "fixed" (default) means `exchange` above is what's
@@ -181,6 +196,11 @@ export interface TradeSnapshot {
    * profit_2/3 columns exist yet. */
   take_profit_2: number | null;
   take_profit_3: number | null;
+  /** Current (live) trailing-stop state — once engaged, replaces the
+   * old static TP3 full-close for the runner leg. See
+   * Trade.trailing_active's own backend comment. */
+  trailing_active?: boolean;
+  trailing_stop_price?: number | null;
   exit_price: number | null;
   exit_timestamp: string | null;
   status: string;
@@ -317,6 +337,7 @@ export interface BotMetricsUpdate {
   max_portfolio_exposure?: number;
   min_rr_ratio?: number;
   use_trailing_stop?: boolean;
+  trailing_stop_activation?: 1.0 | 2.0;
   symbols?: string[];
   timeframes?: string[];
   /** null clears this bot's own override (falls back to the platform

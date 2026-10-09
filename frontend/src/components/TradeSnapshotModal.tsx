@@ -130,7 +130,7 @@ function nearestCandleIndex(candles: { timestamp: string }[], iso: string | null
 }
 
 function SnapshotChart({ snapshot, dark }: { snapshot: TradeSnapshot; dark: boolean }) {
-  const { candles, entry_price, entry_timestamp, stop_loss, take_profit_1, take_profit_2, take_profit_3, exit_price, exit_timestamp, direction } = snapshot;
+  const { candles, entry_price, entry_timestamp, stop_loss, take_profit_1, take_profit_2, take_profit_3, exit_price, exit_timestamp, direction, trailing_active, trailing_stop_price } = snapshot;
   // Vertical (price) axis zoom — by direct request ("make the
   // vertical axis adjustable for all charts portal wide ... on
   // charts, snapshots and approval charts"). This component has no
@@ -183,6 +183,9 @@ function SnapshotChart({ snapshot, dark }: { snapshot: TradeSnapshot; dark: bool
   // target" reads visually without a second legend system.
   if (take_profit_2 != null) refLines.push({ price: take_profit_2, color: '#059669', label: 'TP2' });
   if (take_profit_3 != null) refLines.push({ price: take_profit_3, color: '#047857', label: 'TP3' });
+  // Trailing stop — once engaged, replaces the old static TP3
+  // full-close for the runner leg. Same pattern as TP2/TP3 above.
+  if (trailing_active && trailing_stop_price != null) refLines.push({ price: trailing_stop_price, color: '#f59e0b', label: 'Trail' });
   if (exit_price != null) refLines.push({ price: exit_price, color: exitColor, label: 'Exit' });
 
   // Entry/exit candle markers — a small triangle sitting just off the
