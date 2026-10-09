@@ -105,28 +105,41 @@ class PositionMonitor:
             if not active_paper_trades:
                 return
 
-            # Batch price lookups per symbol — several paper trades
-            # commonly share the same instrument.
-            symbols = {t.symbol for t in active_paper_trades}
-            prices = dict(zip(symbols, await asyncio.gather(*(get_crypto_price(s) for s in symbols))))
+            # Primary: the trade's own exchange's futures/perpetual-swap
+            # ticker (x50 leverage venue every trade here actually runs
+            # on) — not a generic reference price. By direct correction
+            # ("all pairs are Futures ... that includes EUR/XAUT ...
+            # not spot") after a live check showed Binance's own
+            # futures price can still diverge from the trade's real
+            # exchange by a real, non-trivial amount. See
+            # live_price.get_broker_ticker_price's own docstring.
+            broker_keys = {(t.broker_name, t.symbol) for t in active_paper_trades}
+            broker_prices = dict(zip(
+                broker_keys,
+                await asyncio.gather(*(get_broker_ticker_price(b, s) for b, s in broker_keys)),
+            ))
+            prices: dict[str, float] = {}
+            still_missing_symbols = set()
+            for t in active_paper_trades:
+                p = broker_prices.get((t.broker_name, t.symbol))
+                if p is not None:
+                    prices[t.symbol] = p
+                else:
+                    still_missing_symbols.add(t.symbol)
 
-            # Broker-ticker fallback for any symbol Binance/CoinGecko
-            # don't cover (JPYUSDT.P, NAS100USDT.P, OILBRENTUSDT.P, ...)
-            # — asks the trade's own exchange directly instead of
-            # leaving it stuck ACTIVE forever. See
-            # live_price.get_broker_ticker_price's own docstring for
-            # the full bug this closes.
-            still_missing = [t for t in active_paper_trades if prices.get(t.symbol) is None]
-            if still_missing:
-                fallback_keys = {(t.broker_name, t.symbol) for t in still_missing}
+            # Fallback only for what the broker-ticker map above can't
+            # cover at all (a non-crypto broker_name, or a transient
+            # miss) — e.g. JPYUSDT.P/NAS100USDT.P/OILBRENTUSDT.P used to
+            # need this as their ONLY option before being added to real
+            # exchanges; now it's the rarer path.
+            if still_missing_symbols:
                 fallback_prices = dict(zip(
-                    fallback_keys,
-                    await asyncio.gather(*(get_broker_ticker_price(b, s) for b, s in fallback_keys)),
+                    still_missing_symbols,
+                    await asyncio.gather(*(get_crypto_price(s) for s in still_missing_symbols)),
                 ))
-                for t in still_missing:
-                    p = fallback_prices.get((t.broker_name, t.symbol))
+                for s, p in fallback_prices.items():
                     if p is not None:
-                        prices[t.symbol] = p
+                        prices[s] = p
 
             for trade in active_paper_trades:
                 price = prices.get(trade.symbol)
