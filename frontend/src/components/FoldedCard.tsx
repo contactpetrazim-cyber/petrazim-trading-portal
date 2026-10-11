@@ -28,6 +28,8 @@ export function FoldedCard({
   expandOnHover = false,
   dark = false,
   accent,
+  wrapSummary = false,
+  unmountOnClose = false,
 }: {
   title: string;
   summary?: string;
@@ -42,6 +44,8 @@ export function FoldedCard({
    * the Master Handover: "the only area that uses an accent color
    * other than HERO_BLUE for its card icons"). */
   accent?: string;
+  wrapSummary?: boolean;
+  unmountOnClose?: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen);
   const [hovering, setHovering] = useState(false);
@@ -74,7 +78,7 @@ export function FoldedCard({
         <div className="flex-1 min-w-0">
           <div className={`font-semibold ${dark ? 'text-white' : 'text-corporate-text-on-bg'}`}>{title}</div>
           {summary && !isOpen && (
-            <div className={`text-xs mt-0.5 truncate ${dark ? 'text-white/40' : 'text-[#7c839c]'}`}>{summary}</div>
+            <div className={`text-xs mt-0.5 ${wrapSummary ? 'whitespace-normal break-words' : 'truncate'} ${dark ? 'text-white/40' : 'text-[#7c839c]'}`}>{summary}</div>
           )}
         </div>
         <ChevronDown
@@ -87,7 +91,7 @@ export function FoldedCard({
         className={`grid transition-all duration-300 ease-out ${isOpen ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}
       >
         <div className="overflow-hidden">
-          <div className="px-5 pb-5">{children}</div>
+          <div className="px-5 pb-5">{(!unmountOnClose || isOpen) && children}</div>
         </div>
       </div>
     </div>
