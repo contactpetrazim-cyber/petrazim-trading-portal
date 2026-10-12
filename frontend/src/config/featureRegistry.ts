@@ -49,6 +49,9 @@ export const FEATURE_AREAS: { id: FeatureArea; label: string; description: strin
 
 export const FEATURE_REGISTRY: FeatureEntry[] = [
   // --- Learn ---
+  { id: 'portal-guide', label: 'User Guide', area: 'learn', route: '/guide',
+    description: 'Step-by-step portal manual in five phases, with diagrams and a slideshow tour.',
+    keywords: ['guide', 'manual', 'walkthrough', 'slideshow', 'tutorial', 'help'] },
   { id: 'learn-basics', label: 'Trading Basics', area: 'learn', route: '/learn/basics',
     description: 'Start from zero — market structure, order types, risk fundamentals.' },
   { id: 'learn-bot-mastery', label: 'Bot Mastery Tracks', area: 'learn', route: '/learn/bots',

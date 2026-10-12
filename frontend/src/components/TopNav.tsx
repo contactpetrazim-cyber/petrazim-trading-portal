@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Search, Settings } from 'lucide-react';
+import { BookOpen, Search, Settings } from 'lucide-react';
 import { PetrazimLogo } from './PetrazimLogo';
 import { GlobalSearchModal } from './GlobalSearchModal';
 import { SettingsPanel } from './SettingsPanel';
@@ -65,6 +65,13 @@ export function TopNav({ portal }: { portal?: 'admin' } = {}) {
             >
               <Search size={17} />
             </button>
+            <Link
+              to="/guide"
+              aria-label="User Guide"
+              className={`w-10 h-10 rounded-lg flex items-center justify-center transition-colors text-corporate-hero ${dark ? 'hover:bg-white/10' : 'hover:bg-corporate-bg'}`}
+            >
+              <BookOpen size={17} />
+            </Link>
             <button
               onClick={() => setSettingsOpen(true)}
               aria-label="Open settings"
