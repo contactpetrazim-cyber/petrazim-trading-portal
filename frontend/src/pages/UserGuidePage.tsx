@@ -1,7 +1,8 @@
 import { Link, useLocation } from 'react-router-dom';
 import { FoldedCard } from '../components/FoldedCard';
 import { useThemeStore } from '../hooks/useTheme';
-import { GUIDE_PHASES } from '../config/userGuide';
+import { GUIDE_PHASES, GUIDE_DIAGRAMS } from '../config/userGuide';
+import { GuideDiagram } from '../components/GuideDiagram';
 
 export function UserGuidePage() {
   const dark = useThemeStore().theme === 'dark';
@@ -16,12 +17,15 @@ export function UserGuidePage() {
           <section key={`${phase.id}-${hash}`} id={phase.id} aria-label={phase.title} className="scroll-mt-24">
             <FoldedCard title={phase.title} summary={phase.summary} dark={dark} wrapSummary unmountOnClose defaultOpen={hash === `#${phase.id}`}>
               <p className={`text-sm mb-5 ${muted}`}>{phase.summary}</p>
-              {phase.sections.length === 0 ? (
+              {phase.id === 'phase-4' ? (
+                <div className="grid sm:grid-cols-2 gap-3">{Object.values(GUIDE_DIAGRAMS).map((d) => <GuideDiagram key={d.title} spec={d} dark={dark} />)}</div>
+              ) : phase.sections.length === 0 ? (
                 <p className={`text-sm ${muted}`}>Awaiting approval for this phase.</p>
               ) : phase.sections.map((section) => (
                 <section key={section.id} className="mb-7 last:mb-0">
                   <h2 className={`font-semibold mb-1 ${text}`}>{section.title}</h2>
                   <p className={`text-xs mb-4 ${muted}`}>{section.summary}</p>
+                  {GUIDE_DIAGRAMS[section.id] && <GuideDiagram spec={GUIDE_DIAGRAMS[section.id]} dark={dark} />}
                   <ol className="space-y-4">
                     {section.steps.map((step, i) => (
                       <li key={step.title} className="flex gap-3">
