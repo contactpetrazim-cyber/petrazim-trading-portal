@@ -3,6 +3,7 @@ import { FoldedCard } from '../components/FoldedCard';
 import { useThemeStore } from '../hooks/useTheme';
 import { GUIDE_PHASES, GUIDE_DIAGRAMS } from '../config/userGuide';
 import { GuideDiagram } from '../components/GuideDiagram';
+import { GuideSlideshow } from '../components/GuideSlideshow';
 
 export function UserGuidePage() {
   const dark = useThemeStore().theme === 'dark';
@@ -17,7 +18,7 @@ export function UserGuidePage() {
           <section key={`${phase.id}-${hash}`} id={phase.id} aria-label={phase.title} className="scroll-mt-24">
             <FoldedCard title={phase.title} summary={phase.summary} dark={dark} wrapSummary unmountOnClose defaultOpen={hash === `#${phase.id}`}>
               <p className={`text-sm mb-5 ${muted}`}>{phase.summary}</p>
-              {phase.id === 'phase-4' ? (
+              {phase.id === 'phase-5' ? <GuideSlideshow dark={dark} /> : phase.id === 'phase-4' ? (
                 <div className="grid sm:grid-cols-2 gap-3">{Object.values(GUIDE_DIAGRAMS).map((d) => <GuideDiagram key={d.title} spec={d} dark={dark} />)}</div>
               ) : phase.sections.length === 0 ? (
                 <p className={`text-sm ${muted}`}>Awaiting approval for this phase.</p>

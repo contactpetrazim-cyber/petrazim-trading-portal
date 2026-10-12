@@ -177,7 +177,7 @@ export const GUIDE_PHASES = [
   { id: 'phase-2', title: 'Phase 2', summary: 'Charts & pairs · Account connections · Manual trading · Bots · Risk & review', sections: MASTER_TRADING_GUIDE },
   { id: 'phase-3', title: 'Phase 3', summary: 'Decision Labs · Drills & games · Learning tools · Simulations · Role consoles', sections: PORTAL_REFERENCE_GUIDE },
   { id: 'phase-4', title: 'Phase 4', summary: 'Annotated screen illustrations · Also shown inside Phases 1–3', sections: [] },
-  { id: 'phase-5', title: 'Phase 5', summary: 'Planned: Walkthrough slideshow or video & final compilation', sections: [] },
+  { id: 'phase-5', title: 'Phase 5', summary: 'Walkthrough slideshow · Every section, one slide at a time', sections: [] },
 ];
 
 // Phase 4 — annotated illustrations keyed by section id.
