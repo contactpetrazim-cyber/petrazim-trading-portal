@@ -35,7 +35,6 @@ export interface NavItem {
 const TRADER_NAV_ITEMS: NavItem[] = [
   { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { path: '/trades', label: 'Trades', icon: TrendingUp },
-  { path: '/guide', label: 'User Guide', icon: BookOpen },
   // Under Trades — by direct request ("why have you not put the new
   // 'Pending Approvals' page here in the traders dashboard menu ...
   // Please put it under Trades"). Card-per-recommendation Approve/Not
