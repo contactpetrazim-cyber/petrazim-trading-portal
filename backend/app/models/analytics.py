@@ -96,6 +96,20 @@ class LessonLearned(Base):
     reviewed_by = Column(String(100))
 
 class StrategyAdjustment(Base):
+    """The Intelligent-mode auto-tuning audit trail — every candidate
+    change that actually got applied to a bot's own strategy_params,
+    with enough recorded to answer "why did this change happen" and
+    "what was it before" at any later point, and to support a
+    one-click revert. Resurrected from a schema-only, never-
+    instantiated model (see app/services/intelligent_tuning_worker.py,
+    the first real writer). `bot_id` is a loose string, not a real FK
+    — checked directly against the live database before adding one:
+    bot_configs.bot_id has no actual unique constraint there (only its
+    `id` UUID primary key does, confirmed via pg_constraint), so a real
+    FK would fail at deploy time without a separate migration adding
+    that constraint first. Same deliberate convention ClosedTradeORM.
+    bot_id and BacktestRunORM.bot_id already use for exactly this
+    reason."""
     __tablename__ = "strategy_adjustments"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

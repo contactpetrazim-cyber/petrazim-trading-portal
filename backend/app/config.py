@@ -264,6 +264,35 @@ class Settings(BaseSettings):
     # (live_price.py has no credential-less ticker source for forex).
     POSITION_MONITOR_LIVE_ENABLED: bool = False
 
+    # Intelligent-mode auto-tuning worker (services/intelligent_tuning_worker.py)
+    # — periodically runs a small bounded set of parameter-variant
+    # backtests for each bot opted into BotMode.INTELLIGENT, and
+    # auto-applies a change only when it clears the automated subset of
+    # ValidationGate's own checks (trade count, out-of-sample
+    # expectancy, drawdown, parameter stability) by a real margin. Ships
+    # off by default, same reasoning as POSITION_MONITOR_LIVE_ENABLED
+    # above: this changes what a live bot's strategy actually does
+    # without a human clicking anything, and can't be validated against
+    # real tuning cycles this session (today, zero bots are opted into
+    # Intelligent mode) — should be canaried deliberately, not trusted
+    # immediately. INTERVAL_SECONDS default (7 days) matches the plan's
+    # own "weekly" cadence; LOOKBACK_DAYS is the trailing window each
+    # tuning cycle's backtests replay.
+    INTELLIGENT_TUNING_ENABLED: bool = False
+    INTELLIGENT_TUNING_INTERVAL_SECONDS: int = 7 * 24 * 3600
+    INTELLIGENT_TUNING_LOOKBACK_DAYS: int = 90
+    # A candidate must beat the current config's own out-of-sample
+    # expectancy by at least this many R, not just tie or edge ahead by
+    # noise, before it's ever considered for auto-apply.
+    INTELLIGENT_TUNING_MIN_IMPROVEMENT_R: float = 0.10
+    # Live-performance kill switch: once a bot has at least this many
+    # REAL (non-test) trades closed since its last applied adjustment,
+    # its actual average R since that change is checked — materially
+    # negative and the bot is auto-downgraded back to BASIC rather than
+    # left compounding a bad auto-tune against real money.
+    INTELLIGENT_TUNING_KILL_SWITCH_MIN_TRADES: int = 10
+    INTELLIGENT_TUNING_KILL_SWITCH_MAX_AVG_R: float = -0.5
+
     # MetaApi idle-undeploy sweep (services/metaapi_lifecycle.py) — by
     # direct request ("$9/month is high and a waste of not used ...
     # develop an auto engine that auto-undeploys when not in use").

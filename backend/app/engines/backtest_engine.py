@@ -69,6 +69,7 @@ reduces to this same sum once lot_size cancels out).
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, List, Literal, Optional, Protocol
@@ -240,6 +241,18 @@ class BacktestEngine:
         symbol: str,
         context: Optional[Dict] = None,
     ) -> List[ClosedBacktestTrade]:
+        # Regenerated fresh on every call (not just __init__) so trade_id
+        # (built from this below, see each _advance_*/_force_close/
+        # _close_ladder_trade/_finalize_ladder_trade helper) is globally
+        # unique across separate run() invocations — a real bug, found
+        # live: the old f"{symbol}_{trade_counter}" scheme restarts
+        # trade_counter at 0 every call, so saving two separate runs'
+        # trades for the same symbol into closed_trades (exactly what
+        # intelligent_tuning_worker.py does across its baseline +
+        # several candidate runs, and what any trader re-running
+        # POST /api/backtests for the same bot+symbol would also hit)
+        # collided on that table's real trade_id UNIQUE constraint.
+        self._run_id = uuid.uuid4().hex[:8]
         context = context or {}
         trades: List[ClosedBacktestTrade] = []
         open_pos: Optional[Dict] = None
@@ -306,7 +319,7 @@ class BacktestEngine:
         exit_price += self.cost_model.exit_adjustment(open_pos["direction"])
         r_multiple = self._r_multiple(open_pos, exit_price) - self.cost_model.commission_r
         return ClosedBacktestTrade(
-            trade_id=f"{symbol}_{trade_counter}",
+            trade_id=f"{symbol}_{self._run_id}_{trade_counter}",
             bot_id=open_pos["bot_id"],
             symbol=symbol,
             direction=open_pos["direction"],
@@ -451,7 +464,7 @@ class BacktestEngine:
         last_leg_price = open_pos["legs"][-1]["price"]
         blended_r = open_pos["realized_r"] - self.cost_model.commission_r
         return ClosedBacktestTrade(
-            trade_id=f"{symbol}_{trade_counter}",
+            trade_id=f"{symbol}_{self._run_id}_{trade_counter}",
             bot_id=open_pos["bot_id"],
             symbol=symbol,
             direction=open_pos["direction"],
@@ -482,7 +495,7 @@ class BacktestEngine:
 
         blended_r = open_pos["realized_r"] - self.cost_model.commission_r
         return ClosedBacktestTrade(
-            trade_id=f"{symbol}_{trade_counter}",
+            trade_id=f"{symbol}_{self._run_id}_{trade_counter}",
             bot_id=open_pos["bot_id"],
             symbol=symbol,
             direction=open_pos["direction"],
@@ -518,7 +531,7 @@ class BacktestEngine:
             r_multiple = self._r_multiple(open_pos, exit_price_adj) - self.cost_model.commission_r
             legs = []
         return ClosedBacktestTrade(
-            trade_id=f"{symbol}_{trade_counter}",
+            trade_id=f"{symbol}_{self._run_id}_{trade_counter}",
             bot_id=open_pos["bot_id"],
             symbol=symbol,
             direction=open_pos["direction"],

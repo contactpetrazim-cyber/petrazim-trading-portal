@@ -45,6 +45,7 @@ from app.db.session import engine as legacy_engine, Base as LegacyBase
 from app.services.execution_engine import ExecutionEngine
 from app.services.market_scanner import MarketScanner
 from app.services.position_monitor import PositionMonitor
+from app.services.intelligent_tuning_worker import IntelligentTuningWorker
 from app.services.pending_order_monitor import PendingOrderMonitor
 from app.services.outbound_ip_detector import OutboundIpDetector
 from app.services.metaapi_lifecycle import MetaApiIdleUndeployer
@@ -220,6 +221,15 @@ async def lifespan(app: FastAPI):
         memory_watchdog.start()
     app.state.memory_watchdog = memory_watchdog
 
+    # Intelligent-mode auto-tuning — see intelligent_tuning_worker.py's
+    # own module docstring and INTELLIGENT_TUNING_ENABLED's config.py
+    # comment for why this is off by default (changes a live bot's
+    # own strategy parameters without a human clicking anything).
+    intelligent_tuning_worker = None
+    if settings.INTELLIGENT_TUNING_ENABLED:
+        intelligent_tuning_worker = IntelligentTuningWorker()
+        intelligent_tuning_worker.start()
+
     # Pre-warm order_flow.py's in-memory Binance instrument-list cache
     # (_get_all_instruments) — real bug report ("'On Chart' not display
     # price chart ... Same issue on incognito tab"): that cache resets
@@ -251,6 +261,8 @@ async def lifespan(app: FastAPI):
         await metaapi_idle_undeployer.stop()
     if memory_watchdog is not None:
         await memory_watchdog.stop()
+    if intelligent_tuning_worker is not None:
+        await intelligent_tuning_worker.stop()
 
     logger.info("app_shutdown")
     await engine.dispose()

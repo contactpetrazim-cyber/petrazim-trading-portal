@@ -591,6 +591,52 @@ async def get_tunable_params(bot_id: str, db: AsyncSession = Depends(get_db), us
         ],
     }
 
+@router.get("/{bot_id}/strategy-adjustments")
+async def list_strategy_adjustments(
+    bot_id: str, limit: int = 20, db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access),
+):
+    """The Intelligent-mode auto-tuning audit trail for this bot —
+    every candidate change that was actually applied, newest first."""
+    await _get_owned_bot(bot_id, user, db)  # ownership check only
+    from app.models.analytics import StrategyAdjustment
+    rows = (await db.execute(
+        select(StrategyAdjustment).where(StrategyAdjustment.bot_id == bot_id)
+        .order_by(StrategyAdjustment.created_at.desc()).limit(min(limit, 100))
+    )).scalars().all()
+    return [
+        {
+            "id": str(r.id), "adjustment_type": r.adjustment_type,
+            "previous_config": r.previous_config, "new_config": r.new_config,
+            "trigger_metric": r.trigger_metric, "trigger_value": r.trigger_value,
+            "threshold_value": r.threshold_value, "backtest_results": r.backtest_results,
+            "created_at": r.created_at, "applied_at": r.applied_at,
+        }
+        for r in rows
+    ]
+
+@router.post("/{bot_id}/revert-last-adjustment")
+async def revert_last_adjustment(
+    bot_id: str, db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access),
+):
+    """One-click revert — restores strategy_params to whatever they
+    were immediately before the most recent APPLIED StrategyAdjustment
+    for this bot. Does not change bot_mode; a trader who wants to stop
+    further auto-tuning should also switch back to Basic mode
+    separately (PATCH .../strategy-mode)."""
+    bot = await _get_owned_bot(bot_id, user, db)
+    from app.models.analytics import StrategyAdjustment
+    last = (await db.execute(
+        select(StrategyAdjustment)
+        .where(StrategyAdjustment.bot_id == bot_id, StrategyAdjustment.applied_at.isnot(None))
+        .order_by(StrategyAdjustment.applied_at.desc()).limit(1)
+    )).scalar_one_or_none()
+    if last is None:
+        raise HTTPException(status_code=404, detail="No applied strategy adjustment found for this bot to revert.")
+
+    bot.strategy_params = last.previous_config
+    await db.commit()
+    return {"success": True, "bot_id": bot_id, "reverted_to": last.previous_config}
+
 @router.patch("/{bot_id}/toggle")
 async def toggle_bot(
     bot_id: str, toggle: BotToggle, db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access)
