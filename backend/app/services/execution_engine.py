@@ -26,6 +26,26 @@ settings = get_settings()
 # endpoint's own crypto-exchange allowlist.
 _LEVERAGE_CAPABLE_BROKERS = {"bingx", "binance", "bybit", "mexc"}
 
+# Brokers position_monitor.py's live-trade ladder can drive a genuine
+# partial close on (close_broker_position(quantity=...)) — by direct
+# request to extend the paper-only "let winners run" ladder/ratchet/
+# trailing engine to real broker positions. Every broker here supports
+# a real partial close per broker_integrations.py's own
+# close_position(quantity=...); tradelocker explicitly rejects a
+# partial close ("partial_close_unsupported") and metatrader/oanda are
+# excluded for an unrelated reason — live_price.py has no credential-
+# less ticker source for forex at all, so position_monitor.py can
+# never even price those trades to check them — carved out here too so
+# this one set is the single source of truth for "can position_monitor
+# manage this live trade's ladder at all."
+LIVE_LADDER_CAPABLE_BROKERS = {"bingx", "binance", "bybit", "mexc"}
+
+# Of the brokers above, which ALSO support update_broker_stop_loss_
+# take_profit — a real broker-side stop-loss ratchet. bingx/mexc
+# attach SL/TP as entry-order metadata with no "modify" call at all;
+# binance/bybit genuinely support moving the stop after entry.
+SL_SYNC_CAPABLE_BROKERS = {"binance", "bybit"}
+
 # Trading Schedule — generalized from Sub-Auto-only to every bot, by
 # direct request ("integrate as quick filters for the semi auto and
 # normal bot setups"). Real session definitions + the shared
@@ -991,6 +1011,16 @@ class ExecutionEngine:
                     "direction": "long" if row.direction.value == "long" else "short",
                     "entry_price": row.entry_price, "stop_loss": row.stop_loss,
                     "take_profit": row.take_profit_1, "lot_size": row.lot_size,
+                    # Needed so _execute_broker_order's live-ladder
+                    # final-target override (below) has something to
+                    # read — this dict previously only carried TP1,
+                    # which already fed `take_profit` above; a Human-
+                    # in-the-Loop trade drafted with a real ladder
+                    # (take_profit_2/3, trailing_activation_r already
+                    # resolved and stored on the row at draft time) lost
+                    # that information the moment it reached approval.
+                    "take_profit_2": row.take_profit_2, "take_profit_3": row.take_profit_3,
+                    "trailing_activation_r": row.trailing_activation_r,
                     "preferred_broker": row.broker_name,
                     # Same bug/fix as process_signal's own _bot_owner_user_id
                     # call: without this, a Human-in-the-Loop bot trade's
@@ -1340,6 +1370,39 @@ class ExecutionEngine:
             logger.error("broker_sltp_update_failed", broker=broker, symbol=symbol, error=str(e))
             return {"success": False, "error": str(e)}
 
+    async def cancel_stale_broker_orders(
+        self, broker: Optional[str], symbol: str, bot_id: Optional[str],
+        db: Optional[AsyncSession] = None, paper: bool = False, user_id=None,
+    ) -> Dict:
+        """Best-effort cleanup for the one broker (Binance) whose SL/TP
+        are genuinely separate resting conditional orders rather than
+        position-level metadata — see BinanceBroker.place_order in
+        broker_integrations.py, which places a STOP_MARKET and/or
+        TAKE_PROFIT_MARKET order with closePosition=true alongside the
+        entry order. Every other broker here (BingX/TradeLocker/Bybit/
+        MEXC/MetaApi/OANDA) attaches SL/TP as position-scoped metadata
+        that can't outlive the position itself, so this is a genuine
+        no-op for them, not just an unimplemented stub.
+
+        Call this once a live trade's position has gone fully flat
+        through position_monitor.py's own close (the final ladder leg,
+        or a trailing-stop hit) — not after a PARTIAL close, since the
+        position (and the resting closePosition order) both still
+        legitimately exist at that point. A still-resting order from
+        entry could otherwise later fire against a position that no
+        longer exists; never raises, never blocks the caller's own
+        already-completed close on a cleanup failure (logged only)."""
+        if paper or broker != "binance":
+            return {"success": True, "skipped": True}
+        client = await self._get_broker_client(broker, bot_id, db, paper=paper, user_id=user_id)
+        if client is None or not hasattr(client, "cancel_open_conditional_orders"):
+            return {"success": False, "error": "no_broker_client"}
+        try:
+            return await client.cancel_open_conditional_orders(symbol)
+        except Exception as e:
+            logger.error("broker_stale_order_cleanup_failed", broker=broker, symbol=symbol, error=str(e))
+            return {"success": False, "error": str(e)}
+
     async def _execute_broker_order(
         self, trade: Dict, db: Optional[AsyncSession] = None, paper: bool = False, is_relay: bool = False,
         client_override=None,
@@ -1476,6 +1539,32 @@ class ExecutionEngine:
                                 "set_leverage_failed", broker=broker, symbol=trade["symbol"],
                                 leverage=target_leverage, error=lev_result.get("error"),
                             )
+
+            # Live-ladder final-target override — by direct request to
+            # extend the paper-only "let winners run" ladder/ratchet/
+            # trailing engine (position_monitor.py) to real broker
+            # positions. No broker's place_order supports an
+            # independent PARTIAL-quantity take-profit leg — every
+            # broker's native TP is scoped to the full order/position —
+            # so a live trade with a real ladder configured
+            # (trailing_activation_r resolved, meaning take_profit_2/3
+            # exist) gets its broker-side take_profit pointed at the
+            # FINAL configured target instead of TP1. That single
+            # full-quantity order becomes a disaster-recovery fallback
+            # (still real exchange-side protection if this backend goes
+            # down) rather than a first-leg closer; position_monitor.py
+            # itself is what actually fires each earlier partial leg,
+            # via close_broker_position with a fractional quantity —
+            # see that module and LIVE_LADDER_CAPABLE_BROKERS above.
+            # One centralized insertion point (here, right before
+            # dispatch) rather than editing every _execute_* method, so
+            # every current and future caller of this function gets it
+            # for free. Never touches a paper trade (paper never
+            # reaches this line — `client` is always None for "paper").
+            if not paper and trade.get("trailing_activation_r") is not None:
+                final_target = trade.get("take_profit_3") or trade.get("take_profit_2") or trade.get("take_profit")
+                if final_target is not None:
+                    trade["take_profit"] = final_target
 
             if broker == "bingx" and client is not None:
                 result = await self._execute_bingx(trade, client)

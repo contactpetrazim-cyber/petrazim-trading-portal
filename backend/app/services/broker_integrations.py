@@ -873,6 +873,35 @@ class BinanceBroker:
             return {"success": True, "message": "Nothing to update."}
         return {"success": all(r.get("success") for r in results.values()), "results": results}
 
+    async def cancel_open_conditional_orders(self, symbol: str) -> Dict:
+        """Cancel any still-resting STOP_MARKET/TAKE_PROFIT_MARKET
+        closePosition order for this symbol — see execution_engine.py's
+        cancel_stale_broker_orders for why this exists: Binance is the
+        one broker here whose SL/TP are separate resting orders rather
+        than position-level metadata (see place_order/
+        update_stop_loss_take_profit above), so they can outlive a
+        position that was closed by any OTHER mechanism (a manual
+        close, or position_monitor.py's own live-ladder trailing-stop
+        hit) and later misfire against a position that no longer
+        exists. Reuses the exact same openOrders lookup
+        update_stop_loss_take_profit already does.
+
+        NOTE: written from Binance's documented request/response
+        shapes, not yet exercised against a live account — same
+        disclosed-but-unverified status this file's other broker
+        classes already flag for their own less-exercised paths."""
+        if self.paper:
+            return {"success": True, "paper": True}
+        symbol_clean = symbol.replace("/", "").replace("-", "").upper()
+        open_orders = await self._request("GET", "/fapi/v1/openOrders", {"symbol": symbol_clean})
+        if not open_orders["success"]:
+            return open_orders
+        targets = [o for o in open_orders["data"] if o.get("type") in ("STOP_MARKET", "TAKE_PROFIT_MARKET") and o.get("closePosition")]
+        results = []
+        for o in targets:
+            results.append(await self._request("DELETE", "/fapi/v1/order", {"symbol": symbol_clean, "orderId": o["orderId"]}))
+        return {"success": all(r.get("success") for r in results) if results else True, "cancelled": len(results)}
+
     async def cancel_order(self, symbol: str, order_id: str, is_stop: bool = False) -> Dict:
         """Cancel a still-resting order — DELETE /fapi/v1/order per
         Binance's own docs (symbol + orderId, same signed-request shape
