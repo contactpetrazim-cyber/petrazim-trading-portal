@@ -158,6 +158,13 @@ export interface BotConfig {
    * request for the margin auto-switch engine. Also requires the
    * Admin portal's master switch to be on. */
   margin_mode?: 'dedicated' | 'auto_switch';
+  /** Basic (manual, fixed-until-changed-by-hand) vs Intelligent
+   * (opt-in bounded self-tuning) — see app/models/bot.py's BotMode. */
+  bot_mode?: 'basic' | 'intelligent';
+  /** This bot's current tunable strategy knobs (e.g.
+   * {"left_bars": 5}) — empty/missing means every value falls back to
+   * this bot's own original hardcoded default. */
+  strategy_params?: Record<string, number>;
 }
 
 
@@ -366,6 +373,11 @@ export interface BotMetricsUpdate {
   leverage?: number | null;
   /** See BotConfig.margin_mode above. */
   margin_mode?: 'dedicated' | 'auto_switch';
+  /** Merged server-side over whatever's already stored, then
+   * hard-clipped to each key's declared bounds regardless of what's
+   * sent — see botsApi.getTunableParams for the bounds to validate
+   * against client-side too. */
+  strategy_params?: Record<string, number>;
 }
 
 export interface TodayTradeBreakdown {

@@ -186,6 +186,17 @@ export const botsApi = {
     api.patch(`/bots/${botId}/toggle`, { bot_id: botId, active }).then(r => r.data),
   setMode: (botId: string, mode: 'human_in_loop' | 'fully_autonomous') =>
     api.patch(`/bots/${botId}/mode?mode=${mode}`).then(r => r.data),
+  // Basic (manual, fixed-until-changed-by-hand) vs Intelligent
+  // (opt-in bounded self-tuning, see TUNABLE_PARAM_BOUNDS) — see
+  // app/models/bot.py's BotMode.
+  setStrategyMode: (botId: string, mode: 'basic' | 'intelligent') =>
+    api.patch(`/bots/${botId}/strategy-mode?mode=${mode}`).then(r => r.data),
+  // Which strategy_params keys this bot's own algorithm declares,
+  // their guardrail bounds, and the current effective value for each.
+  getTunableParams: (botId: string) =>
+    api.get<{ bot_id: string; strategy_key: string | null; params: { key: string; min: number; max: number; default: number; current: number }[] }>(
+      `/bots/${botId}/tunable-params`
+    ).then(r => r.data),
   // Same Test/Live + Paper Trading pair the Manual Trading order form
   // already exposes, per-bot — by direct request ("do the same and do
   // paper trading for bot trading ... with a test / paper trading

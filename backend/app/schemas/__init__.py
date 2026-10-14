@@ -250,6 +250,15 @@ class BotConfigResponse(BaseModel):
     # "dedicated Vs Auto margin account setting for bots" — see
     # app/models/bot.py's MarginMode.
     margin_mode: str = "dedicated"
+    # Basic (manual, fixed-until-changed-by-hand) vs Intelligent
+    # (opt-in bounded self-tuning) — see app/models/bot.py's BotMode.
+    bot_mode: str = "basic"
+    # The actual tunable knobs this bot's strategy currently uses
+    # (e.g. {"left_bars": 5, "right_bars": 3}) — empty/missing means
+    # every value falls back to this bot's own original hardcoded
+    # default. See app.core.bot_strategies.TUNABLE_PARAM_BOUNDS for
+    # which keys exist per strategy_key and their guardrail bounds.
+    strategy_params: Optional[Dict] = {}
     user_id: Optional[UUID] = None
     created_at: datetime
     # Real bot health, by direct request ("confirm my five bots are
@@ -418,6 +427,14 @@ class BotMetricsUpdate(BaseModel):
     # app/models/bot.py's MarginMode. Also requires the Admin portal's
     # master switch to be on; see services/margin_switch_engine.py.
     margin_mode: Optional[Literal["dedicated", "auto_switch"]] = None
+    # Basic-mode manual editing of this bot's tunable strategy
+    # parameters (e.g. {"left_bars": 5}) — merged over whatever's
+    # already stored (a partial update doesn't wipe other keys), then
+    # hard-clipped server-side to TUNABLE_PARAM_BOUNDS regardless of
+    # what's sent, same defense-in-depth every other guardrail
+    # enforcement point in this system already uses. See
+    # routers/bots.py's update_bot_metrics for the actual clip+merge.
+    strategy_params: Optional[Dict] = None
 
 # =============================================================================
 # DASHBOARD / ANALYTICS SCHEMAS
