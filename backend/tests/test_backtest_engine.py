@@ -121,3 +121,23 @@ class TestBacktestEngine:
         record = trades[0].to_trade_record()
         assert record.r_multiple == trades[0].r_multiple
         assert record.bot_id == "test_bot"
+
+    def test_trade_ids_unique_across_separate_run_calls(self):
+        """Real bug, found live: trade_id used to be f"{symbol}_{counter}",
+        which restarts at 0 every run() call — saving two separate runs'
+        trades for the same symbol into the same closed_trades table (what
+        the Intelligent-tuning worker does across its baseline + several
+        candidate backtests, and what re-running POST /api/backtests for
+        the same bot+symbol also does) collided on that table's real
+        trade_id UNIQUE constraint. A fresh run_id per run() call fixes
+        this; same engine INSTANCE reused across both calls, since that's
+        exactly how every real caller uses it (one BacktestEngine, several
+        .run() calls)."""
+        bars = make_bars(20, start_price=100, step=0.5)
+        engine = BacktestEngine()
+        trades_a = engine.run(bars, FixedSignalOnceStrategy(stop=95, target=105), symbol="SAME_SYMBOL")
+        trades_b = engine.run(bars, FixedSignalOnceStrategy(stop=95, target=105), symbol="SAME_SYMBOL")
+        ids_a = {t.trade_id for t in trades_a}
+        ids_b = {t.trade_id for t in trades_b}
+        assert ids_a, "first run produced no trades to compare"
+        assert ids_a.isdisjoint(ids_b), f"trade_ids collided across separate run() calls: {ids_a & ids_b}"

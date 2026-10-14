@@ -197,6 +197,16 @@ export const botsApi = {
     api.get<{ bot_id: string; strategy_key: string | null; params: { key: string; min: number; max: number; default: number; current: number }[] }>(
       `/bots/${botId}/tunable-params`
     ).then(r => r.data),
+  // Intelligent-mode auto-tuning audit trail — every candidate change
+  // that was actually applied, newest first.
+  getStrategyAdjustments: (botId: string, limit = 5) =>
+    api.get<{
+      id: string; adjustment_type: string; previous_config: Record<string, number>; new_config: Record<string, number>;
+      trigger_metric: string | null; trigger_value: number | null; threshold_value: number | null;
+      backtest_results: Record<string, number> | null; created_at: string; applied_at: string | null;
+    }[]>(`/bots/${botId}/strategy-adjustments`, { params: { limit } }).then(r => r.data),
+  revertLastAdjustment: (botId: string) =>
+    api.post(`/bots/${botId}/revert-last-adjustment`).then(r => r.data),
   // Same Test/Live + Paper Trading pair the Manual Trading order form
   // already exposes, per-bot — by direct request ("do the same and do
   // paper trading for bot trading ... with a test / paper trading
