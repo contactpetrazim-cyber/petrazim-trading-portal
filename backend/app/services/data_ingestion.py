@@ -266,6 +266,63 @@ class MarketDataIngestion:
         # long-lived (cached per exchange+route), not a one-shot
         # resource. Cleaned up when the process exits.
 
+    async def fetch_historical_range(
+        self,
+        exchange: str,
+        symbol: str,
+        timeframe: str,
+        start: datetime,
+        end: Optional[datetime] = None,
+        page_limit: int = 1000,
+    ) -> List[Candle]:
+        """
+        Multi-week/month historical window, for backtest replay —
+        fetch_historical_ccxt above does exactly ONE bounded call
+        (`limit` candles starting at `since`), which was never meant to
+        cover more than a live scan's own "latest 200 bars" need. This
+        walks `since` forward one `page_limit`-sized page at a time
+        until `end` (default: now) is reached or an exchange stops
+        returning new candles, concatenating pages and de-duplicating
+        on timestamp (a page's own last candle can legitimately be
+        `end`'s own still-forming bar on some exchanges, which the next
+        page's `since` would otherwise re-fetch).
+
+        Reuses fetch_historical_ccxt's own cached, proxy-failover
+        client and symbol conversion — nothing about routing/resilience
+        is reimplemented here, only the pagination loop on top.
+        """
+        end = end or datetime.now(timezone.utc).replace(tzinfo=None)
+        all_candles: List[Candle] = []
+        cursor = start
+        seen_timestamps: set = set()
+
+        while cursor < end:
+            page = await self.fetch_historical_ccxt(exchange, symbol, timeframe, limit=page_limit, since=cursor)
+            if not page:
+                break
+            new_candles = [c for c in page if c.timestamp not in seen_timestamps]
+            if not new_candles:
+                # Every candle in this page was already seen — the
+                # exchange isn't advancing past `cursor` any further
+                # (either we've caught up to its most recent bar, or
+                # it's returning a static page for a `since` past its
+                # retention window). Stop rather than loop forever.
+                break
+            all_candles.extend(new_candles)
+            seen_timestamps.update(c.timestamp for c in new_candles)
+            last_ts = page[-1].timestamp
+            if last_ts <= cursor:
+                # Defensive: an exchange that doesn't actually advance
+                # `since` on repeated calls would otherwise spin here
+                # forever — same principle as the new_candles check
+                # above, for the case where SOME candles were "new" by
+                # the set check but the page still didn't move forward.
+                break
+            cursor = last_ts + timedelta(milliseconds=1)
+
+        all_candles.sort(key=lambda c: c.timestamp)
+        return [c for c in all_candles if start <= c.timestamp <= end]
+
     async def symbol_is_tradeable(self, exchange: str, symbol: str) -> bool:
         """True iff `symbol` (TradingView/BotConfig format, e.g.
         "BTCUSDT.P") is a real, active market on `exchange` — used by
