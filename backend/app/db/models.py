@@ -107,7 +107,15 @@ class BacktestRunORM(Base):
     explicitly separate phase of the same approved plan.
     `variant_group` is unused until the Intelligent-mode auto-tuning
     phase — included now so that phase doesn't need its own migration,
-    same reasoning ClosedTradeORM.variant_group was already added for."""
+    same reasoning ClosedTradeORM.variant_group was already added for.
+    `equity_curve` is a self-contained [{"timestamp": iso, "cum_r":
+    float}, ...] snapshot computed once at completion, deliberately
+    NOT re-derived later by querying closed_trades for this bot_id —
+    closed_trades(source='backtest') rows aren't tagged with which run
+    produced them (no run_id column there), so a second run for the
+    same bot would make that query ambiguous; storing the curve here
+    keeps each run's own result fully self-describing regardless of
+    how many other runs exist for the same bot."""
     __tablename__ = "backtest_runs"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -125,6 +133,7 @@ class BacktestRunORM(Base):
     win_rate = Column(Float, nullable=True)
     expectancy_r = Column(Float, nullable=True)
     max_drawdown_pct = Column(Float, nullable=True)
+    equity_curve = Column(JSON, nullable=True)
     variant_group = Column(String, nullable=True)
     created_by = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False)
