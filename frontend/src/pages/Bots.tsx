@@ -1,6 +1,6 @@
 
 import { useEffect, useState } from 'react';
-import { Bot, Play, Pause, Settings, TrendingUp, Save, Plus, X, Pencil, Trash2, ChevronDown, Copy } from 'lucide-react';
+import { Bot, Play, Pause, Settings, TrendingUp, Save, Plus, X, Pencil, Trash2, ChevronDown, Copy, Info } from 'lucide-react';
 import { botsApi } from '../services/api';
 import { BotSleepAndSubAuto } from '../components/BotSleepAndSubAuto';
 import { ExchangeEngineControl } from '../components/ExchangeEngineControl';
@@ -114,6 +114,12 @@ export function BotsPage() {
   const [instrumentResults, setInstrumentResults] = useState<InstrumentResult[]>([]);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
+  // "Use trailing stop" info explanation — by direct request ("add a
+  // toggle ... with an info explanation hide default"). Collapsed by
+  // default; only one bot's edit form (`editing`) is ever open at a
+  // time, so one plain boolean is enough — no per-card Set needed,
+  // unlike openStrategyIds below (a list of cards, not a single form).
+  const [showTrailingInfo, setShowTrailingInfo] = useState(false);
   // Strategy summary fold — by direct request ("Add the bot strategy
   // summary under a 'Strategy' link similar to the Reasoning style in
   // the individual Bot cards"). A Set, not a single id, so more than
@@ -835,14 +841,38 @@ export function BotsPage() {
                           className={inputCls}
                         />
                       </label>
-                      <label className="flex items-center gap-2 text-xs text-gray-400 col-span-2 mt-1">
-                        <input
-                          type="checkbox"
-                          checked={!!editing.use_trailing_stop}
-                          onChange={(e) => setEditing({ ...editing, use_trailing_stop: e.target.checked })}
-                        />
-                        Use trailing stop
-                      </label>
+                      <div className="flex items-center gap-2 col-span-2 mt-1">
+                        <label className="flex items-center gap-2 text-xs text-gray-400">
+                          <input
+                            type="checkbox"
+                            checked={!!editing.use_trailing_stop}
+                            onChange={(e) => setEditing({ ...editing, use_trailing_stop: e.target.checked })}
+                          />
+                          Use trailing stop
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => setShowTrailingInfo((v) => !v)}
+                          aria-label="What does trailing stop do?"
+                          className={dark ? 'text-white/40 hover:text-white/70' : 'text-gray-400 hover:text-gray-600'}
+                        >
+                          <Info size={13} />
+                        </button>
+                      </div>
+                      {/* Info explanation — collapsed by default, by
+                          direct request ("with an info explanation
+                          hide default"). */}
+                      {showTrailingInfo && (
+                        <p className={`col-span-2 -mt-1 text-xs leading-relaxed ${dark ? 'text-white/50' : 'text-gray-500'}`}>
+                          When on, once a trade reaches its activation point (TP1 or TP2 below),
+                          the stop loss locks forward to breakeven or TP1 — it can only ever
+                          tighten, never loosen — and the remaining position trails price instead
+                          of closing at a fixed target. This lets a winning trade capture more
+                          than its original fixed R-multiple would, at the cost of occasionally
+                          giving back a little versus that fixed target if price reverses right
+                          after activating.
+                        </p>
+                      )}
                       {/* Trailing activation — "let winners run" by
                           direct request ("Provide a toggle in the
                           bots and manual settings and order form ...

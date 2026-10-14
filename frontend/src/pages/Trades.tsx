@@ -8,7 +8,7 @@ import { SourceToggle, type TradeSource } from '../components/TradeAnalytics';
 import { tradesApi } from '../services/api';
 import { Trade } from '../types';
 import { useThemeStore } from '../hooks/useTheme';
-import { Filter, Search, Download, RefreshCw, Archive, Trash2, ClipboardCheck, ArrowRight, Calendar, CheckSquare, Square, Bot } from 'lucide-react';
+import { Filter, Search, Download, RefreshCw, Archive, Trash2, ClipboardCheck, ArrowRight, Calendar, CheckSquare, Square, Bot, AlertTriangle } from 'lucide-react';
 import { formatApiError } from '../lib/apiError';
 
 // Quick date-range options for the Trades filter bar — by direct
@@ -66,6 +66,18 @@ export function TradesPage() {
   // Delete card where all the deleted trades are stored for future
   // reference"). Same shape as archivedTrades above.
   const [deletedTrades, setDeletedTrades] = useState<Trade[]>([]);
+  // Errors / Cancelled — a fourth card (folded by default, same as
+  // Archive/Deleted), by direct request ("create an Errors or
+  // Cancelled card in the Trades section ... where all trades with
+  // error or are cancelled automatically go"). Two statuses, one
+  // card: the backend's own `status` filter only matches one value at
+  // a time, so this is two parallel fetches merged and sorted, same
+  // shape as the recent/archived/deleted three-way split above.
+  // Removed from the default "Recent Trades" view the same way
+  // pending-approval rows are (excludeAwaitingApproval) — see
+  // excludeErrorsAndCancelled below — so they land here instead of
+  // cluttering the primary working list.
+  const [errorCancelledTrades, setErrorCancelledTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   // Quick filters — extended past the original 4 status filters to
@@ -209,20 +221,43 @@ export function TradesPage() {
     return list.filter((t) => !(t.status === 'pending' && t.requires_approval));
   }
 
+  // Same "only when the default All view is showing" carve-out as
+  // excludeAwaitingApproval above — an explicit "Cancelled" quick-
+  // filter pill (already existed) still shows cancelled trades in
+  // Recent Trades on demand; only the default view routes them to the
+  // new Errors / Cancelled card instead.
+  function excludeErrorsAndCancelled(list: Trade[]): Trade[] {
+    if (filter !== 'all') return list;
+    return list.filter((t) => t.status !== 'error' && t.status !== 'cancelled');
+  }
+
   async function loadTrades() {
     setLoading(true);
     setError(null);
     try {
       const params = buildParams();
-      const [recent, archived, deleted] = await Promise.all([
+      // Errors / Cancelled card — independent of the quick-filter pill
+      // row (always shows error + cancelled trades regardless of
+      // which pill is selected, same "fixed destination" shape as the
+      // Archive/Deleted cards' own archived/deleted toggles), but
+      // still respects search/source/bot/date so narrowing those also
+      // narrows this card. The backend's `status` param only matches
+      // one value at a time, so this is two fetches merged client-side.
+      const { status: _ignoredFilterStatus, ...baseParams } = params;
+      const [recent, archived, deleted, errored, cancelled] = await Promise.all([
         tradesApi.getTrades({ ...params, archived: false }),
         tradesApi.getTrades({ ...params, archived: true }),
         tradesApi.getTrades({ ...params, deleted: true }),
+        tradesApi.getTrades({ ...baseParams, status: 'error', archived: false }),
+        tradesApi.getTrades({ ...baseParams, status: 'cancelled', archived: false }),
       ]);
       setPendingApprovalCount(recent.filter((t) => t.status === 'pending' && t.requires_approval).length);
-      setTrades(excludeAwaitingApproval(applyOutcomeFilter(recent)));
+      setTrades(excludeErrorsAndCancelled(excludeAwaitingApproval(applyOutcomeFilter(recent))));
       setArchivedTrades(applyOutcomeFilter(archived));
       setDeletedTrades(applyOutcomeFilter(deleted));
+      setErrorCancelledTrades(
+        [...errored, ...cancelled].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      );
     } catch (e: any) {
       setError('Could not load trades.');
     } finally {
@@ -332,7 +367,7 @@ export function TradesPage() {
     // immutable opening size (falls back to lot_size for a legacy row
     // with no way to recover it).
     const header = 'trade_id,symbol,direction,status,entry_price,stop_loss,take_profit,lot_size,realized_pnl,unrealized_pnl,bot_id,created_at,archived,deleted';
-    const rows = [...trades, ...archivedTrades, ...deletedTrades].map((t) =>
+    const rows = [...trades, ...archivedTrades, ...deletedTrades, ...errorCancelledTrades].map((t) =>
       [t.trade_id, t.symbol, t.direction, t.status, t.entry_price, t.stop_loss, t.take_profit, t.initial_lot_size ?? t.lot_size, t.realized_pnl, t.unrealized_pnl, t.bot_id, t.created_at, t.is_archived ?? false, t.is_deleted ?? false].join(',')
     );
     const blob = new Blob([[header, ...rows].join('\n')], { type: 'text/csv' });
@@ -357,7 +392,7 @@ export function TradesPage() {
           </button>
           <button
             onClick={exportCsv}
-            disabled={trades.length === 0 && archivedTrades.length === 0 && deletedTrades.length === 0}
+            disabled={trades.length === 0 && archivedTrades.length === 0 && deletedTrades.length === 0 && errorCancelledTrades.length === 0}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors disabled:opacity-40 ${
               dark ? 'bg-smc-accent/10 text-smc-accent hover:bg-smc-accent/20' : 'bg-corporate-hero/10 text-corporate-hero hover:bg-corporate-hero/20'
             }`}
@@ -519,7 +554,7 @@ export function TradesPage() {
       {/* By direct request ("for loading area put the loading
           indicator to help user wait") — only for the initial/manual
           load, not the silent background live-PnL refresh above. */}
-      {loading && trades.length === 0 && archivedTrades.length === 0 && deletedTrades.length === 0 && (
+      {loading && trades.length === 0 && archivedTrades.length === 0 && deletedTrades.length === 0 && errorCancelledTrades.length === 0 && (
         <div className="py-2"><LoadingIndicator phase="loading" dark={dark} /></div>
       )}
 
@@ -584,6 +619,33 @@ export function TradesPage() {
 
         {!loading && archivedTrades.length === 0 && (
           <div className="text-center py-8 text-gray-400">No archived trades — use "Archive" on a trade above to move it here.</div>
+        )}
+      </FoldedCard>
+
+      {/* Errors / Cancelled Trades — by direct request ("create an
+          Errors or Cancelled card in the Trades section ... where all
+          trades with error or are cancelled automatically go").
+          Folded by default, same as Archive/Deleted. Independent of
+          the quick-filter pill row above (see loadTrades' own
+          comment) — always the fixed destination for these two
+          statuses, same mental model as the Archive/Delete toggles. */}
+      <FoldedCard
+        title="Errors / Cancelled Trades"
+        summary={`${errorCancelledTrades.length} trade${errorCancelledTrades.length === 1 ? '' : 's'}`}
+        icon={<AlertTriangle size={18} />}
+        dark={dark}
+      >
+        {errorCancelledTrades.length > 0 && (
+          <SelectAllRow list={errorCancelledTrades} selectedIds={selectedIds} onToggle={toggleSelectAll} dark={dark} />
+        )}
+        <div className="space-y-2">
+          {errorCancelledTrades.map((trade) => (
+            <TradeRow key={trade.trade_id} trade={trade} onChanged={loadTrades} onArchive={handleArchive} onDelete={handleDelete} selected={selectedIds.has(trade.trade_id)} onToggleSelect={toggleSelect} />
+          ))}
+        </div>
+
+        {!loading && errorCancelledTrades.length === 0 && (
+          <div className="text-center py-8 text-gray-400">No error or cancelled trades.</div>
         )}
       </FoldedCard>
 
