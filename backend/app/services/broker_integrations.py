@@ -40,9 +40,35 @@ async def _paper_place_order(
     """
     fill_price = price
     if order_type.upper() == "MARKET" or fill_price is None:
-        ticker = await client.get_ticker_price(symbol)
+        # Real bug, found via direct follow-up investigation ("how do
+        # we model real trading at the exchange") after discovering
+        # this function's own real-ticker fetch was silently failing
+        # for every BingX paper trade and falling straight through to
+        # the caller's own (theoretical, possibly stale) price with no
+        # visible error. BingXBroker.get_ticker_price only replaces an
+        # EXISTING "/" with "-" — it never INSERTS one into a plain
+        # concatenated symbol like "BTCUSDT", which BingX's own API
+        # rejects outright (confirmed: this exact same gap was already
+        # documented and worked around externally in live_price.py's
+        # own get_broker_ticker_price, but never fixed here, where
+        # _paper_place_order calls get_ticker_price directly). Applying
+        # that same dash-insertion here, inline, rather than importing
+        # live_price.py (which itself imports the broker classes FROM
+        # this file — a circular import).
+        ticker_symbol = symbol
+        if isinstance(client, BingXBroker):
+            clean = symbol.upper().replace("/", "").replace("-", "")
+            if clean.endswith(".P"):
+                clean = clean[:-2]
+            for quote in ("USDT", "USDC", "USD"):
+                if clean.endswith(quote) and clean != quote:
+                    ticker_symbol = f"{clean[:-len(quote)]}-{quote}"
+                    break
+        ticker = await client.get_ticker_price(ticker_symbol)
         if ticker.get("success"):
             fill_price = ticker["price"]
+        else:
+            logger.warning("paper_fill_ticker_unavailable", symbol=symbol, ticker_symbol=ticker_symbol, error=ticker.get("error"))
     return {
         "success": True, "order_id": f"PAPER-{uuid.uuid4().hex[:10]}", "symbol": symbol,
         "status": "FILLED", "fill_price": fill_price, "paper": True,
