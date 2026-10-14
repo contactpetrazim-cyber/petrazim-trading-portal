@@ -26,9 +26,10 @@ from dataclasses import dataclass
 from datetime import datetime
 import structlog
 from app.core.smc_algorithms import (
-    MarketStructureDetector, ZoneDetector, FVGDetector, 
+    MarketStructureDetector, ZoneDetector, FVGDetector,
     LiquidityDetector, EntryExitEngine, RiskManager,
-    Candle, SwingPoint, Zone, FairValueGap, LiquidityPool
+    Candle, SwingPoint, Zone, FairValueGap, LiquidityPool,
+    extend_stop_beyond_zone, select_fvg_by_depth
 )
 from app.core.mtf_engine import MTFAlignmentEngine, AlignmentSignal, TimeframeState, Bias, Timeframe
 from app.config import get_settings
@@ -168,10 +169,17 @@ class MacroSwingStructureBot:
         if not bullish_trend and not bearish_trend:
             return None
 
-        # Step 2: 4H BOS Confirmation
-        bos_4h = self.structure_detector.detect_bos(candles_4h, 
-            self.structure_detector.detect_swing_highs(candles_4h) + 
-            self.structure_detector.detect_swing_lows(candles_4h))
+        # Step 2: 4H BOS Confirmation — fed through
+        # filter_significant_swings (by direct audit request: "consider
+        # the swing points low or high in the entire leg for BOS and
+        # not just the mini or micro swing high or swing low points")
+        # so this reads the leg's own significant pivot, not whichever
+        # 5-bar fractal happened to print most recently.
+        swings_4h = self.structure_detector.detect_swing_highs(candles_4h) + \
+                    self.structure_detector.detect_swing_lows(candles_4h)
+        bos_4h = self.structure_detector.detect_bos(
+            candles_4h, self.structure_detector.filter_significant_swings(swings_4h)
+        )
 
         if not bos_4h:
             return None
@@ -186,11 +194,21 @@ class MacroSwingStructureBot:
 
         # Step 3: Find 4H zone for entry
         zone_detector = ZoneDetector()
-        zones = zone_detector.detect_order_blocks(candles_4h, 
-            self.structure_detector.detect_swing_highs(candles_4h) + 
-            self.structure_detector.detect_swing_lows(candles_4h))
+        zones = zone_detector.detect_order_blocks(candles_4h, swings_4h)
 
-        # Filter for active zones in discount (long) or premium (short)
+        # This comment used to claim "active zones in discount (long)
+        # or premium (short)" but the code below it only ever checked
+        # "bull"/"bear" in z.id — the zone's own directional TYPE
+        # (bullish vs bearish order block), not where it actually sits
+        # in the broader range. A REAL discount/premium check
+        # (classify_premium_discount, smc_algorithms.py) existed in
+        # the codebase this whole time and was never called by any
+        # bot — confirmed by audit, matching the direct report
+        # "Ensure that you are entering at Discount for Longs and
+        # Premium for shorts of the 4H and 1H trading range." Both
+        # checks now apply: the directional-type filter stays (it's
+        # not wrong, just insufficient on its own), and discount/
+        # premium is enforced for real below, once direction is known.
         valid_zones = [z for z in zones if z.status.name == "ACTIVE"]
 
         if bullish_trend:
@@ -205,9 +223,24 @@ class MacroSwingStructureBot:
 
         # Step 4: Calculate entry
         direction = "long" if bullish_trend else "short"
+
+        swing_high_4h = max((s.price for s in swings_4h), default=None)
+        swing_low_4h = min((s.price for s in swings_4h), default=None)
+        if swing_high_4h is not None and swing_low_4h is not None:
+            zone_detector.classify_premium_discount([entry_zone], swing_high_4h, swing_low_4h)
+            if (direction == "long" and entry_zone.classification == "premium") or \
+               (direction == "short" and entry_zone.classification == "discount"):
+                return None
+
         entry = self.entry_engine.calculate_entry(entry_zone, "mean", direction)
 
-        # Step 5: Stop beyond swing structure
+        # Step 5: Stop beyond swing structure, extended to embed the
+        # order block itself — by direct, repeated audit observation
+        # ("the order block should be embedded within the SL
+        # boundaries"): the swing point here is detected independently
+        # of entry_zone, so it can land INSIDE the zone rather than
+        # beyond its far edge. See extend_stop_beyond_zone's own
+        # docstring.
         if direction == "long":
             sl_swing = lows[-1]
         else:
@@ -216,6 +249,8 @@ class MacroSwingStructureBot:
         sl = self.entry_engine.calculate_stop_loss(
             entry, entry_zone, sl_swing, "structure_swing"
         )
+        sl["stop_loss"] = extend_stop_beyond_zone(sl["stop_loss"], entry_zone, direction)
+        sl["sl_distance"] = abs(entry["entry_price"] - sl["stop_loss"])
 
         # Step 6: Targets (5:1 for swing)
         targets = self.entry_engine.calculate_targets(entry, sl, rr_ratio=min_rr_ratio if min_rr_ratio is not None else 5.0, multi_target=True)
@@ -294,20 +329,26 @@ class OrderBlockReversalBot:
                 # 5 original bots' own behavior changes.
                 bot_id: Optional[str] = None) -> Optional[BotSignal]:
 
-        # Step 1: Find HTF Order Blocks (4H or 1H)
+        # Step 1: Find HTF Order Blocks (4H or 1H). Freshness filter
+        # (test_count <= 1) added by direct audit request — Bot 5/6
+        # already require this ("zones must be fresh, not tested more
+        # than once"); Bot 2 never did, so it could keep re-entering an
+        # OB that had already been repeatedly tested and eroded.
         zone_detector = ZoneDetector()
         swings_4h = self.structure_detector.detect_swing_highs(candles_4h) + \
                     self.structure_detector.detect_swing_lows(candles_4h)
 
         obs = zone_detector.detect_order_blocks(candles_4h, swings_4h)
-        active_obs = [z for z in obs if z.status.name == "ACTIVE"]
+        active_obs = [z for z in obs if z.status.name == "ACTIVE" and z.test_count <= 1]
+        zone_swings = swings_4h
 
         if not active_obs:
             # Try 1H
             swings_1h = self.structure_detector.detect_swing_highs(candles_1h) + \
                         self.structure_detector.detect_swing_lows(candles_1h)
             obs = zone_detector.detect_order_blocks(candles_1h, swings_1h)
-            active_obs = [z for z in obs if z.status.name == "ACTIVE"]
+            active_obs = [z for z in obs if z.status.name == "ACTIVE" and z.test_count <= 1]
+            zone_swings = swings_1h
 
         if not active_obs:
             return None
@@ -321,11 +362,16 @@ class OrderBlockReversalBot:
 
         target_ob = inside_obs[-1]
 
-        # Step 3: 15M Internal Liquidity Sweep + CHoCH
+        # Step 3: 15M Internal Liquidity Sweep + CHoCH, fed through
+        # filter_significant_swings (see that method's own docstring —
+        # same "entire leg, not micro swing points" fix applied
+        # everywhere a BOS/CHoCH decides direction).
         swings_15m = self.structure_detector.detect_swing_highs(candles_15m) + \
                      self.structure_detector.detect_swing_lows(candles_15m)
 
-        choch_15m = self.structure_detector.detect_choch(candles_15m, swings_15m)
+        choch_15m = self.structure_detector.detect_choch(
+            candles_15m, self.structure_detector.filter_significant_swings(swings_15m)
+        )
 
         if not choch_15m:
             return None
@@ -339,6 +385,17 @@ class OrderBlockReversalBot:
             direction = "short"
         else:
             return None
+
+        # Discount (long) / premium (short) check — the REAL version of
+        # what Step 1's old comment claimed but never did (see Bot 1's
+        # own identical fix for the full audit finding).
+        zone_swing_high = max((s.price for s in zone_swings), default=None)
+        zone_swing_low = min((s.price for s in zone_swings), default=None)
+        if zone_swing_high is not None and zone_swing_low is not None:
+            zone_detector.classify_premium_discount([target_ob], zone_swing_high, zone_swing_low)
+            if (direction == "long" and target_ob.classification == "premium") or \
+               (direction == "short" and target_ob.classification == "discount"):
+                return None
 
         # Step 4: Check for liquidity sweep before CHoCH
         liq_detector = LiquidityDetector()
@@ -379,6 +436,11 @@ class OrderBlockReversalBot:
             # risk/distance division oversized the position by the
             # same factor.
             final_stop_loss = sl_price - 0.0002 if direction == "long" else sl_price + 0.0002
+            # Embed the OB itself — by direct, repeated audit
+            # observation (see extend_stop_beyond_zone's own docstring):
+            # the sweep extreme is detected independently of target_ob
+            # and can sit inside it.
+            final_stop_loss = extend_stop_beyond_zone(final_stop_loss, target_ob, direction)
             sl = {
                 "stop_loss": final_stop_loss,
                 "sl_distance": abs(entry["entry_price"] - final_stop_loss),
@@ -398,6 +460,8 @@ class OrderBlockReversalBot:
                 return None
             sl_swing = swings_15m[-1]
             sl = self.entry_engine.calculate_stop_loss(entry, target_ob, sl_swing, "structure_swing")
+            sl["stop_loss"] = extend_stop_beyond_zone(sl["stop_loss"], target_ob, direction)
+            sl["sl_distance"] = abs(entry["entry_price"] - sl["stop_loss"])
 
         targets = self.entry_engine.calculate_targets(entry, sl, rr_ratio=min_rr_ratio if min_rr_ratio is not None else 3.0)
         risk = self.risk_manager.calculate_position_risk(setup_quality=1.1, base_risk_override=risk_per_trade)
@@ -539,33 +603,51 @@ class FVGExpansionBot:
 
         # Find partially mitigated FVGs (30-70%)
         partial_fvgs = [
-            f for f in fvgs 
+            f for f in fvgs
             if 0.3 <= f.mitigated_percent <= 0.7 and f.status.name == "ACTIVE"
         ]
 
         if not partial_fvgs:
             return None
 
-        target_fvg = partial_fvgs[-1]
-
-        # Step 2: 15M BOS in direction of FVG
+        # Step 2: 15M BOS in direction of FVG, fed through
+        # filter_significant_swings (same "entire leg, not micro swing
+        # points" fix applied to every direction-deciding BOS/CHoCH
+        # call).
         swings_15m = self.structure_detector.detect_swing_highs(candles_15m) + \
                      self.structure_detector.detect_swing_lows(candles_15m)
 
-        bos_15m = self.structure_detector.detect_bos(candles_15m, swings_15m)
+        bos_15m = self.structure_detector.detect_bos(
+            candles_15m, self.structure_detector.filter_significant_swings(swings_15m)
+        )
 
         if not bos_15m:
             return None
 
         last_bos = bos_15m[-1]
 
-        # Align with FVG direction
-        if target_fvg.gap_type == "bullish" and last_bos["type"] != "bullish_bos":
-            return None
-        if target_fvg.gap_type == "bearish" and last_bos["type"] != "bearish_bos":
+        # Direction comes from the 15M BOS (not just "whichever FVG we
+        # happened to pick last") — then, among the FVGs that actually
+        # qualify in THAT direction, pick by depth: deepest for a long,
+        # highest for a short (by direct audit request — "if there's
+        # another FVG either shallower or deeper ... for shorts use the
+        # highest FVG ... for longs use the deepest FVG"). Previously
+        # this just took partial_fvgs[-1] regardless of how many
+        # candidates existed or how deep/shallow each one was.
+        if last_bos["type"] == "bullish_bos":
+            direction = "long"
+        elif last_bos["type"] == "bearish_bos":
+            direction = "short"
+        else:
             return None
 
-        direction = "long" if target_fvg.gap_type == "bullish" else "short"
+        candidate_fvgs = [
+            f for f in partial_fvgs
+            if (f.gap_type == "bullish" and direction == "long") or (f.gap_type == "bearish" and direction == "short")
+        ]
+        target_fvg = select_fvg_by_depth(candidate_fvgs, direction)
+        if target_fvg is None:
+            return None
 
         # Step 3: Entry at FVG mean or 50%
         entry_price = (target_fvg.top + target_fvg.bottom) / 2
@@ -633,35 +715,58 @@ class VolumeLiquidityBot:
     5. Stop beyond the spring/upthrust extreme
     6. Target opposite side of range or 3:1
 
-    Full SMC confluence checklist ADDED by direct request ("To the
-    volume and liquidity sweep Add the following: 4H POI or zone of
-    interest / Liquidity sweep / Market structure shift or CHOCH / FVG
-    / Change in the state of delivery / Trade should follow the HTF
-    4H trend - BOS direction etc"), layered on top as REQUIRED
-    confirmations rather than replacing the Wyckoff mechanics above —
-    a real signal must now pass BOTH:
-      a. 4H POI/zone of interest — NEW: the spring/upthrust extreme
-         must sit inside a real 4H order-block zone (ZoneDetector,
-         same zone-alignment pattern bots 2/5/6 already use), not just
-         a raw swing-derived range extreme.
-      b. Liquidity sweep — already what a Spring/Upthrust IS in Wyckoff
-         terms (a false break that sweeps the liquidity resting beyond
-         the range extreme, then reverses) — no separate/redundant
-         check added; this list item is the existing spring/upthrust
-         step, named explicitly here as what it already does.
-      c. Market structure shift / CHoCH — already the existing 1H
-         CHoCH step; unchanged.
-      d. FVG — NEW: a same-direction FVG must form on 1H.
-      e. Change in the state of delivery — NEW: that FVG must appear
-         strictly AFTER the CHoCH timestamp, confirming price is
-         actually DELIVERING in the new direction post-shift, not just
-         printing an old, stale imbalance left over from before the
-         structure shift.
-      f. HTF 4H trend / BOS direction — NEW: a 4H BOS must independently
-         confirm the SAME direction as the CHoCH/spring/upthrust call,
-         or the signal is dropped — same "require agreement, don't
-         guess between two reads" principle used for Bot 5's own 4H-BOS
-         direction fix and Bot 6's Bot2+Bot3 consensus.
+    REDESIGNED by direct audit request ("no trades — is the strategy
+    or logic correct and consistent with SMC best practice ... be
+    creative and innovative, find a better solution ... work on a
+    winning strategy for this bot"). Confirmed root cause of the
+    silence: a prior revision stacked SEVEN independent, strict gates
+    in series on every single scan — range (last 3 swings only), price
+    within 15% of the range extreme, that extreme inside a real 4H OB,
+    a volume-divergent spring/upthrust in the last 10 1H candles, a 1H
+    CHoCH, a FVG strictly AFTER that CHoCH's timestamp, AND a 4H BOS
+    independently agreeing — all required to fire AT ONCE. Each gate
+    individually might pass 20-40% of the time; multiplying seven of
+    them together is why bot_4_volume_liq_2 went 5+ days without a
+    single trade. This wasn't one bug, it was confluence-stacking
+    added incrementally (one direct request at a time, per the git
+    history) without ever checking the compounding effect — SMC-
+    consistent in isolation, practically unfireable in combination.
+
+    Two genuine fixes, not just a relaxation:
+
+    1. TEMPORAL COHERENCE — the old code treated CHoCH/FVG/BOS as
+       independent snapshot checks with no requirement that they
+       happen in the right ORDER relative to the sweep itself (e.g. it
+       would accept whatever CHoCH was "last ever computed," even one
+       from a completely different, unrelated market phase days
+       earlier). Real Wyckoff is a SEQUENCE — Spring/Upthrust -> Sign
+       of Strength (CHoCH) -> Back-up/LPS -> Markup — not simultaneous
+       snapshots. The CHoCH used here must now occur AT OR AFTER the
+       sweep's own candle.
+
+    2. GRADED CONFLUENCE, not a rigid AND-chain — the two primitives
+       that actually DEFINE a Wyckoff Spring/Upthrust reversal stay
+       mandatory: the false-break sweep itself, and a temporally-
+       coherent CHoCH confirming the reversal. The other four checks
+       (4H POI, volume divergence, post-CHoCH FVG "change in delivery
+       state", 4H BOS trend agreement) become a SCORED confluence
+       list instead of hard gates — at least 2 of those 4 must be
+       present, each also lifting confidence/position quality, rather
+       than requiring literally all 4 simultaneously. Volume data on
+       crypto perpetuals is also a known ICT/SMC-critiqued signal
+       (not genuine "smart money" tape) — demoting it from mandatory
+       gate to scored confluence reflects that it's suggestive, not
+       definitive.
+
+    Also fixed: this was the only bot whose signal carried a single
+    flat target instead of the platform's normal 1R/2R/rr-R partial-
+    exit ladder (BotSignal's own comment used to call this out by
+    name as the one intentional exception) — meaning it never
+    participated in partial take-profits or the trailing-stop engine.
+    It now uses the same ladder as every other bot, with TP3 capped at
+    the opposite side of the range when that's the tighter of the two
+    (so it still respects the structural range this setup is actually
+    based on).
     """
 
     def __init__(self, config: Dict):
@@ -717,66 +822,54 @@ class VolumeLiquidityBot:
         if not near_high and not near_low:
             return None
 
-        # Step 1b: 4H POI / zone of interest — NEW, by direct request
-        # ("Add ... 4H POI or zone of interest"). The range extreme
-        # this setup is forming at must sit inside a REAL 4H order-block
-        # zone (same ZoneDetector/zone-alignment pattern bots 2/5/6
-        # already use), not just a raw swing-derived number — a genuine
-        # institutional point of interest, not merely "the last 3
-        # swings happened to cluster here."
-        zone_detector = ZoneDetector()
-        zones_4h = zone_detector.detect_order_blocks(candles_4h, swings_4h)
-        active_zones_4h = [z for z in zones_4h if z.status.name == "ACTIVE"]
-        poi_price = range_high if near_high else range_low
-        if not any(z.bottom <= poi_price <= z.top for z in active_zones_4h):
-            return None
-
-        # Step 2: Detect Spring or Upthrust on 1H
+        # Step 2: Detect Spring or Upthrust on 1H — the one truly
+        # MANDATORY primitive (this IS the liquidity sweep Wyckoff
+        # terms describe). Volume divergence is no longer a hard gate
+        # here (see class docstring) — recorded per-candidate instead,
+        # feeding the scored confluence list below.
         # Spring: Price breaks below range low, then closes back above
         # Upthrust: Price breaks above range high, then closes back below
-
         recent_candles = candles_1h[-10:]
+        avg_vol_1h = sum(c.volume for c in candles_1h[-20:]) / 20
 
         spring = None
         upthrust = None
 
-        for i, candle in enumerate(recent_candles):
-            # Spring detection
+        for candle in recent_candles:
             if candle.low < range_low and candle.close > range_low:
-                # Volume check: spring should have lower volume than average
-                avg_vol = sum(c.volume for c in candles_1h[-20:]) / 20
-                if candle.volume < avg_vol * 0.8:
-                    spring = {
-                        "candle": candle,
-                        "type": "spring",
-                        "extreme": candle.low,
-                        "close": candle.close
-                    }
-
-            # Upthrust detection
+                spring = {
+                    "candle": candle, "type": "spring", "extreme": candle.low, "close": candle.close,
+                    "volume_divergence": candle.volume < avg_vol_1h * 0.8,
+                }
             if candle.high > range_high and candle.close < range_high:
-                avg_vol = sum(c.volume for c in candles_1h[-20:]) / 20
-                if candle.volume < avg_vol * 0.8:
-                    upthrust = {
-                        "candle": candle,
-                        "type": "upthrust",
-                        "extreme": candle.high,
-                        "close": candle.close
-                    }
+                upthrust = {
+                    "candle": candle, "type": "upthrust", "extreme": candle.high, "close": candle.close,
+                    "volume_divergence": candle.volume < avg_vol_1h * 0.8,
+                }
 
         if not spring and not upthrust:
             return None
 
-        # Step 3: CHoCH confirmation after spring/upthrust
+        # Step 3: CHoCH confirmation — the second MANDATORY primitive,
+        # now required to occur AT OR AFTER the sweep's own candle
+        # (temporal coherence fix — see class docstring). Fed through
+        # filter_significant_swings, same as every other direction-
+        # deciding BOS/CHoCH call across the bot suite.
         swings_1h = self.structure_detector.detect_swing_highs(candles_1h) + \
                     self.structure_detector.detect_swing_lows(candles_1h)
 
-        choch_1h = self.structure_detector.detect_choch(candles_1h, swings_1h)
-
+        choch_1h = self.structure_detector.detect_choch(
+            candles_1h, self.structure_detector.filter_significant_swings(swings_1h)
+        )
         if not choch_1h:
             return None
 
-        last_choch = choch_1h[-1]
+        sweep_event = spring or upthrust
+        sweep_timestamp = sweep_event["candle"].timestamp
+        choch_after_sweep = [c for c in choch_1h if c["timestamp"] >= sweep_timestamp]
+        if not choch_after_sweep:
+            return None
+        last_choch = choch_after_sweep[-1]
 
         # Align pattern with CHoCH
         if spring and last_choch["type"] == "bullish_choch":
@@ -784,80 +877,86 @@ class VolumeLiquidityBot:
             entry_price = spring["close"]
             sl_price = spring["extreme"] - range_size * 0.02
             pattern = "spring"
+            volume_divergence = spring["volume_divergence"]
         elif upthrust and last_choch["type"] == "bearish_choch":
             direction = "short"
             entry_price = upthrust["close"]
             sl_price = upthrust["extreme"] + range_size * 0.02
             pattern = "upthrust"
+            volume_divergence = upthrust["volume_divergence"]
         else:
             return None
 
-        # Step 3b: FVG + "change in the state of delivery" — NEW, by
-        # direct request ("Add ... FVG / Change in the state of
-        # delivery"). A same-direction FVG must form on 1H (same
-        # gap_type convention bots 2/3/5/6 already use) — and,
-        # specifically, strictly AFTER this CHoCH's own timestamp.
-        # That ordering is "change in the state of delivery" as
-        # implemented here: an FVG from BEFORE the structure shift is
-        # just leftover imbalance from the old (opposite) delivery
-        # bias, not evidence that price is actually delivering in the
-        # NEW direction yet — only a fresh, post-CHoCH FVG confirms
-        # delivery itself has genuinely flipped, not just the swing
-        # structure.
+        # Step 4: scored confluences — at least 2 of these 4 must be
+        # present (see class docstring for why these 4, specifically,
+        # became scored rather than mandatory).
+        zone_detector = ZoneDetector()
+        zones_4h = zone_detector.detect_order_blocks(candles_4h, swings_4h)
+        active_zones_4h = [z for z in zones_4h if z.status.name == "ACTIVE"]
+        poi_price = range_high if near_high else range_low
+        poi_zone = next((z for z in active_zones_4h if z.bottom <= poi_price <= z.top), None)
+
         fvg_detector = FVGDetector()
         fvgs_1h = fvg_detector.detect_fvg(candles_1h)
         choch_timestamp = last_choch["timestamp"]
-        valid_fvg = None
-        for f in fvgs_1h:
-            if f.candle1.timestamp < choch_timestamp:
-                continue  # pre-CHoCH imbalance — old delivery bias, doesn't count
-            if (f.gap_type == "bullish" and direction == "long") or (f.gap_type == "bearish" and direction == "short"):
-                valid_fvg = f
-                break
+        direction_fvgs = [
+            f for f in fvgs_1h
+            if f.candle1.timestamp >= choch_timestamp and
+            ((f.gap_type == "bullish" and direction == "long") or (f.gap_type == "bearish" and direction == "short"))
+        ]
+        valid_fvg = select_fvg_by_depth(direction_fvgs, direction)
 
-        if not valid_fvg:
+        bos_4h = self.structure_detector.detect_bos(
+            candles_4h, self.structure_detector.filter_significant_swings(swings_4h)
+        )
+        trend_4h = None
+        if bos_4h:
+            last_bos_4h = bos_4h[-1]
+            trend_4h = "long" if last_bos_4h["type"] == "bullish_bos" else "short" if last_bos_4h["type"] == "bearish_bos" else None
+
+        confluences = {
+            "poi_4h": poi_zone is not None,
+            "volume_divergence": volume_divergence,
+            "post_choch_fvg": valid_fvg is not None,
+            "htf_trend_agreement": trend_4h == direction,
+        }
+        confluence_count = sum(1 for v in confluences.values() if v)
+        if confluence_count < 2:
             return None
 
-        # Step 3c: HTF 4H trend / BOS direction — NEW, by direct
-        # request ("Trade should follow the HTF 4H trend - BOS
-        # direction etc"). The 4H BOS must independently confirm the
-        # SAME direction as the spring/upthrust+CHoCH call above, or
-        # this is dropped — same "require agreement, don't guess
-        # between two reads" principle as Bot 5's own 4H-BOS direction
-        # fix and Bot 6's Bot2+Bot3 consensus; a range/reversal setup
-        # that runs directly against the higher-timeframe trend is
-        # exactly the kind of counter-trend trade this confluence
-        # check exists to filter out.
-        bos_4h = self.structure_detector.detect_bos(candles_4h, swings_4h)
-        if not bos_4h:
-            return None
-        last_bos_4h = bos_4h[-1]
-        trend_4h = "long" if last_bos_4h["type"] == "bullish_bos" else "short" if last_bos_4h["type"] == "bearish_bos" else None
-        if trend_4h != direction:
-            return None
+        # Step 5: SL — embed the POI zone when one was found (see
+        # extend_stop_beyond_zone's own docstring for why).
+        if poi_zone is not None:
+            sl_price = extend_stop_beyond_zone(sl_price, poi_zone, direction)
 
         sl_distance = abs(entry_price - sl_price)
-
         sl = {
             "stop_loss": sl_price,
             "sl_distance": sl_distance,
             "method": "spring_upthrust_extreme"
         }
 
-        # Target opposite side of range
+        # Step 6: the normal 1R/2R/rr-R partial-exit ladder (see class
+        # docstring — this bot used to be the one hardcoded exception
+        # to it), with TP3 capped at the opposite side of the range
+        # when that's the tighter of the two, so it still respects the
+        # structural range this setup is actually based on.
+        entry = {"entry_price": entry_price, "direction": direction}
+        rr = min_rr_ratio if min_rr_ratio is not None else 3.0
+        targets = self.entry_engine.calculate_targets(entry, sl, rr_ratio=rr, multi_target=True)
         if direction == "long":
-            tp = range_high - range_size * 0.05
+            structural_cap = range_high - range_size * 0.05
+            if structural_cap > entry_price:
+                targets["tp3"] = round(min(targets["tp3"], structural_cap), 5)
         else:
-            tp = range_low + range_size * 0.05
+            structural_cap = range_low + range_size * 0.05
+            if structural_cap < entry_price:
+                targets["tp3"] = round(max(targets["tp3"], structural_cap), 5)
 
-        rr = abs(tp - entry_price) / sl_distance if sl_distance > 0 else 0
-
-        # min_rr_ratio has no effect here — this bot's target is the
-        # OPPOSITE side of the detected range (a structural level), not
-        # an R-multiple off entry/stop, so there's no ratio input to
-        # override; `rr` just above is a derived/reported number, same
-        # as before.
-        risk = self.risk_manager.calculate_position_risk(setup_quality=1.0, base_risk_override=risk_per_trade)
+        confidence = round(0.55 + 0.075 * confluence_count, 2)  # 2/4 -> 0.70, 4/4 -> 0.85
+        risk = self.risk_manager.calculate_position_risk(
+            setup_quality=min(1.0 + 0.1 * confluence_count, 1.5), base_risk_override=risk_per_trade
+        )
         lots = self.entry_engine.calculate_lot_size(account_balance, risk, sl_distance)
 
         return BotSignal(
@@ -865,15 +964,19 @@ class VolumeLiquidityBot:
             bot_name=self.bot_name,
             symbol=symbol,
             direction=direction,
-            confidence=0.78,
+            confidence=confidence,
             entry_price=round(entry_price, 5),
             stop_loss=round(sl_price, 5),
-            take_profit=round(tp, 5),
+            take_profit=targets["tp1"],
+            take_profit_2=targets["tp2"],
+            take_profit_3=targets["tp3"],
             lot_size=lots["lot_size"],
             risk_percent=risk,
-            reasoning=f"Wyckoff {pattern} {direction} (liquidity sweep) at 4H POI. Range {range_low:.5f}-{range_high:.5f}. "
-                     f"Volume divergence confirmed. CHoCH (structure shift) on 1H. Post-CHoCH FVG confirms delivery change. "
-                     f"4H BOS trend agrees. SL beyond {pattern} extreme. Target range opposite.",
+            reasoning=f"Wyckoff {pattern} {direction}. Range {range_low:.5f}-{range_high:.5f}. CHoCH confirms, "
+                     f"at/after the sweep. Confluences ({confluence_count}/4): POI={confluences['poi_4h']}, "
+                     f"vol divergence={confluences['volume_divergence']}, post-CHoCH FVG={confluences['post_choch_fvg']}, "
+                     f"4H trend agrees={confluences['htf_trend_agreement']}. SL beyond {pattern} extreme"
+                     + (" + embedded POI zone" if poi_zone is not None else "") + f". {rr:g}R ladder, TP3 capped at range.",
             timestamp=datetime.utcnow()
         )
 
@@ -972,7 +1075,9 @@ class JeafxSMCBot:
         # longer what decides long vs. short.
         swings_4h = self.structure_detector.detect_swing_highs(candles_4h) + \
                     self.structure_detector.detect_swing_lows(candles_4h)
-        bos_4h = self.structure_detector.detect_bos(candles_4h, swings_4h)
+        bos_4h = self.structure_detector.detect_bos(
+            candles_4h, self.structure_detector.filter_significant_swings(swings_4h)
+        )
         if not bos_4h:
             return None
         last_bos_4h = bos_4h[-1]
@@ -981,6 +1086,21 @@ class JeafxSMCBot:
         elif last_bos_4h["type"] == "bearish_bos":
             direction = "short"
         else:
+            return None
+
+        # Step 2b: LTF conflict check — by direct audit request ("based
+        # on SMC best practice, what would be the best option for Bot 5
+        # and 6 to get the best winning direction bias"). Standard
+        # ICT/SMC practice: a higher timeframe sets the BIAS, lower-
+        # timeframe events only CONFIRM it — never override it, but a
+        # live, active LTF reversal AGAINST the HTF bias is still a
+        # real warning worth skipping. Neither of these is required to
+        # fire (that would just reintroduce Bot 6's old "either is
+        # enough" design here); this only rejects when one of them
+        # fires with a CLEAR, opposite reading.
+        choch_dir = _choch_direction_15m(self.structure_detector, candles_15m)
+        fvg_bos_dir = _fvg_bos_direction_1h_15m(candles_1h, candles_15m)
+        if (choch_dir and choch_dir != direction) or (fvg_bos_dir and fvg_bos_dir != direction):
             return None
 
         # Step 3: Check 15M for liquidity purge — still required as the
@@ -1008,6 +1128,19 @@ class JeafxSMCBot:
         if not aligned_zone:
             return None
 
+        # Discount (long) / premium (short) check — by direct audit
+        # request ("ensure that you are entering at Discount for Longs
+        # and Premium for shorts of the 4H and 1H trading range");
+        # classify_premium_discount existed in the codebase this whole
+        # time and was never called by any bot.
+        swing_high_1h = max((s.price for s in swings_1h), default=None)
+        swing_low_1h = min((s.price for s in swings_1h), default=None)
+        if swing_high_1h is not None and swing_low_1h is not None:
+            zone_detector.classify_premium_discount([aligned_zone], swing_high_1h, swing_low_1h)
+            if (direction == "long" and aligned_zone.classification == "premium") or \
+               (direction == "short" and aligned_zone.classification == "discount"):
+                return None
+
         # Step 5: Confirmation candle on 5M
         # Jeafx confirmation: strong momentum candle closing back inside zone
         recent_5m = candles_5m[-5:]
@@ -1033,15 +1166,16 @@ class JeafxSMCBot:
         fvg_detector = FVGDetector()
         recent_fvgs = fvg_detector.detect_fvg(candles_5m[-10:])
 
-        valid_fvg = None
-        for f in recent_fvgs:
-            if f.candle1.timestamp >= confirmation_candle.timestamp:
-                if f.gap_type == "bullish" and direction == "long":
-                    valid_fvg = f
-                    break
-                elif f.gap_type == "bearish" and direction == "short":
-                    valid_fvg = f
-                    break
+        # Depth-based selection among qualifying FVGs — by direct audit
+        # request ("if there's another FVG either shallower or deeper
+        # ... for shorts use the highest FVG ... for longs use the
+        # deepest FVG"); previously just took the first match.
+        candidate_fvgs = [
+            f for f in recent_fvgs
+            if f.candle1.timestamp >= confirmation_candle.timestamp and
+            ((f.gap_type == "bullish" and direction == "long") or (f.gap_type == "bearish" and direction == "short"))
+        ]
+        valid_fvg = select_fvg_by_depth(candidate_fvgs, direction)
 
         # Step 7: Entry at 50% of confirmation candle or FVG
         if valid_fvg:
@@ -1049,7 +1183,12 @@ class JeafxSMCBot:
         else:
             entry_price = (confirmation_candle.open + confirmation_candle.close) / 2
 
-        # Step 8: Strict SL beyond purge extreme
+        # Step 8: Strict SL beyond purge extreme, extended to embed the
+        # aligned zone itself — by direct, repeated audit observation
+        # ("the order block should be embedded within the SL
+        # boundaries ... price retraces back to the order block ...
+        # before going in preferred direction"). See
+        # extend_stop_beyond_zone's own docstring.
         purge_extreme = last_sweep["sweep_price"]
         buffer = abs(confirmation_candle.high - confirmation_candle.low) * 0.2
 
@@ -1058,6 +1197,7 @@ class JeafxSMCBot:
         else:
             sl_price = purge_extreme + buffer
 
+        sl_price = extend_stop_beyond_zone(sl_price, aligned_zone, direction)
         sl_distance = abs(entry_price - sl_price)
 
         sl = {
@@ -1105,7 +1245,7 @@ class JeafxSMCBot:
 
 # =============================================================================
 # BOT 6: SMC v2 — Bot 5's own zone/purge/confirmation setup, direction
-# from Bot 2 + Bot 3's own consensus instead of the sweep side
+# from its own 1H BOS bias confirmed by Bot 2/Bot 3's LTF signals
 # =============================================================================
 
 class JeafxSMCv2Bot:
@@ -1114,26 +1254,30 @@ class JeafxSMCv2Bot:
 
     A duplicate of Bot 5 (JeafxSMCBot) — same refined zone, same 15M
     liquidity-purge gate, same 5M momentum confirmation candle, same
-    strict SL beyond the purge extreme, same 4-6R target ladder — by
-    direct request ("it's a duplicate of the original SMC bot"). The
-    one thing that changes is Bot 5's own weakest link: direction used
-    to come from which side the 15M liquidity sweep hit
-    (buy_side_sweep/sell_side_sweep), which the user observed "often
-    misses the price[']s direction." Here it comes from Bot 2's own
-    15M CHoCH call and Bot 3's own 1H-FVG+15M-BOS call instead
-    (_choch_direction_15m/_fvg_bos_direction_1h_15m above) — by direct
-    request ("it uses the exact trading direction that the FVG
-    Expansion and HF Order block reversal bot uses ... much better in
-    price direction"). EITHER one firing is enough — by direct
-    follow-up correction ("Make either and not an AND dependency for
-    Bot 2's CHoCH call AND Bot 3's FVG+BOS call to agree"), after
-    requiring BOTH to independently fire at once proved too rare in
-    live testing. If BOTH fire and genuinely DISAGREE, that's still a
-    real conflict, not "two votes" — no trade, rather than guessing
-    between two contradicting reads. The FVG-validation step
-    (originally cross-checked against the sweep's own side) now
-    cross-checks against this same direction instead, so it stays
-    internally consistent with what's actually driving the trade.
+    strict SL beyond the purge extreme, same high-R:R target ladder —
+    by direct request ("it's a duplicate of the original SMC bot").
+
+    Direction logic REVISED AGAIN by direct audit request ("based on
+    SMC best practice, what would be the best option for Bot 5 and 6
+    to get the best winning direction bias"). History: it originally
+    came from which side the 15M liquidity sweep hit, which the user
+    observed "often misses the price[']s direction"; that was replaced
+    with "either Bot 2's 15M CHoCH or Bot 3's 1H-FVG+15M-BOS, whichever
+    fires" — but that design has the same underlying flaw by a
+    different route: standard ICT/SMC practice treats CHoCH and a
+    single FVG+BOS read as LOWER-timeframe, REACTIVE confirmation
+    signals, not bias-setters in their own right. Letting either one
+    alone dictate direction meant Bot 6 could trade straight against
+    the prevailing higher-timeframe structure whenever only the
+    weaker LTF signal happened to fire.
+
+    Now: Bot 6 gets its own HTF anchor — 1H BOS (deliberately
+    DIFFERENT from Bot 5's 4H anchor, so the two bots stay a genuine
+    comparison of HTF-anchor speed rather than becoming duplicates of
+    each other) — as the MANDATORY bias, with Bot 2's CHoCH and Bot
+    3's FVG+BOS now required to AGREE with it (at least one of the
+    two) rather than stand in for it. Still no trade if the two LTF
+    reads actively contradict each other.
     """
 
     def __init__(self, config: Dict):
@@ -1204,46 +1348,55 @@ class JeafxSMCv2Bot:
         if not confirmation_candle:
             return None
 
-        # Step 5: Direction — the actual change from Bot 5. REPLACES
-        # last_sweep["type"] as the direction source (the purge above
-        # is still used as a timing/zone-alignment gate, just not for
-        # which way to trade) with Bot 2's own CHoCH call and Bot 3's
-        # own FVG+BOS call.
-        #
-        # EITHER one firing is enough — by direct follow-up correction
-        # ("Make either and not an AND dependency for Bot 2's CHoCH
-        # call AND Bot 3's FVG+BOS call to agree"): requiring BOTH to
-        # independently fire on the SAME 15M/1H window at once was too
-        # rare in practice (confirmed live: it never once fired across
-        # this session's real-market testing). One real signal is
-        # enough to trade on. The one guard that stays: if BOTH happen
-        # to fire AND genuinely disagree (one says long, the other
-        # short), that's not "two votes," it's a real conflict — still
-        # no trade rather than guessing between two contradicting
-        # reads, same principle the whole redesign exists for.
-        choch_dir = _choch_direction_15m(self.structure_detector, candles_15m)
-        fvg_bos_dir = _fvg_bos_direction_1h_15m(candles_1h, candles_15m)
-        if choch_dir and fvg_bos_dir and choch_dir != fvg_bos_dir:
+        # Step 5: Direction — REVISED (see class docstring): 1H BOS is
+        # now the MANDATORY HTF bias (Bot 6's own anchor, distinct from
+        # Bot 5's 4H one), fed through filter_significant_swings like
+        # every other direction-deciding BOS/CHoCH call. Bot 2's 15M
+        # CHoCH and Bot 3's 1H-FVG+15M-BOS no longer stand in for
+        # direction on their own — at least one of them must now AGREE
+        # with the 1H bias, or this is dropped.
+        bos_1h = self.structure_detector.detect_bos(
+            candles_1h, self.structure_detector.filter_significant_swings(swings_1h)
+        )
+        if not bos_1h:
             return None
-        direction = choch_dir or fvg_bos_dir
-        if not direction:
+        last_bos_1h = bos_1h[-1]
+        if last_bos_1h["type"] == "bullish_bos":
+            direction = "long"
+        elif last_bos_1h["type"] == "bearish_bos":
+            direction = "short"
+        else:
             return None
 
+        choch_dir = _choch_direction_15m(self.structure_detector, candles_15m)
+        fvg_bos_dir = _fvg_bos_direction_1h_15m(candles_1h, candles_15m)
+        if choch_dir != direction and fvg_bos_dir != direction:
+            return None
+
+        # Discount (long) / premium (short) check — by direct audit
+        # request ("ensure that you are entering at Discount for Longs
+        # and Premium for shorts of the 4H and 1H trading range").
+        swing_high_1h = max((s.price for s in swings_1h), default=None)
+        swing_low_1h = min((s.price for s in swings_1h), default=None)
+        if swing_high_1h is not None and swing_low_1h is not None:
+            zone_detector.classify_premium_discount([aligned_zone], swing_high_1h, swing_low_1h)
+            if (direction == "long" and aligned_zone.classification == "premium") or \
+               (direction == "short" and aligned_zone.classification == "discount"):
+                return None
+
         # Step 6: FVG must form on or after confirmation, in the
-        # consensus direction (was: the sweep's own side) — identical
-        # structure to Bot 5, just cross-checked against `direction`.
+        # consensus direction — depth-based selection among qualifying
+        # candidates (deepest for a long, highest for a short), same
+        # fix as Bot 5's identical step.
         fvg_detector = FVGDetector()
         recent_fvgs = fvg_detector.detect_fvg(candles_5m[-10:])
 
-        valid_fvg = None
-        for f in recent_fvgs:
-            if f.candle1.timestamp >= confirmation_candle.timestamp:
-                if f.gap_type == "bullish" and direction == "long":
-                    valid_fvg = f
-                    break
-                elif f.gap_type == "bearish" and direction == "short":
-                    valid_fvg = f
-                    break
+        candidate_fvgs = [
+            f for f in recent_fvgs
+            if f.candle1.timestamp >= confirmation_candle.timestamp and
+            ((f.gap_type == "bullish" and direction == "long") or (f.gap_type == "bearish" and direction == "short"))
+        ]
+        valid_fvg = select_fvg_by_depth(candidate_fvgs, direction)
 
         # Step 7: Entry at 50% of confirmation candle or FVG — identical to Bot 5.
         if valid_fvg:
@@ -1251,9 +1404,9 @@ class JeafxSMCv2Bot:
         else:
             entry_price = (confirmation_candle.open + confirmation_candle.close) / 2
 
-        # Step 8: Strict SL beyond purge extreme — identical to Bot 5
-        # (the purge is still what the stop sits beyond; only which way
-        # we're trading through it has changed).
+        # Step 8: Strict SL beyond purge extreme, extended to embed the
+        # aligned zone itself — same fix, and same user observation, as
+        # Bot 5's identical step.
         purge_extreme = last_sweep["sweep_price"]
         buffer = abs(confirmation_candle.high - confirmation_candle.low) * 0.2
 
@@ -1262,6 +1415,7 @@ class JeafxSMCv2Bot:
         else:
             sl_price = purge_extreme + buffer
 
+        sl_price = extend_stop_beyond_zone(sl_price, aligned_zone, direction)
         sl_distance = abs(entry_price - sl_price)
         sl = {"stop_loss": sl_price, "sl_distance": sl_distance, "method": "jeafx_purge_extreme"}
 
@@ -1285,10 +1439,10 @@ class JeafxSMCv2Bot:
             take_profit_3=targets["tp3"],
             lot_size=lots["lot_size"],
             risk_percent=risk,
-            reasoning=f"SMC v2 {direction}. 1H fresh zone. 15M purge (timing/zone gate only). "
-                     f"Direction: Bot2 CHoCH={choch_dir or '—'}, Bot3 FVG/BOS={fvg_bos_dir or '—'} (either sufficient, no conflict). "
-                     f"5M confirmation candle + FVG: {valid_fvg is not None}. "
-                     f"Entry at 50%. Strict SL beyond purge. 5R target.",
+            reasoning=f"SMC v2 {direction}. 1H BOS bias confirmed by: Bot2 CHoCH={choch_dir or '—'}, "
+                     f"Bot3 FVG/BOS={fvg_bos_dir or '—'} (at least one agrees). 1H fresh zone, discount/premium checked. "
+                     f"15M purge (timing/zone gate). 5M confirmation candle + depth-selected FVG: {valid_fvg is not None}. "
+                     f"Entry at 50%. Strict SL beyond purge, embedded zone. 5R target.",
             timestamp=datetime.utcnow()
         )
 

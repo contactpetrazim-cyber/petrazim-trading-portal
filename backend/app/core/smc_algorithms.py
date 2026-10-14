@@ -175,6 +175,50 @@ class MarketStructureDetector:
                 ))
         return swings
 
+    def filter_significant_swings(self, swings: List[SwingPoint], min_leg_pct: float = 0.0025) -> List[SwingPoint]:
+        """By direct audit request ("consider the swing points low or
+        high in the entire leg for BOS and not just the mini or micro
+        swing high or swing low points"): every bot's own detect_bos/
+        detect_choch call is fed RAW fractal swings — every local
+        left_bars/right_bars pivot counts equally, with no concept of
+        "the significant pivot of the current leg" vs. micro noise
+        inside it. A BOS/CHoCH computed against the single most recent
+        fractal swing can fire on a tiny wiggle that was never a real
+        structural level.
+
+        Collapses that down to one swing per genuine leg: walks the
+        swings in time order and (a) when two consecutive KEPT swings
+        are the same type (two highs or two lows in a row — the
+        fractal detector can and does produce this), keeps only the
+        more extreme of the two, since the earlier one was never
+        actually broken; (b) when the next swing is the opposite type,
+        only accepts it as a new leg if it moved at least
+        `min_leg_pct` of price from the last kept swing — otherwise
+        it's dropped as noise inside the still-active leg. Purely
+        additive (a new method, not a change to detect_swing_highs/
+        lows/detect_bos/detect_choch themselves) — callers opt in by
+        passing the filtered list instead of the raw one."""
+        ordered = sorted(swings, key=lambda s: s.timestamp)
+        if len(ordered) < 2:
+            return ordered
+
+        significant = [ordered[0]]
+        for s in ordered[1:]:
+            prev = significant[-1]
+            if s.structure_type == prev.structure_type:
+                is_more_extreme = (
+                    s.price > prev.price if s.structure_type.name == "SWING_HIGH" else s.price < prev.price
+                )
+                if is_more_extreme:
+                    significant[-1] = s
+                continue
+            leg_pct = abs(s.price - prev.price) / prev.price if prev.price else 0
+            if leg_pct >= min_leg_pct:
+                significant.append(s)
+            # else: alternation too small to count as a real leg — drop,
+            # keep `prev` as the still-active pivot of that side.
+        return significant
+
     def detect_bos(self, candles: List[Candle], swing_points: List[SwingPoint]) -> List[Dict]:
         """
         Break of Structure (BOS):
@@ -511,6 +555,52 @@ class ZoneDetector:
                         zone.status = MitigationStatus.TESTED
 
         return zones
+
+
+def extend_stop_beyond_zone(stop_loss: float, zone: Zone, direction: Literal["long", "short"], buffer_pct: float = 0.1) -> float:
+    """By direct, repeated audit observation ("the SL excludes the
+    order block and price retraces back to the order block ... before
+    going in preferred direction ... the order block should be
+    embedded within the SL boundaries"): several bots compute their
+    stop from a swing point or liquidity-sweep extreme that is
+    detected completely independently of the order-block/zone the
+    trade is actually entering — when that swing/sweep sits INSIDE the
+    zone rather than beyond its far edge, a normal retest of the zone
+    itself (expected, routine SMC behavior) can stop the trade out
+    before the real move even starts.
+
+    Takes whatever stop a bot already computed and widens it (never
+    tightens it — min() for a long's stop, max() for a short's) only
+    if the zone's own far edge is further away, using the same
+    "buffer = % of the level's own size" shape calculate_stop_loss's
+    zone_extreme method already uses, so the order block is
+    GUARANTEED to sit fully between entry and stop regardless of which
+    other calculation produced the original number."""
+    zone_height = zone.top - zone.bottom
+    buffer = max(zone_height * buffer_pct, 0.0)
+    if direction == "long":
+        return min(stop_loss, zone.bottom - buffer)
+    return max(stop_loss, zone.top + buffer)
+
+
+def select_fvg_by_depth(fvgs: List["FairValueGap"], direction: Literal["long", "short"]) -> Optional["FairValueGap"]:
+    """By direct audit request ("if there's another FVG either
+    shallower or deeper, pause and review which FVG price will
+    favourably react to ... for shorts use the highest FVG ... for
+    longs use the deepest FVG"): every bot that picks among several
+    qualifying FVGs previously just took the first match in whatever
+    order detect_fvg happened to return them — no depth comparison at
+    all. The deepest gap (lowest, for a long) is the one price has the
+    most room to react from before resuming the primary direction;
+    the highest (for a short) is the mirror case. None of the
+    candidates' own direction/timing filters change — callers pass in
+    only the FVGs that already qualified; this just picks which one
+    among them."""
+    if not fvgs:
+        return None
+    if direction == "long":
+        return min(fvgs, key=lambda f: f.bottom)
+    return max(fvgs, key=lambda f: f.top)
 
 
 # =============================================================================
