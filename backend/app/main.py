@@ -21,6 +21,7 @@ from app.routers.telegram_webhook import router as telegram_webhook_router
 from app.routers.onboarding import router as onboarding_router
 from app.routers.monte_carlo import router as monte_carlo_router
 from app.routers.validation_gate import router as validation_gate_router
+from app.routers.backtests import router as backtests_router
 from app.routers.weekly_review import router as weekly_review_router
 from app.routers.chart_layouts import router as chart_layouts_router
 from app.routers.facilitator import router as facilitator_router
@@ -309,6 +310,7 @@ app.include_router(fees_admin_router)
 # Phase-1 analytics engines — routers ship without their own prefix
 app.include_router(monte_carlo_router, prefix="/api/monte-carlo", tags=["monte-carlo"])
 app.include_router(validation_gate_router, prefix="/api/validation-gate", tags=["validation-gate"])
+app.include_router(backtests_router, prefix="/api/backtests", tags=["backtests"])
 app.include_router(weekly_review_router, prefix="/api/weekly-review", tags=["weekly-review"])
 
 @app.get("/")

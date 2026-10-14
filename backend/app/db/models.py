@@ -14,8 +14,11 @@ existing schema without touching engine code at all.
 
 from __future__ import annotations
 
-from sqlalchemy import Boolean, Column, DateTime, Float, String, Text
-from sqlalchemy.dialects.postgresql import BIGINT
+import enum
+import uuid
+
+from sqlalchemy import Boolean, Column, DateTime, Enum, Float, Integer, JSON, String, Text
+from sqlalchemy.dialects.postgresql import BIGINT, UUID
 
 from app.db.session import Base
 
@@ -80,3 +83,49 @@ class GateAttestationORM(Base):
     signed_by = Column(String, nullable=False)
     signed_at = Column(DateTime(timezone=True), nullable=False)
     notes = Column(Text, nullable=False, default="")
+
+
+class BacktestRunStatus(str, enum.Enum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class BacktestRunORM(Base):
+    """Job-tracking row for one backtest — created QUEUED by
+    POST /backtests, advanced by the in-process asyncio task that
+    actually runs it (app/services/backtest_runner.py), polled by
+    GET /backtests/{id}. `bot_id` is a loose string, not a real FK —
+    same deliberate convention ClosedTradeORM.bot_id already uses,
+    since this table and bot_configs live on two different
+    SQLAlchemy declarative Bases (this one, the same as
+    ClosedTradeORM/closed_trades; bot_configs on app.database.Base) —
+    see that file's own module docstring for the "built in an isolated
+    sandbox round" history. `scope` is always "isolated" for now;
+    "portfolio" (whole-operation, shared-ledger replay) is a later,
+    explicitly separate phase of the same approved plan.
+    `variant_group` is unused until the Intelligent-mode auto-tuning
+    phase — included now so that phase doesn't need its own migration,
+    same reasoning ClosedTradeORM.variant_group was already added for."""
+    __tablename__ = "backtest_runs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    bot_id = Column(String, nullable=False, index=True)
+    scope = Column(String, nullable=False, default="isolated")
+    symbol = Column(String, nullable=True)
+    base_timeframe = Column(String, nullable=True)
+    start_date = Column(DateTime(timezone=True), nullable=False)
+    end_date = Column(DateTime(timezone=True), nullable=False)
+    status = Column(Enum(BacktestRunStatus), nullable=False, default=BacktestRunStatus.QUEUED)
+    progress_pct = Column(Float, nullable=False, default=0.0)
+    error_message = Column(Text, nullable=True)
+    cost_model = Column(JSON, nullable=True)
+    total_trades = Column(Integer, nullable=True)
+    win_rate = Column(Float, nullable=True)
+    expectancy_r = Column(Float, nullable=True)
+    max_drawdown_pct = Column(Float, nullable=True)
+    variant_group = Column(String, nullable=True)
+    created_by = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
