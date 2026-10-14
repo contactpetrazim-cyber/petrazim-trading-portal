@@ -126,9 +126,15 @@ percentage risk is identical?
 
 ### Mini Quiz
 
-Q1: If bid = 1.2500 and ask = 1.2504, what is the spread in pips (for
-a 4-decimal pair)?
-Answer: 4 pips.
+Q1 (Multiple choice): If bid = 1.2500 and ask = 1.2504, what is the
+spread in pips (for a 4-decimal pair)?
+(a) 4 pips
+(b) 0.4 pips
+(c) 40 pips
+(d) 0.04 pips
+
+Answer: (a). Spread = ask - bid = 1.2504 - 1.2500 = 0.0004, i.e. 4
+pips on a 4-decimal pair.
 
 Q2 (True/False): Buying and immediately selling at the exact same
 quoted "price," with zero market movement, always breaks even.
@@ -293,8 +299,10 @@ the volatility and disagreement during that period, even though the
 
 ### Mini Quiz
 
-Q1: A candle opens at 100, closes at 95. Is it bullish or bearish?
-Answer: Bearish (close < open).
+Q1 (True/False): A candle that opens at 100 and closes at 95 is a
+bearish candle.
+Answer: True — close < open means price fell over the period, which
+is the definition of a bearish candle.
 
 Q2 (True/False): The body of a candle always shows the full price
 range traded during that period.
@@ -462,11 +470,17 @@ why does the size of the range not settle the question on its own?
 
 ### Mini Quiz
 
-Q1: What two properties together define a genuine displacement candle
-in this framework?
-Answer: Body size relative to recent volatility (ATR) AND
-close-location value near the extreme of the candle's range (e.g.
->= 0.7 for bullish).
+Q1 (Multiple choice): What two properties together define a genuine
+displacement candle in this framework?
+(a) Large range AND high volume
+(b) Body size relative to recent volatility (ATR) AND close-location
+    value near the extreme of the candle's range
+(c) Long wicks AND a small body
+(d) A gap from the prior candle AND low volume
+
+Answer: (b). Range alone isn't enough — the close must also be near
+the extreme of the range (e.g. >= 0.7 for bullish), not just a large
+body/ATR ratio.
 
 Q2 (True/False): A candle with a very large high-to-low range is
 always a displacement candle.
