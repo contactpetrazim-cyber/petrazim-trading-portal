@@ -578,3 +578,30 @@ export interface FeeVerifyResult {
   amount: number;
   currency: string;
 }
+
+// One isolated-mode (single bot, single symbol) backtest run — see
+// backend/app/routers/backtests.py. Portfolio mode isn't exposed yet
+// (scope is always "isolated" for now). Stats are null until
+// status === 'completed'; equity_curve is a self-contained cumulative
+// R-multiple sequence (not dollars — this backtest mode deliberately
+// doesn't assume a compounding account size, matching how every live
+// bot actually sizes trades off a static reference balance).
+export interface BacktestRun {
+  id: string;
+  bot_id: string;
+  scope: string;
+  symbol: string | null;
+  base_timeframe: string | null;
+  start_date: string;
+  end_date: string;
+  status: 'queued' | 'running' | 'completed' | 'failed';
+  progress_pct: number;
+  error_message: string | null;
+  total_trades: number | null;
+  win_rate: number | null;
+  expectancy_r: number | null;
+  max_drawdown_pct: number | null;
+  equity_curve: { timestamp: string; cum_r: number }[] | null;
+  created_at: string;
+  completed_at: string | null;
+}

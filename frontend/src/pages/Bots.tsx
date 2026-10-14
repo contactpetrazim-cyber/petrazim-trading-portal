@@ -5,6 +5,7 @@ import { botsApi } from '../services/api';
 import { BotSleepAndSubAuto } from '../components/BotSleepAndSubAuto';
 import { ExchangeEngineControl } from '../components/ExchangeEngineControl';
 import { BotScheduleControl } from '../components/BotScheduleControl';
+import { BotBacktestPanel } from '../components/BotBacktestPanel';
 import { SystemHealthSummaryBadge } from '../components/SystemHealthSummaryBadge';
 import { BotConfig, BotPerformance, BotMetricsUpdate } from '../types';
 import { useThemeStore } from '../hooks/useTheme';
@@ -668,6 +669,11 @@ export function BotsPage() {
 
                   {/* Sleep / Sub-Auto Mode — by direct request. */}
                   <BotSleepAndSubAuto bot={bot} dark={dark} onChanged={loadBots} />
+
+                  {/* Backtest — real strategy code replayed against
+                      real historical candles (app/engines/backtest_engine.py
+                      + strategy_adapter.py), not a projection. */}
+                  <BotBacktestPanel bot={bot} dark={dark} />
 
                   {/* Delete — by direct request ("also to delete
                       bots"). Two-step inline confirm rather than a

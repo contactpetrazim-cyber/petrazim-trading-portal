@@ -192,7 +192,7 @@ async def run_backtest(run_id: str) -> None:
 
 def _summarize(trades: list) -> dict:
     if not trades:
-        return {"total_trades": 0, "win_rate": None, "expectancy_r": None, "max_drawdown_pct": None}
+        return {"total_trades": 0, "win_rate": None, "expectancy_r": None, "max_drawdown_pct": None, "equity_curve": []}
 
     total = len(trades)
     wins = sum(1 for t in trades if t.r_multiple > 0)
@@ -209,9 +209,14 @@ def _summarize(trades: list) -> dict:
     cum_r = 0.0
     peak = 0.0
     max_dd = 0.0
+    equity_curve = []
     for t in ordered:
         cum_r += t.r_multiple
         peak = max(peak, cum_r)
         max_dd = max(max_dd, peak - cum_r)
+        equity_curve.append({"timestamp": t.exit_time.isoformat(), "cum_r": round(cum_r, 4)})
 
-    return {"total_trades": total, "win_rate": win_rate, "expectancy_r": expectancy_r, "max_drawdown_pct": round(max_dd, 4)}
+    return {
+        "total_trades": total, "win_rate": win_rate, "expectancy_r": expectancy_r,
+        "max_drawdown_pct": round(max_dd, 4), "equity_curve": equity_curve,
+    }

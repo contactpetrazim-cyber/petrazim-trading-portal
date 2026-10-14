@@ -61,6 +61,7 @@ class BacktestRunResponse(BaseModel):
     win_rate: Optional[float]
     expectancy_r: Optional[float]
     max_drawdown_pct: Optional[float]
+    equity_curve: Optional[List[dict]]
     created_at: datetime
     completed_at: Optional[datetime]
 
@@ -73,7 +74,7 @@ class BacktestRunResponse(BaseModel):
             progress_pct=row.progress_pct, error_message=row.error_message,
             total_trades=row.total_trades, win_rate=row.win_rate,
             expectancy_r=row.expectancy_r, max_drawdown_pct=row.max_drawdown_pct,
-            created_at=row.created_at, completed_at=row.completed_at,
+            equity_curve=row.equity_curve, created_at=row.created_at, completed_at=row.completed_at,
         )
 
 
