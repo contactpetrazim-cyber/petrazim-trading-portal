@@ -142,6 +142,14 @@ class BacktestSignal:
     # to stop_price (the trade's own initial stop) when unset, same as
     # Trade.initial_stop_loss always being the pre-ratchet value.
     initial_stop_price: Optional[float] = None
+    # The real position size the strategy itself computed (EntryExitEngine.
+    # calculate_lot_size, inside the bot's own .analyze()) — unused by
+    # isolated-mode replay (R-multiples are lot_size-invariant, see
+    # ClosedBacktestTrade's own blended-R comment) but needed by
+    # PortfolioBacktestEngine for real dollar P&L / notional-cap
+    # accounting across a shared ledger. None (the default) for every
+    # isolated-mode caller.
+    lot_size: Optional[float] = None
 
 
 @dataclass
@@ -163,6 +171,14 @@ class ClosedBacktestTrade:
     # Purely informational (debugging/transparency); r_multiple above
     # already reflects the correct capital-weighted blend across these.
     legs: List[Dict] = field(default_factory=list)
+    # The real position size the strategy computed (see BacktestSignal.
+    # lot_size's own comment) — None for isolated mode unless the
+    # adapter supplied one; always set by PortfolioBacktestEngine,
+    # which needs it for its own dollar-P&L ledger anyway and carries
+    # it here too so a trade record is independently auditable
+    # (dollar pnl = r_multiple * lot_size * |entry_price - stop_price|)
+    # without reaching into the engine's internal open_pos state.
+    lot_size: Optional[float] = None
 
     def to_trade_record(self) -> TradeRecord:
         """Convert straight into the format the Monte Carlo engine consumes."""
@@ -233,6 +249,25 @@ class BacktestEngine:
     def __init__(self, cost_model: Optional[CostModel] = None, max_hold_bars: int = 500):
         self.cost_model = cost_model or CostModel()
         self.max_hold_bars = max_hold_bars
+        self._run_id = uuid.uuid4().hex[:8]
+
+    def new_run_id(self) -> str:
+        """Regenerates self._run_id, used by every trade_id this engine
+        builds (see each _advance_*/_force_close/_close_ladder_trade/
+        _finalize_ladder_trade helper) — real bug, found live: the old
+        f"{symbol}_{trade_counter}" scheme restarts trade_counter at 0
+        every call, so saving two separate runs' trades for the same
+        symbol into closed_trades (what intelligent_tuning_worker.py
+        does across its baseline + several candidate runs, and what any
+        trader re-running POST /api/backtests for the same bot+symbol
+        also does) collided on that table's real trade_id UNIQUE
+        constraint. run() calls this itself on every invocation;
+        PortfolioBacktestEngine (which drives these same private
+        exit-check helpers directly, across many bot/symbol pairs in
+        one simulation, without ever calling run()) calls it once at
+        the start of its own simulation instead."""
+        self._run_id = uuid.uuid4().hex[:8]
+        return self._run_id
 
     def run(
         self,
@@ -241,18 +276,7 @@ class BacktestEngine:
         symbol: str,
         context: Optional[Dict] = None,
     ) -> List[ClosedBacktestTrade]:
-        # Regenerated fresh on every call (not just __init__) so trade_id
-        # (built from this below, see each _advance_*/_force_close/
-        # _close_ladder_trade/_finalize_ladder_trade helper) is globally
-        # unique across separate run() invocations — a real bug, found
-        # live: the old f"{symbol}_{trade_counter}" scheme restarts
-        # trade_counter at 0 every call, so saving two separate runs'
-        # trades for the same symbol into closed_trades (exactly what
-        # intelligent_tuning_worker.py does across its baseline +
-        # several candidate runs, and what any trader re-running
-        # POST /api/backtests for the same bot+symbol would also hit)
-        # collided on that table's real trade_id UNIQUE constraint.
-        self._run_id = uuid.uuid4().hex[:8]
+        self.new_run_id()
         context = context or {}
         trades: List[ClosedBacktestTrade] = []
         open_pos: Optional[Dict] = None
@@ -298,6 +322,7 @@ class BacktestEngine:
                 "remaining_fraction": 1.0,
                 "realized_r": 0.0,
                 "legs": [],
+                "lot_size": signal.lot_size,
             }
 
         # Force-close anything still open at the end of the data
@@ -331,6 +356,7 @@ class BacktestEngine:
             entry_time=open_pos["entry_time"],
             exit_time=bar.timestamp,
             exit_reason=exit_reason,
+            lot_size=open_pos.get("lot_size"),
         )
 
     @staticmethod
@@ -477,6 +503,7 @@ class BacktestEngine:
             exit_time=exit_time,
             exit_reason=exit_reason,
             legs=open_pos["legs"],
+            lot_size=open_pos.get("lot_size"),
         )
 
     def _close_ladder_trade(self, open_pos: Dict, exit_price: float, exit_time: datetime, i: int, symbol: str, trade_counter: int, exit_reason: Literal["stop", "ladder"]) -> ClosedBacktestTrade:
@@ -508,6 +535,7 @@ class BacktestEngine:
             exit_time=exit_time,
             exit_reason=exit_reason,
             legs=open_pos["legs"],
+            lot_size=open_pos.get("lot_size"),
         )
 
     @staticmethod
@@ -544,6 +572,7 @@ class BacktestEngine:
             exit_time=exit_time,
             exit_reason="timeout",
             legs=legs,
+            lot_size=open_pos.get("lot_size"),
         )
 
     @staticmethod

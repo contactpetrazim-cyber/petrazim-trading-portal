@@ -137,9 +137,19 @@ class SmcStrategyAdapter:
             idx = bisect.bisect_right(timestamps, now_ts)
             kwargs[kwarg_name] = candles[:idx]
 
+        # Isolated-mode callers never set this, so they keep using the
+        # fixed balance given at construction time (this bot's own
+        # static reference balance, matching live sizing exactly, per
+        # the approved plan). Portfolio mode is the one caller that
+        # DOES set it, per-call — every bot in a portfolio run draws
+        # against the SAME compounding shared ledger balance, which
+        # only the orchestrator (not this adapter, constructed once
+        # up front) knows the current value of.
+        account_balance = context.get("account_balance", self._account_balance)
+
         signal: Optional[BotSignal] = self._bot.analyze(
             **kwargs,
-            account_balance=self._account_balance,
+            account_balance=account_balance,
             symbol=self._symbol,
             risk_per_trade=self._risk_per_trade,
             min_rr_ratio=self._min_rr_ratio,
@@ -151,8 +161,9 @@ class SmcStrategyAdapter:
         # Same centralized risk-geometry gate every live/paper signal
         # passes through in BotOrchestrator._collect — a backtest must
         # reject exactly what live trading would reject, not trust
-        # every raw signal a bot class produces.
-        ok, _reason = _signal_risk_is_valid(signal, self._account_balance)
+        # every raw signal a bot class produces. Same account_balance
+        # basis as the sizing call above (dynamic for portfolio mode).
+        ok, _reason = _signal_risk_is_valid(signal, account_balance)
         if not ok:
             return None
 
@@ -183,4 +194,5 @@ class SmcStrategyAdapter:
             ladder=ladder_legs or None,
             trailing_activation_r=self._trailing_activation_r,
             initial_stop_price=signal.stop_loss,
+            lot_size=signal.lot_size,
         )
