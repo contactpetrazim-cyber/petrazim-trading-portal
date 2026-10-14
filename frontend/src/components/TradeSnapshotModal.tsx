@@ -129,8 +129,21 @@ function nearestCandleIndex(candles: { timestamp: string }[], iso: string | null
   return idx;
 }
 
+// Short label + color for a level_event's own event_type — matching
+// the SAME colors the reference lines for that level already use, so
+// a level marker and its own dashed line read as the same thing.
+const LEVEL_EVENT_META: Record<string, { label: string; color: string }> = {
+  auto_take_profit_1_hit: { label: 'TP1', color: GREEN },
+  auto_take_profit_2_hit: { label: 'TP2', color: '#059669' },
+  auto_take_profit_3_hit: { label: 'TP3', color: '#047857' },
+  auto_stop_loss_hit: { label: 'SL', color: RED },
+  auto_trailing_stop_hit: { label: 'Trail', color: '#f59e0b' },
+  manual_partial_close: { label: 'Partial', color: '#f59e0b' },
+  manual_close: { label: 'Close', color: '#f59e0b' },
+};
+
 function SnapshotChart({ snapshot, dark }: { snapshot: TradeSnapshot; dark: boolean }) {
-  const { candles, entry_price, entry_timestamp, stop_loss, take_profit_1, take_profit_2, take_profit_3, exit_price, exit_timestamp, direction, trailing_active, trailing_stop_price } = snapshot;
+  const { candles, entry_price, entry_timestamp, stop_loss, take_profit_1, take_profit_2, take_profit_3, exit_price, exit_timestamp, level_events, direction, trailing_active, trailing_stop_price } = snapshot;
   // Vertical (price) axis zoom — by direct request ("make the
   // vertical axis adjustable for all charts portal wide ... on
   // charts, snapshots and approval charts"). This component has no
@@ -194,6 +207,19 @@ function SnapshotChart({ snapshot, dark }: { snapshot: TradeSnapshot; dark: bool
   // SL/TP actually closed the trade) — by direct request.
   const entryIdx = nearestCandleIndex(candles, entry_timestamp);
   const exitIdx = nearestCandleIndex(candles, exit_timestamp);
+
+  // Intermediate level markers (TP1/TP2/.../SL-ratchet/trailing) — by
+  // direct follow-up request: entry/exit alone can't show WHERE a
+  // multi-target trade actually took TP1 vs TP2 vs its final close.
+  // Skips an event whose own timestamp matches entry/exit (the
+  // triangles above already mark those) so a trade that closed
+  // entirely on its first configured level doesn't get a redundant
+  // second marker on the exact same candle.
+  const levelMarkers = (level_events ?? [])
+    .filter((e) => e.timestamp && e.price != null)
+    .filter((e) => e.timestamp !== entry_timestamp && e.timestamp !== exit_timestamp)
+    .map((e) => ({ ...e, idx: nearestCandleIndex(candles, e.timestamp) }))
+    .filter((e): e is typeof e & { idx: number } => e.idx != null);
 
   return (
     <div>
@@ -265,6 +291,25 @@ function SnapshotChart({ snapshot, dark }: { snapshot: TradeSnapshot; dark: bool
             const base = apex - 8;
             return <polygon points={`${x - 5},${base} ${x + 5},${base} ${x},${apex}`} fill={exitColor} stroke="white" strokeWidth={0.5} strokeLinejoin="round" />;
           })()}
+          {/* Intermediate level markers (TP1/TP2/.../SL-ratchet/
+              trailing) — small diamonds, not the up/down triangle
+              language reserved for entry/exit, each sitting exactly at
+              that level's own fill price on its own candle. */}
+          {levelMarkers.map((m, i) => {
+            const meta = LEVEL_EVENT_META[m.event_type] ?? { label: m.event_type, color: '#6b7280' };
+            const cx = toX(m.idx);
+            const cy = toY(m.price!);
+            const r = 4;
+            return (
+              <polygon
+                key={`${m.event_type}-${i}`}
+                points={`${cx},${cy - r} ${cx + r},${cy} ${cx},${cy + r} ${cx - r},${cy}`}
+                fill={meta.color}
+                stroke="white"
+                strokeWidth={0.5}
+              />
+            );
+          })}
           {priceTicks.map((p, i) => {
             const y = toY(p);
             return (

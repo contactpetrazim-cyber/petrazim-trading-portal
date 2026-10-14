@@ -104,6 +104,13 @@ export const tradesApi = {
   // (a past window's OHLCV never changes), not a stored image.
   getTradeSnapshot: (tradeId: string, timeframe: SnapshotTimeframe) =>
     api.get<TradeSnapshot>(`/trades/${tradeId}/snapshot`, { params: { timeframe } }).then(r => r.data),
+  // Lightweight counterpart to the snapshot's own level_events field —
+  // by direct follow-up request to extend the same per-TP-level
+  // markers to the on-chart and Pending Approvals charts, which
+  // already have their own candles (no need for /snapshot's own,
+  // separate historical-candle fetch).
+  getTradeLevelEvents: (tradeId: string) =>
+    api.get<{ trade_id: string; level_events: { event_type: string; timestamp: string | null; price: number | null }[] }>(`/trades/${tradeId}/level-events`).then(r => r.data),
   // Drawdown & Target Encroachment — by direct request. A real call
   // per trade analyzed (capped server-side at 30), so this is only
   // ever fetched on an explicit "Analyze" click, never on mount.

@@ -37,8 +37,12 @@ export interface ChartMarker {
    * just below the price point reaching up toward it — the entry
    * convention), 'triangle-down' points downward (apex below its
    * base, sits just above the price point reaching down toward it —
-   * the exit convention). */
-  shape?: 'dot' | 'triangle-up' | 'triangle-down';
+   * the exit convention). 'diamond' — by direct follow-up request
+   * ("for each TP 1, TP2 TP3 etc") — marks an INTERMEDIATE level fill
+   * (a partial TP, a trailing-stop hit) at its own exact price,
+   * distinct from the entry/exit triangle language so it doesn't read
+   * as "this is where the trade opened/fully closed." */
+  shape?: 'dot' | 'triangle-up' | 'triangle-down' | 'diamond';
 }
 
 export interface ChartLine {
@@ -401,6 +405,20 @@ export function CandleChart({
                 stroke="white"
                 strokeWidth={0.3}
                 strokeLinejoin="round"
+              />
+            );
+          }
+          if (m.shape === 'diamond') {
+            const cx = x(m.index);
+            const cy = y(m.price);
+            const r = 1.6;
+            return (
+              <polygon
+                key={i}
+                points={`${cx},${cy - r} ${cx + r},${cy} ${cx},${cy + r} ${cx - r},${cy}`}
+                fill={m.color ?? textColor}
+                stroke="white"
+                strokeWidth={0.25}
               />
             );
           }

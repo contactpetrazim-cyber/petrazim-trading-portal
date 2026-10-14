@@ -736,6 +736,22 @@ async def partial_close(
         row.r_multiple = compute_blended_r_multiple(
             row.realized_pnl, row.risk_amount, row.entry_price, req.exit_price, row.stop_loss, row.direction,
         )
+    # Per-level fill event — by direct follow-up request ("I should be
+    # able to identify the price candle representing the time the
+    # trade was taken and the price range OHLC when the trade was
+    # entered or exited for each TP 1, TP2 TP3 etc"). position_monitor.py's
+    # own auto-managed partials already write exactly this shape
+    # (trades.py's own trade_snapshot endpoint reads it back for the
+    # chart's per-level markers); this endpoint never had — a manually-
+    # triggered partial close had NO durable record of when/at what
+    # price it actually happened, only the final mutated lot_size/
+    # realized_pnl with no point-in-time trail.
+    db.add(TradeLog(
+        trade_id=trade_id,
+        event_type="manual_close" if row.status == TradeStatus.CLOSED else "manual_partial_close",
+        event_data={"closed_lot_size": round(closed_size, 8), "percent": req.percent},
+        price_at_event=req.exit_price, pnl_at_event=round(pnl_this_close, 2),
+    ))
     await db.commit()
     await apply_performance_fee(db, row, pnl_this_close)
 

@@ -705,6 +705,69 @@ async def get_trade(trade_id: str, db: AsyncSession = Depends(get_db), user: Use
 # exists anywhere else in this codebase or on any supported exchange).
 _SNAPSHOT_BAR_SECONDS = {"5m": 300, "15m": 900, "1h": 3600, "4h": 14400, "1d": 86400}
 
+# Event types that mark a real fill at a specific price and moment —
+# shared between trade_snapshot (below) and the lightweight
+# /level-events endpoint, so both read the exact same TradeLog rows the
+# exact same way rather than keeping two copies of this list in sync.
+_LEVEL_EVENT_TYPES = [
+    "auto_take_profit_1_hit", "auto_take_profit_2_hit", "auto_take_profit_3_hit",
+    "auto_stop_loss_hit", "auto_trailing_stop_hit",
+    "manual_close", "manual_partial_close",
+]
+
+
+async def _fetch_level_events(db: AsyncSession, trade_id: str) -> List[Dict]:
+    """Per-level fill events (TP1/TP2/TP3/SL/trailing), each with its
+    OWN timestamp and price — by direct follow-up request ("the main
+    issue to resolve is the correct representation of which candle was
+    the trade entered and which candle was the trade exited ... for
+    each TP1, TP2, TP3 etc"). Before this, a chart only ever had two
+    points in time (entry_timestamp, exit_timestamp) to work with —
+    correct for a single-shot close, but silently wrong for any multi-
+    target trade: a TP1 partial at 10:00 and the real final exit at
+    14:00 would have NOTHING marking where TP1 actually filled, and
+    worse, a trade's own CURRENT stop_loss/take_profit_1 (already shown
+    as static reference lines) don't tell you WHEN or AT WHAT PRICE a
+    level was actually touched — only where it's currently set.
+    TradeLog already carries exactly this (position_monitor.py's own
+    _partial_close/_close, and manual_trading.py's own partial_close,
+    each write one row per level with `timestamp` and `price_at_event`)
+    — reading it here, not duplicating that data entry. Currently
+    populated for bot/auto-managed trades and (going forward) manual
+    partial closes; a trade closed purely by a manual click BEFORE that
+    logging existed has no such row and simply gets no level_events
+    beyond what entry/exit already cover — an honest gap, not a silent
+    wrong answer."""
+    rows = (await db.execute(
+        select(TradeLog)
+        .where(TradeLog.trade_id == trade_id, TradeLog.event_type.in_(_LEVEL_EVENT_TYPES))
+        .order_by(TradeLog.timestamp)
+    )).scalars().all()
+    return [
+        {"event_type": row.event_type, "timestamp": row.timestamp.isoformat() if row.timestamp else None, "price": row.price_at_event}
+        for row in rows
+        if row.timestamp is not None and row.price_at_event is not None
+    ]
+
+
+class LevelEventsResponse(BaseModel):
+    trade_id: str
+    level_events: List[Dict]
+
+
+@router.get("/{trade_id}/level-events", response_model=LevelEventsResponse)
+async def trade_level_events(trade_id: str, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+    """Lightweight counterpart to /snapshot's own level_events field —
+    by direct follow-up request to extend the same per-level markers to
+    the on-chart and Pending Approvals charts, which overlay several
+    trades on ONE already-fetched candle set (unlike the Snapshot
+    modal's own one-trade-at-a-time view) and have no use for a second,
+    redundant historical-candle fetch just to get this. A caller
+    already holding candles for a symbol calls this once per trade
+    shown on it instead."""
+    trade = await _get_owned_trade(trade_id, user, db)
+    return LevelEventsResponse(trade_id=trade.trade_id, level_events=await _fetch_level_events(db, trade.trade_id))
+
 
 @router.get("/{trade_id}/snapshot")
 async def trade_snapshot(
@@ -765,6 +828,8 @@ async def trade_snapshot(
     if not candles:
         raise HTTPException(status_code=404, detail="No candle data available for this trade's window.")
 
+    level_events = await _fetch_level_events(db, trade.trade_id)
+
     return {
         "trade_id": trade.trade_id,
         "symbol": trade.symbol,
@@ -803,6 +868,7 @@ async def trade_snapshot(
         "trailing_stop_price": trade.trailing_stop_price,
         "exit_price": trade.exit_price,
         "exit_timestamp": trade.exit_timestamp,
+        "level_events": level_events,
         "status": trade.status.value,
         # By direct request ("include a reason summary that opens when
         # clicked on the snapshot") — the same real reasoning_log
