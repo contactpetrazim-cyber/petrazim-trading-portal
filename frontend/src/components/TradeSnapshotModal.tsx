@@ -232,32 +232,38 @@ function SnapshotChart({ snapshot, dark }: { snapshot: TradeSnapshot; dark: bool
               <line x1={AXIS_W} y1={toY(r.price)} x2={w} y2={toY(r.price)} stroke={r.color} strokeWidth={1} strokeDasharray={DASH} opacity={0.8} />
             </g>
           ))}
-          {/* Fixed margin strips, not anchored to the candle's own
-              price — by direct follow-up request ("the triangle ...
-              does not need to overlay the candle ... it can be placed
-              in upper section of the chart or lower section ... it
-              only needs to point at the correct candle"): anchoring to
-              the candle's low/high could land the triangle directly
-              on top of a neighboring candle's body/wick when price
-              action is dense. Entry sits in a fixed strip near the
-              bottom of the chart pointing up, exit near the top
-              pointing down — X position (which candle) is still exact;
-              only the Y position moved off the price action. A fast-
-              closing trade (entry and exit on the same candle — a
-              real, confirmed case, not a bug: a paper/test fill can
-              close in well under one bar) still gets a small
-              horizontal nudge apart so both stay visible. */}
-          {entryIdx != null && (() => {
+          {/* Anchored to the actual entry/exit PRICE now, not a fixed
+              margin strip — by direct follow-up request ("the entry,
+              SL and Exit/TP price lines ... don't intercept with the
+              triangles ... I can't really say for sure which candle
+              represents the entry and exit"). An earlier request had
+              moved these off the price axis specifically to avoid
+              landing on a neighboring candle's body/wick — reversed
+              since that traded away the one thing this marker needs to
+              actually show: this candle, at this price, is where the
+              dashed Entry/Exit line says the trade happened. The apex
+              sits exactly on toY(entry_price)/toY(exit_price) (so it
+              visibly crosses the dashed line); a white stroke keeps it
+              readable against a same-color candle. X position (which
+              candle) is unchanged — still exact, and already
+              recomputes fresh for whichever timeframe is selected. A
+              fast-closing trade (entry and exit on the same candle — a
+              real, confirmed case: a paper/test fill can close in well
+              under one bar) still gets a small horizontal nudge apart
+              so both stay visible. */}
+          {entryIdx != null && entry_price != null && (() => {
             const sameCandle = exitIdx === entryIdx;
             const x = toX(entryIdx) - (sameCandle ? 6 : 0);
-            const base = h - 6;
-            return <polygon points={`${x - 5},${base} ${x + 5},${base} ${x},${base - 8}`} fill={entryColor} />;
+            const apex = toY(entry_price);
+            const base = apex + 8;
+            return <polygon points={`${x - 5},${base} ${x + 5},${base} ${x},${apex}`} fill={entryColor} stroke="white" strokeWidth={0.5} strokeLinejoin="round" />;
           })()}
-          {exitIdx != null && (() => {
+          {exitIdx != null && exit_price != null && (() => {
             const sameCandle = exitIdx === entryIdx;
             const x = toX(exitIdx) + (sameCandle ? 6 : 0);
-            const base = 6;
-            return <polygon points={`${x - 5},${base} ${x + 5},${base} ${x},${base + 8}`} fill={exitColor} />;
+            const apex = toY(exit_price);
+            const base = apex - 8;
+            return <polygon points={`${x - 5},${base} ${x + 5},${base} ${x},${apex}`} fill={exitColor} stroke="white" strokeWidth={0.5} strokeLinejoin="round" />;
           })()}
           {priceTicks.map((p, i) => {
             const y = toY(p);

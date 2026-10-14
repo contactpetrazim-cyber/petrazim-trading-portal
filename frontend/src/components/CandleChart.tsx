@@ -366,32 +366,41 @@ export function CandleChart({
           />
         ))}
 
-        {/* Point markers — dots sit at the actual price point; a
-            directional triangle instead sits in a fixed strip in the
-            chart's own top/bottom margin (NOT at the price point) —
-            by direct follow-up request ("the triangle ... does not
-            need to overlay the candle ... it can be placed in upper
-            section of the chart or lower section ... it only needs to
-            point at the correct candle"): the price-anchored version
-            could land directly on top of a candle body/wick,
-            obscuring it. 'triangle-up' (the entry convention) sits in
-            the BOTTOM margin pointing up at its candle from below;
-            'triangle-down' (exit) sits in the TOP margin pointing
-            down at its candle from above — same up/down semantics as
-            before, just relocated off the price action entirely. X
-            position (which candle) is unchanged. */}
+        {/* Point markers — dots AND directional triangles both sit at
+            the actual price point now, by direct follow-up request
+            ("the entry, SL and Exit/TP price lines ... don't intercept
+            with the triangles ... I can't really say for sure which
+            candle represents the entry and exit"). An earlier request
+            had moved the triangle off the price axis entirely into a
+            fixed top/bottom margin strip specifically to avoid
+            obscuring a candle — reversed here since that traded away
+            the one thing a trader actually needs from this marker: a
+            visual confirmation that THIS candle, AT THIS PRICE, is
+            where the trade's own entry/SL/TP/exit line says it should
+            be. The apex of the triangle sits exactly ON the price
+            line (so it visibly touches/crosses it); the base extends
+            a few px further into the candle (up from below for
+            'triangle-up'/entry, down from above for 'triangle-down'/
+            exit) — a thin white stroke keeps it readable against a
+            same-color candle body instead of blending in. X position
+            (which candle) is unchanged and already recomputes fresh
+            for whichever timeframe is selected (see callers' own
+            nearestCandleIndex). */}
         {markers.map((m, i) => {
           if (m.shape === 'triangle-up' || m.shape === 'triangle-down') {
             const cx = x(m.index);
             const dx = 1.3;
-            const dy = padTop * 0.5;
-            const base = m.shape === 'triangle-up' ? height - padBottom * 0.25 : padTop * 0.75;
-            const apex = m.shape === 'triangle-up' ? base - dy : base + dy;
+            const dy = 4;
+            const apex = y(m.price);
+            const base = m.shape === 'triangle-up' ? apex + dy : apex - dy;
             return (
               <polygon
                 key={i}
                 points={`${cx - dx},${base} ${cx + dx},${base} ${cx},${apex}`}
                 fill={m.color ?? textColor}
+                stroke="white"
+                strokeWidth={0.3}
+                strokeLinejoin="round"
               />
             );
           }
