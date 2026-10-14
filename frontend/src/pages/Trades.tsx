@@ -88,10 +88,18 @@ export function TradesPage() {
   // TradeRow's own `outcome` derivation (realized_pnl sign) — so those
   // three resolve to status=closed server-side and get narrowed
   // further client-side by applyOutcomeFilter below.
-  type QuickFilter = 'all' | 'active' | 'pending' | 'closed' | 'cancelled' | 'won' | 'loss' | 'breakeven';
+  // 'cancelled' removed from this list — by direct follow-up request
+  // ("ALL ERROR and cancelled trades should automatically go into the
+  // error and cancelled folder ... none should show in the recent
+  // trades folder"). It used to be a valid quick-filter pill here,
+  // explicitly opting IN to seeing cancelled trades in Recent Trades —
+  // now that the Errors / Cancelled card is their one true home, that
+  // pill would just show an always-empty Recent Trades list, so it's
+  // gone rather than left as a dead, misleading option.
+  type QuickFilter = 'all' | 'active' | 'pending' | 'closed' | 'won' | 'loss' | 'breakeven';
   const OUTCOME_FILTERS: QuickFilter[] = ['won', 'loss', 'breakeven'];
   const FILTER_LABELS: Record<QuickFilter, string> = {
-    all: 'All', active: 'Active', pending: 'Pending', closed: 'Closed', cancelled: 'Cancelled',
+    all: 'All', active: 'Active', pending: 'Pending', closed: 'Closed',
     won: 'Won', loss: 'Loss', breakeven: 'BreakEven',
   };
   const [filter, setFilter] = useState<QuickFilter>('all');
@@ -221,13 +229,15 @@ export function TradesPage() {
     return list.filter((t) => !(t.status === 'pending' && t.requires_approval));
   }
 
-  // Same "only when the default All view is showing" carve-out as
-  // excludeAwaitingApproval above — an explicit "Cancelled" quick-
-  // filter pill (already existed) still shows cancelled trades in
-  // Recent Trades on demand; only the default view routes them to the
-  // new Errors / Cancelled card instead.
+  // UNCONDITIONAL now — by direct follow-up request ("ALL ERROR and
+  // cancelled trades should automatically go into the error and
+  // cancelled folder ... none should show in the recent trades
+  // folder"). Previously only applied when the default "All" pill was
+  // selected, so the (now-removed) "Cancelled" quick filter could still
+  // surface them in Recent Trades — that carve-out is gone along with
+  // that pill; the Errors / Cancelled card is their one and only home
+  // regardless of which quick filter is active.
   function excludeErrorsAndCancelled(list: Trade[]): Trade[] {
-    if (filter !== 'all') return list;
     return list.filter((t) => t.status !== 'error' && t.status !== 'cancelled');
   }
 
