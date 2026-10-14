@@ -247,6 +247,23 @@ class Settings(BaseSettings):
     POSITION_MONITOR_ENABLED: bool = True
     POSITION_MONITOR_INTERVAL_SECONDS: int = 20
 
+    # Opt-in extension of the worker above to LIVE (non-paper) trades —
+    # by direct request, after confirming a live trade today gets
+    # exactly one static broker-side SL/TP and never the ladder/ratchet/
+    # trailing behavior paper trades get. Unlike POSITION_MONITOR_ENABLED
+    # above, this makes REAL broker API calls (close_broker_position/
+    # update_broker_stop_loss_take_profit) with real execution
+    # consequences, so it follows MARKET_SCANNER_ENABLED's off-by-
+    # default convention instead — this can't be live-verified against
+    # a real broker this session (zero live trades exist on the
+    # platform today), so it ships off and should be canaried
+    # deliberately rather than trusted immediately. Scoped in practice
+    # to bingx/binance/bybit/mexc — see LIVE_LADDER_CAPABLE_BROKERS in
+    # execution_engine.py; tradelocker/metatrader/oanda trades are
+    # never priced by this worker at all regardless of this flag
+    # (live_price.py has no credential-less ticker source for forex).
+    POSITION_MONITOR_LIVE_ENABLED: bool = False
+
     # MetaApi idle-undeploy sweep (services/metaapi_lifecycle.py) — by
     # direct request ("$9/month is high and a waste of not used ...
     # develop an auto engine that auto-undeploys when not in use").

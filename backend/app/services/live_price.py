@@ -34,6 +34,48 @@ from app.services.proxy_health import record_proxy_failure, record_proxy_success
 
 logger = structlog.get_logger()
 
+
+def price_is_plausible(price: Optional[float], reference_price: Optional[float], max_deviation_pct: float = 0.5) -> bool:
+    """A fetched live price is only trusted for a P&L/SL-TP decision if
+    it's within `max_deviation_pct` of a known-reasonable reference —
+    almost always the trade's own entry_price, since that's a real,
+    recent price this app itself already saw on this exact symbol.
+    Neither get_broker_ticker_price nor get_crypto_price above validate
+    their own response AT ALL before returning it — a corrupted/empty
+    body parsed into a wrong number, a stale cached response served by
+    a proxy, or (unverified but not ruled out) a wrong-symbol mix-up
+    anywhere in the request chain would flow straight through to a
+    displayed unrealized_pnl or, far more seriously,
+    position_monitor.py's own SL/TP-hit check — closing a REAL position
+    at a fabricated price.
+
+    Found by direct report, with a screenshot: a BTCUSDT.P position
+    showing "+$81,718.00 / +1634.36R" — a value no real trade in this
+    database's history comes anywhere close to (confirmed directly: no
+    ACTIVE long BTC position existed matching it at all, and the
+    unrealized_pnl column is read-time-only, never persisted, so the
+    bad number was never written anywhere to inspect after the fact —
+    consistent with a single transient bad price read flowing straight
+    into a display with zero validation). This is the defense-in-depth
+    fix: not an attempt to find and patch the one specific cause (which
+    left no durable trace to root-cause further), but to make sure NO
+    single bad price read, whatever produces it, can ever again reach a
+    trader as a fabricated number or an unexplained trade close.
+
+    50% default: generous enough to never reject a real, if extreme,
+    market move within the timeframes this app actually operates on,
+    but tight enough to catch a price that's corrupted, from the wrong
+    symbol, or otherwise off by a large factor. `reference_price` <= 0
+    (or None) means there's nothing sane to compare against yet — don't
+    block in that case, same "don't guess, but don't false-positive
+    either" principle as every other guard in this codebase."""
+    if price is None:
+        return False
+    if reference_price is None or reference_price <= 0:
+        return True
+    return abs(price - reference_price) / reference_price <= max_deviation_pct
+
+
 COINGECKO_IDS = {"BTCUSDT": "bitcoin", "ETHUSDT": "ethereum", "BNBUSDT": "binancecoin", "SOLUSDT": "solana"}
 
 # Permanent fallback for a symbol Binance's spot market and CoinGecko's

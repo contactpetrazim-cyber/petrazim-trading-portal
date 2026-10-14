@@ -39,7 +39,7 @@ from app.models.platform_setting import GLOBAL_RISK_DEFAULTS_KEY, PlatformSettin
 from app.models.trade import EntryType, ExitType, ManualTradingSettings, Trade, TradeDirection, TradeLog, TradeStatus, TradingMode
 from app.models.user import User
 from app.services.execution_engine import ExecutionEngine
-from app.services.live_price import get_crypto_price
+from app.services.live_price import get_crypto_price, price_is_plausible
 from app.services.manual_trading import check_manual_trade_risk, compute_lot_size, compute_blended_r_multiple, effective_limits, get_global_risk_defaults, get_master_paper_enforced
 from app.services.performance_fees import apply_performance_fee
 
@@ -881,6 +881,20 @@ async def cancel_order(
     exit_price = req.exit_price
     if exit_price is None:
         exit_price = await get_crypto_price(row.symbol)
+        # Sanity check — by direct, critical bug report ("extremely
+        # high trade values ... fix portal wide issue"). This fallback
+        # becomes the trade's own REAL exit_price/realized_pnl — same
+        # "never close a real position on a fabricated price" guard as
+        # position_monitor.py's own identical check. An explicit
+        # req.exit_price (the trader's own typed-in number, above) is
+        # never second-guessed — this only validates the LIVE-FETCHED
+        # fallback.
+        if exit_price is not None and not price_is_plausible(exit_price, row.entry_price):
+            logger.warning(
+                "cancel_order_price_implausible", trade_id=trade_id, symbol=row.symbol,
+                fetched_price=exit_price, entry_price=row.entry_price,
+            )
+            exit_price = None
     if exit_price is None:
         raise HTTPException(
             status_code=400,
