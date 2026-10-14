@@ -617,6 +617,21 @@ async def place_manual_order(
             # necessarily "filled," same distinction a real exchange's own
             # order history draws between "working" and "filled."
             trade.status = TradeStatus.ACTIVE
+            # The REAL fill price — by direct instruction ("how do we
+            # model real trading at the exchange"), same fix as
+            # execution_engine.py's own _update_trade_after_execution/
+            # approve_trade: for a MARKET order, _paper_place_order
+            # (broker_integrations.py) fetches that broker's own real
+            # ticker price instead of trusting the caller's entry_price
+            # — this now actually uses that real fill instead of
+            # silently discarding it. A no-op for a LIMIT/STOP order
+            # (req.order_type above) — _paper_place_order's own logic
+            # already returns the trader's own given price unchanged
+            # for those, so this stays correct for every order type
+            # without needing to branch on it here too.
+            fill_price = result.get("fill_price")
+            if fill_price is not None:
+                trade.entry_price = float(fill_price)
             # Naive UTC, not datetime.now(timezone.utc) — same bug class
             # as the one already fixed a few lines up in this file (see
             # today_start's own comment) and confirmed live in

@@ -797,20 +797,50 @@ class ExecutionEngine:
         row = (await db.execute(select(Trade).where(Trade.trade_id == trade_id))).scalar_one_or_none()
         if row:
             row.status = TradeStatus.ACTIVE
-            # Real bug, found via direct report ("the price line for
-            # entry should intercept the entry candle"): this used to
-            # be datetime.utcnow() — the moment execution actually
-            # happened, not when entry_price was actually computed
-            # from live data (that's created_at, set once at draft
-            # time by _persist_trade). For a fully-autonomous bot the
-            # two are seconds apart, no visible drift — but anything
-            # with a delay between draft and execution (confirmed
-            # directly: a real trade's entry candle, by nearest-
-            # timestamp, didn't even contain its own entry_price — the
-            # real crossing was 2 hours earlier) left the Trade
-            # Snapshot/On Chart entry marker pointing at a candle that
-            # never actually traded at entry_price.
-            row.entry_timestamp = row.created_at or datetime.utcnow()
+            # SUPERSEDES an earlier, incomplete fix for this same
+            # symptom ("the price line for entry should intercept the
+            # entry candle"): that one snapped entry_timestamp back to
+            # created_at (draft time), reasoning that entry_price was
+            # "computed from live data" then. Found via direct follow-
+            # up report (two further real trades whose entry_price fell
+            # OUTSIDE its own entry candle's High/Low range on 5M/15M/
+            # 1H) that this reasoning was backwards: entry_price for
+            # these strategies is a THEORETICAL zone level (an FVG
+            # midpoint, an order-block mean) computed from whatever
+            # candle window a scan cycle happened to fetch — not a real
+            # traded price at all. By direct instruction ("how do we
+            # model real trading at the exchange"): every bot signal
+            # here places a MARKET order (confirmed — no bot ever sets
+            # entry_type, so every _execute_* defaults to MARKET), and
+            # on a real exchange a MARKET order fills at whatever price
+            # actually prevails THE MOMENT it executes, not at the
+            # trader's/bot's own earlier theoretical number.
+            #
+            # _paper_place_order (broker_integrations.py) already does
+            # exactly this correctly for a MARKET order — it fetches
+            # that broker's own real, current ticker price as
+            # `fill_price` instead of trusting the caller's entry_price
+            # — but nothing ever read `fill_price` back out of the
+            # result dict until now, so the simulated REAL fill was
+            # computed and then silently discarded every time. Now:
+            # when a fill_price comes back (every current paper trade;
+            # a live broker would need its own avg-fill-price field
+            # wired in per broker, not done here — explicitly scoped
+            # out, since every trade on this platform today is paper),
+            # it REPLACES the bot's own theoretical entry_price as the
+            # trade's real, recorded one — stop_loss/take_profit stay
+            # exactly as the bot's own analysis computed them (those
+            # represent real technical levels, not something that
+            # should float with fill slippage; the existing capital-
+            # adequacy/sizing-consistency guards already tolerate the
+            # same order of real-world slippage a 1.5x band implies).
+            # entry_timestamp is now the actual moment of this
+            # confirmed execution — the one moment both fields are
+            # guaranteed to actually correspond to each other.
+            fill_price = result.get("fill_price")
+            if fill_price is not None:
+                row.entry_price = float(fill_price)
+            row.entry_timestamp = datetime.utcnow()
             row.broker_order_id = str(result.get("order_id", ""))
             row.broker_name = result.get("broker", row.broker_name)
             row.margin_switch_used = result.get("margin_switch_used", row.margin_switch_used)
@@ -1044,13 +1074,25 @@ class ExecutionEngine:
                 if result["success"]:
                     row.status = TradeStatus.ACTIVE
                     # Same fix as _update_trade_after_execution's own
-                    # comment — entry_timestamp now anchors to when
-                    # entry_price was actually computed (created_at),
-                    # not approval time, which the Human-in-the-Loop
-                    # path can genuinely delay by minutes or hours
-                    # (approved_at, right below, still correctly
-                    # records the real approval moment).
-                    row.entry_timestamp = row.created_at or datetime.utcnow()
+                    # (updated) comment: entry_price now becomes the
+                    # REAL fill price (that broker's own ticker at the
+                    # moment of THIS execution — see
+                    # _paper_place_order's own docstring) when one comes
+                    # back, replacing the bot's theoretical draft-time
+                    # number — doubly important on the Human-in-the-Loop
+                    # path, which can genuinely delay execution by
+                    # minutes or hours past when entry_price was first
+                    # computed, so the gap between the two would
+                    # otherwise be far larger than the autonomous path's
+                    # usual few seconds. entry_timestamp is the real
+                    # moment of this execution (approved_at, right
+                    # below, separately and correctly records the real
+                    # approval moment, which can differ from execution
+                    # if there's any delay between the two).
+                    fill_price = result.get("fill_price")
+                    if fill_price is not None:
+                        row.entry_price = float(fill_price)
+                    row.entry_timestamp = datetime.utcnow()
                     row.approved_at = datetime.utcnow()
                     row.approval_notes = notes
                     row.broker_order_id = str(result.get("order_id", ""))
@@ -1661,7 +1703,24 @@ class ExecutionEngine:
         if not client or signal_price is None or not hasattr(client, "get_ticker_price"):
             return {"ok": True}
 
-        ticker = await client.get_ticker_price(trade["symbol"])
+        # Same symbol-format bug found and fixed in broker_integrations.py's
+        # own _paper_place_order (see that function's own comment for
+        # the full story): BingXBroker.get_ticker_price only replaces
+        # an EXISTING "/" with "-", never inserts one into a plain
+        # concatenated symbol like "BTCUSDT.P" — so this guard was
+        # silently failing open (logging price_check_unavailable, never
+        # actually comparing anything) for every BingX trade.
+        from app.services.broker_integrations import BingXBroker
+        ticker_symbol = trade["symbol"]
+        if isinstance(client, BingXBroker):
+            clean = ticker_symbol.upper().replace("/", "").replace("-", "")
+            if clean.endswith(".P"):
+                clean = clean[:-2]
+            for quote in ("USDT", "USDC", "USD"):
+                if clean.endswith(quote) and clean != quote:
+                    ticker_symbol = f"{clean[:-len(quote)]}-{quote}"
+                    break
+        ticker = await client.get_ticker_price(ticker_symbol)
         if not ticker.get("success"):
             # Can't verify — fail open with a warning rather than
             # blocking every trade whenever a ticker call has a hiccup.
@@ -1737,7 +1796,12 @@ class ExecutionEngine:
                 "success": True,
                 "order_id": result["order_id"],
                 "broker": "bingx",
-                "message": f"BingX order placed: {result['status']}"
+                "message": f"BingX order placed: {result['status']}",
+                # The REAL fill price — see _update_trade_after_execution's
+                # own comment for why this now replaces the bot's own
+                # theoretical entry_price. Was silently dropped here
+                # before; every _execute_* method had this same gap.
+                "fill_price": result.get("fill_price"),
             }
         return result
 
@@ -1761,7 +1825,8 @@ class ExecutionEngine:
                 "success": True,
                 "order_id": result["order_id"],
                 "broker": "tradelocker",
-                "message": f"TradeLocker order placed: {result['status']}"
+                "message": f"TradeLocker order placed: {result['status']}",
+                "fill_price": result.get("fill_price"),
             }
         return result
 
@@ -1784,7 +1849,8 @@ class ExecutionEngine:
                 "success": True,
                 "order_id": result["order_id"],
                 "broker": "binance",
-                "message": f"Binance order placed: {result['status']}"
+                "message": f"Binance order placed: {result['status']}",
+                "fill_price": result.get("fill_price"),
             }
         return result
 
@@ -1807,7 +1873,8 @@ class ExecutionEngine:
                 "success": True,
                 "order_id": result["order_id"],
                 "broker": "bybit",
-                "message": f"Bybit order placed: {result['status']}"
+                "message": f"Bybit order placed: {result['status']}",
+                "fill_price": result.get("fill_price"),
             }
         return result
 
@@ -1830,7 +1897,8 @@ class ExecutionEngine:
                 "success": True,
                 "order_id": result["order_id"],
                 "broker": "mexc",
-                "message": f"MEXC order placed: {result['status']}"
+                "message": f"MEXC order placed: {result['status']}",
+                "fill_price": result.get("fill_price"),
             }
         return result
 
@@ -1860,7 +1928,8 @@ class ExecutionEngine:
                 "success": True,
                 "order_id": result["order_id"],
                 "broker": "metatrader",
-                "message": f"MT4/5 order placed: {result['status']}"
+                "message": f"MT4/5 order placed: {result['status']}",
+                "fill_price": result.get("fill_price"),
             }
         return result
 
@@ -1887,7 +1956,8 @@ class ExecutionEngine:
                 "success": True,
                 "order_id": result["order_id"],
                 "broker": "oanda",
-                "message": f"OANDA order placed: {result['status']}"
+                "message": f"OANDA order placed: {result['status']}",
+                "fill_price": result.get("fill_price"),
             }
         return result
 
