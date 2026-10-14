@@ -542,7 +542,15 @@ class BacktestEngine:
         # time via the breakeven/TP1-floor ratchet, but every leg's
         # R-multiple must stay anchored to the trade's true original
         # risk, matching Trade.risk_amount's own immutability).
-        entry, stop = open_pos["entry_price"], open_pos["initial_stop_price"]
+        # .get() with a stop_price fallback, not open_pos["initial_stop_price"]
+        # directly — weekly_review_engine.py's own _simulate_hypothetical
+        # calls this static method directly with its own, simpler
+        # open_pos shape (just direction/entry_price/stop_price/
+        # target_price, no initial_stop_price key at all); a hard
+        # KeyError there was a real regression caught by that file's
+        # own test suite, not a hypothetical concern.
+        entry = open_pos["entry_price"]
+        stop = open_pos.get("initial_stop_price", open_pos["stop_price"])
         risk_per_unit = abs(entry - stop)
         if risk_per_unit == 0:
             return 0.0
