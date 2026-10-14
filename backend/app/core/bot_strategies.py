@@ -420,22 +420,31 @@ class OrderBlockReversalBot:
             # trade: risk_amount came out at $143.33 against a $10
             # Sub-Auto target — 14.33x oversized. Root cause: sl_distance
             # here was computed from the RAW sweep price (sl_price),
-            # not the actual stop_loss (sl_price ± the 0.0002 buffer
-            # right above it) — the only one of this bot family's 4
+            # not the actual stop_loss (sl_price ± a buffer right
+            # above it) — the only one of this bot family's 4
             # stop-placement branches with that mismatch (bot_3/4/5's
             # own sl dicts all correctly compute sl_distance from the
             # FINAL, buffered price — see their own "sl_price = X -
             # buffer" then "sl_distance = abs(entry - sl_price)" order).
-            # Invisible for BTC/EUR/XAUT-scale prices (0.0002 is
-            # negligible next to their typical SL distances); for
-            # JPYUSDT.P's own tiny price level (~0.0063), that same
-            # fixed 0.0002 buffer was comparable to — and here, larger
-            # than — the real swept-extreme-to-entry distance itself,
-            # so excluding it from sl_distance undersized the distance
-            # used for sizing by ~14x, and calculate_lot_size's
-            # risk/distance division oversized the position by the
-            # same factor.
-            final_stop_loss = sl_price - 0.0002 if direction == "long" else sl_price + 0.0002
+            #
+            # The buffer itself was ALSO a fixed, raw price-unit
+            # constant (0.0002 here) — the identical bug CLASS later
+            # found and permanently fixed in LiquidityDetector's own
+            # tolerance (see that class's own docstring, including its
+            # SECOND real bug, found via direct audit request "can we
+            # have a permanent fix for the tolerance floor for the
+            # pairs ... BTC, Gold, Silver, Oil etc" — a prompt that led
+            # directly back here too, the same class of fixed-unit
+            # constant hiding in a different function). 0.0002 was
+            # negligible for BTC/EUR/XAUT-scale prices, but comparable
+            # to — and larger than — the real swept-extreme-to-entry
+            # distance on JPYUSDT.P's own tiny price level (~0.0063),
+            # undersizing sl_distance by ~14x. Scaled to a percentage
+            # of the sweep price itself instead, scale-invariant the
+            # same way for every instrument from JPY to BTC, with no
+            # per-symbol floor to ever reintroduce this.
+            buffer = sl_price * 0.0005
+            final_stop_loss = sl_price - buffer if direction == "long" else sl_price + buffer
             # Embed the OB itself — by direct, repeated audit
             # observation (see extend_stop_beyond_zone's own docstring):
             # the sweep extreme is detected independently of target_ob
