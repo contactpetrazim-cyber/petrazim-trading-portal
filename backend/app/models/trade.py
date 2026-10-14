@@ -51,7 +51,17 @@ class Trade(Base):
     strategy_type = Column(String(50), nullable=False)
 
     # Market
-    symbol = Column(String(20), nullable=False, index=True)
+    # Real bug, found live ("my traders dashboard has been having
+    # issues"): VARCHAR(20) was too short for the platform's own real
+    # configured oil symbols (NCCO1OILBRENT2USDUSDT.P is 23 chars,
+    # NCCO1OILWTI2USDUSDT.P is 21) — every attempt to INSERT a real oil
+    # trade crashed the whole market-scan cycle with
+    # StringDataRightTruncationError the moment an oil bot's signal
+    # finally cleared the gates (right after today's liquidity-
+    # tolerance fix let them fire for the first time in 5 days).
+    # Widened to match chart_layout.py's own symbol column, which was
+    # already sized correctly for this.
+    symbol = Column(String(50), nullable=False, index=True)
     direction = Column(Enum(TradeDirection), nullable=False)
 
     # Execution

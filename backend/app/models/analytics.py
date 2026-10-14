@@ -18,7 +18,7 @@ class PerformanceMetric(Base):
     # Bot/Strategy filter
     bot_id = Column(String(50), index=True)
     strategy_type = Column(String(50), index=True)
-    symbol = Column(String(20), index=True)
+    symbol = Column(String(50), index=True)  # widened — see trade.py's Trade.symbol for the real bug this matches
 
     # Core metrics
     total_trades = Column(Integer, default=0)
@@ -66,7 +66,7 @@ class LessonLearned(Base):
 
     trade_id = Column(String(50), index=True)
     bot_id = Column(String(50), index=True)
-    symbol = Column(String(20))
+    symbol = Column(String(50))  # widened — see trade.py's Trade.symbol for the real bug this matches
 
     # Classification
     lesson_type = Column(String(50), nullable=False)  # premature_exit, missed_entry, sl_too_tight, etc.
