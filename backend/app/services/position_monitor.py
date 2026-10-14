@@ -1,6 +1,8 @@
 """
 Position Monitor — closes a Paper Trade for real when live price
-actually touches it.
+actually touches it, and (opt-in, see POSITION_MONITOR_LIVE_ENABLED)
+drives the same ladder/ratchet/trailing mechanism for a REAL broker
+position too.
 =====================================================================
 
 The real fix for "no automated TP/SL-hit detection," the biggest
@@ -10,18 +12,46 @@ happened when the trader clicked something, even in Paper Trading,
 even though Paper Trading's whole point (by direct request) is to
 "simulate trade management with live price data."
 
-Scoped to is_test=True trades ONLY. A genuinely LIVE order already has
-its stop-loss/take-profit placed as real broker-side conditional
-orders — see execution_engine.py's own _execute_bingx/_execute_binance/
-etc., each of which passes stop_loss/take_profit straight through to
-that broker's place_order call — so the exchange itself already
-enforces those; running this same auto-close logic against a live
-position too would be redundant at best and a real double-close risk
-at worst. For a paper trade there is no broker enforcing anything at
-all, so this is pure simulation, zero real-money exposure, and safe to
-run on by default (unlike market_scanner.py, which makes real exchange
-API calls with real execution consequences and is opt-in for exactly
-that reason).
+Originally scoped to is_test=True trades ONLY, because a genuinely
+LIVE order already has its stop-loss/take-profit placed as real
+broker-side conditional orders (see execution_engine.py's own
+_execute_bingx/_execute_binance/etc.) — running this same auto-close
+logic against a live position too would have been redundant at best
+and a real double-close risk at worst.
+
+EXTENDED to live trades (by direct request, "fix the live-trade
+partial-exit ladder / let winners run gap now"), but carefully, not by
+just dropping the is_test filter: every position-REDUCING action for a
+live trade (_partial_close, _close) now goes through
+ExecutionEngine.close_broker_position FIRST, gated strictly on that
+broker call succeeding — no DB mutation at all on a failure, so this
+can never claim a reduction that didn't actually happen at the broker
+(exactly the discipline manual_trading.py's own partial_close endpoint
+already established). The stop-loss ratchet additionally best-effort
+syncs to the broker via update_broker_stop_loss_take_profit where
+supported (SL_SYNC_CAPABLE_BROKERS) — a failed sync there just leaves
+the broker's own stop at an old-but-still-safe level, never loosens
+it, so it's fine for that one piece to be best-effort rather than
+gated. See execution_engine.py's own LIVE_LADDER_CAPABLE_BROKERS/
+SL_SYNC_CAPABLE_BROKERS and the centralized final-target override in
+_execute_broker_order for the broker-side half of this design — a live
+trade with a ladder configured gets its own broker-side take_profit
+pointed at the FINAL target (a disaster-recovery fallback, full
+quantity) rather than TP1, precisely because this worker is what
+actually fires each earlier partial leg now.
+
+Scope, deliberately narrow: only live trades with trailing_activation_r
+set (a real ladder configured) AND routed through one of
+LIVE_LADDER_CAPABLE_BROKERS are pulled in at all — a live trade with no
+ladder is already correctly left alone (its one broker-side TP/SL
+already covers it, unchanged). TradeLocker/MetaApi/OANDA trades are
+never reachable here regardless of the flag — live_price.py has no
+credential-less ticker source for forex at all, so this worker could
+never even price them to check. Ships with POSITION_MONITOR_LIVE_ENABLED
+defaulting to False (see config.py's own comment) — this cannot be
+verified against a real broker this session (zero live trades exist on
+the platform today); canary it deliberately with one small live trade
+before trusting it broadly.
 
 Runs as a single in-process asyncio task (see main.py's lifespan),
 same convention as MarketScanner — the simplest thing that actually
@@ -61,8 +91,9 @@ from app.config import get_settings
 from app.database import AsyncSessionLocal
 from app.models.bot import BotConfig
 from app.models.trade import ExitType, Trade, TradeDirection, TradeLog, TradeStatus
-from app.services.live_price import get_broker_ticker_price, get_crypto_price
+from app.services.live_price import get_broker_ticker_price, get_crypto_price, price_is_plausible
 from app.services.manual_trading import compute_blended_r_multiple
+from app.services.performance_fees import apply_performance_fee
 
 logger = structlog.get_logger()
 settings = get_settings()
@@ -71,6 +102,13 @@ settings = get_settings()
 class PositionMonitor:
     def __init__(self):
         self._task: Optional[asyncio.Task] = None
+        # One instance, constructed once — same convention as every
+        # other caller of ExecutionEngine (manual_trading.py's own
+        # module-level `_engine`, trades.py's `engine`, etc.); no
+        # shared singleton exists anywhere in this codebase to reuse
+        # instead, confirmed by grep before adding this.
+        from app.services.execution_engine import ExecutionEngine
+        self._engine = ExecutionEngine()
 
     def start(self) -> None:
         if self._task is None:
@@ -101,8 +139,29 @@ class PositionMonitor:
             result = await db.execute(
                 select(Trade).where(Trade.status == TradeStatus.ACTIVE, Trade.is_test == True)  # noqa: E712
             )
-            active_paper_trades = result.scalars().all()
-            if not active_paper_trades:
+            active_trades = list(result.scalars().all())
+
+            # Live-trade ladder extension — opt-in (see this module's
+            # own docstring and POSITION_MONITOR_LIVE_ENABLED's own
+            # comment for why this isn't on by default the way the
+            # paper query above is). Deliberately narrow: only a live
+            # trade with a real ladder configured (trailing_activation_r
+            # set) AND routed through a broker this worker can actually
+            # act on (LIVE_LADDER_CAPABLE_BROKERS) is pulled in — a live
+            # trade with no ladder is already correctly left alone.
+            if settings.POSITION_MONITOR_LIVE_ENABLED:
+                from app.services.execution_engine import LIVE_LADDER_CAPABLE_BROKERS
+                live_result = await db.execute(
+                    select(Trade).where(
+                        Trade.status == TradeStatus.ACTIVE,
+                        Trade.is_test == False,  # noqa: E712
+                        Trade.trailing_activation_r.isnot(None),
+                        Trade.broker_name.in_(LIVE_LADDER_CAPABLE_BROKERS),
+                    )
+                )
+                active_trades += list(live_result.scalars().all())
+
+            if not active_trades:
                 return
 
             # Primary: the trade's own exchange's futures/perpetual-swap
@@ -113,14 +172,14 @@ class PositionMonitor:
             # futures price can still diverge from the trade's real
             # exchange by a real, non-trivial amount. See
             # live_price.get_broker_ticker_price's own docstring.
-            broker_keys = {(t.broker_name, t.symbol) for t in active_paper_trades}
+            broker_keys = {(t.broker_name, t.symbol) for t in active_trades}
             broker_prices = dict(zip(
                 broker_keys,
                 await asyncio.gather(*(get_broker_ticker_price(b, s) for b, s in broker_keys)),
             ))
             prices: dict[str, float] = {}
             still_missing_symbols = set()
-            for t in active_paper_trades:
+            for t in active_trades:
                 p = broker_prices.get((t.broker_name, t.symbol))
                 if p is not None:
                     prices[t.symbol] = p
@@ -141,10 +200,25 @@ class PositionMonitor:
                     if p is not None:
                         prices[s] = p
 
-            for trade in active_paper_trades:
+            for trade in active_trades:
                 price = prices.get(trade.symbol)
                 if price is None:
                     continue  # forex/metals or an unresolvable symbol — same honest limitation as everywhere else
+                # Sanity check — by direct, critical bug report
+                # ("extremely high trade values ... fix portal wide
+                # issue"). FAR more consequential here than on a
+                # display-only number: this price is what actually
+                # decides whether a stop-loss/take-profit fires and
+                # closes a real position. See price_is_plausible's own
+                # docstring. Skipped exactly like a missing price —
+                # this trade just waits for next cycle's fresh read
+                # rather than risking a close at a fabricated price.
+                if not price_is_plausible(price, trade.entry_price):
+                    logger.warning(
+                        "position_monitor_price_implausible", trade_id=trade.trade_id, symbol=trade.symbol,
+                        fetched_price=price, entry_price=trade.entry_price,
+                    )
+                    continue
                 try:
                     await self._check_trade(db, trade, price)
                 except Exception as e:
@@ -239,6 +313,28 @@ class PositionMonitor:
         direction_sign = 1 if trade.direction == TradeDirection.LONG else -1
         pnl_this_close = direction_sign * (exit_price - trade.entry_price) * closed_size
 
+        # Live trade: reduce the REAL broker position FIRST, strictly
+        # gated on that succeeding — no DB mutation at all on a
+        # failure, so this can never claim a reduction that didn't
+        # actually happen at the broker. Exactly the same discipline
+        # manual_trading.py's own partial_close endpoint already
+        # established for a human-triggered partial close; this is the
+        # automated equivalent. A failure here just means the next
+        # 20s cycle re-reads the still-unchanged row and retries —
+        # no partial/inconsistent state is ever left behind.
+        if not trade.is_test:
+            broker_result = await self._engine.close_broker_position(
+                trade.broker_name, trade.symbol, trade.direction.value, trade.bot_id, db,
+                paper=False, quantity=closed_size, user_id=trade.user_id,
+            )
+            if not broker_result.get("success"):
+                logger.warning(
+                    "position_monitor_live_partial_close_broker_failed", trade_id=trade.trade_id,
+                    level=level, error=broker_result.get("error") or broker_result.get("message"),
+                )
+                await db.rollback()
+                return
+
         trade.lot_size = round(trade.lot_size - closed_size, 8)
         trade.realized_pnl = (trade.realized_pnl or 0.0) + pnl_this_close
         if level == 1:
@@ -279,17 +375,57 @@ class PositionMonitor:
                 trade.trailing_peak_price = exit_price
                 trade.trailing_stop_price = self._trailing_stop_from_peak(trade, exit_price)
 
+            # Live trade: best-effort push the (already tightened-only)
+            # ratcheted stop to the broker too, where supported — a
+            # failed sync here just leaves the broker's own resting
+            # stop at an old-but-still-safe level, never loosens it, so
+            # (unlike the broker-side CLOSE above) this never blocks or
+            # reverts the DB-side ratchet. Same "DB always wins, broker
+            # sync is best-effort" pattern as manual_trading.py's own
+            # modify_targets.
+            if not trade.is_test:
+                from app.services.execution_engine import SL_SYNC_CAPABLE_BROKERS
+                if trade.broker_name in SL_SYNC_CAPABLE_BROKERS:
+                    sync_result = await self._engine.update_broker_stop_loss_take_profit(
+                        trade.broker_name, trade.symbol, trade.direction.value, trade.bot_id, db,
+                        paper=False, stop_loss=trade.stop_loss, user_id=trade.user_id,
+                    )
+                    if not sync_result.get("success"):
+                        logger.warning(
+                            "position_monitor_live_sl_sync_failed", trade_id=trade.trade_id,
+                            error=sync_result.get("error") or sync_result.get("message"),
+                        )
+
         db.add(TradeLog(
             trade_id=trade.trade_id, event_type=event,
             event_data={"exit_price": exit_price, "closed_lot_size": round(closed_size, 8), "realized_pnl_this_close": round(pnl_this_close, 2)},
             price_at_event=exit_price, pnl_at_event=round(pnl_this_close, 2),
         ))
         await db.commit()
+        if not trade.is_test:
+            await apply_performance_fee(db, trade, pnl_this_close)
         logger.info("position_monitor_partial_close", trade_id=trade.trade_id, level=level, exit_price=exit_price, pnl=round(pnl_this_close, 2))
 
     async def _close(self, db, trade: Trade, exit_price: float, exit_type: ExitType, event: str) -> None:
         direction_sign = 1 if trade.direction == TradeDirection.LONG else -1
         pnl_this_close = direction_sign * (exit_price - trade.entry_price) * trade.lot_size
+
+        # Live trade: close the REAL remaining broker position FIRST
+        # (no quantity = full remaining close, same as manual_trading.py's
+        # own cancel_order), strictly gated on success — same reasoning
+        # as _partial_close's own identical guard above.
+        if not trade.is_test:
+            broker_result = await self._engine.close_broker_position(
+                trade.broker_name, trade.symbol, trade.direction.value, trade.bot_id, db,
+                paper=False, user_id=trade.user_id,
+            )
+            if not broker_result.get("success"):
+                logger.warning(
+                    "position_monitor_live_close_broker_failed", trade_id=trade.trade_id,
+                    exit_type=exit_type.value, error=broker_result.get("error") or broker_result.get("message"),
+                )
+                await db.rollback()
+                return
 
         trade.realized_pnl = (trade.realized_pnl or 0.0) + pnl_this_close
         trade.lot_size = 0.0
@@ -319,6 +455,22 @@ class PositionMonitor:
             price_at_event=exit_price, pnl_at_event=round(pnl_this_close, 2),
         ))
         await db.commit()
+        if not trade.is_test:
+            await apply_performance_fee(db, trade, pnl_this_close)
+            # Position is confirmed flat now — clean up any still-
+            # resting broker-side order from entry (Binance only; see
+            # cancel_stale_broker_orders' own docstring for why every
+            # other broker here is safe by construction). Best-effort,
+            # logged only — never blocks on this close, which has
+            # already fully succeeded by this point.
+            cleanup_result = await self._engine.cancel_stale_broker_orders(
+                trade.broker_name, trade.symbol, trade.bot_id, db, paper=False, user_id=trade.user_id,
+            )
+            if not cleanup_result.get("success") and not cleanup_result.get("skipped"):
+                logger.warning(
+                    "position_monitor_live_stale_order_cleanup_failed", trade_id=trade.trade_id,
+                    error=cleanup_result.get("error"),
+                )
         logger.info("position_monitor_closed", trade_id=trade.trade_id, exit_type=exit_type.value, exit_price=exit_price, pnl=round(pnl_this_close, 2))
 
     def _trailing_stop_from_peak(self, trade: Trade, peak: float) -> Optional[float]:

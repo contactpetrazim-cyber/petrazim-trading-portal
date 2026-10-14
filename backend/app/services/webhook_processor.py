@@ -228,8 +228,24 @@ class WebhookProcessor:
         if action == "close":
             exit_price = alert_data.get("entry")
             if not exit_price:
-                from app.services.live_price import get_crypto_price
+                from app.services.live_price import get_crypto_price, price_is_plausible
                 exit_price = await get_crypto_price(symbol)
+                # Sanity check — by direct, critical bug report
+                # ("extremely high trade values ... fix portal wide
+                # issue"). This fallback price directly becomes every
+                # matching trade's REAL exit_price/realized_pnl — same
+                # "never close a real position on a fabricated price"
+                # reasoning as position_monitor.py's own identical
+                # guard. Checked against the first matching row's own
+                # entry_price (all rows here share bot_id+symbol, so a
+                # recent, similar entry); an implausible price is
+                # treated exactly like no price at all.
+                if exit_price is not None and not price_is_plausible(exit_price, rows[0].entry_price):
+                    logger.warning(
+                        "webhook_close_price_implausible", bot_id=bot_id, symbol=symbol,
+                        fetched_price=exit_price, entry_price=rows[0].entry_price,
+                    )
+                    exit_price = None
             if not exit_price:
                 return {"success": False, "message": f"No price available to close {symbol} at.", "action": action}
 

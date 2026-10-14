@@ -14,7 +14,7 @@ from app.core.auth import get_current_user
 from app.core.access_gate import require_active_access, has_active_access, _raise_if_access_expired
 from app.schemas import TradeCreate, TradeResponse, TradeApproval, TradeArchiveUpdate, TradeDeleteUpdate
 from app.services.execution_engine import ExecutionEngine
-from app.services.live_price import get_crypto_price
+from app.services.live_price import get_crypto_price, price_is_plausible
 from app.services.data_ingestion import shared_ingestion
 import structlog
 
@@ -85,6 +85,16 @@ async def _enrich_live_pnl(trades: List[Trade]) -> None:
     for t in active:
         price = price_by_symbol.get(t.symbol)
         if price is None:
+            continue
+        # Sanity check — by direct, critical bug report ("extremely
+        # high trade values on one of the BTC trades ... fix portal
+        # wide issue"): see price_is_plausible's own docstring for the
+        # full story. A price that fails this check is simply skipped,
+        # same honest "leave unrealized_pnl at its last known value"
+        # behavior as the existing `price is None` case just above —
+        # never silently displays a fabricated number.
+        if not price_is_plausible(price, t.entry_price):
+            logger.warning("live_pnl_price_implausible", trade_id=t.trade_id, symbol=t.symbol, fetched_price=price, entry_price=t.entry_price)
             continue
         sign = 1 if t.direction == TradeDirection.LONG else -1
         t.unrealized_pnl = round(t.lot_size * (price - t.entry_price) * sign, 2)
