@@ -302,15 +302,26 @@ to call it a setup?
 
 ### Mini Quiz
 
-Q1: Put these in the correct order: Trade, Signal, Setup.
-Answer: Signal -> Setup -> Trade.
+Q1 (Multiple choice): What is the correct order of these three stages?
+(a) Signal -> Setup -> Trade
+(b) Setup -> Signal -> Trade
+(c) Trade -> Signal -> Setup
+(d) Signal -> Trade -> Setup
 
-Q2 (Scenario): A trader takes a position the moment they see a
+Answer: (a). A raw signal must pass every required confirmation to
+become a setup; only an approved setup should become a trade.
+
+Q2 (Multiple choice): A trader takes a position the moment they see a
 Break of Structure, without checking any other confirmation. What have
 they actually done?
-Answer: Acted on a signal as if it were a trade — skipping the
-setup-confirmation and risk-approval stages entirely. This is gambling
-dressed in trading vocabulary.
+(a) Correctly traded a confirmed setup
+(b) Acted on a signal as if it were a trade, skipping confirmation and
+    risk-approval entirely
+(c) Waited for a valid setup before entering
+(d) Used proper risk management
+
+Answer: (b). This is gambling dressed in trading vocabulary — a raw
+signal was never confirmed into a setup before being traded.
 
 ### Flashcards
 
@@ -623,12 +634,19 @@ has stopped having an edge.
 Answer: False — losing streaks of meaningful length are statistically
 normal even for genuinely profitable systems.
 
-Q2 (Scenario): Two traders use the identical strategy and hit an
-identical losing streak. One survives with equity mostly intact; the
-other suffers a severe drawdown. What is the most likely explanation?
-Answer: Different position sizing — smaller, consistent risk per trade
-absorbs a normal losing streak; oversized risk turns the same streak
-into a severe drawdown.
+Q2 (Multiple choice): Two traders use the identical strategy and hit
+an identical losing streak. One survives with equity mostly intact;
+the other suffers a severe drawdown. What is the most likely
+explanation?
+(a) The surviving trader got lucky
+(b) Different position sizing — smaller, consistent risk per trade
+    absorbs a normal losing streak; oversized risk turns the same
+    streak into a severe drawdown
+(c) The surviving trader used a better strategy
+(d) Losing streaks affect every trader identically regardless of sizing
+
+Answer: (b). Position sizing determines whether a normal losing streak
+is survivable or ruinous — not the strategy or luck.
 
 ### Flashcards
 
