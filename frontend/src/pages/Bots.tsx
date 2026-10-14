@@ -80,7 +80,11 @@ const BOT_CATALOG = [
   },
   {
     id: 'bot_6_smc_v2', key: 'bot_6', name: 'SMC v2',
-    summary: 'Same zone/purge/confirmation setup as SMC BOT, but direction comes from either HF Order Block Reversal’s CHoCH or FVG Expansion’s FVG+BOS call — either is enough on its own, but a genuine conflict between the two blocks the trade.',
+    summary: 'Same zone/purge/confirmation setup as SMC BOT, but direction comes from its own 1H BOS bias, confirmed by at least one of HF Order Block Reversal’s CHoCH or FVG Expansion’s FVG+BOS call agreeing with it.',
+  },
+  {
+    id: 'bot_7_fvg_expansion_v3', key: 'bot_7', name: 'FVG Expansion v3',
+    summary: 'Same FVG-retest setup as FVG Expansion & Fill, but direction comes from the 15M break of structure first, then the fair-value gap is picked by depth among whichever candidates agree — an A/B test against the original, which is left unchanged.',
   },
 ];
 
@@ -326,7 +330,7 @@ export function BotsPage() {
     try {
       await botsApi.createBot({
         bot_id: uniqueId,
-        strategy_key: (catalogEntry?.key ?? base) as 'bot_1' | 'bot_2' | 'bot_3' | 'bot_4' | 'bot_5' | 'bot_6',
+        strategy_key: (catalogEntry?.key ?? base) as 'bot_1' | 'bot_2' | 'bot_3' | 'bot_4' | 'bot_5' | 'bot_6' | 'bot_7',
         bot_name: newBot.bot_name.trim(),
         bot_type: newBot.bot_type,
         symbols: newBot.symbols,
