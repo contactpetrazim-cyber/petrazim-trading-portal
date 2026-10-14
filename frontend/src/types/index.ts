@@ -203,6 +203,14 @@ export interface TradeSnapshot {
   trailing_stop_price?: number | null;
   exit_price: number | null;
   exit_timestamp: string | null;
+  /** Per-level fill events (TP1/TP2/TP3/SL/trailing), each with its
+   * OWN timestamp and price — by direct follow-up request ("which
+   * candle was the trade entered and which candle was the trade
+   * exited ... for each TP 1, TP2 TP3 etc"). Read from TradeLog;
+   * populated for bot/auto-managed trades and (going forward) manual
+   * partial closes — an older or purely-manual trade may have none
+   * beyond what entry/exit already cover. */
+  level_events: { event_type: string; timestamp: string | null; price: number | null }[];
   status: string;
   /** Real bot reasoning captured at signal time — by direct request
    * ("include a reason summary that opens when clicked on the

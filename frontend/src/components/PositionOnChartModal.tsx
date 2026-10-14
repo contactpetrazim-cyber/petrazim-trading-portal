@@ -8,12 +8,25 @@ import { FoldedCard } from './FoldedCard';
 import { PairsPanel } from './PairsPanel';
 import { useQuickPairsStore } from '../hooks/useQuickPairs';
 import { useYAxisZoom, applyYZoom } from '../hooks/useYAxisZoom';
-import { orderFlowApi, oandaApi } from '../services/api';
+import { orderFlowApi, oandaApi, tradesApi } from '../services/api';
 import { formatApiError } from '../lib/apiError';
 import { useQuickPrice } from '../hooks/useQuickPrice';
 import type { Trade } from '../types';
 
 const LIVE_PRICE_REFRESH_MS = 15_000;
+
+// Color per level_event type — matching the SAME colors TradeSnapshotModal's
+// own LEVEL_EVENT_META uses for each level's own reference line, so a
+// diamond marker and its line read as the same thing across every chart.
+const LEVEL_EVENT_COLOR: Record<string, string> = {
+  auto_take_profit_1_hit: '#10b981',
+  auto_take_profit_2_hit: '#059669',
+  auto_take_profit_3_hit: '#047857',
+  auto_stop_loss_hit: '#ef4444',
+  auto_trailing_stop_hit: '#f59e0b',
+  manual_partial_close: '#f59e0b',
+  manual_close: '#f59e0b',
+};
 
 // Widened from a tiny 6-symbol hardcoded list to every recognizable
 // crypto quote-currency suffix (Binance, via order_flow.py's own
@@ -1075,6 +1088,28 @@ export function PositionOnChartModal({
   // toggled visible, so "#2" never silently becomes "#1" just because
   // #1 got hidden.
   const allPositionTrades: Trade[] = (isOriginalSymbol && trade) ? [trade, ...(otherSamePairPositions ?? [])] : [];
+
+  // Per-level fill events (TP1/TP2/.../trailing), keyed by trade_id —
+  // by direct follow-up request ("I should be able to identify the
+  // price candle representing the time the trade was taken ... for
+  // each TP 1, TP2 TP3 etc"), extended here from the Snapshot modal to
+  // the on-chart/Pending-Approvals view. One lightweight call per
+  // trade actually shown on this chart (not the full historical-
+  // candle /snapshot endpoint, which this view has no use for — it
+  // already has its own candles). Re-fetched whenever the set of
+  // shown trades changes; a still-open trade legitimately comes back
+  // empty (no fills yet) and just gets no diamond markers.
+  const [levelEventsByTrade, setLevelEventsByTrade] = useState<Record<string, { event_type: string; timestamp: string | null; price: number | null }[]>>({});
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all(
+      allPositionTrades.map((t) =>
+        tradesApi.getTradeLevelEvents(t.trade_id).then((r) => [t.trade_id, r.level_events] as const).catch(() => [t.trade_id, []] as const)
+      )
+    ).then((pairs) => { if (!cancelled) setLevelEventsByTrade(Object.fromEntries(pairs)); });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allPositionTrades.map((t) => t.trade_id).join(',')]);
   // Which of the above draw their Entry/SL/TP lines on the chart right
   // now — by direct request ("you can select which Position or
   // positions or all to display"). Defaults to every position shown
@@ -1213,9 +1248,24 @@ export function PositionOnChartModal({
           out.push({ index: rel, price: t.exit_price!, label: '', color: '#f59e0b', shape: 'triangle-down' });
         }
       }
+      // Intermediate level fills (TP1/TP2/.../trailing) — by direct
+      // follow-up request ("for each TP 1, TP2 TP3 etc"). Same dedupe
+      // against entry/exit's own timestamps as the Snapshot modal, so
+      // a trade that closed entirely on its first configured level
+      // doesn't get a redundant second marker on the same candle.
+      for (const e of levelEventsByTrade[t.trade_id] ?? []) {
+        if (!e.timestamp || e.price == null) continue;
+        if (e.timestamp === t.entry_timestamp || e.timestamp === t.exit_timestamp) continue;
+        const abs = nearestCandleIndex(allCandles, e.timestamp);
+        if (abs == null) continue;
+        const rel = abs - visibleStart;
+        if (rel >= 0 && rel < candles.length) {
+          out.push({ index: rel, price: e.price, label: '', color: LEVEL_EVENT_COLOR[e.event_type] ?? '#6b7280', shape: 'diamond' });
+        }
+      }
     }
     return out;
-  }, [allCandles, candles, visibleStart, allPositionTrades, hiddenPositionIds]);
+  }, [allCandles, candles, visibleStart, allPositionTrades, hiddenPositionIds, levelEventsByTrade]);
 
   /** Volume Profile bins — see `volumeProfileOpen`'s own comment.
    * Buckets the CURRENTLY VISIBLE candles' real volume into 24 equal
