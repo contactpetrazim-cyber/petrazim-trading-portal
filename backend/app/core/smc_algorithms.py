@@ -763,9 +763,31 @@ class LiquidityDetector:
         actual price level here instead, so the SAME relative
         tightness a 1-2 pip tolerance was meant to express for forex
         (roughly 0.01-0.02% of a typical EURUSD level) now applies
-        correctly regardless of instrument scale. The constructor's
-        own tolerance_pips still acts as a floor (never looser than
-        what was explicitly configured), not silently overridden.
+        correctly regardless of instrument scale.
+
+        SECOND real bug, found via direct audit request ("investigate
+        why the oil pairs never traded"), in the FIRST fix above: it
+        used max(price_level * 0.0005, self.tolerance) — a floor at
+        the constructor's own raw tolerance_pips value, meant to never
+        go "looser than what was explicitly configured." For an
+        $83,000 asset that floor was irrelevant (the percentage term
+        always dominated), so it looked harmless. For a ~$100 asset
+        like oil (NCCO1OILBRENT2USDUSDT.P/NCCO1OILWTI2USDUSDT.P, both
+        bot_2/bot_3/bot_6's own oil-pair bots confirmed fully silent
+        for 5 days), tolerance_pips=1.0 (≈1% of price) is LARGER than
+        0.05% of price, so the floor won every time and oil was stuck
+        at the exact same kind of over-wide tolerance the first fix
+        was meant to prevent — just from the other direction (too
+        FEW, too-merged pools instead of too few pools from being too
+        tight). Verified live by sweeping tolerance percentages
+        against real oil candles: 0.05% produced 15-16 pools (the same
+        healthy order of magnitude the first fix achieved for BTC);
+        the old $1 floor produced only 2. The floor is dropped
+        entirely — self.tolerance (still accepted on the constructor
+        for any caller that reads it elsewhere) no longer participates
+        in this calculation at all; a pure percentage of price is
+        scale-invariant by construction and needs no instrument-
+        specific floor on top of it.
         """
         pools = []
 
@@ -784,7 +806,7 @@ class LiquidityDetector:
 
         all_prices = [c.high for c in candles] + [c.low for c in candles]
         price_level = (sum(all_prices) / len(all_prices)) if all_prices else 0.0
-        tolerance = max(price_level * 0.0005, self.tolerance)
+        tolerance = price_level * 0.0005
 
         # Cluster highs
         eqh_clusters = self._cluster_levels([h[1] for h in highs], tolerance)
