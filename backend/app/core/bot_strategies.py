@@ -21,7 +21,7 @@ PR 170/171 change underneath was already correct and intact; only
 this file ever failed to deploy.
 """
 
-from typing import Dict, List, Optional, Literal
+from typing import Dict, List, Optional, Literal, Tuple
 from dataclasses import dataclass
 from datetime import datetime
 import structlog
@@ -35,6 +35,86 @@ from app.core.mtf_engine import MTFAlignmentEngine, AlignmentSignal, TimeframeSt
 from app.config import get_settings
 
 logger = structlog.get_logger()
+
+
+# =============================================================================
+# Basic/Intelligent mode — declarative tunable-parameter registry
+# =============================================================================
+#
+# The single source of truth for which structural constants a bot's
+# strategy_params can actually move, and how far — these bounds ARE
+# the guardrails: a value from BotConfig.strategy_params can NEVER
+# reach a bot's detectors outside its declared [min, max], regardless
+# of how it got there (a hand-edit, a future auto-tuner, or a bad row
+# in the database). Bounds are chosen to comfortably contain each
+# bot's own current hardcoded default, so an empty/missing
+# strategy_params dict (every real BotConfig row today) produces
+# EXACTLY the same behavior as before this existed — nothing about
+# any bot's live signal generation changes until someone actually
+# sets a value.
+#
+# Scope, deliberately narrow for this first pass: only the swing-
+# detection window (left_bars/right_bars), which every bot's own
+# MarketStructureDetector already takes as a constructor argument and
+# which was previously 100% hardcoded with zero way to configure it.
+# `default_rr` (EntryExitEngine's own constructor arg) is NOT included
+# here — it's already effectively superseded by BotConfig.min_rr_ratio,
+# which market_scanner.py already threads into every analyze() call
+# and which every real bot config row already sets; exposing a second,
+# parallel mechanism for the same concept would just be confusing.
+# Many other real constants across smc_algorithms.py (the FVG 30-70%
+# fill band, premium/discount 0.45/0.55 split, the 10-candle order-
+# block lookback, the 0.05%-of-price liquidity tolerance) are shared
+# across every bot that uses them, not bot-specific — making them
+# tunable would need a different design (per-bot overrides threaded
+# through every detector call) and is deliberately out of scope here.
+#
+# ARCHITECTURAL LIMIT, worth knowing before relying on this: BotOrchestrator
+# holds exactly ONE shared instance per strategy FAMILY ("bot_2", not
+# one per real BotConfig row) — see its own __init__. So today, a
+# tunable value set here applies to every real bot row sharing that
+# family at once (e.g. every bot_2_ob_reversal* row), not to one row
+# independently. market_scanner.py's config-building step (see
+# _build_strategy_configs) detects and safely handles the case where
+# sibling rows in the same family disagree — see that function's own
+# docstring — but true per-row independent tuning would need the
+# orchestrator to move from one shared instance per family to one per
+# distinct config, a separate, deliberately out-of-scope change here
+# given this is the live signal-generation core every bot's real
+# trading already depends on.
+TUNABLE_PARAM_BOUNDS: Dict[str, Dict[str, Tuple[float, float, float]]] = {
+    # family: {param: (min, max, default)} — default MUST equal this
+    # bot's own current hardcoded value (verified against each
+    # __init__ below), so config={} is always identical to today.
+    "bot_1": {"left_bars": (2, 10, 5), "right_bars": (2, 10, 5)},
+    "bot_2": {"left_bars": (2, 10, 3), "right_bars": (2, 10, 3)},
+    "bot_3": {"left_bars": (2, 10, 3), "right_bars": (2, 10, 3)},
+    "bot_4": {"left_bars": (2, 10, 5), "right_bars": (2, 10, 3)},
+    "bot_5": {"left_bars": (2, 10, 3), "right_bars": (2, 10, 2)},
+    "bot_6": {"left_bars": (2, 10, 3), "right_bars": (2, 10, 2)},
+    "bot_7": {"left_bars": (2, 10, 3), "right_bars": (2, 10, 3)},
+}
+
+
+def resolve_tunable_param(strategy_key: str, param: str, config: Dict) -> float:
+    """Reads `param` out of `config` (BotConfig.strategy_params,
+    merged over this bot's own declared default), hard-clipped to the
+    declared [min, max] bounds — the one and only path a tunable value
+    can reach a bot's actual detector construction. Falls back to the
+    declared default (never raises) for a missing key or a value that
+    doesn't parse as a number, so a malformed strategy_params dict
+    degrades safely to today's behavior rather than crashing bot
+    construction."""
+    bounds = TUNABLE_PARAM_BOUNDS.get(strategy_key, {}).get(param)
+    if bounds is None:
+        raise KeyError(f"No declared tunable bounds for {strategy_key}.{param}")
+    lo, hi, default = bounds
+    raw = config.get(param, default)
+    try:
+        raw = float(raw)
+    except (TypeError, ValueError):
+        raw = default
+    return max(lo, min(hi, raw))
 
 @dataclass
 class BotSignal:
@@ -96,7 +176,10 @@ class MacroSwingStructureBot:
         self.bot_id = "bot_1_macro_swing"
         self.bot_name = "Pure Macro Swing Structure"
         self.config = config
-        self.structure_detector = MarketStructureDetector(left_bars=5, right_bars=5)
+        self.structure_detector = MarketStructureDetector(
+            left_bars=int(resolve_tunable_param("bot_1", "left_bars", config)),
+            right_bars=int(resolve_tunable_param("bot_1", "right_bars", config)),
+        )
         self.entry_engine = EntryExitEngine(default_rr=5.0)
         self.risk_manager = RiskManager(
             base_risk_percent=config.get("risk_per_trade", 1.5),
@@ -307,7 +390,10 @@ class OrderBlockReversalBot:
         self.bot_id = "bot_2_ob_reversal"
         self.bot_name = "HF Order Block Reversal"
         self.config = config
-        self.structure_detector = MarketStructureDetector(left_bars=3, right_bars=3)
+        self.structure_detector = MarketStructureDetector(
+            left_bars=int(resolve_tunable_param("bot_2", "left_bars", config)),
+            right_bars=int(resolve_tunable_param("bot_2", "right_bars", config)),
+        )
         self.entry_engine = EntryExitEngine(default_rr=3.0)
         self.risk_manager = RiskManager(base_risk_percent=1.0)
         self.mtf = MTFAlignmentEngine()
@@ -583,7 +669,10 @@ class FVGExpansionBot:
         self.bot_id = "bot_3_fvg_expansion"
         self.bot_name = "FVG Expansion & Fill"
         self.config = config
-        self.structure_detector = MarketStructureDetector()
+        self.structure_detector = MarketStructureDetector(
+            left_bars=int(resolve_tunable_param("bot_3", "left_bars", config)),
+            right_bars=int(resolve_tunable_param("bot_3", "right_bars", config)),
+        )
         self.entry_engine = EntryExitEngine(default_rr=4.0)
         self.risk_manager = RiskManager(base_risk_percent=1.0)
 
@@ -724,7 +813,10 @@ class FVGExpansionV3Bot:
         self.bot_id = "bot_7_fvg_expansion_v3"
         self.bot_name = "FVG Expansion v3"
         self.config = config
-        self.structure_detector = MarketStructureDetector()
+        self.structure_detector = MarketStructureDetector(
+            left_bars=int(resolve_tunable_param("bot_7", "left_bars", config)),
+            right_bars=int(resolve_tunable_param("bot_7", "right_bars", config)),
+        )
         self.entry_engine = EntryExitEngine(default_rr=4.0)
         self.risk_manager = RiskManager(base_risk_percent=1.0)
 
@@ -897,7 +989,10 @@ class VolumeLiquidityBot:
         self.bot_id = "bot_4_volume_liq"
         self.bot_name = "Volume & Liquidity Sweep"
         self.config = config
-        self.structure_detector = MarketStructureDetector(left_bars=5, right_bars=3)
+        self.structure_detector = MarketStructureDetector(
+            left_bars=int(resolve_tunable_param("bot_4", "left_bars", config)),
+            right_bars=int(resolve_tunable_param("bot_4", "right_bars", config)),
+        )
         self.entry_engine = EntryExitEngine(default_rr=3.0)
         self.risk_manager = RiskManager(base_risk_percent=1.0)
 
@@ -1137,7 +1232,10 @@ class JeafxSMCBot:
         self.bot_id = "bot_5_jeafx"
         self.bot_name = "SMC BOT"
         self.config = config
-        self.structure_detector = MarketStructureDetector(left_bars=3, right_bars=2)
+        self.structure_detector = MarketStructureDetector(
+            left_bars=int(resolve_tunable_param("bot_5", "left_bars", config)),
+            right_bars=int(resolve_tunable_param("bot_5", "right_bars", config)),
+        )
         self.entry_engine = EntryExitEngine(default_rr=4.0)
         self.risk_manager = RiskManager(base_risk_percent=1.0)
 
@@ -1408,7 +1506,10 @@ class JeafxSMCv2Bot:
         self.bot_id = "bot_6_smc_v2"
         self.bot_name = "SMC v2"
         self.config = config
-        self.structure_detector = MarketStructureDetector(left_bars=3, right_bars=2)
+        self.structure_detector = MarketStructureDetector(
+            left_bars=int(resolve_tunable_param("bot_6", "left_bars", config)),
+            right_bars=int(resolve_tunable_param("bot_6", "right_bars", config)),
+        )
         self.entry_engine = EntryExitEngine(default_rr=4.0)
         self.risk_manager = RiskManager(base_risk_percent=1.0)
 

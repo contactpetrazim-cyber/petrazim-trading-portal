@@ -250,6 +250,52 @@ class MarketScanner:
                 groups.setdefault((exchange, symbol), []).append(bot)
         return groups
 
+    @staticmethod
+    def _build_strategy_configs(bots: List[BotConfig]) -> Dict[str, Dict]:
+        """One config dict per strategy FAMILY ("bot_1".."bot_7"), built
+        fresh from real BotConfig.strategy_params every scan cycle —
+        the actual fix for BotOrchestrator always being constructed
+        with {}, which meant Basic/Intelligent mode's tunable params
+        (see bot_strategies.py's TUNABLE_PARAM_BOUNDS) could never
+        reach a bot's real detectors no matter what was stored in the
+        database.
+
+        BotOrchestrator holds exactly ONE shared instance per family,
+        not one per real BotConfig row (several real rows commonly
+        share a family, e.g. every bot_2_ob_reversal* symbol-group
+        row) — so when every row sharing a family agrees (same
+        non-empty strategy_params, or all empty, the overwhelming
+        common case today), that config applies. When sibling rows
+        genuinely DISAGREE (different non-empty strategy_params set on
+        different rows of the same family), there is no way to honor
+        both at once with today's one-instance-per-family
+        architecture — rather than silently picking one row's tuning
+        over another's (which would mean one bot's trader-visible
+        config doesn't actually describe what that bot does), this
+        logs once and falls back to {} (every bot's own original
+        hardcoded default) for that family until the rows agree."""
+        by_family: Dict[str, List[BotConfig]] = {}
+        for bot in bots:
+            if bot.strategy_key:
+                by_family.setdefault(bot.strategy_key, []).append(bot)
+
+        configs: Dict[str, Dict] = {}
+        for family, rows in by_family.items():
+            distinct: Dict[str, Dict] = {}
+            for row in rows:
+                params = row.strategy_params or {}
+                if params:
+                    distinct[json.dumps(params, sort_keys=True)] = params
+            if len(distinct) <= 1:
+                configs[family] = next(iter(distinct.values()), {})
+            else:
+                logger.warning(
+                    "strategy_params_conflict_within_family", family=family,
+                    bot_ids=[r.bot_id for r in rows],
+                )
+                configs[family] = {}
+        return configs
+
     async def scan_once(self) -> None:
         async with AsyncSessionLocal() as db:
             if not await get_market_scanner_runtime_enabled(db):
@@ -261,6 +307,14 @@ class MarketScanner:
             groups = await self._current_scan_groups(db)
             if not groups:
                 return
+
+            # Rebuilt fresh every cycle (cheap — no I/O, just a few
+            # detector objects) rather than once at startup, so a
+            # Basic-mode edit or an Intelligent-mode auto-tune actually
+            # takes effect within one scan interval instead of needing
+            # a process restart to be picked up.
+            all_bots_this_cycle = list({b.bot_id: b for bots_here in groups.values() for b in bots_here}.values())
+            self.orchestrator = BotOrchestrator(self._build_strategy_configs(all_bots_this_cycle))
 
             from app.services.exchange_engine import record_result
             for (exchange, symbol), bots_here in groups.items():
