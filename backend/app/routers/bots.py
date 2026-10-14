@@ -7,7 +7,8 @@ from sqlalchemy import select
 from typing import List
 from datetime import datetime, timedelta
 from app.database import get_db
-from app.models.bot import BotConfig, BotStatus, ExecutionMode
+from app.models.bot import BotConfig, BotStatus, ExecutionMode, BotMode
+from app.core.bot_strategies import TUNABLE_PARAM_BOUNDS
 from app.models.user import User, UserRole
 from app.core.access_gate import require_active_access
 from app.core.auth import get_current_user, require_super_admin
@@ -569,6 +570,27 @@ async def get_bot(bot_id: str, db: AsyncSession = Depends(get_db), user: User = 
     """Get bot configuration details — must be the caller's own bot (or Admin/Super Admin)."""
     return await _get_owned_bot(bot_id, user, db)
 
+@router.get("/{bot_id}/tunable-params")
+async def get_tunable_params(bot_id: str, db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access)):
+    """Which strategy_params keys this bot's own algorithm actually
+    declares (see TUNABLE_PARAM_BOUNDS), their guardrail bounds, and
+    this bot's current effective value for each — so a Basic-mode
+    editing UI can render the right fields with the right min/max
+    without hardcoding per-bot-family knowledge in the frontend."""
+    bot = await _get_owned_bot(bot_id, user, db)
+    bounds = TUNABLE_PARAM_BOUNDS.get(bot.strategy_key or "", {})
+    current = bot.strategy_params or {}
+    return {
+        "bot_id": bot_id, "strategy_key": bot.strategy_key,
+        "params": [
+            {
+                "key": key, "min": lo, "max": hi, "default": default,
+                "current": current.get(key, default),
+            }
+            for key, (lo, hi, default) in bounds.items()
+        ],
+    }
+
 @router.patch("/{bot_id}/toggle")
 async def toggle_bot(
     bot_id: str, toggle: BotToggle, db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access)
@@ -597,6 +619,28 @@ async def set_execution_mode(
     await db.commit()
 
     return {"success": True, "bot_id": bot_id, "mode": mode}
+
+@router.patch("/{bot_id}/strategy-mode")
+async def set_bot_mode(
+    bot_id: str,
+    mode: str,  # basic or intelligent
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_active_access),
+):
+    """Basic (manual, fixed-until-changed-by-hand) vs Intelligent
+    (opt-in bounded self-tuning) — see app/models/bot.py's BotMode.
+    The periodic auto-tuning job itself is a separate, later phase;
+    switching to Intelligent here only opts this bot IN for when that
+    job ships — it does not, by itself, start changing anything."""
+    bot = await _get_owned_bot(bot_id, user, db)
+
+    if mode not in ["basic", "intelligent"]:
+        raise HTTPException(status_code=400, detail="Invalid mode")
+
+    bot.bot_mode = BotMode(mode)
+    await db.commit()
+
+    return {"success": True, "bot_id": bot_id, "bot_mode": mode}
 
 @router.patch("/{bot_id}/trading-mode", response_model=BotConfigResponse)
 async def set_bot_trading_mode(
@@ -905,6 +949,31 @@ async def update_bot_metrics(
             if value is not None:
                 from app.models.bot import MarginMode
                 bot.margin_mode = MarginMode(value)
+            continue
+        if field == "strategy_params":
+            # Merged over whatever's already stored (a partial update
+            # like {"left_bars": 7} must not wipe other previously-set
+            # keys), then every DECLARED tunable key is hard-clipped to
+            # its TUNABLE_PARAM_BOUNDS regardless of what was sent —
+            # defense-in-depth identical to resolve_tunable_param's own
+            # clipping, so a value can never reach the database outside
+            # its guardrail bounds even via a direct API call that
+            # bypasses whatever a future UI's own slider limits are.
+            # An undeclared key (not in this bot's own bounds registry)
+            # is dropped rather than silently stored and silently
+            # ignored forever downstream.
+            if value:
+                bounds = TUNABLE_PARAM_BOUNDS.get(bot.strategy_key or "", {})
+                merged = dict(bot.strategy_params or {})
+                for key, raw in value.items():
+                    if key not in bounds:
+                        continue
+                    lo, hi, _default = bounds[key]
+                    try:
+                        merged[key] = max(lo, min(hi, float(raw)))
+                    except (TypeError, ValueError):
+                        continue
+                bot.strategy_params = merged
             continue
         setattr(bot, field, value)
 

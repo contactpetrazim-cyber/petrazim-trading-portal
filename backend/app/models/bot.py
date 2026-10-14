@@ -17,6 +17,19 @@ class ExecutionMode(enum.Enum):
     HUMAN_IN_LOOP = "human_in_loop"
     FULLY_AUTONOMOUS = "fully_autonomous"
 
+class BotMode(enum.Enum):
+    """Basic (default) = this bot's strategy_params are whatever the
+    trader set them to by hand, if anything — fixed until changed
+    again by hand. Intelligent = opt-in bounded self-tuning (see
+    app.core.bot_strategies.TUNABLE_PARAM_BOUNDS for the guardrails
+    every candidate value is clipped to regardless of mode). The
+    actual periodic auto-tuning job is a separate, later phase of the
+    same approved plan — this column and BASIC-mode manual editing are
+    real and immediately useful on their own, and are the plumbing
+    Intelligent mode will need regardless."""
+    BASIC = "basic"
+    INTELLIGENT = "intelligent"
+
 class MarginMode(enum.Enum):
     """"dedicated Vs Auto margin account setting for bots and manual"
     — by direct request ("Create an automatic switch engine that checks
@@ -57,6 +70,7 @@ class BotConfig(Base):
     # Status
     status = Column(Enum(BotStatus), default=BotStatus.ACTIVE)
     execution_mode = Column(Enum(ExecutionMode), default=ExecutionMode.HUMAN_IN_LOOP)
+    bot_mode = Column(Enum(BotMode), nullable=False, default=BotMode.BASIC)
 
     # Defaults to DEDICATED so a bot's behavior is unchanged until a
     # trader explicitly opts it into auto-switch — see MarginMode's own

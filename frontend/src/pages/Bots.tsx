@@ -6,6 +6,7 @@ import { BotSleepAndSubAuto } from '../components/BotSleepAndSubAuto';
 import { ExchangeEngineControl } from '../components/ExchangeEngineControl';
 import { BotScheduleControl } from '../components/BotScheduleControl';
 import { BotBacktestPanel } from '../components/BotBacktestPanel';
+import { BotStrategyModeControl } from '../components/BotStrategyModeControl';
 import { SystemHealthSummaryBadge } from '../components/SystemHealthSummaryBadge';
 import { BotConfig, BotPerformance, BotMetricsUpdate } from '../types';
 import { useThemeStore } from '../hooks/useTheme';
@@ -674,6 +675,13 @@ export function BotsPage() {
                       real historical candles (app/engines/backtest_engine.py
                       + strategy_adapter.py), not a projection. */}
                   <BotBacktestPanel bot={bot} dark={dark} />
+
+                  {/* Basic/Intelligent strategy mode — Basic lets a
+                      trader hand-edit this bot's real tunable
+                      parameters (see TUNABLE_PARAM_BOUNDS); the
+                      Intelligent auto-tuning job itself is a later
+                      phase, opting in here just reserves the seat. */}
+                  <BotStrategyModeControl bot={bot} dark={dark} onChanged={loadBots} />
 
                   {/* Delete — by direct request ("also to delete
                       bots"). Two-step inline confirm rather than a
