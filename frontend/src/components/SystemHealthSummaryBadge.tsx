@@ -14,10 +14,22 @@ import { SystemHealthSummaryResponse } from '../types';
 export function SystemHealthSummaryBadge({ dark }: { dark: boolean }) {
   const [data, setData] = useState<SystemHealthSummaryResponse | null>(null);
 
+  // Real bug, found by direct report ("Memory has improved and health
+  // status healthy - why this error message"): this used to fetch
+  // ONCE on mount and never again, so a "critical" reading from
+  // whenever the page first loaded could sit there indefinitely —
+  // confirmed live, host memory had already recovered to ~48% (well
+  // under the 70%/85% warn/critical thresholds) while this badge kept
+  // showing the stale critical message. Polled every 60s now, the same
+  // cadence the backend's own memory watchdog checks at
+  // (MEMORY_WATCHDOG_INTERVAL_SECONDS), so this ambient indicator
+  // tracks live state instead of freezing at whatever it first saw.
   useEffect(() => {
     let cancelled = false;
-    botsApi.getSystemHealthSummary().then((d) => { if (!cancelled) setData(d); }).catch(() => {});
-    return () => { cancelled = true; };
+    const load = () => botsApi.getSystemHealthSummary().then((d) => { if (!cancelled) setData(d); }).catch(() => {});
+    load();
+    const id = setInterval(load, 60_000);
+    return () => { cancelled = true; clearInterval(id); };
   }, []);
 
   if (!data || data.zone === 'ok') return null; // quiet by default — only surface when there's something to say
