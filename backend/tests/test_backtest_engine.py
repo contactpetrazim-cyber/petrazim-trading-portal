@@ -141,3 +141,27 @@ class TestBacktestEngine:
         ids_b = {t.trade_id for t in trades_b}
         assert ids_a, "first run produced no trades to compare"
         assert ids_a.isdisjoint(ids_b), f"trade_ids collided across separate run() calls: {ids_a & ids_b}"
+
+    def test_lot_size_propagates_to_closed_trade_when_signal_supplies_it(self):
+        """BacktestSignal.lot_size is optional and unused by isolated
+        mode's own R-multiple math, but PortfolioBacktestEngine needs it
+        on the output ClosedBacktestTrade too (dollar ledger, auditable
+        independent of internal open_pos state)."""
+        bars = make_bars(20, start_price=100, step=0.5)
+
+        class WithLotSizeStrategy:
+            def evaluate(self, window, context):
+                if len(window) == 2:
+                    return BacktestSignal(direction="long", stop_price=95, target_price=105, bot_id="x", lot_size=0.42)
+                return None
+
+        engine = BacktestEngine()
+        trades = engine.run(bars, WithLotSizeStrategy(), symbol="TEST")
+        assert len(trades) == 1
+        assert trades[0].lot_size == 0.42
+
+    def test_lot_size_defaults_to_none_when_signal_omits_it(self):
+        bars = make_bars(20, start_price=100, step=0.5)
+        engine = BacktestEngine()
+        trades = engine.run(bars, FixedSignalOnceStrategy(stop=95, target=105), symbol="TEST")
+        assert trades[0].lot_size is None
