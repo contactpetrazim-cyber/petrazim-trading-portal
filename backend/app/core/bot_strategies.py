@@ -31,6 +31,7 @@ from app.core.smc_algorithms import (
     Candle, SwingPoint, Zone, FairValueGap, LiquidityPool
 )
 from app.core.mtf_engine import MTFAlignmentEngine, AlignmentSignal, TimeframeState, Bias, Timeframe
+from app.config import get_settings
 
 logger = structlog.get_logger()
 
@@ -1364,6 +1365,44 @@ def _signal_risk_is_valid(signal: "BotSignal", account_balance: float) -> tuple[
     intended_risk = account_balance * (signal.risk_percent / 100)
     if intended_risk > 0 and implied_risk > intended_risk * 1.5:
         return False, f"implied risk ${implied_risk:.2f} is far above the ${intended_risk:.2f} target ({signal.risk_percent}% of ${account_balance}) — sl_distance used for sizing likely doesn't match entry_price/stop_loss"
+
+    # 3. NOTIONAL vs ACCOUNT CAPACITY — dollar risk being correct
+    # (check 2, above) does NOT mean the position is affordable: a
+    # correct risk_amount divided by a tiny sl_distance still produces
+    # a huge lot_size, and lot_size x entry_price (the actual capital
+    # needed to open the position) can dwarf anything the account can
+    # margin even at full platform leverage.
+    #
+    # Real, found-via-audit production example: bot_3_fvg_expansion_2
+    # on XAUTUSDT.P repeated this same pattern 334 times over 4 days.
+    # FVGExpansionBot's stop_loss is set 10% beyond the FVG's own
+    # width (see its analyze()) — when a real 1H gap happens to be
+    # narrow, that 10% is a tiny dollar distance, so risk_amount /
+    # sl_distance inflates lot_size enormously. The dollar risk stays
+    # correct (passes check 2), but notional (lot_size x entry_price)
+    # came out between $46,812 and $93,383 against a $50,000 cap —
+    # correctly rejected by execution_engine's own capital_adequacy
+    # gate every single time, but only AFTER a signal was drafted and
+    # a scan cycle burned on it, 334 times for one bot/pair alone.
+    #
+    # This is a cheap, approximate pre-check using the platform's
+    # static MAX_NOTIONAL_LEVERAGE default (no DB access here, so no
+    # per-bot/Admin-master leverage override — that happens
+    # authoritatively, with the real resolved leverage, in
+    # capital_adequacy.check_capital_adequacy right before execution).
+    # The point isn't to be the final word on affordability; it's to
+    # reject a signal that's already off by an order of magnitude
+    # before it's drafted at all, for ANY bot/instrument combination,
+    # not just this one.
+    notional = signal.lot_size * signal.entry_price
+    max_notional = account_balance * get_settings().MAX_NOTIONAL_LEVERAGE
+    if max_notional > 0 and notional > max_notional:
+        return False, (
+            f"notional value ${notional:,.2f} (lot_size {signal.lot_size:g} x entry ${signal.entry_price:,.2f}) "
+            f"exceeds this account's maximum leverageable notional of ${max_notional:,.2f} "
+            f"(${account_balance:,.2f} x {get_settings().MAX_NOTIONAL_LEVERAGE:g}x platform default) — "
+            "likely a sl_distance disconnected from the actual position size (e.g. an unusually narrow FVG/zone)"
+        )
 
     return True, None
 

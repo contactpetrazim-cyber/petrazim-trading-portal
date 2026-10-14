@@ -657,6 +657,25 @@ class LiquidityDetector:
         - Two or more swing highs within tolerance of each other
         - Two or more swing lows within tolerance of each other
         - These levels attract price due to stop-loss clusters
+
+        Real bug, found via direct report ("the first bot has stopped
+        taking trades" since SMC v2) and confirmed live: self.tolerance
+        (constructor's tolerance_pips) was used directly as a raw
+        PRICE-UNIT tolerance — fine for a forex pair (1-2 "pips" ~
+        $0.0001-0.0002), but catastrophically tight for BTCUSDT.P
+        (~$83,000, routinely moving $20-100+ per 15M candle): a $1-2
+        tolerance meant two swing highs essentially never clustered as
+        "equal," so almost no liquidity pools ever formed, so sweeps
+        (which need a pool first) were almost never detected — Bot 5's
+        own Step 3 gate silently returned None nearly every cycle.
+        Verified live: only 1 pool from 30 real recent BTC candles
+        under the old fixed tolerance. Scaled to a percentage of the
+        actual price level here instead, so the SAME relative
+        tightness a 1-2 pip tolerance was meant to express for forex
+        (roughly 0.01-0.02% of a typical EURUSD level) now applies
+        correctly regardless of instrument scale. The constructor's
+        own tolerance_pips still acts as a floor (never looser than
+        what was explicitly configured), not silently overridden.
         """
         pools = []
 
@@ -673,12 +692,16 @@ class LiquidityDetector:
                candles[i].low <= candles[i+1].low and candles[i].low <= candles[i+2].low:
                 lows.append((candles[i].timestamp, candles[i].low))
 
+        all_prices = [c.high for c in candles] + [c.low for c in candles]
+        price_level = (sum(all_prices) / len(all_prices)) if all_prices else 0.0
+        tolerance = max(price_level * 0.0005, self.tolerance)
+
         # Cluster highs
-        eqh_clusters = self._cluster_levels([h[1] for h in highs], self.tolerance)
+        eqh_clusters = self._cluster_levels([h[1] for h in highs], tolerance)
         for cluster in eqh_clusters:
             if len(cluster) >= 2:
                 avg_price = np.mean(cluster)
-                touches = [h[0] for h in highs if abs(h[1] - avg_price) <= self.tolerance]
+                touches = [h[0] for h in highs if abs(h[1] - avg_price) <= tolerance]
                 pools.append(LiquidityPool(
                     id=f"eqh_{touches[0].isoformat()}",
                     symbol="SYMBOL",
@@ -689,11 +712,11 @@ class LiquidityDetector:
                 ))
 
         # Cluster lows
-        eql_clusters = self._cluster_levels([l[1] for l in lows], self.tolerance)
+        eql_clusters = self._cluster_levels([l[1] for l in lows], tolerance)
         for cluster in eql_clusters:
             if len(cluster) >= 2:
                 avg_price = np.mean(cluster)
-                touches = [l[0] for l in lows if abs(l[1] - avg_price) <= self.tolerance]
+                touches = [l[0] for l in lows if abs(l[1] - avg_price) <= tolerance]
                 pools.append(LiquidityPool(
                     id=f"eql_{touches[0].isoformat()}",
                     symbol="SYMBOL",
