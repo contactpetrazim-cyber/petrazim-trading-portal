@@ -610,44 +610,26 @@ class FVGExpansionBot:
         if not partial_fvgs:
             return None
 
-        # Step 2: 15M BOS in direction of FVG, fed through
-        # filter_significant_swings (same "entire leg, not micro swing
-        # points" fix applied to every direction-deciding BOS/CHoCH
-        # call).
+        target_fvg = partial_fvgs[-1]
+
+        # Step 2: 15M BOS in direction of FVG
         swings_15m = self.structure_detector.detect_swing_highs(candles_15m) + \
                      self.structure_detector.detect_swing_lows(candles_15m)
 
-        bos_15m = self.structure_detector.detect_bos(
-            candles_15m, self.structure_detector.filter_significant_swings(swings_15m)
-        )
+        bos_15m = self.structure_detector.detect_bos(candles_15m, swings_15m)
 
         if not bos_15m:
             return None
 
         last_bos = bos_15m[-1]
 
-        # Direction comes from the 15M BOS (not just "whichever FVG we
-        # happened to pick last") — then, among the FVGs that actually
-        # qualify in THAT direction, pick by depth: deepest for a long,
-        # highest for a short (by direct audit request — "if there's
-        # another FVG either shallower or deeper ... for shorts use the
-        # highest FVG ... for longs use the deepest FVG"). Previously
-        # this just took partial_fvgs[-1] regardless of how many
-        # candidates existed or how deep/shallow each one was.
-        if last_bos["type"] == "bullish_bos":
-            direction = "long"
-        elif last_bos["type"] == "bearish_bos":
-            direction = "short"
-        else:
+        # Align with FVG direction
+        if target_fvg.gap_type == "bullish" and last_bos["type"] != "bullish_bos":
+            return None
+        if target_fvg.gap_type == "bearish" and last_bos["type"] != "bearish_bos":
             return None
 
-        candidate_fvgs = [
-            f for f in partial_fvgs
-            if (f.gap_type == "bullish" and direction == "long") or (f.gap_type == "bearish" and direction == "short")
-        ]
-        target_fvg = select_fvg_by_depth(candidate_fvgs, direction)
-        if target_fvg is None:
-            return None
+        direction = "long" if target_fvg.gap_type == "bullish" else "short"
 
         # Step 3: Entry at FVG mean or 50%
         entry_price = (target_fvg.top + target_fvg.bottom) / 2
@@ -689,6 +671,139 @@ class FVGExpansionBot:
             risk_percent=risk,
             reasoning=f"FVG Expansion {direction}. 1H FVG {target_fvg.gap_type} {target_fvg.mitigated_percent:.0%} mitigated. "
                      f"15M BOS confirms. Entry at FVG 50%. SL beyond FVG extreme. 4R target with BOS trailing.",
+            timestamp=datetime.utcnow()
+        )
+
+
+# =============================================================================
+# BOT 7: FVG Expansion v3 — Bot 3's own setup, with the audit's direction/
+# selection fixes applied. Bot 3 itself is intentionally left untouched.
+# =============================================================================
+
+class FVGExpansionV3Bot:
+    """
+    Bot 7: FVG Expansion v3 ("Bot 3 Update")
+
+    By direct request: Bot 3 (FVGExpansionBot) has been genuinely
+    successful in live trading WITHOUT any of the discount/premium or
+    order-block checks the rest of the audit found missing elsewhere —
+    a real, worth-noting result in its own right (see this bot's own
+    class docstring... Bot 3's, that is — unchanged). Rather than risk
+    that live track record, Bot 3 stays exactly as it was. This is a
+    SEPARATE bot, same family of idea, with the audit's fixes applied,
+    so the two can run side by side on real trades and actually settle
+    which approach performs better instead of guessing.
+
+    Differences from Bot 3, applied here only:
+    1. Direction comes from the 15M BOS FIRST (fed through
+       filter_significant_swings — the "entire leg, not micro swing
+       points" fix), THEN the FVG is selected among whichever
+       candidates already match that confirmed direction — instead of
+       picking an FVG first and checking BOS agreement after the fact.
+    2. Among qualifying FVGs, picks by DEPTH: deepest for a long,
+       highest for a short (select_fvg_by_depth) — instead of just the
+       last one in whatever order detect_fvg returned them.
+
+    Deliberately NOT added here, to isolate what's actually being
+    tested: no order-block/zone reference, no discount/premium check —
+    Bot 3's own setup never used either, and introducing them in the
+    same change as the direction/selection fixes above would make it
+    impossible to tell which change (if any) moved the result.
+    """
+
+    def __init__(self, config: Dict):
+        self.bot_id = "bot_7_fvg_expansion_v3"
+        self.bot_name = "FVG Expansion v3"
+        self.config = config
+        self.structure_detector = MarketStructureDetector()
+        self.entry_engine = EntryExitEngine(default_rr=4.0)
+        self.risk_manager = RiskManager(base_risk_percent=1.0)
+
+    def analyze(self,
+                candles_1h: List[Candle],
+                candles_15m: List[Candle],
+                account_balance: float,
+                symbol: str,
+                risk_per_trade: Optional[float] = None,
+                min_rr_ratio: Optional[float] = None,
+                bot_id: Optional[str] = None) -> Optional[BotSignal]:
+
+        # Step 1: Find unmitigated FVGs on 1H — identical to Bot 3.
+        fvg_detector = FVGDetector()
+        fvgs = fvg_detector.detect_fvg(candles_1h)
+        fvgs = fvg_detector.track_mitigation(fvgs, candles_1h)
+
+        partial_fvgs = [
+            f for f in fvgs
+            if 0.3 <= f.mitigated_percent <= 0.7 and f.status.name == "ACTIVE"
+        ]
+        if not partial_fvgs:
+            return None
+
+        # Step 2: 15M BOS decides direction FIRST, fed through
+        # filter_significant_swings.
+        swings_15m = self.structure_detector.detect_swing_highs(candles_15m) + \
+                     self.structure_detector.detect_swing_lows(candles_15m)
+        bos_15m = self.structure_detector.detect_bos(
+            candles_15m, self.structure_detector.filter_significant_swings(swings_15m)
+        )
+        if not bos_15m:
+            return None
+        last_bos = bos_15m[-1]
+
+        if last_bos["type"] == "bullish_bos":
+            direction = "long"
+        elif last_bos["type"] == "bearish_bos":
+            direction = "short"
+        else:
+            return None
+
+        # Step 3: among FVGs matching that confirmed direction, pick by
+        # depth — deepest for a long, highest for a short.
+        candidate_fvgs = [
+            f for f in partial_fvgs
+            if (f.gap_type == "bullish" and direction == "long") or (f.gap_type == "bearish" and direction == "short")
+        ]
+        target_fvg = select_fvg_by_depth(candidate_fvgs, direction)
+        if target_fvg is None:
+            return None
+
+        # Step 4: Entry at FVG mean or 50% — identical to Bot 3.
+        entry_price = (target_fvg.top + target_fvg.bottom) / 2
+
+        # Step 5: Stop beyond FVG extreme — identical to Bot 3.
+        if direction == "long":
+            sl_price = target_fvg.bottom - (target_fvg.top - target_fvg.bottom) * 0.1
+        else:
+            sl_price = target_fvg.top + (target_fvg.top - target_fvg.bottom) * 0.1
+
+        sl_distance = abs(entry_price - sl_price)
+        sl = {"stop_loss": sl_price, "sl_distance": sl_distance, "method": "fvg_extreme"}
+
+        targets = self.entry_engine.calculate_targets(
+            {"entry_price": entry_price, "direction": direction},
+            sl, rr_ratio=min_rr_ratio if min_rr_ratio is not None else 4.0
+        )
+
+        risk = self.risk_manager.calculate_position_risk(setup_quality=1.15, base_risk_override=risk_per_trade)
+        lots = self.entry_engine.calculate_lot_size(account_balance, risk, sl_distance)
+
+        return BotSignal(
+            bot_id=bot_id or self.bot_id,
+            bot_name=self.bot_name,
+            symbol=symbol,
+            direction=direction,
+            confidence=0.82,
+            entry_price=round(entry_price, 5),
+            stop_loss=round(sl_price, 5),
+            take_profit=targets["tp1"],
+            take_profit_2=targets["tp2"],
+            take_profit_3=targets["tp3"],
+            lot_size=lots["lot_size"],
+            risk_percent=risk,
+            reasoning=f"FVG Expansion v3 {direction}. 15M BOS (significant swings) sets direction. "
+                     f"1H FVG {target_fvg.gap_type} {target_fvg.mitigated_percent:.0%} mitigated, depth-selected. "
+                     f"Entry at FVG 50%. SL beyond FVG extreme. 4R target.",
             timestamp=datetime.utcnow()
         )
 
@@ -1572,6 +1687,7 @@ class BotOrchestrator:
             "bot_4": VolumeLiquidityBot(configs.get("bot_4", {})),
             "bot_5": JeafxSMCBot(configs.get("bot_5", {})),
             "bot_6": JeafxSMCv2Bot(configs.get("bot_6", {})),
+            "bot_7": FVGExpansionV3Bot(configs.get("bot_7", {})),
         }
         self.active_signals: List[BotSignal] = []
 
@@ -1686,6 +1802,10 @@ class BotOrchestrator:
         # Bot 6 (SMC v2): Needs 1H + 15M + 5M — same set as Bot 5.
         if all(k in market_data for k in ["1H", "15M", "5M"]):
             _run_family("bot_6", market_data["1H"], market_data["15M"], market_data["5M"])
+
+        # Bot 7 (FVG Expansion v3): same candle needs as Bot 3.
+        if "1H" in market_data and "15M" in market_data:
+            _run_family("bot_7", market_data["1H"], market_data["15M"])
 
         self.active_signals = signals
         return signals
