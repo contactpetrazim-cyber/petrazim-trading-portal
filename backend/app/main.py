@@ -40,12 +40,14 @@ from app.routers.coach import router as coach_router
 from app.routers.internal import router as internal_router
 from app.routers.trader_broker_connections import router as trader_broker_connections_router, admin_router as trader_broker_connections_admin_router
 from app.routers.fees import router as fees_router, admin_router as fees_admin_router
+from app.routers.trading_audit import router as trading_audit_router
 from app.database import engine, Base
 from app.db.session import engine as legacy_engine, Base as LegacyBase
 from app.services.execution_engine import ExecutionEngine
 from app.services.market_scanner import MarketScanner
 from app.services.position_monitor import PositionMonitor
 from app.services.intelligent_tuning_worker import IntelligentTuningWorker
+from app.services.trading_audit_worker import TradingAuditWorker
 from app.services.pending_order_monitor import PendingOrderMonitor
 from app.services.outbound_ip_detector import OutboundIpDetector
 from app.services.metaapi_lifecycle import MetaApiIdleUndeployer
@@ -230,6 +232,15 @@ async def lifespan(app: FastAPI):
         intelligent_tuning_worker = IntelligentTuningWorker()
         intelligent_tuning_worker.start()
 
+    # Monthly Trading Audit — see trading_audit_worker.py's own module
+    # docstring and TRADING_AUDIT_ENABLED's config.py comment. Off by
+    # default like every other worker here; an admin can always
+    # trigger a run manually from the Admin portal regardless.
+    trading_audit_worker = None
+    if settings.TRADING_AUDIT_ENABLED:
+        trading_audit_worker = TradingAuditWorker()
+        trading_audit_worker.start()
+
     # Pre-warm order_flow.py's in-memory Binance instrument-list cache
     # (_get_all_instruments) — real bug report ("'On Chart' not display
     # price chart ... Same issue on incognito tab"): that cache resets
@@ -263,6 +274,8 @@ async def lifespan(app: FastAPI):
         await memory_watchdog.stop()
     if intelligent_tuning_worker is not None:
         await intelligent_tuning_worker.stop()
+    if trading_audit_worker is not None:
+        await trading_audit_worker.stop()
 
     logger.info("app_shutdown")
     await engine.dispose()
@@ -318,6 +331,7 @@ app.include_router(trader_broker_connections_router)
 app.include_router(trader_broker_connections_admin_router)
 app.include_router(fees_router)
 app.include_router(fees_admin_router)
+app.include_router(trading_audit_router)
 
 # Phase-1 analytics engines — routers ship without their own prefix
 app.include_router(monte_carlo_router, prefix="/api/monte-carlo", tags=["monte-carlo"])
