@@ -130,7 +130,9 @@ class PerformanceFeeLedgerEntry(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
-    trade_id = Column(String(50), ForeignKey("trades.trade_id"), nullable=False, index=True)
+    # Widened to match Trade.trade_id's own fix — see that column's
+    # comment (trade.py) for the real bug this matches.
+    trade_id = Column(String(120), ForeignKey("trades.trade_id"), nullable=False, index=True)
     subscription_id = Column(UUID(as_uuid=True), ForeignKey("trader_bot_subscriptions.id"), nullable=True)
 
     pnl_amount = Column(Float, nullable=False)  # this close's own realized profit the fee was computed from
