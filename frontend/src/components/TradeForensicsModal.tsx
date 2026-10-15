@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { X, Microscope } from 'lucide-react';
+import { X, Microscope, ZoomIn, ZoomOut, Maximize2, Eye, EyeOff } from 'lucide-react';
 import { tradesApi } from '../services/api';
 import type { TradeForensics, SnapshotTimeframe } from '../types';
-import { CandleChart, type Candle, type ChartZone, type ChartMarker, type ChartLine } from './CandleChart';
+import { CandleChart, computeChartRange, type Candle, type ChartZone, type ChartMarker, type ChartLine } from './CandleChart';
 import { nearestCandleIndex } from '../lib/positionChartOverlay';
+import { useYAxisZoom, applyYZoom } from '../hooks/useYAxisZoom';
 
 const GREEN = '#10b981';
 const RED = '#ef4444';
@@ -135,10 +136,33 @@ const OUTCOME_BADGE_CLS: Record<string, string> = {
   unresolved: 'bg-gray-500/15 text-gray-500',
 };
 
+// X-axis zoom bounds — same spirit as PositionOnChartModal's own
+// zoomIn/zoomOut (0.7x/1.4x per step), but far simpler: this is a
+// read-only diagnostic chart (no pan gestures, no drawing tools), so
+// zoom just shrinks/grows how many of the fetched candles are shown,
+// re-centered on the entry candle each time rather than tracking a
+// separate pan offset.
+const MIN_VISIBLE_CANDLES = 8;
+
 function ForensicsBody({ forensics, timeframe, tradeId, dark }: { forensics: TradeForensics; timeframe: string; tradeId: string; dark: boolean }) {
   const [candles, setCandles] = useState<Candle[]>([]);
   const [candlesError, setCandlesError] = useState<string | null>(null);
   const [candlesLoading, setCandlesLoading] = useState(true);
+  // X-axis zoom — by direct request ("Add x axis and y axis zoom").
+  // null = unzoomed (show every fetched candle, the original
+  // behavior); reset on every timeframe/candle-fetch change so
+  // switching tabs doesn't carry over a zoom level sized for a
+  // different candle count.
+  const [visibleCount, setVisibleCount] = useState<number | null>(null);
+  const { yZoom, zoomInY, zoomOutY, resetY } = useYAxisZoom();
+  // Annotation toggle — by direct request ("as many annotations
+  // 'sweep' cover the reading of the price charts"): a trade with a
+  // lot of real liquidity-sweep/BOS/CHoCH activity can produce enough
+  // overlapping labels to obscure the candles themselves. Off hides
+  // the SMC structure zones/markers but keeps the Entry/SL/TP1/Exit
+  // reference lines — those aren't the clutter being complained
+  // about, and are the one thing you'd still want visible either way.
+  const [annotationsOn, setAnnotationsOn] = useState(true);
 
   useEffect(() => {
     const snapTf = STRUCTURE_TO_SNAPSHOT_TF[timeframe];
@@ -149,17 +173,36 @@ function ForensicsBody({ forensics, timeframe, tradeId, dark }: { forensics: Tra
     }
     setCandlesLoading(true);
     setCandlesError(null);
+    setVisibleCount(null);
+    resetY();
     tradesApi.getTradeSnapshot(tradeId, snapTf)
       .then((s) => setCandles(s.candles.map((c) => ({ time: new Date(c.timestamp).getTime(), open: c.open, high: c.high, low: c.low, close: c.close }))))
       .catch((e) => setCandlesError(e?.response?.data?.detail || 'Could not load real candles for this timeframe.'))
       .finally(() => setCandlesLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tradeId, timeframe]);
 
   const struct = forensics.structure[timeframe];
 
+  // The visible slice of `candles`, re-centered on the entry candle
+  // whenever zoomed in (visibleCount < full length) so zooming in
+  // actually shows the trade's own setup rather than whatever happens
+  // to be at the end of the fetched window.
+  const visibleCandles = useMemo(() => {
+    if (visibleCount == null || visibleCount >= candles.length) return candles;
+    const entryIdx = nearestCandleIndex(candles, forensics.entry_timestamp) ?? candles.length - 1;
+    let start = entryIdx - Math.floor(visibleCount / 2);
+    start = Math.max(0, Math.min(start, candles.length - visibleCount));
+    return candles.slice(start, start + visibleCount);
+  }, [candles, visibleCount, forensics.entry_timestamp]);
+
+  function zoomInX() { setVisibleCount((v) => Math.max(MIN_VISIBLE_CANDLES, Math.round((v ?? candles.length) * 0.7))); }
+  function zoomOutX() { setVisibleCount((v) => (v == null ? null : Math.min(candles.length, Math.round(v * 1.4)) >= candles.length ? null : Math.round(v * 1.4))); }
+  function resetX() { setVisibleCount(null); }
+
   const { zones, markers, lines } = useMemo(() => {
-    if (!struct || candles.length === 0) return { zones: [] as ChartZone[], markers: [] as ChartMarker[], lines: [] as ChartLine[] };
-    const lastIdx = candles.length - 1;
+    if (!struct || visibleCandles.length === 0) return { zones: [] as ChartZone[], markers: [] as ChartMarker[], lines: [] as ChartLine[] };
+    const lastIdx = visibleCandles.length - 1;
 
     // Zones (order blocks, FVGs) have a real formation timestamp but
     // no "tested until" timestamp, so each is drawn from its own
@@ -168,48 +211,55 @@ function ForensicsBody({ forensics, timeframe, tradeId, dark }: { forensics: Tra
     // fetch looks back 40 real days; the snapshot's own candle window
     // is much shorter) clamps to index 0 rather than being dropped, so
     // it still shows as real and active, just pinned to the left edge.
+    // Indices are computed against visibleCandles (the current X-zoom
+    // slice), not the full fetched set, so they stay correct at every
+    // zoom level without a separate offset to track.
     const zones: ChartZone[] = [];
-    (struct.order_blocks ?? []).forEach((ob) => {
-      const fromIdx = ob.formed_at != null ? nearestCandleIndex(candles, ob.formed_at) ?? 0 : 0;
-      zones.push({
-        fromIndex: fromIdx, toIndex: lastIdx,
-        priceTop: ob.top, priceBottom: ob.bottom,
-        color: OB_COLOR[ob.classification ?? ''] ?? PURPLE,
-        label: `OB${ob.classification ? ` (${ob.classification})` : ''}`,
+    if (annotationsOn) {
+      (struct.order_blocks ?? []).forEach((ob) => {
+        const fromIdx = ob.formed_at != null ? nearestCandleIndex(visibleCandles, ob.formed_at) ?? 0 : 0;
+        zones.push({
+          fromIndex: fromIdx, toIndex: lastIdx,
+          priceTop: ob.top, priceBottom: ob.bottom,
+          color: OB_COLOR[ob.classification ?? ''] ?? PURPLE,
+          label: `OB${ob.classification ? ` (${ob.classification})` : ''}`,
+        });
       });
-    });
-    (struct.fvgs ?? []).forEach((f) => {
-      const fromIdx = f.formed_at != null ? nearestCandleIndex(candles, f.formed_at) ?? 0 : 0;
-      zones.push({
-        fromIndex: fromIdx, toIndex: lastIdx,
-        priceTop: f.top, priceBottom: f.bottom,
-        color: f.gap_type === 'bullish' ? GREEN : RED,
-        label: `FVG ${Math.round(f.mitigated_percent * 100)}%`,
+      (struct.fvgs ?? []).forEach((f) => {
+        const fromIdx = f.formed_at != null ? nearestCandleIndex(visibleCandles, f.formed_at) ?? 0 : 0;
+        zones.push({
+          fromIndex: fromIdx, toIndex: lastIdx,
+          priceTop: f.top, priceBottom: f.bottom,
+          color: f.gap_type === 'bullish' ? GREEN : RED,
+          label: `FVG ${Math.round(f.mitigated_percent * 100)}%`,
+        });
       });
-    });
+    }
 
     const markers: ChartMarker[] = [];
-    (struct.swing_points ?? []).forEach((s) => {
-      const idx = nearestCandleIndex(candles, s.timestamp);
-      if (idx == null) return;
-      const isHigh = s.type === 'SWING_HIGH';
-      markers.push({ index: idx, price: s.price, label: isHigh ? 'SH' : 'SL', color: isHigh ? RED : GREEN, side: isHigh ? 'above' : 'below' });
-    });
-    (struct.bos_events ?? []).forEach((b) => {
-      const idx = nearestCandleIndex(candles, b.timestamp);
-      if (idx == null || b.structure_level == null) return;
-      markers.push({ index: idx, price: b.structure_level, label: 'BOS', color: BLUE, shape: 'diamond' });
-    });
-    (struct.choch_events ?? []).forEach((c) => {
-      const idx = nearestCandleIndex(candles, c.timestamp);
-      if (idx == null || c.structure_level == null) return;
-      markers.push({ index: idx, price: c.structure_level, label: 'CHoCH', color: AMBER, shape: 'diamond' });
-    });
-    (struct.liquidity_sweeps ?? []).forEach((sw) => {
-      const idx = nearestCandleIndex(candles, sw.timestamp);
-      if (idx == null) return;
-      markers.push({ index: idx, price: sw.sweep_price, label: 'Sweep', color: PURPLE, shape: 'diamond' });
-    });
+    if (annotationsOn) {
+      (struct.swing_points ?? []).forEach((s) => {
+        const idx = nearestCandleIndex(visibleCandles, s.timestamp);
+        if (idx == null) return;
+        const isHigh = s.type === 'SWING_HIGH';
+        markers.push({ index: idx, price: s.price, label: isHigh ? 'SH' : 'SL', color: isHigh ? RED : GREEN, side: isHigh ? 'above' : 'below' });
+      });
+      (struct.bos_events ?? []).forEach((b) => {
+        const idx = nearestCandleIndex(visibleCandles, b.timestamp);
+        if (idx == null || b.structure_level == null) return;
+        markers.push({ index: idx, price: b.structure_level, label: 'BOS', color: BLUE, shape: 'diamond' });
+      });
+      (struct.choch_events ?? []).forEach((c) => {
+        const idx = nearestCandleIndex(visibleCandles, c.timestamp);
+        if (idx == null || c.structure_level == null) return;
+        markers.push({ index: idx, price: c.structure_level, label: 'CHoCH', color: AMBER, shape: 'diamond' });
+      });
+      (struct.liquidity_sweeps ?? []).forEach((sw) => {
+        const idx = nearestCandleIndex(visibleCandles, sw.timestamp);
+        if (idx == null) return;
+        markers.push({ index: idx, price: sw.sweep_price, label: 'Sweep', color: PURPLE, shape: 'diamond' });
+      });
+    }
 
     const lines: ChartLine[] = [];
     if (forensics.entry_price != null) lines.push({ price: forensics.entry_price, label: 'Entry', color: dark ? '#60a5fa' : '#005FB8', dashed: true });
@@ -218,7 +268,13 @@ function ForensicsBody({ forensics, timeframe, tradeId, dark }: { forensics: Tra
     if (forensics.exit_price != null) lines.push({ price: forensics.exit_price, label: 'Exit', color: AMBER, dashed: true });
 
     return { zones, markers, lines };
-  }, [struct, candles, forensics, dark]);
+  }, [struct, visibleCandles, forensics, dark, annotationsOn]);
+
+  const priceRange = useMemo(() => {
+    if (visibleCandles.length === 0) return undefined;
+    const auto = computeChartRange(visibleCandles, zones, lines, markers);
+    return applyYZoom(auto.yTop, auto.yBottom, yZoom);
+  }, [visibleCandles, zones, lines, markers, yZoom]);
 
   const mutedCls = dark ? 'text-white/50' : 'text-gray-500';
   const { mfe_r, mae_r, reached, would_have_reached_post_exit, note } = forensics.price_path;
@@ -238,10 +294,43 @@ function ForensicsBody({ forensics, timeframe, tradeId, dark }: { forensics: Tra
         </span>
       </div>
 
+      {!candlesLoading && !candlesError && candles.length > 0 && (
+        <div className={`flex items-center gap-1 mb-2 rounded-lg p-1 w-fit ${dark ? 'bg-white/5' : 'bg-black/5'}`}>
+          <span className={`text-[10px] font-semibold px-0.5 ${mutedCls}`}>X</span>
+          <button onClick={zoomOutX} disabled={visibleCount == null} aria-label="Zoom out time axis" title="Zoom out time axis" className={`p-1.5 rounded-md disabled:opacity-30 ${dark ? 'text-white/50 hover:text-white' : 'text-gray-500 hover:text-gray-700'}`}>
+            <ZoomOut size={14} />
+          </button>
+          <button onClick={zoomInX} disabled={visibleCount != null && visibleCount <= MIN_VISIBLE_CANDLES} aria-label="Zoom in time axis" title="Zoom in time axis" className={`p-1.5 rounded-md disabled:opacity-30 ${dark ? 'text-white/50 hover:text-white' : 'text-gray-500 hover:text-gray-700'}`}>
+            <ZoomIn size={14} />
+          </button>
+          <span className={`text-[10px] font-semibold px-1 ${mutedCls}`}>Y</span>
+          <button onClick={zoomOutY} disabled={yZoom <= 0.25} aria-label="Zoom out price axis" title="Zoom out price axis" className={`p-1.5 rounded-md disabled:opacity-30 ${dark ? 'text-white/50 hover:text-white' : 'text-gray-500 hover:text-gray-700'}`}>
+            <ZoomOut size={14} />
+          </button>
+          <button onClick={zoomInY} disabled={yZoom >= 6} aria-label="Zoom in price axis" title="Zoom in price axis" className={`p-1.5 rounded-md disabled:opacity-30 ${dark ? 'text-white/50 hover:text-white' : 'text-gray-500 hover:text-gray-700'}`}>
+            <ZoomIn size={14} />
+          </button>
+          <button
+            onClick={() => { resetX(); resetY(); }}
+            disabled={visibleCount == null && yZoom === 1}
+            className={`flex items-center gap-1 px-2 py-1.5 rounded-md text-[11px] font-medium disabled:opacity-30 ${dark ? 'text-white/50 hover:text-white' : 'text-gray-500 hover:text-gray-700'}`}
+          >
+            <Maximize2 size={12} /> Reset
+          </button>
+          <button
+            onClick={() => setAnnotationsOn((a) => !a)}
+            title={annotationsOn ? 'Hide SMC structure annotations' : 'Show SMC structure annotations'}
+            className={`flex items-center gap-1 px-2 py-1.5 rounded-md text-[11px] font-medium ml-1 border-l ${dark ? 'border-white/10 text-white/50 hover:text-white' : 'border-black/10 text-gray-500 hover:text-gray-700'}`}
+          >
+            {annotationsOn ? <Eye size={12} /> : <EyeOff size={12} />} Annotations {annotationsOn ? 'On' : 'Off'}
+          </button>
+        </div>
+      )}
+
       {candlesLoading && <p className={`text-sm ${mutedCls}`}>Loading real {timeframe} candles…</p>}
       {!candlesLoading && candlesError && <p className={`text-sm ${dark ? 'text-red-400' : 'text-red-500'}`}>{candlesError}</p>}
-      {!candlesLoading && !candlesError && candles.length > 0 && (
-        <CandleChart candles={candles} zones={zones} markers={markers} lines={lines} dark={dark} height={300} rightMargin={6} />
+      {!candlesLoading && !candlesError && visibleCandles.length > 0 && (
+        <CandleChart candles={visibleCandles} zones={zones} markers={markers} lines={lines} dark={dark} height={300} rightMargin={6} priceRangeOverride={priceRange} />
       )}
       {!candlesLoading && !candlesError && candles.length === 0 && (
         <p className={`text-sm ${mutedCls}`}>No real candles available for this timeframe's window.</p>
