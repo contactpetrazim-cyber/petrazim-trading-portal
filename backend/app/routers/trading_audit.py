@@ -125,6 +125,30 @@ async def trigger_run(
     )
 
 
+@router.delete("/runs/{run_id}", response_model=dict)
+async def delete_run(
+    run_id: str, db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_role(UserRole.ADMIN, UserRole.SUPER_ADMIN)),
+):
+    """Deletes one past audit run (and its findings) from the list — by
+    direct request ("provide option to delete items"). Not live-
+    trading-affecting (a stored report, nothing more), so same
+    ADMIN/SUPER_ADMIN gate as the rest of this read/manage surface,
+    not the stricter require_super_admin apply_finding uses for
+    actions that mutate a live bot. Findings have no ON DELETE CASCADE
+    on their run_id FK, so they're deleted explicitly first — same
+    transaction, so a failure here leaves nothing orphaned either way."""
+    run = (await db.execute(select(TradingAuditRun).where(TradingAuditRun.id == run_id))).scalar_one_or_none()
+    if run is None:
+        raise HTTPException(status_code=404, detail="Audit run not found")
+    findings = (await db.execute(select(TradingAuditFinding).where(TradingAuditFinding.run_id == run_id))).scalars().all()
+    for f in findings:
+        await db.delete(f)
+    await db.delete(run)
+    await db.commit()
+    return {"success": True}
+
+
 @router.post("/findings/{finding_id}/apply", response_model=dict)
 async def apply_finding(
     finding_id: str, db: AsyncSession = Depends(get_db),
