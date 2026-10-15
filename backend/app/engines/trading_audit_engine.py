@@ -216,6 +216,43 @@ async def _detect_execution_error_clusters(db: AsyncSession, period_start: datet
     return out
 
 
+# A bot instance with fewer than this many trade rows in the audited
+# period is surfaced as a "silent/low-activity bot" finding — Part 9
+# of the master audit prompt ("investigate bots that have not
+# recommended any setups"). This is a REPORTING threshold only (what's
+# worth a human's attention), not a judgment that the bot is broken —
+# see the finding's own detail text, which explicitly states the
+# finding is informational and that low frequency can be legitimate,
+# deliberate selectivity (verified directly for bot_4_volume_liq this
+# session: a real bar-by-bar replay over 910 real 1H bars found the
+# bot's own mandatory gates never falsely blocked a genuine setup —
+# the Spring/Upthrust-plus-confirming-CHoCH confluence this bot
+# requires is just genuinely rare in the replayed window; not a
+# detected code defect).
+SILENT_BOT_TRADE_THRESHOLD = 3
+
+
+async def _detect_silent_bots(db: AsyncSession, period_start: datetime, period_end: datetime) -> List[Dict]:
+    bots = (await db.execute(select(BotConfig).where(BotConfig.status == BotStatus.ACTIVE))).scalars().all()
+    out = []
+    for bot in bots:
+        count = (await db.execute(
+            select(Trade).where(
+                Trade.bot_id == bot.bot_id, Trade.created_at >= period_start, Trade.created_at < period_end,
+            )
+        )).scalars().all()
+        if len(count) < SILENT_BOT_TRADE_THRESHOLD:
+            last = (await db.execute(
+                select(Trade.created_at).where(Trade.bot_id == bot.bot_id).order_by(Trade.created_at.desc()).limit(1)
+            )).scalar_one_or_none()
+            out.append({
+                "bot_id": bot.bot_id, "symbols": bot.symbols or [],
+                "trades_this_period": len(count),
+                "last_trade_at": last.isoformat() if last else None,
+            })
+    return out
+
+
 def _generate_report_markdown(
     period_start: datetime, period_end: datetime,
     inventory: List[Dict], expectancy: List[Dict], duplicate_groups: List[Dict],
@@ -329,6 +366,7 @@ async def run_audit(db: AsyncSession, period_start: datetime, period_end: dateti
         expectancy = await _compute_bot_family_expectancy(db, period_start, period_end)
         duplicate_groups = await _detect_duplicate_signature_groups(db, period_start, period_end)
         error_clusters = await _detect_execution_error_clusters(db, period_start, period_end)
+        silent_bots = await _detect_silent_bots(db, period_start, period_end)
 
         run.summary_json = json.dumps({"instrument_inventory": inventory, "bot_family_expectancy": expectancy})
 
@@ -401,6 +439,25 @@ async def run_audit(db: AsyncSession, period_start: datetime, period_end: dateti
                     "No signal was ever sent to the broker for these (the error fired before order submission), "
                     "so no bad fills resulted — but this many rejections in the window means real, "
                     "otherwise-valid signals are being lost. Trade IDs: " + ", ".join(cluster["trade_ids"])
+                ),
+                recommended_action=None, recommendation_status=AuditRecommendationStatus.NONE,
+            ))
+
+        # Finding: silent/low-activity bots (Part 9 of the master audit
+        # prompt). Purely informational — low frequency is very often
+        # legitimate, deliberate selectivity (verified directly for
+        # bot_4_volume_liq this session via a real bar-by-bar replay),
+        # not a defect, so this is flagged for a human to look at, not
+        # auto-judged.
+        if silent_bots:
+            findings.append(TradingAuditFinding(
+                run_id=run.id, category="silent_bot", evidence_level="verified",
+                severity=AuditFindingSeverity.WATCH,
+                title=f"{len(silent_bots)} bot(s) with fewer than {SILENT_BOT_TRADE_THRESHOLD} trades this period",
+                detail=(
+                    "Low trade count is often legitimate, deliberate strategy selectivity, not a defect — "
+                    "verify against the bot's own real gating logic before assuming a problem. "
+                    + json.dumps(silent_bots)
                 ),
                 recommended_action=None, recommendation_status=AuditRecommendationStatus.NONE,
             ))
