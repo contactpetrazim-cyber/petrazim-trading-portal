@@ -49,9 +49,20 @@ from app.models.trading_audit import (
 # BotConfig roster) — each "_N" suffix (bot_2_ob_reversal_2, _3...) is
 # the same strategy class deployed on a different symbol, not a
 # different strategy, so these collapse together for expectancy.
+#
+# bot_8-11 added later ("finish Stage 8"): this list was built before
+# those 4 A/B variants existed — the same hand-maintained-registry
+# drift already found and fixed once this session (BOT_REGISTRY in
+# bot_strategies.py). Without these 4 entries, _bot_family's fallback
+# (`return bot_id`) would keep every one of their symbol-instance rows
+# (e.g. bot_9_volume_liq_wide_range vs _2) separate instead of
+# collapsing into one real family, silently wrong the moment any of
+# them accumulates trades across more than one symbol.
 BOT_FAMILIES = [
     "bot_1_macro_swing", "bot_2_ob_reversal", "bot_3_fvg_expansion",
     "bot_4_volume_liq", "bot_5_jeafx", "bot_6_smc_v2", "bot_7_fvg_expansion_v3",
+    "bot_8_smc_v2_single_anchor", "bot_9_volume_liq_wide_range",
+    "bot_10_volume_liq_held_reclaim", "bot_11_ob_reversal_wider_stop",
 ]
 
 # A bot family needs at least this many closed trades in the audited
