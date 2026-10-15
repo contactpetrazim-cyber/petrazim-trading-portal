@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { ClipboardList, PlayCircle, CheckCircle2, XCircle, PauseCircle, AlertTriangle, Info, Eye, CheckSquare, Square, FileText, Download, Trash2, Activity } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
 import { FoldedCard } from '../components/FoldedCard';
+import { AuditVisualDashboard } from '../components/AuditVisualDashboard';
 import { LoadingIndicator } from '../components/LoadingIndicator';
 import { useThemeStore } from '../hooks/useTheme';
 import { useAuth } from '../hooks/useAuth';
@@ -21,7 +22,7 @@ interface RunSummary {
   error_message: string | null;
 }
 
-interface InstrumentRow {
+export interface InstrumentRow {
   symbol: string;
   bots: string[];
   total_trades: number;
@@ -32,7 +33,7 @@ interface InstrumentRow {
   errors: number;
 }
 
-interface BotExpectancyRow {
+export interface BotExpectancyRow {
   bot_family: string;
   n: number;
   wins: number;
@@ -43,7 +44,7 @@ interface BotExpectancyRow {
   expectancy_per_trade: number | null;
 }
 
-interface Finding {
+export interface Finding {
   id: string;
   category: string;
   evidence_level: string;
@@ -57,7 +58,7 @@ interface Finding {
   applied_by: string | null;
 }
 
-interface BacktestValidationRow {
+export interface BacktestValidationRow {
   bot_family: string;
   symbol: string;
   window_days: number;
@@ -322,6 +323,20 @@ export function AdminTradingAuditPage() {
             {!detail && <LoadingIndicator phase={detailPhase} dark={dark} />}
             {detail && (
               <>
+                {/* "turn the executive report into a dashboard of
+                    various charts and diagrams, pie charts, pyramids"
+                    — by direct request. Built from the SAME real
+                    summary/findings data as the tables below, not a
+                    re-parse of the markdown report, so it can never
+                    drift from what those tables show. */}
+                <AuditVisualDashboard
+                  instrumentInventory={detail.summary.instrument_inventory}
+                  botFamilyExpectancy={detail.summary.bot_family_expectancy}
+                  backtestValidation={detail.summary.backtest_validation}
+                  findings={detail.findings}
+                  dark={dark}
+                />
+
                 {/* The "provide docs" half of the original request — a
                     real, standalone Markdown report generated from
                     this run's own data (executive summary, instrument
