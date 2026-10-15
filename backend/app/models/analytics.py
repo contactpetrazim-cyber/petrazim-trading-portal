@@ -64,7 +64,8 @@ class LessonLearned(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
-    trade_id = Column(String(50), index=True)
+    # Widened to match Trade.trade_id's own fix (trade.py).
+    trade_id = Column(String(120), index=True)
     bot_id = Column(String(50), index=True)
     symbol = Column(String(50))  # widened — see trade.py's Trade.symbol for the real bug this matches
 

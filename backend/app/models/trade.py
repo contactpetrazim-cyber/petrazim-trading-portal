@@ -36,7 +36,18 @@ class Trade(Base):
     __tablename__ = "trades"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    trade_id = Column(String(50), unique=True, nullable=False, index=True)
+    # Real bug, found live ("market_scan_cycle_failed ... value too
+    # long for type character varying(50)"): trade_id is built as
+    # f"TRD_{bot_id}_{YYYYMMDD}_{HHMMSS}" (execution_engine.py) —
+    # VARCHAR(50) was sized for the original 7 bots' own short ids, but
+    # the newer, more descriptive A/B-variant ids (e.g.
+    # "bot_10_volume_liq_held_reclaim_2", 32 chars) push the full
+    # trade_id to 52+ chars, over the limit, so every signal from that
+    # bot/symbol pair crashed the whole scan cycle on INSERT and could
+    # never log a single trade. Same bug class, same fix shape, as
+    # this table's own symbol column below. Widened with real headroom
+    # for future, even longer bot_ids.
+    trade_id = Column(String(120), unique=True, nullable=False, index=True)
 
     # Owning Trader — set from the bot's own owner at trade-creation
     # time (execution_engine.py::_persist_trade), not from the request,
@@ -255,7 +266,9 @@ class TradeLog(Base):
     __tablename__ = "trade_logs"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    trade_id = Column(String(50), ForeignKey("trades.trade_id"), nullable=False, index=True)
+    # Widened to match Trade.trade_id's own fix — see that column's
+    # comment for the real bug this matches.
+    trade_id = Column(String(120), ForeignKey("trades.trade_id"), nullable=False, index=True)
 
     event_type = Column(String(50), nullable=False)  # entry, exit, sl_update, tp_hit, error
     event_data = Column(JSON)
