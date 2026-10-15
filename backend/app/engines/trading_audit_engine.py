@@ -33,18 +33,25 @@ from __future__ import annotations
 import json
 import re
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
+import structlog
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.engines.backtest_engine import BacktestEngine, Bar
+from app.engines.strategy_adapter import STRATEGY_FAMILY, TF_ORDER, fetch_required_timeframe_candles, SmcStrategyAdapter
 from app.models.bot import BotConfig, BotStatus
 from app.models.trade import Trade, TradeStatus
 from app.models.trading_audit import (
     AuditFindingSeverity, AuditRecommendationStatus, AuditRunStatus,
     TradingAuditFinding, TradingAuditRun,
 )
+from app.services.backtest_runner import _summarize, _DEFAULT_COST_MODELS, _FOREX_LIKE_BROKERS
+from app.services.data_ingestion import shared_ingestion
+
+logger = structlog.get_logger()
 
 # A bot family needs at least this many closed trades in the audited
 # period before its expectancy is trusted enough to recommend pausing
@@ -373,7 +380,8 @@ BOT_OPTIMIZATION_REFERENCE: List[Dict[str, str]] = [
      "note": "Strongest real sample this session: n=61, 82% win rate, real positive expectancy."},
     {"fam": "bot_4", "name": "Bot 4 — Volume & Liquidity Sweep", "sl": "spring/upthrust extreme, embed POI zone, floored 0.15% (fixed this session)",
      "rel": "A/B vs Bot 9 (25% near-extreme band) and Bot 10 (held-the-test confirmation)",
-     "note": "Structurally over-restrictive: mandatory CHoCH confirmation rejects 91.5% of genuine spring/upthrust events — close to mutually exclusive with its own range-bound precondition by construction."},
+     "note": "Structurally over-restrictive: mandatory CHoCH confirmation rejects 91.5% of genuine spring/upthrust events — close to mutually exclusive with its own range-bound precondition by construction. "
+             "Confirmed across its full real symbol set (BTC + JPY/EUR/XAUT, 60-day backtest): just 1 real trade total across 4 real symbols — the restriction is structural, not a one-symbol quirk."},
     {"fam": "bot_5", "name": "Bot 5 — Jeafx SMC Style", "sl": "jeafx_purge_extreme, embed aligned zone, floored 0.15% (fixed this session)",
      "rel": "A/B vs Bot 6 (adds LTF-agreement gate) and Bot 8 (Bot 6 minus that gate)",
      "note": "Designed as the 'high R:R specialist' (4-6R) but a platform-wide min_rr_ratio=3.0 override flattens it to the same target as every other bot — a real config gap, not a strategy gap. "
@@ -381,21 +389,26 @@ BOT_OPTIMIZATION_REFERENCE: List[Dict[str, str]] = [
     {"fam": "bot_6", "name": "Bot 6 — SMC v2", "sl": "jeafx_purge_extreme, embed aligned zone, floored 0.15% (fixed this session)",
      "rel": "A/B baseline for Bot 8 (removes its LTF-agreement gate)",
      "note": "Negative real live-trade expectancy, but 23 of 24 of those trades predate the 2026-10-14 mandatory-1H-BOS revision — mostly measuring already-superseded logic, not the current code. "
-             "Real 35-day backtest (post data-retention fix): 4 trades, 25% win rate, -0.132R — still too small to read (n=4)."},
+             "Real backtest across its full 7-symbol coverage (35-day window, post data-retention fix): n=48, avg -0.028R — roughly breakeven, and still the BETTER of the two once Bot 8 is compared "
+             "on the same full symbol set (see Bot 8's own note)."},
     {"fam": "bot_7", "name": "Bot 7 — FVG Expansion v3", "sl": "FVG-width based, floored 0.15% (PR #286)",
      "rel": "A/B vs Bot 3 — depth-based vs recency-based FVG selection, otherwise identical",
      "note": "Real sample still too small (n<15) to read anything into."},
     {"fam": "bot_8", "name": "Bot 8 — SMC v2 Single-Anchor", "sl": "same as Bot 6 (floored 0.15%)",
      "rel": "A/B vs Bot 6 — isolates the LTF-agreement gate",
      "note": "Was silently unbacktestable until a registry gap was fixed this session. Its own real 60-day backtest then looked like a 0-signal null result — a SEPARATE real bug (a flat 5M lookback "
-             "padding exceeding bingx's real 5M data retention, fixed this session); re-run over 35 real days: 21 trades (above the n=15 confidence floor), 38.1% win rate, -0.128R. Fires far more often "
-             "than Bot 6 on the identical window (21 vs 4), confirming the LTF-agreement gate is the dominant restrictor — but removing it hasn't yet produced a better real expectancy, just more trades."},
+             "padding exceeding bingx's real 5M data retention, fixed this session); re-run over its full 7-symbol coverage (35-day window): n=196, avg -0.069R, firing 4x more often than Bot 6 on the "
+             "identical windows (196 vs 48 trades across the same symbols) — decisively confirms the LTF-agreement gate is the dominant restrictor, but removing it produces a slightly WORSE real "
+             "expectancy than Bot 6, not better. Solves the silent-bot problem, not the edge."},
     {"fam": "bot_9", "name": "Bot 9 — Volume & Liquidity Wide-Range", "sl": "same as Bot 4 (floored 0.15%)",
      "rel": "A/B vs Bot 4 — widens the near-extreme band 15%→25%",
-     "note": "Real backtest: a null result (0 signals, same as Bot 4 on the same window) — the band was not the binding constraint there."},
+     "note": "Real backtest across its full symbol set (BTC + JPY/EUR/XAUT): essentially identical to Bot 4 (n=1, the exact same single trade) — the near-extreme band is confirmed NOT the binding "
+             "constraint on real data; whatever else is restricting Bot 4 restricts Bot 9 equally."},
     {"fam": "bot_10", "name": "Bot 10 — Volume & Liquidity Held-Reclaim", "sl": "same as Bot 4 (floored 0.15%)",
      "rel": "A/B vs Bot 4 — replaces mandatory CHoCH with a Wyckoff 'held the test' check (16/47 vs 0/47 on the same real events)",
-     "note": "Its EURUSDT.P instance silently failed to log any trade since creation (trade_id column too narrow) — fixed this session; real backtest sample so far: n=1."},
+     "note": "Its EURUSDT.P instance silently failed to log any trade since creation (trade_id column too narrow) — fixed this session. Real backtest across its full symbol set: n=13 (12 on JPY/EUR/"
+             "XAUT + 1 on BTC), avg -0.24R — genuinely solves Bot 4's near-silence (13 vs 1-2 trades) but hasn't yet shown a positive real edge; worth continued monitoring on real accumulating data, "
+             "not yet a confirmed win."},
     {"fam": "bot_11", "name": "Bot 11 — HF OB Reversal, Wider-Stop", "sl": "same as Bot 2 but 30% embed + 0.35% floor",
      "rel": "A/B vs Bot 2 — the direct test of 'is the SL too tight'",
      "note": "Real 60-day backtest: loses to Bot 2 on win rate, expectancy, and drawdown across almost every real instrument and percentile band tested."},
@@ -407,12 +420,104 @@ BOT_OPTIMIZATION_REFERENCE: List[Dict[str, str]] = [
              "against 0.28R for the TP1-only group — trailing itself is the real lever, and Bot 12 tests giving it a full R earlier."},
 ]
 
-# Stage 9/10 findings — real results from this session's own
-# backtest/Monte Carlo runs, not recomputed automatically each audit
-# cycle (that would mean wiring BacktestEngine calls into run_audit
-# itself, a separate, larger integration left for a future pass — see
-# the "Scope of This Run" section this feeds). Reported here as a
-# dated, honest snapshot rather than silently omitted.
+# Stage 9, now wired in for real (by direct request, "continue
+# outstanding items" — this was previously a static, dated snapshot;
+# every real audit run now recomputes it fresh). One representative
+# real (strategy_key, symbol, exchange) per bot family, each paired
+# with a window that's safe for whatever timeframes that family needs
+# — 5M-needing families (bot_5/6/8) get the shorter window verified
+# safe against bingx's real 5M retention boundary this session;
+# everyone else gets the full 60 days. Isolated reads (BTC is the one
+# symbol every family can actually trade) rather than every real
+# instance, so a monthly audit run stays a reasonable, bounded cost —
+# the full per-instance/per-symbol sweep this session ran by hand
+# remains the deeper, occasional check, not something every automatic
+# cycle repeats.
+BACKTEST_VALIDATION_TARGETS = [
+    ("bot_1", "BTCUSDT.P", "bingx", 60),
+    ("bot_2", "BTCUSDT.P", "bingx", 60),
+    ("bot_3", "BTCUSDT.P", "bingx", 60),
+    ("bot_4", "BTCUSDT.P", "bingx", 60),
+    ("bot_5", "BTCUSDT.P", "bingx", 35),
+    ("bot_6", "BTCUSDT.P", "bingx", 35),
+    ("bot_7", "BTCUSDT.P", "bingx", 60),
+    ("bot_8", "BTCUSDT.P", "bingx", 35),
+    ("bot_9", "BTCUSDT.P", "bingx", 60),
+    ("bot_10", "BTCUSDT.P", "bingx", 60),
+    ("bot_11", "BTCUSDT.P", "bingx", 60),
+]
+
+
+async def compute_live_backtest_validation() -> List[Dict]:
+    """Runs a real isolated backtest per bot family (BACKTEST_VALIDATION_
+    TARGETS above), reusing the exact same engine/adapter/fetch path this
+    session's own manual Bot 2/11/12/13 and Bot 4/5/6/8/9/10 verification
+    used — not a separate, parallel implementation. Each target is fully
+    isolated (its own try/except): a data-fetch failure or exchange error
+    for one family logs a warning and is skipped, never aborting the rest
+    of a monthly audit run over one bad symbol/exchange call.
+
+    Deliberately ends at real wall-clock "now" (datetime.utcnow()), NOT
+    the audit run's own period_end — real bug, found live the first
+    time this ran end-to-end: a verification call passed period_end=
+    2030-01-01 (a sentinel meaning "include every real trade regardless
+    of date" for the TRADE-record queries elsewhere in this module) and
+    this function reused that SAME value as the backtest's own "now,"
+    trying to fetch real candles from the future. This check answers
+    "how does each bot's live-tested edge look as of today," a question
+    that's independent of whatever historical period the rest of a
+    given audit run happens to cover — a retrospective audit of last
+    month's trades should still validate against CURRENT market
+    conditions, not pretend to be running back then."""
+    now = datetime.utcnow()
+    rows: List[Dict] = []
+    for strategy_key, symbol, exchange, window_days in BACKTEST_VALIDATION_TARGETS:
+        try:
+            start = now - timedelta(days=window_days)
+            _bot_class, required = STRATEGY_FAMILY[strategy_key]
+            required_tf_labels = [label for _, label in required]
+            base_tf = min(required_tf_labels, key=lambda l: TF_ORDER.index(l))
+
+            timeframe_candles, fetch_error = await fetch_required_timeframe_candles(
+                shared_ingestion, exchange, symbol, required_tf_labels, start, now,
+            )
+            if fetch_error:
+                rows.append({"bot_family": strategy_key, "symbol": symbol, "window_days": window_days, "error": fetch_error})
+                continue
+
+            base_candles = [c for c in timeframe_candles[base_tf] if c.timestamp >= start]
+            bars = [Bar(timestamp=c.timestamp, open=c.open, high=c.high, low=c.low, close=c.close, volume=c.volume) for c in base_candles]
+
+            adapter = SmcStrategyAdapter(
+                real_bot_id=strategy_key, strategy_key=strategy_key, symbol=symbol,
+                timeframe_candles=timeframe_candles, account_balance=1000.0,
+                risk_per_trade=1.0, min_rr_ratio=3.0,
+                tp1_percent=30.0, tp2_percent=40.0, tp3_percent=30.0,
+                trailing_activation_r=2.0, trailing_stop_mode="fixed",
+            )
+            cost_model = _DEFAULT_COST_MODELS["forex" if exchange in _FOREX_LIKE_BROKERS else "crypto"]
+            engine = BacktestEngine(cost_model=cost_model, max_hold_bars=2000)
+            trades = engine.run(bars, adapter, symbol=symbol)
+            stats = _summarize(trades)
+            rows.append({
+                "bot_family": strategy_key, "symbol": symbol, "window_days": window_days,
+                "total_trades": stats["total_trades"], "win_rate": stats["win_rate"],
+                "expectancy_r": stats["expectancy_r"], "max_drawdown_pct": stats["max_drawdown_pct"],
+            })
+        except Exception as e:
+            logger.warning("backtest_validation_target_failed", strategy_key=strategy_key, symbol=symbol, error=str(e))
+            rows.append({"bot_family": strategy_key, "symbol": symbol, "window_days": window_days, "error": str(e)})
+    return rows
+
+
+# Stage 9/10 findings from this session's own manual, deeper
+# multi-symbol/multi-instance investigation (Bot 2/11/12/13 across all
+# 7 real symbols; Bot 4/9/10 and Bot 6/8 across their own real
+# coverage) — kept as a dated, labeled historical record alongside the
+# live, automatically-recomputed single-symbol check above, since the
+# manual sweep covers real instances and symbols the automatic
+# per-family BTC-only check above deliberately doesn't repeat every
+# cycle.
 STAGE_9_10_FINDINGS = """
 **Bot 2 vs Bot 11 (60-day out-of-sample backtest, generated 2026-10-15):**
 
@@ -468,6 +573,41 @@ window (21 vs 4) — consistent with the earlier live-replay finding that this g
 restrictor — but its real expectancy is not better than Bot 6's, both negative. Removing the gate
 produces more trades, not necessarily better ones; this needs a larger sample before concluding
 either way.
+
+**Full real symbol coverage** (continuing "outstanding items" — the BTC-only check above extended to
+every real symbol each family actually trades):
+
+**Bot 4 vs Bot 9 vs Bot 10 (JPY/EUR/XAUT, 60-day window):**
+
+| Symbol | Bot 4 | Bot 9 | Bot 10 |
+|---|---|---|---|
+| JPY | n=1, -0.138R | n=1, -0.138R | n=5, -0.002R |
+| EUR | n=0 | n=0 | n=5, -0.420R |
+| XAUT | n=0 | n=0 | n=2, -0.392R |
+| **Pooled** | **n=1, -0.14R** | **n=1, -0.14R** (identical trade to Bot 4) | **n=12, -0.24R avg** |
+
+Bot 9's wider band makes no real difference — same single trade as Bot 4 on the same symbols,
+confirming the near-extreme band isn't the binding constraint. Bot 10 genuinely solves the silence
+(12 vs 1 trades) but hasn't yet shown a positive real edge over this window.
+
+**Bot 6 vs Bot 8, extended to all 6 remaining real symbols (35-day window):**
+
+| Symbol | Bot 6 | Bot 8 |
+|---|---|---|
+| XAUT | n=16, -0.174R | n=39, -0.178R |
+| JPY | n=2, +0.123R | n=20, -0.182R |
+| EUR | n=3, -1.001R | n=6, -0.784R |
+| NAS100 | n=2, +1.077R | n=15, +0.232R |
+| Brent | n=14, +0.211R | n=49, +0.013R |
+| WTI | n=7, -0.056R | n=46, +0.009R |
+| **Pooled (these 6)** | **n=44, -0.019R** | **n=175, -0.062R** |
+
+Combined with the earlier BTC result, Bot 8's FULL real coverage is n=196 (avg -0.069R) against Bot
+6's n=48 (avg -0.028R). Bot 8 fires roughly 4x more often than Bot 6 across the identical real
+windows — the LTF-agreement gate is decisively confirmed as the dominant restrictor on signal
+frequency — but Bot 6 is still the slightly better performer per trade. Bot 8 trades a lot more for a
+slightly worse average outcome, not a better one; this is a real, honest negative-leaning result, not
+grounds to recommend dropping the gate.
 """
 
 
@@ -477,6 +617,7 @@ def _generate_report_markdown(
     findings: List[TradingAuditFinding],
     instances: Optional[List[Dict]] = None,
     trade_register: Optional[Dict[str, List[Dict]]] = None,
+    backtest_validation: Optional[List[Dict]] = None,
 ) -> str:
     """The "provide docs" half of the original request — a real,
     standalone Markdown executive report built from this run's own
@@ -487,11 +628,13 @@ def _generate_report_markdown(
     to inventory/expectancy/duplicate_groups computed above — nothing
     in this report is written independently of that data.
 
-    `instances` (Stage 8's per-bot-instance detail) and
-    `trade_register` (Stage 11's "per-trade win/loss register"
-    deliverable — compute_trade_register's own output) are optional
-    so this function stays callable exactly as before wherever only
-    the original 5 arguments are available."""
+    `instances` (Stage 8's per-bot-instance detail), `trade_register`
+    (Stage 11's "per-trade win/loss register" deliverable —
+    compute_trade_register's own output), and `backtest_validation`
+    (Stage 9's own live, per-run backtest check —
+    compute_live_backtest_validation's own output) are optional so
+    this function stays callable exactly as before wherever only the
+    original 5 arguments are available."""
     total_trades = sum(r["total_trades"] for r in inventory)
     total_wins = sum(r["wins"] for r in inventory)
     total_losses = sum(r["losses"] for r in inventory)
@@ -573,7 +716,27 @@ def _generate_report_markdown(
         lines.append(f"  {b['note']}")
         lines.append("")
 
-    lines += ["## Real Backtest Validation & Scenario Modeling (Stages 9-10)", "",
+    if backtest_validation:
+        lines += [
+            "## Live Backtest Validation (Stage 9 — recomputed this run)", "",
+            f"One real isolated backtest per bot family, BTC, over each family's own safe real window "
+            f"(35 days for the 5M-needing families, 60 days otherwise) — re-run fresh every audit cycle, "
+            f"not a stored snapshot.", "",
+            "| Family | Symbol | Window | Trades | Win rate | Expectancy (R) | Max DD (R) |",
+            "|---|---|---|---|---|---|---|",
+        ]
+        for row in backtest_validation:
+            if "error" in row:
+                lines.append(f"| {row['bot_family']} | {row['symbol']} | {row['window_days']}d | — | — | — | *{row['error']}* |")
+            else:
+                lines.append(
+                    f"| {row['bot_family']} | {row['symbol']} | {row['window_days']}d | {row['total_trades']} | "
+                    f"{row['win_rate']}% | {row['expectancy_r'] if row['expectancy_r'] is not None else '—'} | "
+                    f"{row['max_drawdown_pct'] if row['max_drawdown_pct'] is not None else '—'} |"
+                )
+        lines.append("")
+
+    lines += ["## Real Backtest Validation & Scenario Modeling (Stages 9-10) — this session's manual sweep", "",
                STAGE_9_10_FINDINGS.strip(), ""]
 
     if trade_register:
@@ -608,13 +771,17 @@ def _generate_report_markdown(
         "(Stage 11) — the same methodology validated by hand against this platform's real trade "
         "history.",
         "",
+        "Stage 9 now also includes a LIVE backtest check, recomputed fresh every run (one real "
+        "isolated backtest per bot family) — not just the dated manual-sweep snapshot.",
+        "",
         "**Deferred, not yet automated:** per-trade individual forensic write-ups (full SMC context "
         "reconstruction — HTF bias, swing points, BOS/CHoCH, FVG/OB zones — for every losing/winning "
         "trade; Part 10 of the master audit prompt) and external TradingView/chart cross-referencing. "
-        "Stages 9-10's real backtest/scenario numbers above are a dated snapshot from this session, "
-        "not yet recomputed automatically on every run — wiring the backtest engine itself into this "
-        "function is a real, available next step. These remain real, available next steps — not "
-        "silently dropped — but are not run automatically each cycle given their cost.",
+        "Stage 10's scenario-modeling numbers are still a dated snapshot from this session's manual "
+        "sweep, not yet recomputed automatically (the live Stage 9 check above only runs the backtest "
+        "itself, not the further Monte Carlo pass on top of it) — a real, available next step. These "
+        "remain real, available next steps — not silently dropped — but are not run automatically each "
+        "cycle given their cost.",
     ]
     return "\n".join(lines)
 
@@ -638,13 +805,23 @@ async def run_audit(db: AsyncSession, period_start: datetime, period_end: dateti
         instances = await compute_bot_instance_expectancy(db, period_start, period_end)
         expectancy = rollup_instance_rows_to_family(instances)
         trade_register = await compute_trade_register(db, period_start, period_end)
+        # Real network calls (candle fetches) — isolated at the top
+        # level too, same discipline as every target inside the
+        # function itself: a total failure here (e.g. every exchange
+        # route down at once) degrades to "no live backtest section
+        # this run," never aborts the rest of the audit.
+        try:
+            backtest_validation = await compute_live_backtest_validation()
+        except Exception as e:
+            logger.warning("backtest_validation_failed", error=str(e))
+            backtest_validation = None
         duplicate_groups = await _detect_duplicate_signature_groups(db, period_start, period_end)
         error_clusters = await _detect_execution_error_clusters(db, period_start, period_end)
         silent_bots = await _detect_silent_bots(db, period_start, period_end)
 
         run.summary_json = json.dumps({
             "instrument_inventory": inventory, "bot_family_expectancy": expectancy,
-            "bot_instance_expectancy": instances,
+            "bot_instance_expectancy": instances, "backtest_validation": backtest_validation,
         })
 
         findings: List[TradingAuditFinding] = []
@@ -744,7 +921,7 @@ async def run_audit(db: AsyncSession, period_start: datetime, period_end: dateti
 
         run.report_markdown = _generate_report_markdown(
             period_start, period_end, inventory, expectancy, duplicate_groups, findings,
-            instances=instances, trade_register=trade_register,
+            instances=instances, trade_register=trade_register, backtest_validation=backtest_validation,
         )
 
         run.status = AuditRunStatus.COMPLETED
