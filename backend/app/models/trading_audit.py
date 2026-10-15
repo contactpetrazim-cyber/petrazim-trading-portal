@@ -70,6 +70,12 @@ class TradingAuditRun(Base):
     # confused with the real monthly cadence.
     triggered_by = Column(String(20), nullable=False, default="scheduled")
     summary_json = Column(Text, nullable=False, default="{}")
+    # The "provide docs" half of the original request — a real,
+    # standalone Markdown executive report (instrument inventory, bot
+    # scorecard, findings register) generated from this run's own
+    # data, not a separate manual write-up. Nullable: populated once
+    # run_audit() finishes computing everything else.
+    report_markdown = Column(Text, nullable=True)
     generated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     completed_at = Column(DateTime, nullable=True)
     error_message = Column(Text, nullable=True)
