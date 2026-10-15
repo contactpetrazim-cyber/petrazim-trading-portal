@@ -13,6 +13,7 @@ from app.models.user import User, UserRole
 from app.core.auth import get_current_user
 from app.core.access_gate import require_active_access, has_active_access, _raise_if_access_expired
 from app.schemas import TradeCreate, TradeResponse, TradeApproval, TradeArchiveUpdate, TradeDeleteUpdate
+from app.engines.trade_forensics import compute_trade_forensics
 from app.services.execution_engine import ExecutionEngine
 from app.services.live_price import get_crypto_price, price_is_plausible
 from app.services.data_ingestion import shared_ingestion
@@ -891,6 +892,29 @@ async def trade_snapshot(
             for c in candles
         ],
     }
+
+@router.get("/{trade_id}/forensics")
+async def trade_forensics(
+    trade_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Real, on-demand SMC forensic reconstruction for one trade — Part
+    10 of the master audit prompt ("TradingView and Historical Chart
+    Analysis"): swing points, BOS/CHoCH, order blocks, FVGs, liquidity
+    sweeps, HTF bias, and the real price path (MFE/MAE in R, which TP
+    levels were actually reached) — all computed fresh from real
+    exchange candles around this trade's own entry, not a stored or
+    invented record. See compute_trade_forensics' own docstring
+    (engines/trade_forensics.py) for the full design. Same "fetch live
+    on each view" philosophy as this router's own trade_snapshot
+    endpoint just above — no batch precompute, no staleness to manage.
+    """
+    trade = await _get_owned_trade(trade_id, user, db)
+    result = await compute_trade_forensics(trade)
+    if "error" in result:
+        raise HTTPException(status_code=422, detail=result["error"])
+    return result
 
 @router.patch("/{trade_id}/archive", response_model=TradeResponse)
 async def set_trade_archived(
