@@ -1,5 +1,5 @@
 """
-Seed Bot 8 / Bot 9 / Bot 10 — A/B Test Variants
+Seed Bot 8 / Bot 9 / Bot 10 / Bot 11 — A/B Test Variants
 =====================================================
 
 By direct request: "find a way to loosen and still make a winning
@@ -7,17 +7,22 @@ strategy ... create a totally new bot with your new guidance and then
 use it as a A to B testing over the long run ... original versus
 modified ... Do same for bots that have not been taking trades." Then,
 after Bot 9's own real result came back a null on the CHoCH issue:
-"Can we create a bot 10 to test the CHOCH issue."
+"Can we create a bot 10 to test the CHOCH issue." Then, after real
+screenshots of Bot 2 trades stopped out with its own reasoning text
+literally saying "Tight SL": "can we test a variant that has the SL
+embed the range Order block ... Do both versions with relaxed or
+larger SL that is well positioned."
 
 Bot 8 (JeafxSMCv2SingleAnchorBot), Bot 9 (VolumeLiquidityWideRangeBot),
-and Bot 10 (VolumeLiquidityHeldReclaimBot) — see their own class
-docstrings in bot_strategies.py for the exact, single, evidence-based
-variable each isolates against its parent (Bot 6 for Bot 8; Bot 4 for
-both Bot 9 and Bot 10 — two independent, cleanly separated single-
-variable tests against the same baseline, deliberately kept as two
-bots rather than combined into one, so a future result can tell WHICH
-change actually mattered). This script creates one real BotConfig row
-per instance, mirroring its parent's exact symbol/exchange/risk
+Bot 10 (VolumeLiquidityHeldReclaimBot), and Bot 11
+(OrderBlockReversalWiderStopBot) — see their own class docstrings in
+bot_strategies.py for the exact, single, evidence-based variable each
+isolates against its parent (Bot 6 for Bot 8; Bot 4 for both Bot 9 and
+Bot 10; Bot 2 for Bot 11 — independent, cleanly separated single-
+variable tests against each baseline, deliberately kept as separate
+bots rather than combined, so a future result can tell WHICH change
+actually mattered). This script creates one real BotConfig row per
+instance, mirroring its parent's exact symbol/exchange/risk
 configuration (dumped directly from the live production BotConfig rows
 before writing this — not guessed), so the comparison is genuinely
 apples-to-apples: same instruments, same risk per trade, same every
@@ -53,6 +58,14 @@ BOT_9_INSTANCES = [
 BOT_10_INSTANCES = [
     ("bot_10_volume_liq_held_reclaim", "Volume & Liquidity Held-Reclaim (A/B) bot-1", None, ["BTCUSDT.P"]),
     ("bot_10_volume_liq_held_reclaim_2", "Volume & Liquidity Held-Reclaim (A/B) JPY EU XAUT", "mexc", ["JPYUSDT.P", "EURUSDT.P", "XAUTUSDT.P"]),
+]
+# Mirrors the real live bot_2_ob_reversal* rows exactly, confirmed
+# against the live database immediately before writing this.
+BOT_11_INSTANCES = [
+    ("bot_11_ob_reversal_wider_stop", "HF Order Block Reversal (Wider-Stop A/B) bot-1", None, ["BTCUSDT.P"]),
+    ("bot_11_ob_reversal_wider_stop_2", "HF Order Block Reversal (Wider-Stop A/B) JPY EU XAUT", "mexc", ["JPYUSDT.P", "EURUSDT.P", "XAUTUSDT.P"]),
+    ("bot_11_ob_reversal_wider_stop_3", "HF Order Block Reversal (Wider-Stop A/B) NAS100", "mexc", ["NAS100USDT.P"]),
+    ("bot_11_ob_reversal_wider_stop_4", "HF Order Block Reversal (Wider-Stop A/B) OIL", "bingx", ["NCCO1OILBRENT2USDUSDT.P", "NCCO1OILWTI2USDUSDT.P"]),
 ]
 
 COMMON_FIELDS = dict(
@@ -91,7 +104,7 @@ async def seed_ab_test_bots():
         existing_ids = set((await db.execute(select(BotConfig.bot_id))).scalars().all())
         created = 0
 
-        all_instances = BOT_8_INSTANCES + BOT_9_INSTANCES + BOT_10_INSTANCES
+        all_instances = BOT_8_INSTANCES + BOT_9_INSTANCES + BOT_10_INSTANCES + BOT_11_INSTANCES
         for bot_id, bot_name, exchange, symbols in all_instances:
             if bot_id in existing_ids:
                 print(f"  SKIP — {bot_id} already exists")
@@ -100,8 +113,10 @@ async def seed_ab_test_bots():
                 strategy_key = "bot_8"
             elif bot_id.startswith("bot_9_"):
                 strategy_key = "bot_9"
-            else:
+            elif bot_id.startswith("bot_10_"):
                 strategy_key = "bot_10"
+            else:
+                strategy_key = "bot_11"
             db.add(BotConfig(
                 bot_id=bot_id, bot_name=bot_name, strategy_key=strategy_key,
                 exchange=exchange, symbols=symbols, **COMMON_FIELDS,

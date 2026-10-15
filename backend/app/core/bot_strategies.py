@@ -96,6 +96,7 @@ TUNABLE_PARAM_BOUNDS: Dict[str, Dict[str, Tuple[float, float, float]]] = {
     "bot_8": {"left_bars": (2, 10, 3), "right_bars": (2, 10, 2)},
     "bot_9": {"left_bars": (2, 10, 5), "right_bars": (2, 10, 3)},
     "bot_10": {"left_bars": (2, 10, 5), "right_bars": (2, 10, 3)},
+    "bot_11": {"left_bars": (2, 10, 3), "right_bars": (2, 10, 3)},
 }
 
 
@@ -142,11 +143,14 @@ def resolve_tunable_param(strategy_key: str, param: str, config: Dict) -> float:
 MIN_STOP_DISTANCE_PCT = 0.0015  # 0.15% of entry price
 
 
-def apply_min_stop_distance_floor(entry_price: float, sl_price: float, direction: str) -> float:
+def apply_min_stop_distance_floor(entry_price: float, sl_price: float, direction: str,
+                                   min_pct: float = MIN_STOP_DISTANCE_PCT) -> float:
     """Widens sl_price away from entry_price, if needed, so the
-    resulting distance is at least MIN_STOP_DISTANCE_PCT of
-    entry_price. A no-op for any stop that's already wide enough."""
-    min_distance = entry_price * MIN_STOP_DISTANCE_PCT
+    resulting distance is at least min_pct (default: the platform-wide
+    MIN_STOP_DISTANCE_PCT) of entry_price. A no-op for any stop that's
+    already wide enough. `min_pct` is overridable per call site —
+    see bot_11's own use for a deliberately larger value."""
+    min_distance = entry_price * min_pct
     if abs(entry_price - sl_price) >= min_distance:
         return sl_price
     return entry_price - min_distance if direction == "long" else entry_price + min_distance
@@ -572,6 +576,18 @@ class OrderBlockReversalBot:
             # the sweep extreme is detected independently of target_ob
             # and can sit inside it.
             final_stop_loss = extend_stop_beyond_zone(final_stop_loss, target_ob, direction)
+            # Real bug, found via direct report on real trades
+            # ("tight SL ... can we review how to optimise"): unlike
+            # this method's own "structure_swing" branch below (which
+            # goes through calculate_stop_loss and gets this floor for
+            # free), this branch builds its stop dict by hand and had
+            # never been floored at all — on a narrow OB/sweep
+            # combination (confirmed live on JPYUSDT.P: a real stop
+            # only 0.05% from entry, well under the 0.15% platform
+            # floor every other stop-placement path enforces) this
+            # produced a genuinely undersized, premature stop. Floor
+            # — see apply_min_stop_distance_floor's own docstring.
+            final_stop_loss = apply_min_stop_distance_floor(entry["entry_price"], final_stop_loss, direction)
             sl = {
                 "stop_loss": final_stop_loss,
                 "sl_distance": abs(entry["entry_price"] - final_stop_loss),
@@ -612,7 +628,7 @@ class OrderBlockReversalBot:
             lot_size=lots["lot_size"],
             risk_percent=risk,
             reasoning=f"ICT OB Reversal {direction}. HTF OB active. 15M CHoCH + {'sweep' if has_sweep else 'no sweep'}. "
-                     f"FVG confirmation: {len(active_fvgs)} active. Tight SL. 3R target.",
+                     f"FVG confirmation: {len(active_fvgs)} active. SL beyond sweep/swing, embedded OB. 3R target.",
             timestamp=datetime.utcnow()
         )
 
@@ -1191,6 +1207,13 @@ class VolumeLiquidityBot:
         if poi_zone is not None:
             sl_price = extend_stop_beyond_zone(sl_price, poi_zone, direction)
 
+        # Floor — same gap found and fixed across this bot family's
+        # other raw sweep/swing-extreme SL branches (see Bot 2's own
+        # fix comment for the full root cause); this path built its
+        # stop from range_size * 0.02 with no floor at all, so a tight
+        # range could produce an undersized stop. See
+        # apply_min_stop_distance_floor's own docstring.
+        sl_price = apply_min_stop_distance_floor(entry_price, sl_price, direction)
         sl_distance = abs(entry_price - sl_price)
         sl = {
             "stop_loss": sl_price,
@@ -1487,6 +1510,11 @@ class JeafxSMCBot:
             sl_price = purge_extreme + buffer
 
         sl_price = extend_stop_beyond_zone(sl_price, aligned_zone, direction)
+        # Floor — same gap found and fixed across this bot family's
+        # other raw sweep-extreme SL branches (see Bot 2's own fix
+        # comment for the full root cause). See
+        # apply_min_stop_distance_floor's own docstring.
+        sl_price = apply_min_stop_distance_floor(entry_price, sl_price, direction)
         sl_distance = abs(entry_price - sl_price)
 
         sl = {
@@ -1719,6 +1747,9 @@ class JeafxSMCv2Bot:
             sl_price = purge_extreme + buffer
 
         sl_price = extend_stop_beyond_zone(sl_price, aligned_zone, direction)
+        # Floor — see Bot 2/Bot 5's own fix comment for the full root
+        # cause; same gap, same fix, everywhere this pattern recurs.
+        sl_price = apply_min_stop_distance_floor(entry_price, sl_price, direction)
         sl_distance = abs(entry_price - sl_price)
         sl = {"stop_loss": sl_price, "sl_distance": sl_distance, "method": "jeafx_purge_extreme"}
 
@@ -1909,6 +1940,9 @@ class JeafxSMCv2SingleAnchorBot:
         else:
             sl_price = purge_extreme + buffer
         sl_price = extend_stop_beyond_zone(sl_price, aligned_zone, direction)
+        # Floor — see Bot 2/Bot 5's own fix comment for the full root
+        # cause; same gap, same fix, everywhere this pattern recurs.
+        sl_price = apply_min_stop_distance_floor(entry_price, sl_price, direction)
         sl_distance = abs(entry_price - sl_price)
         sl = {"stop_loss": sl_price, "sl_distance": sl_distance, "method": "jeafx_purge_extreme"}
 
@@ -2105,6 +2139,11 @@ class VolumeLiquidityWideRangeBot:
         if poi_zone is not None:
             sl_price = extend_stop_beyond_zone(sl_price, poi_zone, direction)
 
+        # Floor — same gap found and fixed across this bot family's
+        # other raw sweep/swing-extreme SL branches (see Bot 2's own
+        # fix comment for the full root cause). See
+        # apply_min_stop_distance_floor's own docstring.
+        sl_price = apply_min_stop_distance_floor(entry_price, sl_price, direction)
         sl_distance = abs(entry_price - sl_price)
         sl = {"stop_loss": sl_price, "sl_distance": sl_distance, "method": "spring_upthrust_extreme"}
 
@@ -2324,6 +2363,11 @@ class VolumeLiquidityHeldReclaimBot:
         if poi_zone is not None:
             sl_price = extend_stop_beyond_zone(sl_price, poi_zone, direction)
 
+        # Floor — same gap found and fixed across this bot family's
+        # other raw sweep/swing-extreme SL branches (see Bot 2's own
+        # fix comment for the full root cause). See
+        # apply_min_stop_distance_floor's own docstring.
+        sl_price = apply_min_stop_distance_floor(entry_price, sl_price, direction)
         sl_distance = abs(entry_price - sl_price)
         sl = {"stop_loss": sl_price, "sl_distance": sl_distance, "method": "spring_upthrust_extreme"}
 
@@ -2352,6 +2396,206 @@ class VolumeLiquidityHeldReclaimBot:
                      f"0/47 real events confirmed via CHoCH, 16/47 confirmed this way). "
                      f"Volume divergence: {volume_divergence}. Confluence: {confluence_count}/4. "
                      f"SL beyond spring/upthrust extreme. Target range opposite.",
+            timestamp=datetime.utcnow()
+        )
+
+
+class OrderBlockReversalWiderStopBot:
+    """
+    Bot 11: HF Order Block Reversal — Wider-Stop A/B Variant
+
+    By direct request, after real screenshots of Bot 2 ("HF Order
+    Block Reversal") trades were shared showing SHORT (NCCO1OILBRENT2
+    USDUSDT.P) and LONG (JPYUSDT.P) setups both stopped out, both with
+    Bot 2's own reasoning text literally saying "Tight SL": "I am
+    wondering whether the SL is too tight for some of the bots ...
+    can we test a variant that has the SL embed the range Order
+    block ... how to optimise the tight SL - expand the SL. Do both
+    versions with relaxed or larger SL that is well positioned and
+    embeds the Order block - level of invalidation."
+
+    Investigated before building anything. Reading Bot 2's real code
+    (both its sweep-based and structure-swing-based stop branches)
+    showed it was ALREADY calling extend_stop_beyond_zone on every
+    path — the OB was already embedded within the stop in both
+    branches; "Tight SL" in the reasoning text was stale/inaccurate
+    copy, not a description of a missing step. Live-replaying Bot 2's
+    real code against the real candles behind the exact two screenshot
+    trades (matching market_scanner.py's own 200-candle production
+    window, not an arbitrarily wider one) found the REAL bug instead:
+    the real JPYUSDT.P trade's own sweep-based branch produced a stop
+    only ~0.05% from entry — well under this platform's own 0.15%
+    MIN_STOP_DISTANCE_PCT floor that every OTHER stop-placement path
+    already enforces — because that one branch builds its stop dict by
+    hand and had never been floored. That gap (confirmed to recur
+    identically across Bots 2/4/5/6/8/9/10, not just Bot 2) is fixed at
+    its source in each bot directly, not here — a genuine correctness
+    bug belongs in the bot it was found in, not quarantined to an A/B
+    variant.
+
+    This bot is the SEPARATE thing actually being requested: a
+    deliberately, legitimately WIDER stop than Bot 2's own (now
+    correctly floored) baseline, kept as its own bot for a genuine A/B
+    comparison — Bot 2 unmodified in every other respect vs this one
+    variable change — rather than silently making Bot 2 itself more
+    conservative and losing the ability to ever measure whether the
+    extra room helps or just bleeds more on normal invalidations.
+    Isolates exactly one variable: both the OB-embed buffer
+    (extend_stop_beyond_zone's buffer_pct: 30% of the zone's own
+    height here, vs Bot 2's 10%) and the hard floor (0.35% of entry,
+    vs Bot 2's platform-wide 0.15%) are widened — two knobs that both
+    exist for the identical purpose (making sure the stop sits a real,
+    defensible distance beyond the level that actually invalidates the
+    setup), so treating them as one combined "how wide is the
+    invalidation buffer" variable, not two separate tests, matches how
+    a trader would actually reason about "the stop is too tight": not
+    one specific formula being wrong, but the overall margin being
+    thin. Everything else — OB selection, CHoCH direction, premium/
+    discount check, liquidity sweep, FVG confirmation, entry price,
+    target ladder — is byte-for-byte identical to Bot 2.
+    """
+
+    _EMBED_BUFFER_PCT = 0.3  # vs Bot 2's extend_stop_beyond_zone default of 0.1
+    _FLOOR_PCT = 0.0035      # vs Bot 2's platform-wide MIN_STOP_DISTANCE_PCT of 0.0015
+
+    def __init__(self, config: Dict):
+        self.bot_id = "bot_11_ob_reversal_wider_stop"
+        self.bot_name = "HF Order Block Reversal (Wider-Stop A/B)"
+        self.config = config
+        self.structure_detector = MarketStructureDetector(
+            left_bars=int(resolve_tunable_param("bot_11", "left_bars", config)),
+            right_bars=int(resolve_tunable_param("bot_11", "right_bars", config)),
+        )
+        self.entry_engine = EntryExitEngine(default_rr=3.0)
+        self.risk_manager = RiskManager(base_risk_percent=1.0)
+        self.mtf = MTFAlignmentEngine()
+
+    def analyze(self,
+                candles_4h: List[Candle],
+                candles_1h: List[Candle],
+                candles_15m: List[Candle],
+                account_balance: float,
+                symbol: str,
+                risk_per_trade: Optional[float] = None,
+                min_rr_ratio: Optional[float] = None,
+                bot_id: Optional[str] = None) -> Optional[BotSignal]:
+
+        zone_detector = ZoneDetector()
+        swings_4h = self.structure_detector.detect_swing_highs(candles_4h) + \
+                    self.structure_detector.detect_swing_lows(candles_4h)
+
+        obs = zone_detector.detect_order_blocks(candles_4h, swings_4h)
+        active_obs = [z for z in obs if z.status.name == "ACTIVE" and z.test_count <= 1]
+        zone_swings = swings_4h
+
+        if not active_obs:
+            swings_1h = self.structure_detector.detect_swing_highs(candles_1h) + \
+                        self.structure_detector.detect_swing_lows(candles_1h)
+            obs = zone_detector.detect_order_blocks(candles_1h, swings_1h)
+            active_obs = [z for z in obs if z.status.name == "ACTIVE" and z.test_count <= 1]
+            zone_swings = swings_1h
+
+        if not active_obs:
+            return None
+
+        current_price = candles_15m[-1].close
+        inside_obs = [z for z in active_obs if z.bottom <= current_price <= z.top]
+
+        if not inside_obs:
+            return None
+
+        target_ob = inside_obs[-1]
+
+        swings_15m = self.structure_detector.detect_swing_highs(candles_15m) + \
+                     self.structure_detector.detect_swing_lows(candles_15m)
+
+        choch_15m = self.structure_detector.detect_choch(
+            candles_15m, self.structure_detector.filter_significant_swings(swings_15m)
+        )
+
+        if not choch_15m:
+            return None
+
+        last_choch = choch_15m[-1]
+
+        if last_choch["type"] == "bullish_choch":
+            direction = "long"
+        elif last_choch["type"] == "bearish_choch":
+            direction = "short"
+        else:
+            return None
+
+        zone_swing_high = max((s.price for s in zone_swings), default=None)
+        zone_swing_low = min((s.price for s in zone_swings), default=None)
+        if zone_swing_high is not None and zone_swing_low is not None:
+            zone_detector.classify_premium_discount([target_ob], zone_swing_high, zone_swing_low)
+            if (direction == "long" and target_ob.classification == "premium") or \
+               (direction == "short" and target_ob.classification == "discount"):
+                return None
+
+        liq_detector = LiquidityDetector()
+        pools = liq_detector.detect_equal_highs_lows(candles_15m)
+        sweeps = liq_detector.detect_liquidity_sweeps(pools, candles_15m[-5:])
+
+        has_sweep = len(sweeps) > 0
+
+        fvg_detector = FVGDetector()
+        fvgs = fvg_detector.detect_fvg(candles_15m[-10:])
+        active_fvgs = [f for f in fvgs if f.status.name == "ACTIVE" and f.gap_type == direction]
+
+        entry_type = "mean" if has_sweep else "aggressive"
+        entry = self.entry_engine.calculate_entry(target_ob, entry_type, direction)
+
+        if has_sweep:
+            sl_price = sweeps[-1]["sweep_price"]
+            buffer = sl_price * 0.0005
+            final_stop_loss = sl_price - buffer if direction == "long" else sl_price + buffer
+            final_stop_loss = extend_stop_beyond_zone(
+                final_stop_loss, target_ob, direction, buffer_pct=self._EMBED_BUFFER_PCT
+            )
+            final_stop_loss = apply_min_stop_distance_floor(
+                entry["entry_price"], final_stop_loss, direction, min_pct=self._FLOOR_PCT
+            )
+            sl = {
+                "stop_loss": final_stop_loss,
+                "sl_distance": abs(entry["entry_price"] - final_stop_loss),
+                "method": "sweep_extreme_wide"
+            }
+        else:
+            if not swings_15m:
+                return None
+            sl_swing = swings_15m[-1]
+            sl = self.entry_engine.calculate_stop_loss(entry, target_ob, sl_swing, "structure_swing")
+            sl["stop_loss"] = extend_stop_beyond_zone(
+                sl["stop_loss"], target_ob, direction, buffer_pct=self._EMBED_BUFFER_PCT
+            )
+            sl["stop_loss"] = apply_min_stop_distance_floor(
+                entry["entry_price"], sl["stop_loss"], direction, min_pct=self._FLOOR_PCT
+            )
+            sl["sl_distance"] = abs(entry["entry_price"] - sl["stop_loss"])
+
+        targets = self.entry_engine.calculate_targets(entry, sl, rr_ratio=min_rr_ratio if min_rr_ratio is not None else 3.0)
+        risk = self.risk_manager.calculate_position_risk(setup_quality=1.1, base_risk_override=risk_per_trade)
+        lots = self.entry_engine.calculate_lot_size(account_balance, risk, sl["sl_distance"])
+
+        return BotSignal(
+            bot_id=bot_id or self.bot_id,
+            bot_name=self.bot_name,
+            symbol=symbol,
+            direction=direction,
+            confidence=0.80 if has_sweep else 0.70,
+            entry_price=entry["entry_price"],
+            stop_loss=sl["stop_loss"],
+            take_profit=targets["tp1"],
+            take_profit_2=targets["tp2"],
+            take_profit_3=targets["tp3"],
+            lot_size=lots["lot_size"],
+            risk_percent=risk,
+            reasoning=f"ICT OB Reversal {direction} (A/B, wider-stop). HTF OB active. 15M CHoCH + {'sweep' if has_sweep else 'no sweep'}. "
+                     f"FVG confirmation: {len(active_fvgs)} active. SL beyond sweep/swing, embedded OB with a "
+                     f"{self._EMBED_BUFFER_PCT:g}x buffer + {self._FLOOR_PCT*100:g}% floor "
+                     f"(vs Bot 2's 0.1x/{MIN_STOP_DISTANCE_PCT*100:g}% — the one variable this variant isolates). "
+                     f"3R target.",
             timestamp=datetime.utcnow()
         )
 
@@ -2471,9 +2715,9 @@ def _signal_risk_is_valid(signal: "BotSignal", account_balance: float) -> tuple[
 
 
 class BotOrchestrator:
-    """Manages all 10 bots (7 original + 3 A/B test variants: Bot 8
-    vs Bot 6, Bot 9 and Bot 10 vs Bot 4) and routes signals to
-    execution."""
+    """Manages all 11 bots (7 original + 4 A/B test variants: Bot 8
+    vs Bot 6, Bot 9 and Bot 10 vs Bot 4, Bot 11 vs Bot 2) and routes
+    signals to execution."""
 
     def __init__(self, configs: Dict[str, Dict]):
         self.bots = {
@@ -2487,6 +2731,7 @@ class BotOrchestrator:
             "bot_8": JeafxSMCv2SingleAnchorBot(configs.get("bot_8", {})),
             "bot_9": VolumeLiquidityWideRangeBot(configs.get("bot_9", {})),
             "bot_10": VolumeLiquidityHeldReclaimBot(configs.get("bot_10", {})),
+            "bot_11": OrderBlockReversalWiderStopBot(configs.get("bot_11", {})),
         }
         self.active_signals: List[BotSignal] = []
 
@@ -2617,6 +2862,10 @@ class BotOrchestrator:
         # Bot 10 (Volume & Liquidity held-reclaim A/B variant): same candle needs as Bot 4.
         if "4H" in market_data and "1H" in market_data:
             _run_family("bot_10", market_data["4H"], market_data["1H"])
+
+        # Bot 11 (OB Reversal wider-stop A/B variant): same candle needs as Bot 2.
+        if all(k in market_data for k in ["4H", "1H", "15M"]):
+            _run_family("bot_11", market_data["4H"], market_data["1H"], market_data["15M"])
 
         self.active_signals = signals
         return signals
