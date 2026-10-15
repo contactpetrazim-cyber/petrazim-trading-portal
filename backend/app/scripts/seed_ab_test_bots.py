@@ -1,17 +1,23 @@
 """
-Seed Bot 8 / Bot 9 — A/B Test Variants
-===========================================
+Seed Bot 8 / Bot 9 / Bot 10 — A/B Test Variants
+=====================================================
 
 By direct request: "find a way to loosen and still make a winning
 strategy ... create a totally new bot with your new guidance and then
 use it as a A to B testing over the long run ... original versus
-modified ... Do same for bots that have not been taking trades."
+modified ... Do same for bots that have not been taking trades." Then,
+after Bot 9's own real result came back a null on the CHoCH issue:
+"Can we create a bot 10 to test the CHOCH issue."
 
-Bot 8 (JeafxSMCv2SingleAnchorBot) and Bot 9 (VolumeLiquidityWideRangeBot)
-— see their own class docstrings in bot_strategies.py for the exact,
-single, evidence-based variable each isolates against its parent (Bot 6
-and Bot 4 respectively). This script creates one real BotConfig row per
-instance, mirroring its parent's exact symbol/exchange/risk
+Bot 8 (JeafxSMCv2SingleAnchorBot), Bot 9 (VolumeLiquidityWideRangeBot),
+and Bot 10 (VolumeLiquidityHeldReclaimBot) — see their own class
+docstrings in bot_strategies.py for the exact, single, evidence-based
+variable each isolates against its parent (Bot 6 for Bot 8; Bot 4 for
+both Bot 9 and Bot 10 — two independent, cleanly separated single-
+variable tests against the same baseline, deliberately kept as two
+bots rather than combined into one, so a future result can tell WHICH
+change actually mattered). This script creates one real BotConfig row
+per instance, mirroring its parent's exact symbol/exchange/risk
 configuration (dumped directly from the live production BotConfig rows
 before writing this — not guessed), so the comparison is genuinely
 apples-to-apples: same instruments, same risk per trade, same every
@@ -43,6 +49,10 @@ BOT_8_INSTANCES = [
 BOT_9_INSTANCES = [
     ("bot_9_volume_liq_wide_range", "Volume & Liquidity Wide-Range (A/B) bot-1", None, ["BTCUSDT.P"]),
     ("bot_9_volume_liq_wide_range_2", "Volume & Liquidity Wide-Range (A/B) JPY EU XAUT", "mexc", ["JPYUSDT.P", "EURUSDT.P", "XAUTUSDT.P"]),
+]
+BOT_10_INSTANCES = [
+    ("bot_10_volume_liq_held_reclaim", "Volume & Liquidity Held-Reclaim (A/B) bot-1", None, ["BTCUSDT.P"]),
+    ("bot_10_volume_liq_held_reclaim_2", "Volume & Liquidity Held-Reclaim (A/B) JPY EU XAUT", "mexc", ["JPYUSDT.P", "EURUSDT.P", "XAUTUSDT.P"]),
 ]
 
 COMMON_FIELDS = dict(
@@ -81,11 +91,17 @@ async def seed_ab_test_bots():
         existing_ids = set((await db.execute(select(BotConfig.bot_id))).scalars().all())
         created = 0
 
-        for bot_id, bot_name, exchange, symbols in BOT_8_INSTANCES + BOT_9_INSTANCES:
+        all_instances = BOT_8_INSTANCES + BOT_9_INSTANCES + BOT_10_INSTANCES
+        for bot_id, bot_name, exchange, symbols in all_instances:
             if bot_id in existing_ids:
                 print(f"  SKIP — {bot_id} already exists")
                 continue
-            strategy_key = "bot_8" if bot_id.startswith("bot_8_") else "bot_9"
+            if bot_id.startswith("bot_8_"):
+                strategy_key = "bot_8"
+            elif bot_id.startswith("bot_9_"):
+                strategy_key = "bot_9"
+            else:
+                strategy_key = "bot_10"
             db.add(BotConfig(
                 bot_id=bot_id, bot_name=bot_name, strategy_key=strategy_key,
                 exchange=exchange, symbols=symbols, **COMMON_FIELDS,
@@ -94,7 +110,7 @@ async def seed_ab_test_bots():
             print(f"  OK — created {bot_id} (exchange={exchange}, symbols={symbols})")
 
         await db.commit()
-        print(f"\n{created} of {len(BOT_8_INSTANCES) + len(BOT_9_INSTANCES)} A/B test bot rows created.")
+        print(f"\n{created} of {len(all_instances)} A/B test bot rows created.")
 
 
 if __name__ == "__main__":
