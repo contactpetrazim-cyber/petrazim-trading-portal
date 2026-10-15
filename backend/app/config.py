@@ -293,6 +293,20 @@ class Settings(BaseSettings):
     INTELLIGENT_TUNING_KILL_SWITCH_MIN_TRADES: int = 10
     INTELLIGENT_TUNING_KILL_SWITCH_MAX_AVG_R: float = -0.5
 
+    # Monthly Trading Audit (engines/trading_audit_engine.py) — by
+    # direct request ("I want the Trading portal to be able to do this
+    # analyses monthly and review results ... integrate into the Admin
+    # portal"). Off by default, same reasoning as every other
+    # always-on-by-opt-in worker here (MARKET_SCANNER_ENABLED,
+    # INTELLIGENT_TUNING_ENABLED) — an admin can also always trigger a
+    # run manually from the Admin portal regardless of this flag.
+    # INTERVAL_SECONDS default (30 days) is the real monthly cadence
+    # asked for; LOOKBACK_DAYS is how far back each run's own audited
+    # period reaches, independent of the interval between runs.
+    TRADING_AUDIT_ENABLED: bool = False
+    TRADING_AUDIT_INTERVAL_SECONDS: int = 30 * 24 * 3600
+    TRADING_AUDIT_LOOKBACK_DAYS: int = 30
+
     # MetaApi idle-undeploy sweep (services/metaapi_lifecycle.py) — by
     # direct request ("$9/month is high and a waste of not used ...
     # develop an auto engine that auto-undeploys when not in use").

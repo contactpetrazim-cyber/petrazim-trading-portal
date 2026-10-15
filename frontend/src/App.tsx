@@ -23,6 +23,7 @@ const ConnectExchangePage = lazy(() => import('./pages/ConnectExchangePage').the
 const ExchangeBalancesPage = lazy(() => import('./pages/ExchangeBalancesPage').then((module) => ({ default: module.ExchangeBalancesPage })));
 const AdminExchangeConnectionsPage = lazy(() => import('./pages/AdminExchangeConnectionsPage').then((module) => ({ default: module.AdminExchangeConnectionsPage })));
 const AdminFeeSettingsPage = lazy(() => import('./pages/AdminFeeSettingsPage').then((module) => ({ default: module.AdminFeeSettingsPage })));
+const AdminTradingAuditPage = lazy(() => import('./pages/AdminTradingAuditPage').then((module) => ({ default: module.AdminTradingAuditPage })));
 const OnboardingPage = lazy(() => import('./pages/OnboardingPage').then((module) => ({ default: module.OnboardingPage })));
 const TradingViewFramePage = lazy(() => import('./pages/TradingViewFramePage').then((module) => ({ default: module.TradingViewFramePage })));
 const ChartOPage = lazy(() => import('./pages/ChartOPage').then((module) => ({ default: module.ChartOPage })));
@@ -236,6 +237,11 @@ function App() {
         <Route path="/admin/fees" element={
           <ProtectedRoute allowedRoles={['admin', 'super_admin']}>
             <CorporateLayout portal="admin"><AdminFeeSettingsPage /></CorporateLayout>
+          </ProtectedRoute>
+        } />
+        <Route path="/admin/trading-audit" element={
+          <ProtectedRoute allowedRoles={['admin', 'super_admin']}>
+            <CorporateLayout portal="admin"><AdminTradingAuditPage /></CorporateLayout>
           </ProtectedRoute>
         } />
 

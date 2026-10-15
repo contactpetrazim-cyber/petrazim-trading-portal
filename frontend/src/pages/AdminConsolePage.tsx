@@ -435,6 +435,11 @@ export function AdminConsolePage() {
           title="Performance Fees"
           summary="Fee toggle, percentage, payout destination, and the owed/paid ledger"
         />
+        <AdminLinkCard
+          to="/admin/trading-audit" icon={<Activity size={18} />} dark={dark}
+          title="Monthly Trading Audit"
+          summary="Instrument/bot inventory, reconciliation, and expectancy findings — review and selectively apply recommendations"
+        />
       </div>
 
       <div className="space-y-3 mb-4">
