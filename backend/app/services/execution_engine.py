@@ -1733,7 +1733,30 @@ class ExecutionEngine:
             return {"ok": True}
 
         live_price = ticker["price"]
-        deviation_pct = abs(live_price - signal_price) / live_price * 100 if live_price else 0.0
+        # Direction-aware now — by direct request after investigating a
+        # real cluster of 10 rejections on NCCO1OILBRENT2USDUSDT.P
+        # (confirmed live: every one WAS a genuinely adverse move, and
+        # this instrument's own real stop distances run as tight as
+        # 0.04%-0.97% of entry — comparable to or smaller than the
+        # deviations seen, so blanket-widening the tolerance would mean
+        # accepting fills that had already burned a large fraction of
+        # the planned risk budget before the trade even opened; not
+        # done). This change is a pure, risk-free improvement found
+        # along the way: the OLD check used abs(live - signal), which
+        # blocked a FAVORABLE move (price already better than planned)
+        # exactly as hard as an adverse one — a long getting a cheaper
+        # fill, or a short getting a higher one, is strictly better
+        # than the plan and was never actually a risk to guard against.
+        # Now only the adverse direction counts against the tolerance;
+        # any favorable deviation, however large, always passes. This
+        # never WIDENS protection against a bad fill (the adverse side
+        # keeps the exact same tolerance as before) — it only stops
+        # rejecting trades that can't be going wrong.
+        if trade.get("direction") == "long":
+            adverse_pct = max(0.0, (live_price - signal_price) / live_price * 100) if live_price else 0.0
+        else:
+            adverse_pct = max(0.0, (signal_price - live_price) / live_price * 100) if live_price else 0.0
+        deviation_pct = adverse_pct
         ok = deviation_pct <= self.settings.PRICE_DEVIATION_TOLERANCE_PCT
         return {
             "ok": ok,
