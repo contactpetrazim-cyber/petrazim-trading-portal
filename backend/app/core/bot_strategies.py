@@ -1405,6 +1405,30 @@ class JeafxSMCBot:
         else:
             entry_price = (confirmation_candle.open + confirmation_candle.close) / 2
 
+        # Real bug, found live (bot_signal_invalid_risk_geometry:
+        # "stop_loss is on the wrong side of entry_price for this
+        # direction", recurring for this exact bot): Step 3's sweep
+        # selection (last_sweep = sweeps[-1]) picks whichever sweep is
+        # most recent in the 15M window with no regard for which SIDE
+        # it swept — direction comes from 4H BOS now, entirely
+        # decoupled from the sweep (see Step 2's own comment on why).
+        # A "buy_side_sweep" is a swept LOW (bullish continuation —
+        # should only ever anchor a LONG's stop); a "sell_side_sweep"
+        # is a swept HIGH (bearish continuation — should only ever
+        # anchor a SHORT's stop) — see LiquidityDetector.
+        # detect_liquidity_sweeps' own real behavior (buy_side_sweep:
+        # candle.low, wick-below-close-above a swept LOW; sell_side_
+        # sweep: candle.high, wick-above-close-below a swept HIGH).
+        # Using a sweep of the WRONG side here let a short's stop get
+        # anchored to a recently-swept LOW — often itself below the
+        # (independently computed) entry price — producing exactly the
+        # "stop on the wrong side of entry" signals rejected live.
+        # Fails closed (no signal) rather than risk computing a bad
+        # stop, same discipline as every other hard gate in this bot.
+        expected_sweep_type = "buy_side_sweep" if direction == "long" else "sell_side_sweep"
+        if last_sweep["type"] != expected_sweep_type:
+            return None
+
         # Step 8: Strict SL beyond purge extreme, extended to embed the
         # aligned zone itself — by direct, repeated audit observation
         # ("the order block should be embedded within the SL
@@ -1628,6 +1652,17 @@ class JeafxSMCv2Bot:
             entry_price = (valid_fvg.top + valid_fvg.bottom) / 2
         else:
             entry_price = (confirmation_candle.open + confirmation_candle.close) / 2
+
+        # Real bug, same fix as Bot 5's identical step (see that one's
+        # own comment for the full root-cause explanation): Step 2's
+        # sweep selection has no direction to filter by yet here
+        # (direction isn't decided until Step 5), so this validates the
+        # sweep's side against direction right before trusting it as a
+        # stop-loss anchor instead — fails closed rather than risk a
+        # stop on the wrong side of entry.
+        expected_sweep_type = "buy_side_sweep" if direction == "long" else "sell_side_sweep"
+        if last_sweep["type"] != expected_sweep_type:
+            return None
 
         # Step 8: Strict SL beyond purge extreme, extended to embed the
         # aligned zone itself — same fix, and same user observation, as
