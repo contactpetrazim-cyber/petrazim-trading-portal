@@ -2714,24 +2714,51 @@ def _signal_risk_is_valid(signal: "BotSignal", account_balance: float) -> tuple[
     return True, None
 
 
+# Single source of truth for "what bots exist and what candle data
+# each one needs" — by direct request, after discovering that
+# strategy_adapter.py's OWN hand-maintained copy of this exact mapping
+# (STRATEGY_FAMILY, used to backtest a bot) had silently gone stale:
+# Bots 8-11 were added to BotOrchestrator below when they were built,
+# but nobody updated strategy_adapter.py's separate copy, so every one
+# of those 4 bots was quietly unbacktestable ("Unknown strategy_key")
+# from the moment it existed until the gap was found while trying to
+# run Stage 9's real backtests. Two hand-maintained registries of the
+# same fact WILL drift — this is that exact failure, caught once. The
+# permanent fix is structural, not another manual addition: there is
+# now exactly ONE place a bot is registered (here), both
+# BotOrchestrator (below) and strategy_adapter.STRATEGY_FAMILY (which
+# now just imports this dict) read from it, and adding bot_12 in the
+# future means adding ONE entry here — nowhere else to remember.
+#
+# Each entry: bot class, ordered [(analyze() kwarg name, timeframe
+# label as used in market_scanner.py / Candle fetches, e.g.
+# "1D"/"4H"/"1H"/"15M"/"5M")] — verified directly against every
+# analyze() signature in this file, not inferred from bot names.
+BOT_REGISTRY: Dict[str, tuple] = {
+    "bot_1": (MacroSwingStructureBot, [("candles_1d", "1D"), ("candles_4h", "4H")]),
+    "bot_2": (OrderBlockReversalBot, [("candles_4h", "4H"), ("candles_1h", "1H"), ("candles_15m", "15M")]),
+    "bot_3": (FVGExpansionBot, [("candles_1h", "1H"), ("candles_15m", "15M")]),
+    "bot_4": (VolumeLiquidityBot, [("candles_4h", "4H"), ("candles_1h", "1H")]),
+    "bot_5": (JeafxSMCBot, [("candles_4h", "4H"), ("candles_1h", "1H"), ("candles_15m", "15M"), ("candles_5m", "5M")]),
+    "bot_6": (JeafxSMCv2Bot, [("candles_1h", "1H"), ("candles_15m", "15M"), ("candles_5m", "5M")]),
+    "bot_7": (FVGExpansionV3Bot, [("candles_1h", "1H"), ("candles_15m", "15M")]),
+    "bot_8": (JeafxSMCv2SingleAnchorBot, [("candles_1h", "1H"), ("candles_15m", "15M"), ("candles_5m", "5M")]),
+    "bot_9": (VolumeLiquidityWideRangeBot, [("candles_4h", "4H"), ("candles_1h", "1H")]),
+    "bot_10": (VolumeLiquidityHeldReclaimBot, [("candles_4h", "4H"), ("candles_1h", "1H")]),
+    "bot_11": (OrderBlockReversalWiderStopBot, [("candles_4h", "4H"), ("candles_1h", "1H"), ("candles_15m", "15M")]),
+}
+
+
 class BotOrchestrator:
     """Manages all 11 bots (7 original + 4 A/B test variants: Bot 8
     vs Bot 6, Bot 9 and Bot 10 vs Bot 4, Bot 11 vs Bot 2) and routes
-    signals to execution."""
+    signals to execution. Bot roster and candle requirements come from
+    BOT_REGISTRY above — the single place a new bot needs to be added."""
 
     def __init__(self, configs: Dict[str, Dict]):
         self.bots = {
-            "bot_1": MacroSwingStructureBot(configs.get("bot_1", {})),
-            "bot_2": OrderBlockReversalBot(configs.get("bot_2", {})),
-            "bot_3": FVGExpansionBot(configs.get("bot_3", {})),
-            "bot_4": VolumeLiquidityBot(configs.get("bot_4", {})),
-            "bot_5": JeafxSMCBot(configs.get("bot_5", {})),
-            "bot_6": JeafxSMCv2Bot(configs.get("bot_6", {})),
-            "bot_7": FVGExpansionV3Bot(configs.get("bot_7", {})),
-            "bot_8": JeafxSMCv2SingleAnchorBot(configs.get("bot_8", {})),
-            "bot_9": VolumeLiquidityWideRangeBot(configs.get("bot_9", {})),
-            "bot_10": VolumeLiquidityHeldReclaimBot(configs.get("bot_10", {})),
-            "bot_11": OrderBlockReversalWiderStopBot(configs.get("bot_11", {})),
+            bot_key: bot_cls(configs.get(bot_key, {}))
+            for bot_key, (bot_cls, _required_tfs) in BOT_REGISTRY.items()
         }
         self.active_signals: List[BotSignal] = []
 
@@ -2821,51 +2848,17 @@ class BotOrchestrator:
                     continue
                 self._collect(signals, sig, account_balance)
 
-        # Bot 1: Needs 1D + 4H
-        if "1D" in market_data and "4H" in market_data:
-            _run_family("bot_1", market_data["1D"], market_data["4H"])
-
-        # Bot 2: Needs 4H + 1H + 15M
-        if all(k in market_data for k in ["4H", "1H", "15M"]):
-            _run_family("bot_2", market_data["4H"], market_data["1H"], market_data["15M"])
-
-        # Bot 3: Needs 1H + 15M
-        if "1H" in market_data and "15M" in market_data:
-            _run_family("bot_3", market_data["1H"], market_data["15M"])
-
-        # Bot 4: Needs 4H + 1H
-        if "4H" in market_data and "1H" in market_data:
-            _run_family("bot_4", market_data["4H"], market_data["1H"])
-
-        # Bot 5: Needs 4H + 1H + 15M + 5M — 4H added by direct request
-        # ("get direction from the direction of the last 4H BOS"); see
-        # JeafxSMCBot.analyze's own Step 2 comment for the full story.
-        if all(k in market_data for k in ["4H", "1H", "15M", "5M"]):
-            _run_family("bot_5", market_data["4H"], market_data["1H"], market_data["15M"], market_data["5M"])
-
-        # Bot 6 (SMC v2): Needs 1H + 15M + 5M — same set as Bot 5.
-        if all(k in market_data for k in ["1H", "15M", "5M"]):
-            _run_family("bot_6", market_data["1H"], market_data["15M"], market_data["5M"])
-
-        # Bot 7 (FVG Expansion v3): same candle needs as Bot 3.
-        if "1H" in market_data and "15M" in market_data:
-            _run_family("bot_7", market_data["1H"], market_data["15M"])
-
-        # Bot 8 (SMC v2 single-anchor A/B variant): same candle needs as Bot 6.
-        if all(k in market_data for k in ["1H", "15M", "5M"]):
-            _run_family("bot_8", market_data["1H"], market_data["15M"], market_data["5M"])
-
-        # Bot 9 (Volume & Liquidity wide-range A/B variant): same candle needs as Bot 4.
-        if "4H" in market_data and "1H" in market_data:
-            _run_family("bot_9", market_data["4H"], market_data["1H"])
-
-        # Bot 10 (Volume & Liquidity held-reclaim A/B variant): same candle needs as Bot 4.
-        if "4H" in market_data and "1H" in market_data:
-            _run_family("bot_10", market_data["4H"], market_data["1H"])
-
-        # Bot 11 (OB Reversal wider-stop A/B variant): same candle needs as Bot 2.
-        if all(k in market_data for k in ["4H", "1H", "15M"]):
-            _run_family("bot_11", market_data["4H"], market_data["1H"], market_data["15M"])
+        # Data-driven over BOT_REGISTRY (see its own comment) instead
+        # of one hardcoded if-block per bot — this is the actual fix:
+        # a bot now only needs to exist in ONE place to be both live-
+        # tradeable and backtestable, so this loop can never again
+        # silently omit a bot the way the old per-bot blocks did for
+        # Bots 8-11 here (they WERE added correctly) vs
+        # strategy_adapter.py's separate copy (which wasn't).
+        for bot_key, (_bot_cls, required_tfs) in BOT_REGISTRY.items():
+            labels = [label for _, label in required_tfs]
+            if all(label in market_data for label in labels):
+                _run_family(bot_key, *[market_data[label] for label in labels])
 
         self.active_signals = signals
         return signals

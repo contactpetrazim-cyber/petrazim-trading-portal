@@ -36,34 +36,23 @@ from __future__ import annotations
 import bisect
 from typing import Dict, List, Optional
 
-from app.core.bot_strategies import (
-    BotSignal,
-    FVGExpansionBot,
-    FVGExpansionV3Bot,
-    JeafxSMCBot,
-    JeafxSMCv2Bot,
-    MacroSwingStructureBot,
-    OrderBlockReversalBot,
-    VolumeLiquidityBot,
-    _signal_risk_is_valid,
-)
+from app.core.bot_strategies import BOT_REGISTRY, BotSignal, _signal_risk_is_valid
 from app.core.smc_algorithms import Candle
 from app.engines.backtest_engine import BacktestSignal, BarWindow, LadderLeg
 
-# strategy_key ("bot_1".."bot_7", BotConfig.strategy_key) -> (bot class,
-# ordered [(analyze() kwarg name, timeframe label as used in
+# strategy_key ("bot_1".."bot_11", BotConfig.strategy_key) -> (bot
+# class, ordered [(analyze() kwarg name, timeframe label as used in
 # market_scanner.py / Candle fetches, e.g. "1D"/"4H"/"1H"/"15M"/"5M")]).
-# Verified directly against every analyze() signature in
-# app/core/bot_strategies.py, not inferred from bot names.
-STRATEGY_FAMILY: Dict[str, tuple] = {
-    "bot_1": (MacroSwingStructureBot, [("candles_1d", "1D"), ("candles_4h", "4H")]),
-    "bot_2": (OrderBlockReversalBot, [("candles_4h", "4H"), ("candles_1h", "1H"), ("candles_15m", "15M")]),
-    "bot_3": (FVGExpansionBot, [("candles_1h", "1H"), ("candles_15m", "15M")]),
-    "bot_4": (VolumeLiquidityBot, [("candles_4h", "4H"), ("candles_1h", "1H")]),
-    "bot_5": (JeafxSMCBot, [("candles_4h", "4H"), ("candles_1h", "1H"), ("candles_15m", "15M"), ("candles_5m", "5M")]),
-    "bot_6": (JeafxSMCv2Bot, [("candles_1h", "1H"), ("candles_15m", "15M"), ("candles_5m", "5M")]),
-    "bot_7": (FVGExpansionV3Bot, [("candles_1h", "1H"), ("candles_15m", "15M")]),
-}
+#
+# Just an alias for BOT_REGISTRY now — by direct request, after a real
+# bug: this used to be its OWN hand-maintained copy of
+# BotOrchestrator's bot roster, which silently went stale the moment
+# Bots 8-11 were added there and not here (every one of them was
+# unbacktestable, "Unknown strategy_key", from the moment it was
+# built). See BOT_REGISTRY's own comment (bot_strategies.py) for the
+# permanent fix: one registry, not two, so this file can never drift
+# from the live bot roster again.
+STRATEGY_FAMILY: Dict[str, tuple] = BOT_REGISTRY
 
 
 def ladder_fraction(idx: int, configured_levels: List[int], tp1_percent: Optional[float], tp2_percent: Optional[float], tp3_percent: Optional[float]) -> float:
