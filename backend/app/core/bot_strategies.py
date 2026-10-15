@@ -2750,10 +2750,28 @@ BOT_REGISTRY: Dict[str, tuple] = {
 
 
 class BotOrchestrator:
-    """Manages all 11 bots (7 original + 4 A/B test variants: Bot 8
-    vs Bot 6, Bot 9 and Bot 10 vs Bot 4, Bot 11 vs Bot 2) and routes
-    signals to execution. Bot roster and candle requirements come from
-    BOT_REGISTRY above — the single place a new bot needs to be added."""
+    """Manages all 11 dispatched bots (7 original + 4 A/B test variants
+    with their own strategy class: Bot 8 vs Bot 6, Bot 9 and Bot 10 vs
+    Bot 4, Bot 11 vs Bot 2) and routes signals to execution. Bot roster
+    and candle requirements come from BOT_REGISTRY above — the single
+    place a new bot needs to be added. Bot 12 is a 12th real, live bot
+    but deliberately NOT in this registry — it reuses Bot 2's own
+    strategy class/dispatch entirely (see its own seeding comment in
+    seed_ab_test_bots.py), testing a trade-management change rather
+    than a signal-generation one, so it needs no entry of its own
+    here.
+
+    A 13th variant (OrderBlockReversalExtremeEntryBot — always
+    entering at the order block's own extreme, instead of Bot 2's
+    mean-if-swept branch) was built and real-backtested against all 7
+    of Bot 2's own symbols, then REMOVED after the data refuted the
+    hypothesis decisively: worse win rate on every single symbol
+    (e.g. 26% vs 45% on BTC), pooled average R flipping from +0.08
+    to -0.12 across 100+ trades. Recorded here, not as a registered
+    bot, because being in BOT_REGISTRY at all makes a strategy live
+    and tradeable by default (see run_all's own data-driven dispatch
+    loop below) — a confirmed-negative variant has no reason to keep
+    that door open."""
 
     def __init__(self, configs: Dict[str, Dict]):
         self.bots = {
