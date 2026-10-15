@@ -78,15 +78,11 @@ from app.models.analytics import StrategyAdjustment
 from app.models.trade import Trade, TradeStatus
 from app.services.data_ingestion import shared_ingestion
 from app.engines.backtest_engine import BacktestEngine, Bar, CostModel, ClosedBacktestTrade
-from app.engines.strategy_adapter import SmcStrategyAdapter, STRATEGY_FAMILY
+from app.engines.strategy_adapter import SmcStrategyAdapter, STRATEGY_FAMILY, TF_ORDER, fetch_required_timeframe_candles
 from app.engines.validation_gate import ValidationGate
 from app.engines.monte_carlo_engine import TradeRecord
 
 logger = structlog.get_logger()
-
-_TF_TO_CCXT = {"1D": "1d", "4H": "4h", "1H": "1h", "15M": "15m", "5M": "5m"}
-_TF_ORDER = ["1D", "4H", "1H", "15M", "5M"]
-_LOOKBACK_PADDING_DAYS = 30
 
 
 class IntelligentTuningWorker:
@@ -198,7 +194,7 @@ class IntelligentTuningWorker:
         strategy_key = bot.strategy_key
         _bot_class, required = STRATEGY_FAMILY[strategy_key]
         required_tf_labels = [label for _, label in required]
-        base_tf = min(required_tf_labels, key=lambda l: _TF_ORDER.index(l))
+        base_tf = min(required_tf_labels, key=lambda l: TF_ORDER.index(l))
         symbol = (bot.symbols or [None])[0]
         if not symbol:
             return []
@@ -206,17 +202,25 @@ class IntelligentTuningWorker:
 
         end = datetime.utcnow()
         start = end - timedelta(days=lookback_days)
-        fetch_start = start - timedelta(days=_LOOKBACK_PADDING_DAYS)
 
-        timeframe_candles = {}
-        for label in required_tf_labels:
-            timeframe_candles[label] = await shared_ingestion.fetch_historical_range(
-                exchange, symbol, _TF_TO_CCXT[label], start=fetch_start, end=end,
-            )
+        # fetch_required_timeframe_candles (strategy_adapter.py) —
+        # same real per-timeframe-retention bug this module used to
+        # share with backtest_runner.py's own (now-fixed) copy of this
+        # exact fetch loop: a flat 30-day padding pushed 5M fetches
+        # (bot_5/6/8's own secondary confirmation timeframe) past this
+        # exchange's real 5M retention, silently producing "0 trades"
+        # candidates that looked like real evaluation results. This
+        # worker is INTELLIGENT_TUNING_ENABLED=False by default, so it
+        # was dormant, not actively wrong — fixed before it's ever
+        # turned on, not after.
+        timeframe_candles, fetch_error = await fetch_required_timeframe_candles(
+            shared_ingestion, exchange, symbol, required_tf_labels, start, end,
+        )
+        if fetch_error:
+            logger.warning("intelligent_tuning_backtest_data_gap", bot_id=bot.bot_id, error=fetch_error)
+            return []
 
         base_candles = [c for c in timeframe_candles[base_tf] if c.timestamp >= start]
-        if not base_candles:
-            return []
         bars = [Bar(timestamp=c.timestamp, open=c.open, high=c.high, low=c.low, close=c.close, volume=c.volume) for c in base_candles]
 
         trailing_activation_r = bot.trailing_stop_activation if bot.use_trailing_stop else None
