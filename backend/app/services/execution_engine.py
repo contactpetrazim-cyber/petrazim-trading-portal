@@ -1705,17 +1705,22 @@ class ExecutionEngine:
 
         # Same symbol-format bug found and fixed in broker_integrations.py's
         # own _paper_place_order (see that function's own comment for
-        # the full story): BingXBroker.get_ticker_price only replaces
-        # an EXISTING "/" with "-", never inserts one into a plain
-        # concatenated symbol like "BTCUSDT.P" — so this guard was
-        # silently failing open (logging price_check_unavailable, never
-        # actually comparing anything) for every BingX trade.
+        # the full story, including the SECOND follow-up fix): every
+        # broker needs its raw TradingView-style symbol (e.g.
+        # "BTCUSDT.P") cleaned of its ".P" suffix and any "/"/"-"
+        # before get_ticker_price will accept it — Binance/MEXC/Bybit
+        # reject it outright with it still attached ("Invalid symbol.",
+        # "Contract does not exist", confirmed live for both); only
+        # BingX additionally needs a dash REinserted afterward. Without
+        # this, this guard was silently failing open (logging
+        # price_check_unavailable, never actually comparing anything)
+        # for every broker, not just BingX.
         from app.services.broker_integrations import BingXBroker
-        ticker_symbol = trade["symbol"]
+        clean = trade["symbol"].upper().replace("BINANCE:", "").replace("/", "").replace("-", "")
+        if clean.endswith(".P"):
+            clean = clean[:-2]
+        ticker_symbol = clean
         if isinstance(client, BingXBroker):
-            clean = ticker_symbol.upper().replace("/", "").replace("-", "")
-            if clean.endswith(".P"):
-                clean = clean[:-2]
             for quote in ("USDT", "USDC", "USD"):
                 if clean.endswith(quote) and clean != quote:
                     ticker_symbol = f"{clean[:-len(quote)]}-{quote}"
