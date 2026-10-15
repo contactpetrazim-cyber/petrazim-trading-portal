@@ -147,6 +147,19 @@ class Trade(Base):
     #     single number to draw on a chart, same reasoning as every
     #     other already-computed value on this row.
     trailing_activation_r = Column(Float, nullable=True)
+    # Trail WIDTH mode, same "resolved once at trade-creation time"
+    # snapshot convention as trailing_activation_r above — by direct,
+    # critical request ("why are these trading not allowing winners to
+    # run"), after real data confirmed the gap this fixes: 21% of
+    # closed trades hit TP1 (proving the trade at 1R) then gave back
+    # the ENTIRE remaining 70% at a flat breakeven floor, because
+    # trailing previously only ever activated at TP2 and trailed at a
+    # single constant width regardless of how far the trade had run.
+    # NULL/"fixed" preserves the exact original behavior (constant-
+    # width trail, see compute_trailing_stop's own "fixed" mode) for
+    # every bot that doesn't explicitly opt in — "step_down" (see that
+    # function's own docstring) is the new narrowing-width mode.
+    trailing_stop_distance = Column(String(20), nullable=True)
     trailing_active = Column(Boolean, default=False)
     trailing_peak_price = Column(Float)
     trailing_stop_price = Column(Float)

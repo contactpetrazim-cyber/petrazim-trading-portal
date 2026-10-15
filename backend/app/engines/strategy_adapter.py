@@ -93,6 +93,7 @@ class SmcStrategyAdapter:
         tp2_percent: Optional[float] = None,
         tp3_percent: Optional[float] = None,
         trailing_activation_r: Optional[float] = None,
+        trailing_stop_mode: str = "fixed",
     ):
         if strategy_key not in STRATEGY_FAMILY:
             raise ValueError(f"Unknown strategy_key {strategy_key!r} — expected one of {sorted(STRATEGY_FAMILY)}")
@@ -108,6 +109,7 @@ class SmcStrategyAdapter:
         self._tp2_percent = tp2_percent
         self._tp3_percent = tp3_percent
         self._trailing_activation_r = trailing_activation_r
+        self._trailing_stop_mode = trailing_stop_mode
         # Precomputed once so the per-bar truncation below is a bisect
         # (O(log n)) rather than an O(n) scan repeated for every one of
         # potentially thousands of base-timeframe bars in a multi-month
@@ -183,6 +185,7 @@ class SmcStrategyAdapter:
             reason=signal.reasoning,
             ladder=ladder_legs or None,
             trailing_activation_r=self._trailing_activation_r,
+            trailing_stop_mode=self._trailing_stop_mode,
             initial_stop_price=signal.stop_loss,
             lot_size=signal.lot_size,
         )

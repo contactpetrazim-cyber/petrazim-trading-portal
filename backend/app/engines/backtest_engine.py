@@ -74,6 +74,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, List, Literal, Optional, Protocol
 
+from app.core.smc_algorithms import compute_trailing_stop
 from app.engines.monte_carlo_engine import TradeRecord
 
 
@@ -142,6 +143,12 @@ class BacktestSignal:
     # to stop_price (the trade's own initial stop) when unset, same as
     # Trade.initial_stop_loss always being the pre-ratchet value.
     initial_stop_price: Optional[float] = None
+    # Trail WIDTH mode ("fixed" default, or "step_down") — see
+    # compute_trailing_stop's own docstring (smc_algorithms.py).
+    # Mirrors Trade.trailing_stop_distance's own snapshot-at-open
+    # convention so a backtest replays the exact same trail shape a
+    # live trade under this BotConfig would actually get.
+    trailing_stop_mode: str = "fixed"
     # The real position size the strategy itself computed (EntryExitEngine.
     # calculate_lot_size, inside the bot's own .analyze()) — unused by
     # isolated-mode replay (R-multiples are lot_size-invariant, see
@@ -317,6 +324,7 @@ class BacktestEngine:
                 "ladder_pending": list(signal.ladder) if signal.ladder else None,
                 "initial_stop_price": signal.initial_stop_price if signal.initial_stop_price is not None else signal.stop_price,
                 "trailing_activation_r": signal.trailing_activation_r,
+                "trailing_stop_mode": signal.trailing_stop_mode,
                 "trailing_active": False,
                 "trailing_peak": None,
                 "remaining_fraction": 1.0,
@@ -540,11 +548,14 @@ class BacktestEngine:
 
     @staticmethod
     def _trailing_stop_from_peak(open_pos: Dict, peak: float) -> float:
-        """Same formula as position_monitor.py's _trailing_stop_from_peak:
-        the ORIGINAL (pre-ratchet) risk distance behind the peak."""
-        sl_distance = abs(open_pos["entry_price"] - open_pos["initial_stop_price"])
-        is_long = open_pos["direction"] == "long"
-        return peak - sl_distance if is_long else peak + sl_distance
+        """Delegates to compute_trailing_stop (smc_algorithms.py), the
+        single shared formula also used live by position_monitor.py's
+        own _trailing_stop_from_peak — see that function's own
+        docstring for the "fixed" vs "step_down" modes."""
+        return compute_trailing_stop(
+            open_pos["entry_price"], open_pos["initial_stop_price"], open_pos["direction"],
+            peak, mode=open_pos.get("trailing_stop_mode", "fixed"),
+        )
 
     def _force_close(self, open_pos: Dict, exit_price: float, exit_time: datetime, bars_held: int, symbol: str, trade_counter: int, reason: str) -> ClosedBacktestTrade:
         exit_price_adj = exit_price + self.cost_model.exit_adjustment(open_pos["direction"])

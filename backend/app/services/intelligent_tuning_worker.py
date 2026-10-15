@@ -229,7 +229,7 @@ class IntelligentTuningWorker:
             timeframe_candles=timeframe_candles, account_balance=bot.account_balance_usd or 1000.0,
             risk_per_trade=bot.risk_per_trade, min_rr_ratio=bot.min_rr_ratio,
             tp1_percent=bot.tp1_percent, tp2_percent=bot.tp2_percent, tp3_percent=bot.tp3_percent,
-            trailing_activation_r=trailing_activation_r,
+            trailing_activation_r=trailing_activation_r, trailing_stop_mode=bot.trailing_stop_distance or "fixed",
         )
         engine = BacktestEngine(cost_model=CostModel(commission_r=0.001), max_hold_bars=2000)
         return engine.run(bars, adapter, symbol=symbol)

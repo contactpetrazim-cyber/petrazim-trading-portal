@@ -1,5 +1,5 @@
 """
-Seed Bot 8 / Bot 9 / Bot 10 / Bot 11 — A/B Test Variants
+Seed Bot 8 / Bot 9 / Bot 10 / Bot 11 / Bot 12 — A/B Test Variants
 =====================================================
 
 By direct request: "find a way to loosen and still make a winning
@@ -11,7 +11,11 @@ after Bot 9's own real result came back a null on the CHoCH issue:
 screenshots of Bot 2 trades stopped out with its own reasoning text
 literally saying "Tight SL": "can we test a variant that has the SL
 embed the range Order block ... Do both versions with relaxed or
-larger SL that is well positioned."
+larger SL that is well positioned." Then, after real screenshots
+showed trades hitting TP1 for a small gain and then giving the rest
+back: "why are these trading not allowing winners to run - the trade
+does not seem to reach full potential - can you critically investigate
+and find an innovative and creative solution to test as a new bot?"
 
 Bot 8 (JeafxSMCv2SingleAnchorBot), Bot 9 (VolumeLiquidityWideRangeBot),
 Bot 10 (VolumeLiquidityHeldReclaimBot), and Bot 11
@@ -27,6 +31,25 @@ configuration (dumped directly from the live production BotConfig rows
 before writing this — not guessed), so the comparison is genuinely
 apples-to-apples: same instruments, same risk per trade, same every
 setting except the one variable each variant exists to test.
+
+Bot 12 is different in kind from 8-11: it is NOT a new strategy class
+at all — investigation found the real gap was in TRADE MANAGEMENT, not
+entry logic. Real data (17 of 80 closed trades, 21%, hit TP1 then gave
+back the ENTIRE remaining 70% of the position at a flat breakeven
+floor, because trailing only activates at TP2 by default and nothing
+protects the gap between TP1 and TP2 — the 39 trades that DID reach
+TP2 and got real trailing protection averaged 6.35R, against 0.28R for
+the TP1-only group) pointed at the exit mechanism, not the signal.
+Bot 12 reuses Bot 2's own entry logic byte-for-byte (strategy_key=
+"bot_2" — BotOrchestrator already runs every BotConfig row sharing a
+strategy_key through that one shared instance, no new class needed)
+with two changed BotConfig fields: trailing activates at TP1 (R=1.0)
+instead of TP2 (R=2.0), using the new "step_down" trail width mode
+(compute_trailing_stop in smc_algorithms.py) instead of "structure"
+(fixed-width in v1) — full original-R width right as trailing
+activates, so a normal pullback right after proving the trade at 1R
+doesn't instantly stop the runner out, narrowing only as the peak
+proves itself further past that.
 
 Idempotent — skips any bot_id that already exists. Run once:
     python -m app.scripts.seed_ab_test_bots
@@ -67,6 +90,15 @@ BOT_11_INSTANCES = [
     ("bot_11_ob_reversal_wider_stop_3", "HF Order Block Reversal (Wider-Stop A/B) NAS100", "mexc", ["NAS100USDT.P"]),
     ("bot_11_ob_reversal_wider_stop_4", "HF Order Block Reversal (Wider-Stop A/B) OIL", "bingx", ["NCCO1OILBRENT2USDUSDT.P", "NCCO1OILWTI2USDUSDT.P"]),
 ]
+# Mirrors the real live bot_2_ob_reversal* rows exactly (same ones
+# BOT_11_INSTANCES above mirrors) — strategy_key="bot_2" deliberately
+# (Bot 12 is a trade-management A/B, not a new strategy).
+BOT_12_INSTANCES = [
+    ("bot_12_ob_reversal_runner", "HF Order Block Reversal (Runner A/B) bot-1", None, ["BTCUSDT.P"]),
+    ("bot_12_ob_reversal_runner_2", "HF Order Block Reversal (Runner A/B) JPY EU XAUT", "mexc", ["JPYUSDT.P", "EURUSDT.P", "XAUTUSDT.P"]),
+    ("bot_12_ob_reversal_runner_3", "HF Order Block Reversal (Runner A/B) NAS100", "mexc", ["NAS100USDT.P"]),
+    ("bot_12_ob_reversal_runner_4", "HF Order Block Reversal (Runner A/B) OIL", "bingx", ["NCCO1OILBRENT2USDUSDT.P", "NCCO1OILWTI2USDUSDT.P"]),
+]
 
 COMMON_FIELDS = dict(
     bot_type="smc",
@@ -98,31 +130,39 @@ COMMON_FIELDS = dict(
     batch_allocation="equal",
 )
 
+# Bot 12's own two-field override — see this module's own docstring
+# for why only these two fields differ from Bot 2's (and therefore
+# Bot 11's) exact settings: trailing activates a full R earlier, at a
+# narrowing (not constant) width.
+BOT_12_FIELDS = {**COMMON_FIELDS, "trailing_stop_activation": 1.0, "trailing_stop_distance": "step_down"}
+
 
 async def seed_ab_test_bots():
     async with AsyncSessionLocal() as db:
         existing_ids = set((await db.execute(select(BotConfig.bot_id))).scalars().all())
         created = 0
 
-        all_instances = BOT_8_INSTANCES + BOT_9_INSTANCES + BOT_10_INSTANCES + BOT_11_INSTANCES
+        all_instances = BOT_8_INSTANCES + BOT_9_INSTANCES + BOT_10_INSTANCES + BOT_11_INSTANCES + BOT_12_INSTANCES
         for bot_id, bot_name, exchange, symbols in all_instances:
             if bot_id in existing_ids:
                 print(f"  SKIP — {bot_id} already exists")
                 continue
             if bot_id.startswith("bot_8_"):
-                strategy_key = "bot_8"
+                strategy_key, fields = "bot_8", COMMON_FIELDS
             elif bot_id.startswith("bot_9_"):
-                strategy_key = "bot_9"
+                strategy_key, fields = "bot_9", COMMON_FIELDS
             elif bot_id.startswith("bot_10_"):
-                strategy_key = "bot_10"
+                strategy_key, fields = "bot_10", COMMON_FIELDS
+            elif bot_id.startswith("bot_11_"):
+                strategy_key, fields = "bot_11", COMMON_FIELDS
             else:
-                strategy_key = "bot_11"
+                strategy_key, fields = "bot_2", BOT_12_FIELDS
             db.add(BotConfig(
                 bot_id=bot_id, bot_name=bot_name, strategy_key=strategy_key,
-                exchange=exchange, symbols=symbols, **COMMON_FIELDS,
+                exchange=exchange, symbols=symbols, **fields,
             ))
             created += 1
-            print(f"  OK — created {bot_id} (exchange={exchange}, symbols={symbols})")
+            print(f"  OK — created {bot_id} (exchange={exchange}, symbols={symbols}, strategy_key={strategy_key})")
 
         await db.commit()
         print(f"\n{created} of {len(all_instances)} A/B test bot rows created.")

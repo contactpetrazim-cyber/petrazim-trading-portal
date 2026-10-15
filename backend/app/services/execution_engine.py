@@ -215,6 +215,27 @@ class ExecutionEngine:
             return 2.0
         return bot.trailing_stop_activation if bot.use_trailing_stop else None
 
+    async def _bot_trailing_stop_distance(self, db: Optional[AsyncSession], bot_id: str) -> Optional[str]:
+        """The trail WIDTH mode ("fixed" or "step_down" — see
+        compute_trailing_stop's own docstring, smc_algorithms.py) —
+        same snapshot-once-at-draft-time convention as
+        _bot_trailing_activation_r just above, and deliberately a
+        twin of it rather than folded in: this resolves even when
+        trailing is off for this bot (trailing_activation_r is None),
+        since a BotConfig can have a real trailing_stop_distance value
+        saved without use_trailing_stop currently being on — harmless
+        either way, since the mode is only ever consulted once
+        trailing has actually activated."""
+        if db is None:
+            return "fixed"
+        from sqlalchemy import select as _select
+        from app.models.bot import BotConfig
+
+        bot = (await db.execute(_select(BotConfig).where(BotConfig.bot_id == bot_id))).scalar_one_or_none()
+        if bot is None:
+            return "fixed"
+        return bot.trailing_stop_distance or "fixed"
+
     async def process_signal(self, signal: BotSignal, mode: str = "human_in_loop", db: Optional[AsyncSession] = None) -> Dict:
         """
         Process a bot signal into a trade action. `db` is optional (a
@@ -535,6 +556,7 @@ class ExecutionEngine:
         # session" fallback (defaults to trailing ON at 2.0, matching
         # every bot's own real default) rather than assuming db is set.
         trailing_activation_r = await self._bot_trailing_activation_r(db, signal.bot_id)
+        trailing_stop_distance = await self._bot_trailing_stop_distance(db, signal.bot_id)
 
         trade_data = {
             "is_test": paper,
@@ -564,6 +586,7 @@ class ExecutionEngine:
             "requires_approval": mode == "human_in_loop",
             "execution_mode": mode,
             "trailing_activation_r": trailing_activation_r,
+            "trailing_stop_distance": trailing_stop_distance,
         }
 
         # Also persist to the real `trades` table whenever a DB session
@@ -733,6 +756,7 @@ class ExecutionEngine:
             # change what an ALREADY-DRAFTED signal does once approved.
             is_test=trade_data.get("is_test", False),
             trailing_activation_r=trade_data.get("trailing_activation_r"),
+            trailing_stop_distance=trade_data.get("trailing_stop_distance"),
         )
         db.add(trade)
         await db.commit()

@@ -99,6 +99,11 @@ const BOT_REFERENCE: Array<{
     rel: 'A/B vs Bot 2 — the direct answer to "is the SL too tight"',
     note: 'Real 60-day backtest: loses to Bot 2 on win rate, expectancy, AND drawdown across almost every real instrument and percentile band tested — the wider stop does not earn its keep.',
     rec: 'Keep as a monitored A/B only; do not widen Bot 2\'s own stop based on this result.' },
+  { fam: 'bot_12', name: 'Bot 12 — HF OB Reversal, Runner', instr: 'BTC · JPY/EUR/XAUT · NAS100 · Oil',
+    entry: 'Identical to Bot 2', sl: 'Identical to Bot 2 — this variant changes trade MANAGEMENT, not entry/SL', tp: 'Trailing activates at TP1 (R=1.0) not TP2 (R=2.0), using a new narrowing "step_down" trail instead of a constant width',
+    rel: 'A/B vs Bot 2 — reuses Bot 2\'s entry logic byte-for-byte (strategy_key=bot_2, no new strategy class)',
+    note: 'Built from a real finding: 17 of 80 closed trades (21%) hit TP1 then gave back the ENTIRE remaining 70% of the position at a flat breakeven floor, because trailing previously only activated at TP2 and nothing protected the gap between TP1 and TP2. Trades that DID reach TP2 averaged 6.35R vs 0.28R for the TP1-only group.',
+    rec: 'Compare Bot 2 vs Bot 12 once both accumulate real trades post-change; this tests whether activating trailing a full R earlier (with a width that narrows rather than staying constant) captures more of that 6.35R-vs-0.28R gap.' },
 ];
 
 /**
