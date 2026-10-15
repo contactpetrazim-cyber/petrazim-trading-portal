@@ -55,7 +55,7 @@ export const FEATURE_REGISTRY: FeatureEntry[] = [
   { id: 'learn-basics', label: 'Trading Basics', area: 'learn', route: '/learn/basics',
     description: 'Start from zero — market structure, order types, risk fundamentals.' },
   { id: 'learn-bot-mastery', label: 'Bot Mastery Tracks', area: 'learn', route: '/learn/bots',
-    description: 'Novice-to-mastery path for each of the 5 bots\' own methodology — locked sequence, stage by stage.',
+    description: 'Novice-to-mastery path for each of the 7 bots\' own methodology — locked sequence, stage by stage.',
     keywords: ['liquidity purge', 'order block', 'fvg', 'smc', 'modules'] },
   { id: 'learn-psychology', label: 'Trading Psychology', area: 'learn', route: '/learn/psychology',
     description: 'Discipline, emotional control, and process-over-outcome thinking.' },

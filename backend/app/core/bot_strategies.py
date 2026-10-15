@@ -1822,7 +1822,7 @@ def _signal_risk_is_valid(signal: "BotSignal", account_balance: float) -> tuple[
 
 
 class BotOrchestrator:
-    """Manages all 5 bots and routes signals to execution."""
+    """Manages all 7 bots and routes signals to execution."""
 
     def __init__(self, configs: Dict[str, Dict]):
         self.bots = {

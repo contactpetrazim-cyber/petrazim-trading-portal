@@ -7,7 +7,7 @@ and progression logic that a real Learn/Practise system needs. It is
 NOT a finished LMS. What's genuinely a separate, larger body of work
 that this doesn't attempt to fake:
   - Actual lesson CONTENT (text, video, diagrams) — that's authoring,
-    not engineering, and specific to how you want the 5 bots' methods
+    not engineering, and specific to how you want the 7 bots' methods
     explained.
   - Game-layer polish (points animations, leaderboard UI, streak
     visuals) — the data to support these exists here (see

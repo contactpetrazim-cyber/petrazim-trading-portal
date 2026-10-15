@@ -217,6 +217,11 @@ BOT_TRACKS = [
     ("bot_4", "Bot 4 — Volume & Liquidity Sweep"),
     ("bot_5", "Bot 5 — Liquidity Purge Specialist"),
     ("bot_6", "Bot 6 — SMC v2"),
+    # Added when the real bot roster grew to 7 (FVGExpansionV3Bot,
+    # bot_strategies.py) — see scripts/add_bot7_track.py for how this
+    # same track got added retroactively to an already-seeded DB
+    # without re-running this whole idempotent-by-refusal script.
+    ("bot_7", "Bot 7 — FVG Expansion v3"),
 ]
 
 # Each bot's authored .md file, keyed the same as BOT_TRACKS above — a

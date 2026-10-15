@@ -19,7 +19,7 @@ const LABEL: Record<string, string> = {
   'orient-03-expectancy-scale': 'Why expectancy beats win rate',
   'orient-04-equity-curve': 'A normal drawdown vs. an oversized one',
   'orient-05-three-areas': 'Learn → Practise → Mastery',
-  'orient-06-five-lanes': 'Five bots, five market conditions',
+  'orient-06-seven-lanes': 'Seven bots, seven market conditions',
 };
 
 function Svg({ children, dark, height = 220 }: { children: React.ReactNode; dark: boolean; height?: number }) {
@@ -166,35 +166,48 @@ function ThreeAreas({ dark }: { dark: boolean }) {
   );
 }
 
-function FiveLanes({ dark }: { dark: boolean }) {
+function SevenLanes({ dark }: { dark: boolean }) {
   const muted = TEXT_MUTED(dark);
   const strong = TEXT_STRONG(dark);
+  // Bot 6/Bot 7 are deliberate, single-variable variants of Bot 5/Bot 3
+  // (see ORIENT-06's own "why two near-identical bots are still worth
+  // running as two") — shown with the same icon family as the bot they
+  // vary from, distinguished by the one thing that actually differs
+  // (timeframe anchor for 5/6; FVG-selection rule for 3/7), not treated
+  // as a sixth/seventh unrelated specialist.
   const lanes = [
     { label: 'Bot 1', sub: 'trend line', color: '#005FB8' },
     { label: 'Bot 2', sub: 'order block', color: '#8b5cf6' },
-    { label: 'Bot 3', sub: 'expanding gap', color: '#0891b2' },
+    { label: 'Bot 3', sub: 'expanding gap · recency', color: '#0891b2' },
     { label: 'Bot 4', sub: 'volume bars', color: '#f59e0b' },
-    { label: 'Bot 5', sub: 'sweep + reverse', color: '#ef4444' },
+    { label: 'Bot 5', sub: 'sweep + reverse · 4H', color: '#ef4444' },
+    { label: 'Bot 6', sub: 'sweep + reverse · 1H', color: '#f97316' },
+    { label: 'Bot 7', sub: 'expanding gap · depth', color: '#14b8a6' },
   ];
+  const step = 60, boxW = 52, cx = boxW / 2;
   return (
     <Svg dark={dark}>
-      <rect x={30} y={22} width={420} height={34} rx={8} fill={dark ? '#1f2937' : '#eef0f6'} />
+      <rect x={18} y={22} width={444} height={34} rx={8} fill={dark ? '#1f2937' : '#eef0f6'} />
       <text x={240} y={44} fontSize={11} fontWeight={700} fill={strong} textAnchor="middle">
         Market conditions — trending · ranging · volatile · quiet
       </text>
       {lanes.map((l, i) => {
-        const x = 30 + i * 84;
+        const x = 18 + i * step;
         return (
           <g key={l.label}>
-            <line x1={x + 42} y1={56} x2={x + 42} y2={90} stroke={muted} strokeWidth={1.5} strokeDasharray="3 3" />
-            <rect x={x} y={90} width={74} height={120} rx={8} fill={l.color} fillOpacity={0.14} stroke={l.color} strokeWidth={1.5} />
-            <circle cx={x + 37} cy={120} r={12} fill={l.color} fillOpacity={0.3} stroke={l.color} strokeWidth={1.5} />
-            <text x={x + 37} y={160} fontSize={11} fontWeight={700} fill={strong} textAnchor="middle">{l.label}</text>
-            <text x={x + 37} y={175} fontSize={7.5} fill={muted} textAnchor="middle">{l.sub}</text>
+            <line x1={x + cx} y1={56} x2={x + cx} y2={90} stroke={muted} strokeWidth={1.5} strokeDasharray="3 3" />
+            <rect x={x} y={90} width={boxW} height={128} rx={8} fill={l.color} fillOpacity={0.14} stroke={l.color} strokeWidth={1.5} />
+            <circle cx={x + cx} cy={118} r={10} fill={l.color} fillOpacity={0.3} stroke={l.color} strokeWidth={1.5} />
+            <text x={x + cx} y={156} fontSize={10} fontWeight={700} fill={strong} textAnchor="middle">{l.label}</text>
+            <text x={x + cx} y={172} fontSize={6} fill={muted} textAnchor="middle">
+              {l.sub.split(' · ').map((part, pi) => (
+                <tspan key={pi} x={x + cx} dy={pi === 0 ? 0 : 8}>{part}</tspan>
+              ))}
+            </text>
           </g>
         );
       })}
-      <text x={240} y={232} fontSize={9.5} fill={muted} textAnchor="middle">Each bot activates most under its own matching market condition</text>
+      <text x={240} y={236} fontSize={9.5} fill={muted} textAnchor="middle">Each bot activates most under its own matching market condition</text>
     </Svg>
   );
 }
@@ -205,7 +218,7 @@ const RENDERERS: Record<string, (props: { dark: boolean }) => JSX.Element> = {
   'orient-03-expectancy-scale': ExpectancyScale,
   'orient-04-equity-curve': EquityCurve,
   'orient-05-three-areas': ThreeAreas,
-  'orient-06-five-lanes': FiveLanes,
+  'orient-06-seven-lanes': SevenLanes,
 };
 
 export const ORIENT_DIAGRAM_KEYS = Object.keys(RENDERERS);

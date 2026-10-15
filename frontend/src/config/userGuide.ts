@@ -81,7 +81,7 @@ export const MASTER_TRADING_GUIDE: GuidePhase[] = [
     id: 'bots', title: '4. Trading bots', summary: 'Five strategies that trade by rules.',
     steps: [
       { title: 'Learn each bot first', body: ['Read the bot lessons and try each bot Decision Lab before switching one on.'], link: { label: 'Bot lessons', to: '/learn/bots' } },
-      { title: 'Open the Bots page', body: ['See all five bots, their status and recent results.'], link: { label: 'Open bots', to: '/bots' } },
+      { title: 'Open the Bots page', body: ['See all seven bots, their status and recent results.'], link: { label: 'Open bots', to: '/bots' } },
       { title: 'Set schedule & limits', body: ['Choose trading hours, sleep times and risk per trade for each bot.'] },
       { title: 'Start in demo', body: ['Run bots in paper mode first; go live only after the Go-Live checklist is green.'], link: { label: 'Go-Live checklist', to: '/insights/go-live' } },
     ],

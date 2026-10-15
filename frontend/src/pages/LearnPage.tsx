@@ -134,7 +134,7 @@ export function LearnPage({ categoryFilter }: { categoryFilter?: 'basics' | 'bot
   const filteredTracks = categoryFilter ? tracks?.filter((t) => t.category === categoryFilter) ?? null : tracks;
   const headerCopy = {
     basics: { title: 'Trading Basics', subtitle: 'Start from zero — market structure, order types, and risk fundamentals.' },
-    bot_mastery: { title: 'Bot Mastery Tracks', subtitle: "Novice-to-mastery path for each of the 5 bots' own methodology — locked sequence, stage by stage." },
+    bot_mastery: { title: 'Bot Mastery Tracks', subtitle: "Novice-to-mastery path for each of the 7 bots' own methodology — locked sequence, stage by stage." },
     psychology: { title: 'Trading Psychology', subtitle: 'Discipline, emotional control, and process-over-outcome thinking.' },
   } as const;
   const { title, subtitle } = categoryFilter

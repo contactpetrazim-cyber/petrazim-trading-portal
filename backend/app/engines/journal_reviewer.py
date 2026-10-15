@@ -3,7 +3,7 @@ AI Trade Journal Reviewer — Explore Concept #9
 ==================================================
 
 Extends the Weekly Review Engine's process-based grading (Phase 5,
-core platform) to traders who don't use any of the 5 bots at all —
+core platform) to traders who don't use any of the 7 bots at all —
 manual/discretionary traders who just want the same honest,
 process-over-outcome review applied to their own journal entries.
 

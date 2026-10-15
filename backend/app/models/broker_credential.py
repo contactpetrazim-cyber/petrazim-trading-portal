@@ -1,6 +1,6 @@
 """
 Per-bot broker credentials — one row per (bot, exchange, sub-account),
-so each of your 5 bots (or each exchange sub-account) can trade under
+so each of your 7 bots (or each exchange sub-account) can trade under
 its own API key/secret instead of one key shared globally across every
 bot on that exchange. api_key/api_secret are stored ENCRYPTED (see
 app/services/broker_credentials.py) — never plaintext, since this table
