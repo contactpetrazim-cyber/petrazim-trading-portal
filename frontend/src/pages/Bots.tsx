@@ -1,6 +1,7 @@
 
 import { useEffect, useState } from 'react';
-import { Bot, Play, Pause, Settings, TrendingUp, Save, Plus, X, Pencil, Trash2, ChevronDown, Copy, Info } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Bot, Play, Pause, Settings, TrendingUp, Save, Plus, X, Pencil, Trash2, ChevronDown, Copy, Info, BarChart3 } from 'lucide-react';
 import { botsApi } from '../services/api';
 import { BotSleepAndSubAuto } from '../components/BotSleepAndSubAuto';
 import { ExchangeEngineControl } from '../components/ExchangeEngineControl';
@@ -415,14 +416,24 @@ export function BotsPage() {
             {bots.length > 0 ? `Manage your ${bots.length} SMC trading bot${bots.length === 1 ? '' : 's'}` : 'No bots configured yet'}
           </p>
         </div>
-        <button
-          onClick={() => setShowCreate(true)}
-          className={`flex items-center gap-2 px-4 py-2 text-white rounded-lg text-sm font-medium transition-colors ${
-            dark ? 'bg-smc-accent hover:bg-smc-accent/90' : 'bg-corporate-hero hover:bg-corporate-accent-hover'
-          }`}
-        >
-          <Plus size={16} /> New Bot
-        </button>
+        <div className="flex items-center gap-2">
+          <Link
+            to="/bot-optimization"
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
+              dark ? 'border-smc-border text-white/80 hover:bg-smc-card/60' : 'border-gray-200 text-corporate-text-on-bg hover:bg-gray-50'
+            }`}
+          >
+            <BarChart3 size={16} /> Optimization Matrix
+          </Link>
+          <button
+            onClick={() => setShowCreate(true)}
+            className={`flex items-center gap-2 px-4 py-2 text-white rounded-lg text-sm font-medium transition-colors ${
+              dark ? 'bg-smc-accent hover:bg-smc-accent/90' : 'bg-corporate-hero hover:bg-corporate-accent-hover'
+            }`}
+          >
+            <Plus size={16} /> New Bot
+          </button>
+        </div>
       </div>
 
       {/* System Health — the trader-facing "indicator signal", by

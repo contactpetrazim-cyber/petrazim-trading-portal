@@ -24,6 +24,7 @@ const ExchangeBalancesPage = lazy(() => import('./pages/ExchangeBalancesPage').t
 const AdminExchangeConnectionsPage = lazy(() => import('./pages/AdminExchangeConnectionsPage').then((module) => ({ default: module.AdminExchangeConnectionsPage })));
 const AdminFeeSettingsPage = lazy(() => import('./pages/AdminFeeSettingsPage').then((module) => ({ default: module.AdminFeeSettingsPage })));
 const AdminTradingAuditPage = lazy(() => import('./pages/AdminTradingAuditPage').then((module) => ({ default: module.AdminTradingAuditPage })));
+const BotOptimizationMatrixPage = lazy(() => import('./pages/BotOptimizationMatrixPage').then((module) => ({ default: module.BotOptimizationMatrixPage })));
 const OnboardingPage = lazy(() => import('./pages/OnboardingPage').then((module) => ({ default: module.OnboardingPage })));
 const TradingViewFramePage = lazy(() => import('./pages/TradingViewFramePage').then((module) => ({ default: module.TradingViewFramePage })));
 const ChartOPage = lazy(() => import('./pages/ChartOPage').then((module) => ({ default: module.ChartOPage })));
@@ -204,6 +205,11 @@ function App() {
             <Layout><BotsPage /></Layout>
           </ProtectedRoute>
         } />
+        <Route path="/bot-optimization" element={
+          <ProtectedRoute allowedRoles={TRADER_CONSOLE_ROLES}>
+            <Layout><BotOptimizationMatrixPage portal="trader" /></Layout>
+          </ProtectedRoute>
+        } />
         <Route path="/analytics" element={
           <ProtectedRoute allowedRoles={TRADER_CONSOLE_ROLES}>
             <Layout><AnalyticsPage /></Layout>
@@ -242,6 +248,11 @@ function App() {
         <Route path="/admin/trading-audit" element={
           <ProtectedRoute allowedRoles={['admin', 'super_admin']}>
             <CorporateLayout portal="admin"><AdminTradingAuditPage /></CorporateLayout>
+          </ProtectedRoute>
+        } />
+        <Route path="/admin/bot-optimization" element={
+          <ProtectedRoute allowedRoles={['admin', 'super_admin']}>
+            <CorporateLayout portal="admin"><BotOptimizationMatrixPage portal="admin" /></CorporateLayout>
           </ProtectedRoute>
         } />
 
