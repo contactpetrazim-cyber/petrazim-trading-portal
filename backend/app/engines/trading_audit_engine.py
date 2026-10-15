@@ -38,32 +38,13 @@ from typing import Dict, List, Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.bot_strategies import BOT_REGISTRY
 from app.models.bot import BotConfig, BotStatus
 from app.models.trade import Trade, TradeStatus
 from app.models.trading_audit import (
     AuditFindingSeverity, AuditRecommendationStatus, AuditRunStatus,
     TradingAuditFinding, TradingAuditRun,
 )
-
-# Real base strategy-family names (confirmed against the live
-# BotConfig roster) — each "_N" suffix (bot_2_ob_reversal_2, _3...) is
-# the same strategy class deployed on a different symbol, not a
-# different strategy, so these collapse together for expectancy.
-#
-# bot_8-11 added later ("finish Stage 8"): this list was built before
-# those 4 A/B variants existed — the same hand-maintained-registry
-# drift already found and fixed once this session (BOT_REGISTRY in
-# bot_strategies.py). Without these 4 entries, _bot_family's fallback
-# (`return bot_id`) would keep every one of their symbol-instance rows
-# (e.g. bot_9_volume_liq_wide_range vs _2) separate instead of
-# collapsing into one real family, silently wrong the moment any of
-# them accumulates trades across more than one symbol.
-BOT_FAMILIES = [
-    "bot_1_macro_swing", "bot_2_ob_reversal", "bot_3_fvg_expansion",
-    "bot_4_volume_liq", "bot_5_jeafx", "bot_6_smc_v2", "bot_7_fvg_expansion_v3",
-    "bot_8_smc_v2_single_anchor", "bot_9_volume_liq_wide_range",
-    "bot_10_volume_liq_held_reclaim", "bot_11_ob_reversal_wider_stop",
-]
 
 # A bot family needs at least this many closed trades in the audited
 # period before its expectancy is trusted enough to recommend pausing
@@ -75,12 +56,28 @@ NEGATIVE_EXPECTANCY_ACTION_THRESHOLD = 0.0  # strictly negative total PnL over t
 
 
 def _bot_family(bot_id: str) -> str:
+    """Collapses a real BotConfig row's bot_id ("bot_9_volume_liq_wide_
+    range_2") to its strategy-family key ("bot_9") — derived directly
+    from BOT_REGISTRY (bot_strategies.py), the single source of truth
+    every other bot-roster consumer (BotOrchestrator, the backtest
+    adapter, TUNABLE_PARAM_BOUNDS) already reads from, instead of this
+    function's own former hand-maintained list of example bot_ids
+    (BOT_FAMILIES). That list was built before Bots 8-11 existed and
+    silently never got the 4 new entries — the same hand-maintained-
+    registry drift already found and permanently fixed once this
+    session. Deriving from BOT_REGISTRY means a future bot_12 is
+    correctly grouped the moment it's added there, with no second
+    place to remember.
+
+    apply_recommendation's own bot_id-prefix match
+    (`row.bot_id.startswith(finding.bot_id + "_")`) still works
+    correctly against this shorter key: "bot_1_" vs "bot_10_"/"bot_11_"
+    never collide (the 6th character differs), confirmed before this
+    change shipped."""
     if bot_id.startswith("manual"):
         return "manual"
-    for fam in BOT_FAMILIES:
-        if bot_id == fam or bot_id.startswith(fam + "_"):
-            return fam
-    return bot_id
+    candidate = "_".join(bot_id.split("_")[:2])
+    return candidate if candidate in BOT_REGISTRY else bot_id
 
 
 async def _compute_instrument_inventory(db: AsyncSession, period_start: datetime, period_end: datetime) -> List[Dict]:
