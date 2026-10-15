@@ -1,6 +1,6 @@
 
 import axios from 'axios';
-import { Trade, BotConfig, BotPerformance, BotMetricsUpdate, DashboardStats, SignalPreview, PerformanceSummary, TradeBreakdown, TradeBreakdownPeriod, TodayTradeBreakdown, ExchangeMetaResponse, TraderBrokerConnection, AvailableBot, TraderBotSubscription, OutboundIpsResponse, FeeSettings, FeeLedgerEntry, MyFeesResponse, FeeGateStatus, FeeCheckoutSession, FeeCheckoutProvider, FeeVerifyResult, DeployStateResponse, TradeSnapshot, EncroachmentResponse, SnapshotTimeframe, ExchangeBalancesResponse, MasterExchangeBalancesResponse, SystemHealthResponse, SystemHealthSummaryResponse, BacktestRun } from '../types';
+import { Trade, BotConfig, BotPerformance, BotMetricsUpdate, DashboardStats, SignalPreview, PerformanceSummary, TradeBreakdown, TradeBreakdownPeriod, TodayTradeBreakdown, ExchangeMetaResponse, TraderBrokerConnection, AvailableBot, TraderBotSubscription, OutboundIpsResponse, FeeSettings, FeeLedgerEntry, MyFeesResponse, FeeGateStatus, FeeCheckoutSession, FeeCheckoutProvider, FeeVerifyResult, DeployStateResponse, TradeSnapshot, EncroachmentResponse, SnapshotTimeframe, ExchangeBalancesResponse, MasterExchangeBalancesResponse, SystemHealthResponse, SystemHealthSummaryResponse, BacktestRun, TradeForensics } from '../types';
 import { useAuthStore } from '../hooks/useAuth';
 import { triggerAccessExpired } from '../components/AccessExpiredGate';
 import { triggerFeesOwed } from '../components/TradingFeeGate';
@@ -104,6 +104,12 @@ export const tradesApi = {
   // (a past window's OHLCV never changes), not a stored image.
   getTradeSnapshot: (tradeId: string, timeframe: SnapshotTimeframe) =>
     api.get<TradeSnapshot>(`/trades/${tradeId}/snapshot`, { params: { timeframe } }).then(r => r.data),
+  // Part 10 forensic reconstruction (real SMC structure + price path
+  // around a trade's own entry/exit) — see TradeForensics' own
+  // comment. Re-fetched live on each view, same reasoning as
+  // getTradeSnapshot above.
+  getTradeForensics: (tradeId: string) =>
+    api.get<TradeForensics>(`/trades/${tradeId}/forensics`).then(r => r.data),
   // Lightweight counterpart to the snapshot's own level_events field —
   // by direct follow-up request to extend the same per-TP-level
   // markers to the on-chart and Pending Approvals charts, which

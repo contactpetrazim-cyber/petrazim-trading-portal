@@ -2,11 +2,12 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Trade } from '../types';
-import { ArrowUpRight, ArrowDownRight, Clock, CheckCircle, XCircle, AlertCircle, Ban, Settings2, ChevronDown, Archive, ArchiveRestore, Trash2, RotateCcw, Bot, User, CheckSquare, Square, Camera, LineChart, TrendingUp } from 'lucide-react';
+import { ArrowUpRight, ArrowDownRight, Clock, CheckCircle, XCircle, AlertCircle, Ban, Settings2, ChevronDown, Archive, ArchiveRestore, Trash2, RotateCcw, Bot, User, CheckSquare, Square, Camera, LineChart, TrendingUp, Microscope } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { useThemeStore } from '../hooks/useTheme';
 import { PositionManager } from './PositionManager';
 import { TradeSnapshotModal } from './TradeSnapshotModal';
+import { TradeForensicsModal } from './TradeForensicsModal';
 import { pairFromTradeSymbol } from '../hooks/useQuickPairs';
 
 interface TradeRowProps {
@@ -63,6 +64,14 @@ export function TradeRow({ trade, onApprove, onReject, onCancel, onChanged, onAr
   // actually has entry/exit history to show, so this never shows for
   // pending/active rows, only closed ones (see the button below).
   const [snapshotOpen, setSnapshotOpen] = useState(false);
+  // Trade Forensics — Part 10 ("TradingView and Historical Chart
+  // Analysis"): real SMC structure + price-path reconstruction around
+  // this trade's own entry/exit, via GET /trades/{id}/forensics. Only
+  // meaningful for a bot-placed trade (the backend returns an error
+  // for a manual trade — no strategy to replay), so hidden for those,
+  // same gating as the `isManual` check below already applies
+  // elsewhere on this row.
+  const [forensicsOpen, setForensicsOpen] = useState(false);
   // Reason summary — by direct request ("each of the bot trades should
   // have a reason summary - default is fold until triggered"). Folded
   // by default, same rationale as `managing` above (a list of many
@@ -486,6 +495,14 @@ export function TradeRow({ trade, onApprove, onReject, onCancel, onChanged, onAr
             >
               <Camera size={13} /> Snapshot
             </button>
+            {!isManual && (
+              <button
+                onClick={() => setForensicsOpen(true)}
+                className={`self-start flex items-center gap-1.5 text-xs font-medium mt-1 ${dark ? 'text-smc-accent hover:text-white' : 'text-corporate-hero hover:text-corporate-text-on-bg'}`}
+              >
+                <Microscope size={13} /> Forensics
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -497,6 +514,7 @@ export function TradeRow({ trade, onApprove, onReject, onCancel, onChanged, onAr
       )}
 
       {snapshotOpen && <TradeSnapshotModal tradeId={trade.trade_id} dark={dark} onClose={() => setSnapshotOpen(false)} />}
+      {forensicsOpen && <TradeForensicsModal tradeId={trade.trade_id} dark={dark} onClose={() => setForensicsOpen(false)} />}
     </div>
   );
 }

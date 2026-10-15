@@ -227,6 +227,58 @@ export interface TradeSnapshot {
   candles: TradeSnapshotCandle[];
 }
 
+/** Per-trade SMC forensic reconstruction — Part 10 of the master audit
+ * prompt ("TradingView and Historical Chart Analysis"). See
+ * GET /trades/{id}/forensics and its backend compute_trade_forensics
+ * (engines/trade_forensics.py) for how this is computed: real swing
+ * points/BOS/CHoCH/order blocks/FVGs/liquidity sweeps around the
+ * trade's own entry, plus the real price path (MFE/MAE in R, which TP
+ * levels were actually reached) between entry and exit — all from
+ * real exchange candles, fetched fresh per trade, not stored. */
+export interface ForensicsSwingPoint { price: number; type: string; timestamp: string }
+export interface ForensicsBosChoch { type: string; timestamp: string; structure_level: number | null }
+export interface ForensicsOrderBlock { top: number; bottom: number; status: string; test_count: number; classification: string | null; formed_at: string | null }
+export interface ForensicsFvg { top: number; bottom: number; gap_type: string; status: string; mitigated_percent: number; formed_at: string | null }
+export interface ForensicsSweep { timestamp: string; type: string; sweep_price: number }
+export interface ForensicsTimeframe {
+  note?: string;
+  candles_considered?: number;
+  swing_points?: ForensicsSwingPoint[];
+  bos_events?: ForensicsBosChoch[];
+  choch_events?: ForensicsBosChoch[];
+  order_blocks?: ForensicsOrderBlock[];
+  fvgs?: ForensicsFvg[];
+  liquidity_sweeps?: ForensicsSweep[];
+}
+export interface TradeForensics {
+  trade_id: string;
+  bot_id: string;
+  strategy_key: string;
+  symbol: string;
+  direction: 'long' | 'short';
+  entry_timestamp: string;
+  exit_timestamp: string | null;
+  entry_price: number | null;
+  stop_loss: number | null;
+  take_profit_1: number | null;
+  exit_price: number | null;
+  exit_type: string | null;
+  outcome: 'win' | 'loss' | 'breakeven' | 'unresolved';
+  r_multiple: number | null;
+  sl_hit_before_tp: boolean | null;
+  htf_bias: 'bullish' | 'bearish' | 'unclear';
+  htf_timeframe: string;
+  structure: Record<string, ForensicsTimeframe>;
+  price_path: {
+    mfe_r: number | null;
+    mae_r: number | null;
+    reached: { tp1: boolean; tp2: boolean; tp3: boolean };
+    would_have_reached_post_exit?: { tp1: boolean; tp2: boolean; tp3: boolean };
+    note?: string;
+  };
+  narrative: string;
+}
+
 /** Drawdown & Target Encroachment — by direct request ("a metric that
  * can help monitor specific trades drawdown encroachment ... how much
  * of my SL area is used or encroached into during each trade"). See
