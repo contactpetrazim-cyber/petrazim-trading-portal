@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ClipboardList, PlayCircle, CheckCircle2, XCircle, PauseCircle, AlertTriangle, Info, Eye, CheckSquare, Square } from 'lucide-react';
+import { ClipboardList, PlayCircle, CheckCircle2, XCircle, PauseCircle, AlertTriangle, Info, Eye, CheckSquare, Square, FileText, Download } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
 import { FoldedCard } from '../components/FoldedCard';
 import { LoadingIndicator } from '../components/LoadingIndicator';
@@ -60,6 +60,7 @@ interface Finding {
 interface RunDetail extends RunSummary {
   summary: { instrument_inventory: InstrumentRow[]; bot_family_expectancy: BotExpectancyRow[] };
   findings: Finding[];
+  report_markdown: string | null;
 }
 
 const EVIDENCE_LABEL: Record<string, string> = {
@@ -202,6 +203,17 @@ export function AdminTradingAuditPage() {
   const mutedCls = dark ? 'text-white/50' : 'text-gray-500';
   const cardCls = dark ? 'bg-corporate-surface-dark border-corporate-border-dark' : 'bg-white border-gray-200';
 
+  function downloadReport() {
+    if (!detail?.report_markdown) return;
+    const blob = new Blob([detail.report_markdown], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `trading-audit-${detail.period_start.slice(0, 10)}-to-${detail.period_end.slice(0, 10)}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <div>
       <PageHeader
@@ -250,6 +262,28 @@ export function AdminTradingAuditPage() {
             {!detail && <LoadingIndicator phase={detailPhase} dark={dark} />}
             {detail && (
               <>
+                {/* The "provide docs" half of the original request — a
+                    real, standalone Markdown report generated from
+                    this run's own data (executive summary, instrument
+                    inventory, bot scorecard, findings), not a
+                    duplicate of the tables below — same content,
+                    portable/shareable form. */}
+                {detail.report_markdown && (
+                  <FoldedCard title="Executive Report" icon={<FileText size={18} />} dark={dark}>
+                    <div className="flex justify-end mb-2">
+                      <button
+                        onClick={downloadReport}
+                        className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-corporate-hero text-white"
+                      >
+                        <Download size={13} /> Download .md
+                      </button>
+                    </div>
+                    <pre className={`text-xs whitespace-pre-wrap font-mono leading-relaxed p-3 rounded-lg overflow-x-auto ${dark ? 'bg-black/20 text-white/80' : 'bg-gray-50 text-gray-700'}`}>
+                      {detail.report_markdown}
+                    </pre>
+                  </FoldedCard>
+                )}
+
                 <FoldedCard title="Instrument Inventory" icon={<ClipboardList size={18} />} dark={dark} defaultOpen>
                   <div className="overflow-x-auto">
                     <table className="text-xs w-full border-collapse">

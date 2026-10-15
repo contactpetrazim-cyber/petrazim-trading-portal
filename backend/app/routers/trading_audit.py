@@ -58,6 +58,7 @@ class RunSummaryResponse(BaseModel):
 class RunDetailResponse(RunSummaryResponse):
     summary: dict
     findings: List[FindingResponse]
+    report_markdown: Optional[str] = None
 
 
 def _finding_to_response(f: TradingAuditFinding) -> FindingResponse:
@@ -102,6 +103,7 @@ async def get_run(
         completed_at=run.completed_at, error_message=run.error_message,
         summary=json.loads(run.summary_json or "{}"),
         findings=[_finding_to_response(f) for f in findings],
+        report_markdown=run.report_markdown,
     )
 
 
