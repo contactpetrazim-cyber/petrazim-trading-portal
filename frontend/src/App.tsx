@@ -130,7 +130,18 @@ function CorporateLayout({ children, portal }: { children: React.ReactNode; port
   const { theme, portalThemes } = useThemeStore();
   const dark = (portal === 'admin' ? portalThemes.admin : theme) === 'dark';
   return (
-    <div className={`min-h-screen pb-20 transition-colors duration-300 ${dark ? 'bg-smc-dark' : 'bg-corporate-bg'}`}>
+    // Explicit default text color, matching Layout.tsx's (the trader
+    // portal's own layout) already-correct convention — by direct bug
+    // report with screenshots: every table cell with no color class
+    // of its own (AdminTradingAuditPage's Instrument Inventory /
+    // Bot-Family Expectancy tables) was rendering invisibly, because
+    // index.css's global `body` rule hardcodes `color: #ffffff` (for
+    // the dark trader portal) and this wrapper never overrode it — on
+    // the admin portal's LIGHT background, any unstyled text
+    // inherited that white straight from `body` and vanished. This
+    // fixes the whole class of bug portal-wide, not just those two
+    // tables, the same way Layout.tsx's own root div already does.
+    <div className={`min-h-screen pb-20 transition-colors duration-300 ${dark ? 'bg-smc-dark text-white' : 'bg-corporate-bg text-corporate-text-on-bg'}`}>
       <TopNav portal={portal} />
       <main className="max-w-5xl mx-auto px-5 py-8">{children}</main>
       <BottomNav />

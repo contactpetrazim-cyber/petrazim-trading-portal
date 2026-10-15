@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ClipboardList, PlayCircle, CheckCircle2, XCircle, PauseCircle, AlertTriangle, Info, Eye, CheckSquare, Square, FileText, Download } from 'lucide-react';
+import { ClipboardList, PlayCircle, CheckCircle2, XCircle, PauseCircle, AlertTriangle, Info, Eye, CheckSquare, Square, FileText, Download, Trash2, Activity } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
 import { FoldedCard } from '../components/FoldedCard';
 import { LoadingIndicator } from '../components/LoadingIndicator';
@@ -57,8 +57,23 @@ interface Finding {
   applied_by: string | null;
 }
 
+interface BacktestValidationRow {
+  bot_family: string;
+  symbol: string;
+  window_days: number;
+  total_trades?: number;
+  win_rate?: number | null;
+  expectancy_r?: number | null;
+  max_drawdown_pct?: number | null;
+  error?: string;
+}
+
 interface RunDetail extends RunSummary {
-  summary: { instrument_inventory: InstrumentRow[]; bot_family_expectancy: BotExpectancyRow[] };
+  summary: {
+    instrument_inventory: InstrumentRow[];
+    bot_family_expectancy: BotExpectancyRow[];
+    backtest_validation?: BacktestValidationRow[] | null;
+  };
   findings: Finding[];
   report_markdown: string | null;
 }
@@ -108,6 +123,11 @@ export function AdminTradingAuditPage() {
   // explicit "ignore" action).
   const [selectedFindingIds, setSelectedFindingIds] = useState<Set<string>>(new Set());
   const [applyingSelected, setApplyingSelected] = useState(false);
+  // Delete a past run — by direct request ("Provide option to delete
+  // items"). Per-row busy state (not a single page-wide flag) so
+  // deleting one run doesn't disable the delete button on every other
+  // row in the list while its own request is in flight.
+  const [deletingRunId, setDeletingRunId] = useState<string | null>(null);
 
   function loadRuns() {
     if (!token) return;
@@ -200,8 +220,39 @@ export function AdminTradingAuditPage() {
     }
   }
 
+  async function deleteRun(runId: string) {
+    if (!token) return;
+    if (!window.confirm('Delete this audit run permanently? This cannot be undone.')) return;
+    setDeletingRunId(runId);
+    try {
+      await apiFetch(`${API_URL}/admin/trading-audit/runs/${runId}`, {
+        method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
+      });
+      if (selectedRunId === runId) {
+        setSelectedRunId(null);
+        setDetail(null);
+      }
+      loadRuns();
+    } catch {
+      setError('Could not delete this audit run.');
+    } finally {
+      setDeletingRunId(null);
+    }
+  }
+
   const mutedCls = dark ? 'text-white/50' : 'text-gray-500';
   const cardCls = dark ? 'bg-corporate-surface-dark border-corporate-border-dark' : 'bg-white border-gray-200';
+  // Every real value was rendering invisibly in the Instrument
+  // Inventory / Bot-Family Expectancy tables below — by direct bug
+  // report with screenshots. Root cause: index.css's global `body`
+  // rule hardcodes `color: #ffffff` (for the dark trader portal) with
+  // nothing overriding it for text that has no explicit Tailwind
+  // color class, so on this page's LIGHT admin background any "naked"
+  // <td> rendered white-on-white. Cells that already had an explicit
+  // color (text-emerald-500/text-red-500/mutedCls) were fine — only
+  // the ones with none were actually invisible, matching exactly
+  // which columns were missing in the screenshots.
+  const textCls = dark ? 'text-white' : 'text-corporate-text-on-bg';
 
   function downloadReport() {
     if (!detail?.report_markdown) return;
@@ -241,20 +292,29 @@ export function AdminTradingAuditPage() {
         <div className="flex gap-4 flex-col lg:flex-row">
           <div className="lg:w-64 shrink-0 space-y-1.5">
             {runs.map((r) => (
-              <button
+              <div
                 key={r.id}
-                onClick={() => setSelectedRunId(r.id)}
-                className={`w-full text-left p-3 rounded-xl border text-xs ${
+                className={`w-full flex items-start gap-1 p-3 rounded-xl border text-xs ${
                   selectedRunId === r.id ? 'border-corporate-hero bg-corporate-hero/5' : cardCls
                 }`}
               >
-                <div className={`font-semibold ${dark ? 'text-white' : 'text-corporate-text-on-bg'}`}>
-                  {new Date(r.generated_at).toLocaleDateString()} ({r.triggered_by})
-                </div>
-                <div className={mutedCls}>
-                  {new Date(r.period_start).toLocaleDateString()} – {new Date(r.period_end).toLocaleDateString()} · {r.status}
-                </div>
-              </button>
+                <button onClick={() => setSelectedRunId(r.id)} className="flex-1 min-w-0 text-left">
+                  <div className={`font-semibold ${dark ? 'text-white' : 'text-corporate-text-on-bg'}`}>
+                    {new Date(r.generated_at).toLocaleDateString()} ({r.triggered_by})
+                  </div>
+                  <div className={mutedCls}>
+                    {new Date(r.period_start).toLocaleDateString()} – {new Date(r.period_end).toLocaleDateString()} · {r.status}
+                  </div>
+                </button>
+                <button
+                  onClick={() => deleteRun(r.id)}
+                  disabled={deletingRunId === r.id}
+                  title="Delete this audit run"
+                  className={`shrink-0 p-1 rounded disabled:opacity-40 ${dark ? 'text-white/30 hover:text-red-400' : 'text-gray-400 hover:text-red-500'}`}
+                >
+                  <Trash2 size={13} />
+                </button>
+              </div>
             ))}
           </div>
 
@@ -301,13 +361,13 @@ export function AdminTradingAuditPage() {
                       <tbody>
                         {detail.summary.instrument_inventory.map((row) => (
                           <tr key={row.symbol} className={`border-t ${dark ? 'border-white/5' : 'border-gray-100'}`}>
-                            <td className="p-2 font-mono font-semibold">{row.symbol}</td>
+                            <td className={`p-2 font-mono font-semibold ${textCls}`}>{row.symbol}</td>
                             <td className={`p-2 ${mutedCls}`}>{row.bots.length}</td>
-                            <td className="p-2 text-right">{row.total_trades}</td>
+                            <td className={`p-2 text-right ${textCls}`}>{row.total_trades}</td>
                             <td className="p-2 text-right text-emerald-500">{row.wins}</td>
                             <td className="p-2 text-right text-red-500">{row.losses}</td>
-                            <td className="p-2 text-right">{row.active}</td>
-                            <td className="p-2 text-right">{row.errors}</td>
+                            <td className={`p-2 text-right ${textCls}`}>{row.active}</td>
+                            <td className={`p-2 text-right ${textCls}`}>{row.errors}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -331,20 +391,75 @@ export function AdminTradingAuditPage() {
                       <tbody>
                         {detail.summary.bot_family_expectancy.map((row) => (
                           <tr key={row.bot_family} className={`border-t ${dark ? 'border-white/5' : 'border-gray-100'}`}>
-                            <td className="p-2 font-mono font-semibold">{row.bot_family}</td>
-                            <td className="p-2 text-right">{row.n}</td>
-                            <td className="p-2 text-right">{row.win_rate_pct ?? '—'}%</td>
+                            <td className={`p-2 font-mono font-semibold ${textCls}`}>{row.bot_family}</td>
+                            <td className={`p-2 text-right ${textCls}`}>{row.n}</td>
+                            <td className={`p-2 text-right ${textCls}`}>{row.win_rate_pct ?? '—'}%</td>
                             <td className={`p-2 text-right ${row.total_pnl >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
                               ${row.total_pnl.toFixed(2)}
                             </td>
-                            <td className="p-2 text-right">{row.avg_r ?? '—'}</td>
-                            <td className="p-2 text-right">${row.expectancy_per_trade?.toFixed(2) ?? '—'}</td>
+                            <td className={`p-2 text-right ${textCls}`}>{row.avg_r ?? '—'}</td>
+                            <td className={`p-2 text-right ${textCls}`}>${row.expectancy_per_trade?.toFixed(2) ?? '—'}</td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
                   </div>
                 </FoldedCard>
+
+                {/* Live Backtest Validation (Stage 9, recomputed every
+                    run) — by direct request ("put all live check in a
+                    foldable card"). Previously only existed as plain
+                    text buried inside the Executive Report's own giant
+                    markdown dump; this is the same real data
+                    (summary.backtest_validation, already computed
+                    server-side by compute_live_backtest_validation)
+                    broken out into its own clearly-labeled, foldable
+                    structured table — "how does each bot's live-
+                    tested edge look as of today," independent of this
+                    run's own historical period. Folded by default
+                    (not defaultOpen, unlike the tables above) since
+                    this is a secondary, real-time cross-check, not
+                    the run's own primary historical scorecard. */}
+                {detail.summary.backtest_validation && detail.summary.backtest_validation.length > 0 && (
+                  <FoldedCard title="Live Backtest Validation (Stage 9)" summary="Recomputed fresh each run, as of today — independent of this run's own historical period" icon={<Activity size={18} />} dark={dark}>
+                    <div className="overflow-x-auto">
+                      <table className="text-xs w-full border-collapse">
+                        <thead>
+                          <tr className={mutedCls}>
+                            <th className="text-left p-2">Bot family</th>
+                            <th className="text-left p-2">Symbol</th>
+                            <th className="text-right p-2">Window</th>
+                            <th className="text-right p-2">N</th>
+                            <th className="text-right p-2">Win rate</th>
+                            <th className="text-right p-2">Expectancy (R)</th>
+                            <th className="text-right p-2">Max DD</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {detail.summary.backtest_validation.map((row) => (
+                            <tr key={`${row.bot_family}-${row.symbol}`} className={`border-t ${dark ? 'border-white/5' : 'border-gray-100'}`}>
+                              <td className={`p-2 font-mono font-semibold ${textCls}`}>{row.bot_family}</td>
+                              <td className={`p-2 font-mono ${mutedCls}`}>{row.symbol}</td>
+                              <td className={`p-2 text-right ${mutedCls}`}>{row.window_days}d</td>
+                              {row.error ? (
+                                <td className="p-2 text-right text-red-500" colSpan={4}>{row.error}</td>
+                              ) : (
+                                <>
+                                  <td className={`p-2 text-right ${textCls}`}>{row.total_trades ?? '—'}</td>
+                                  <td className={`p-2 text-right ${textCls}`}>{row.win_rate != null ? `${(row.win_rate * 100).toFixed(1)}%` : '—'}</td>
+                                  <td className={`p-2 text-right ${row.expectancy_r != null && row.expectancy_r >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
+                                    {row.expectancy_r != null ? row.expectancy_r.toFixed(3) : '—'}
+                                  </td>
+                                  <td className={`p-2 text-right ${textCls}`}>{row.max_drawdown_pct != null ? `${row.max_drawdown_pct.toFixed(1)}%` : '—'}</td>
+                                </>
+                              )}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </FoldedCard>
+                )}
 
                 <FoldedCard title="Findings & Recommendations" icon={<ClipboardList size={18} />} dark={dark} defaultOpen>
                   {/* Select-to-apply list — by direct request: toggle on
