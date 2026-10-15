@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { X, Clock3, ChevronDown, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
+import { X, Clock3, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
 import { tradesApi } from '../services/api';
 import type { TradeSnapshot, SnapshotTimeframe } from '../types';
 import { useYAxisZoom, applyYZoom } from '../hooks/useYAxisZoom';
+import { ReasoningAnnotations } from './ReasoningAnnotations';
 
 const GREEN = '#10b981';
 const RED = '#ef4444';
@@ -75,28 +76,14 @@ export function TradeSnapshotModal({ tradeId, dark, onClose }: { tradeId: string
         {!loading && !error && snapshot && <SnapshotChart snapshot={snapshot} dark={dark} />}
 
         {/* Reason summary — by direct request ("Also include a reason
-            summary that opens when clicked on the snapshot"). Same
-            folded-by-default pattern as TradeRow's own "Reason
-            summary" toggle, just inside the snapshot modal too so it's
-            visible alongside the chart it explains. */}
-        {!loading && !error && snapshot?.reasoning_log && <ReasonSummary text={snapshot.reasoning_log} dark={dark} />}
+            summary that opens when clicked on the snapshot"), now
+            rendered as a numbered 1-to-X breakdown with a toggle
+            ("CAN the snapshot chart ... be annotated with the items
+            from the reasoning summary labelled 1 to x ... with a
+            toggle on or off annotation") instead of one plain
+            paragraph. Same folded-by-default pattern as before. */}
+        {!loading && !error && snapshot?.reasoning_log && <ReasoningAnnotations text={snapshot.reasoning_log} dark={dark} />}
       </div>
-    </div>
-  );
-}
-
-function ReasonSummary({ text, dark }: { text: string; dark: boolean }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className={`mt-3 pt-3 border-t border-dashed ${dark ? 'border-smc-border' : 'border-gray-200'}`}>
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className={`flex items-center gap-1.5 text-xs font-medium ${dark ? 'text-white/60 hover:text-white' : 'text-gray-500 hover:text-corporate-text-on-bg'}`}
-      >
-        <ChevronDown size={13} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
-        Reason summary
-      </button>
-      {open && <p className={`mt-2 text-xs leading-relaxed ${dark ? 'text-white/70' : 'text-gray-600'}`}>{text}</p>}
     </div>
   );
 }
