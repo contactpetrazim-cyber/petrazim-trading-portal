@@ -141,11 +141,23 @@ async def compute_trade_forensics(trade: Trade) -> Dict:
                 {
                     "top": z.top, "bottom": z.bottom, "status": z.status.name, "test_count": z.test_count,
                     "classification": getattr(z, "classification", None),
+                    # Real formation timestamp (Zone.origin_timestamp) —
+                    # so a caller charting this can anchor the zone to
+                    # the actual candle it formed on instead of
+                    # guessing an index.
+                    "formed_at": z.origin_timestamp.isoformat() if z.origin_timestamp else None,
                 }
                 for z in active_obs[-5:]
             ],
             "fvgs": [
-                {"top": f.top, "bottom": f.bottom, "gap_type": f.gap_type, "status": f.status.name, "mitigated_percent": round(f.mitigated_percent, 3)}
+                {
+                    "top": f.top, "bottom": f.bottom, "gap_type": f.gap_type, "status": f.status.name,
+                    "mitigated_percent": round(f.mitigated_percent, 3),
+                    # candle2 is the real displacement candle the gap
+                    # forms around (see FVGDetector.detect_fvg's own
+                    # 3-candle mapping) — the natural chart anchor.
+                    "formed_at": f.candle2.timestamp.isoformat() if f.candle2 else None,
+                }
                 for f in fvgs if f.status.name == "ACTIVE"
             ][-5:],
             "liquidity_sweeps": [
@@ -182,7 +194,14 @@ async def compute_trade_forensics(trade: Trade) -> Dict:
     # ends 5 minutes past entry) would silently truncate the path for
     # any trade open longer than 5 minutes, which is effectively every
     # trade.
-    base_tf = min(required_tf_labels, key=lambda l: TF_ORDER.index(l))
+    # FINEST required timeframe (max TF_ORDER index, e.g. 15M/5M over
+    # 4H/1D) — the one closest to actual execution granularity. This
+    # was previously computed with the same `min(...)` formula as
+    # htf_label above, which actually picks the COARSEST timeframe —
+    # wrong for this use: it meant MFE/MAE got computed off much
+    # coarser candles than the trade's own real execution/exit
+    # precision, understating adverse/favorable excursion.
+    base_tf = max(required_tf_labels, key=lambda l: TF_ORDER.index(l))
     exit_ts = trade.exit_timestamp
     path_end = (exit_ts + timedelta(hours=6)) if exit_ts else datetime.utcnow()
     path_fetch, path_fetch_error = await fetch_required_timeframe_candles(
