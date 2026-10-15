@@ -930,6 +930,16 @@ the SAME condition also determines an entirely different stop-placement
 METHOD — not just a different distance, but a genuinely different
 reference point.
 
+**Correction, re-verified against current source:** an earlier
+version of this lesson stated the REPORTED take-profit is `tp2` (a
+fixed 2:1). Re-checking `bot_strategies.py` directly shows this was
+wrong — `BotSignal(... take_profit=targets["tp1"], ...)` — the
+reported field is `tp1`, a fixed 1:1, across every bot on this
+platform, with no exceptions. `tp2` is real, but it's reported
+separately as `take_profit_2`, never as the primary `take_profit`
+field. The numbers and quiz answers below reflect the corrected,
+verified value.
+
 ### Core Teaching
 
 **Plain-English explanation.** If a liquidity sweep was confirmed, Bot
@@ -947,13 +957,13 @@ percentage or ATR-based distance) is subtracted (long) or added
 swings_15m[-1]`; `sl = calculate_stop_loss(entry, target_ob, sl_swing,
 "structure_swing")` — the same `"structure_swing"` method name Bot 1
 uses, just against 15M swings instead of 1D ones. Target:
-`calculate_targets(..., rr_ratio=3.0)`, reporting `tp2` — but as
-BOT1-07 found, `tp2`'s multiplier is hardcoded to a fixed 2:1 in
-`EntryExitEngine.calculate_targets`, completely ignoring the passed
-`rr_ratio`; Bot 2's real, reported take-profit is a fixed 2:1, the
-same as Bot 1's, regardless of the different `rr_ratio` value each bot
-passes in. Risk uses `setup_quality=1.1`. Confidence is reported as
-`0.80` if `has_sweep` else `0.70` — a real, coded confidence
+`calculate_targets(..., rr_ratio=3.0)` produces `tp1` (fixed 1:1),
+`tp2` (fixed 2:1), and `tp3` (3:1, the passed `rr_ratio`) — and
+`BotSignal`'s own `take_profit=targets["tp1"]` assignment means Bot
+2's real, reported take-profit is a fixed 1:1, the same as every bot
+on this platform, regardless of the different `rr_ratio` value each
+bot passes in. Risk uses `setup_quality=1.1`. Confidence is reported
+as `0.80` if `has_sweep` else `0.70` — a real, coded confidence
 difference tied to the exact same condition.
 
 ### Visual Model
@@ -962,15 +972,17 @@ See diagram: `visuals/bot2-07-two-stop-methods.svg` — two stop
 placements on the same zone: "sweep_extreme" (tight, anchored to the
 sweep's own price + a fixed 0.0002 buffer) and "structure_swing"
 (wider, anchored to the most recent 15M swing) — both feeding into the
-same fixed-2:1 TP2 target calculation.
+same fixed-1:1 reported take-profit calculation.
 
 ### Worked Example
 
 A confirmed sweep's extreme price is 1.0838. The stop is placed at
 1.0836 (1.0838 minus the 0.0002 buffer, for a long). Entry (mean, from
-BOT2-06) is 1.0860 — stop distance is 24 pips, and the reported TP2
-target sits 48 pips above entry (a fixed 2:1) — not 72 pips (3:1),
-even though `rr_ratio=3.0` was passed in.
+BOT2-06) is 1.0860 — stop distance is 24 pips, and the reported
+`take_profit` (`tp1`) sits 24 pips above entry, at 1.0884 (a fixed
+1:1) — not 48 pips (2:1, that's `take_profit_2`), and not 72 pips
+(3:1, that's `take_profit_3`), even though `rr_ratio=3.0` was passed
+in.
 
 ### Counterexample
 
@@ -1016,8 +1028,8 @@ different stop distances.
 ### Practice Drill
 
 Given three complete sweep/no-sweep scenarios (provided in Practise),
-calculate the exact stop price, stop distance, TP2 target, and
-reported confidence for each.
+calculate the exact stop price, stop distance, real `tp1` take-profit
+target, and reported confidence for each.
 
 ### Scenario Challenge
 
@@ -1060,8 +1072,8 @@ shape risk, not just direction?
 
 ### Mastery Criteria
 
-Correctly calculate stop, distance, TP2, and confidence for all three
-practice-drill scenarios.
+Correctly calculate stop, distance, the real `tp1` take-profit, and
+confidence for all three practice-drill scenarios.
 
 ### Spaced Review
 
@@ -1072,8 +1084,10 @@ BOT2-08's failure-mode analysis.
 
 Verified against `OrderBlockReversalBot.analyze()` Step 7 in
 `bot_strategies.py` — the `0.0002` fixed buffer, `"sweep_extreme"` /
-`"structure_swing"` method names, `rr_ratio=3.0`, and `0.80`/`0.70`
-confidence values all quoted directly from source.
+`"structure_swing"` method names, `rr_ratio=3.0`, `0.80`/`0.70`
+confidence values, and the `take_profit=targets["tp1"]` assignment,
+all quoted directly from source and re-verified fresh (correcting an
+earlier version of this lesson's own mistaken `tp2` claim).
 
 ---
 
@@ -1257,9 +1271,9 @@ active order blocks (BOT2-02), confirm current 15M price is inside one
 (BOT2-02), check for a 15M CHoCH and derive direction (BOT2-03), check
 for a sweep and matching FVG (BOT2-04), apply the correct conditional
 entry type (BOT2-06), apply the correct conditional stop method
-(BOT2-07), and calculate the actual, fixed-2:1 TP2 target (not the
-3:1 the passed `rr_ratio` might suggest) with the right reported
-confidence.
+(BOT2-07), and calculate the actual, fixed-1:1 `tp1` target (not the
+2:1 or 3:1 the passed `rr_ratio` might suggest) with the right
+reported confidence.
 
 **Technical explanation.** This exercise mirrors
 `OrderBlockReversalBot.analyze()`'s literal control flow, including
@@ -1326,8 +1340,8 @@ mistake — it's the same single boolean value driving both choices.
 ### Practice Drill
 
 Given a full chart scenario (provided in Practise), work through all
-seven real steps to produce the exact entry price, stop price, TP2
-target, and confidence Bot 2's code would output.
+seven real steps to produce the exact entry price, stop price, real
+`tp1` take-profit target, and confidence Bot 2's code would output.
 
 ### Scenario Challenge
 
@@ -1363,9 +1377,9 @@ Answer: (b).
 
 ### Mastery Criteria
 
-Correctly produce the exact entry, stop, TP2, and confidence for the
-practice-drill scenario, and correctly show all four affected fields
-in the sweep-presence comparison exercise.
+Correctly produce the exact entry, stop, real `tp1` take-profit, and
+confidence for the practice-drill scenario, and correctly show all
+four affected fields in the sweep-presence comparison exercise.
 
 ### Reflection
 
@@ -1436,9 +1450,9 @@ and 15M data. Working the complete pipeline: no active 4H zones, a 1H
 fallback finds one, 15M price sits inside it, a bearish CHoCH confirms
 direction, no sweep is found (`has_sweep = False`), producing an
 aggressive entry and a structure-swing stop at the most recent 15M
-swing high, with a fixed-2:1 TP2 target and 0.70 confidence — matching
-what `OrderBlockReversalBot.analyze()` would output for this exact
-data.
+swing high, with a fixed-1:1 `take_profit` and 0.70 confidence —
+matching what `OrderBlockReversalBot.analyze()` would output for this
+exact data.
 
 ### Counterexample
 

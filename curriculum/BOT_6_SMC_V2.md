@@ -1107,7 +1107,7 @@ the explicit "identical structure to Bot 5" code comment.
 
 ---
 
-## BOT6-08 — Management: Strict SL and the Fixed 2:1 Reported Target
+## BOT6-08 — Management: Strict SL and the Fixed 1:1 Reported Target
 
 **Level:** 3
 **Estimated study time:** 13 minutes
@@ -1123,14 +1123,25 @@ this curriculum was being authored. Bot 6 shares the exact same
 target-calculation structure — worth explicitly confirming Bot 6 was
 built CORRECTLY from the start, never carrying that bug at all.
 
+**Correction, re-verified against current source:** an earlier version
+of this lesson stated the REPORTED take-profit is `tp2` (a fixed
+2:1) — an internal inconsistency even within that earlier version,
+since its own Technical explanation already quoted
+`take_profit=targets["tp1"]` directly from source one sentence before
+drawing the wrong conclusion. The reported field is `tp1`, a fixed
+1:1, across every bot on this platform. `tp2` is real, but it's
+reported separately as `take_profit_2`, never as the primary
+`take_profit`. The numbers and quiz answers below reflect the
+corrected, verified value.
+
 ### Core Teaching
 
 **Plain-English explanation.** Bot 6's stop sits just beyond the
 purge's own extreme price, with a buffer sized as 20% of the
 confirmation candle's own high-to-low range — identical to Bot 5's
-formula. Its REPORTED take-profit is TP2 of a multi-target split, a
-fixed 2:1 regardless of the `rr_ratio=5.0` passed in — the same
-finding already confirmed for Bots 1, 2, 3, and 5.
+formula. Its REPORTED take-profit is TP1 of a multi-target split, a
+fixed 1:1 regardless of the `rr_ratio=5.0` passed in — the same
+finding confirmed across every bot on this platform.
 
 **Technical explanation.** `purge_extreme = last_sweep["sweep_price"]`;
 `buffer = abs(confirmation_candle.high - confirmation_candle.low) *
@@ -1148,8 +1159,9 @@ risk(setup_quality=1.3)` and `confidence=0.88` are both identical to
 Bot 5 — tied for the highest values of any bot in this curriculum.
 `take_profit=targets["tp1"]`, `take_profit_2=targets["tp2"]`,
 `take_profit_3=targets["tp3"]` — the SAME three-way split as Bot 5,
-with `tp2`'s 2:1 multiplier hardcoded in `EntryExitEngine.
-calculate_targets`, independent of the `rr_ratio=5.0` passed in.
+with the PRIMARY `take_profit` field always set to `tp1`, a fixed
+1:1 multiplier hardcoded in `EntryExitEngine.calculate_targets`,
+independent of the `rr_ratio=5.0` passed in.
 
 ### Visual Model
 
@@ -1164,9 +1176,10 @@ A confirmed purge's extreme price is 1.0838, and the confirmation
 candle's high-to-low range is 8 pips. The buffer is `8 * 0.2 = 1.6`
 pips; the stop sits at roughly 1.0837.4 (a long) — the identical
 calculation Bot 5 would perform for the same inputs. With entry at
-1.0855 (BOT6-07), the reported TP2 sits at a fixed 2:1 — about 35.2
-pips above entry, not the 88 pips a naive 5:1 read of the "4-6R
-target" framing might suggest.
+1.0855 (BOT6-07), the reported `take_profit` (`tp1`) sits at a fixed
+1:1 — about 17.6 pips above entry, roughly 1.0873 — not 35.2 pips
+(2:1, that's `take_profit_2`), and not the 88 pips a naive 5:1 read
+of the "4-6R target" framing might suggest (that's `take_profit_3`).
 
 ### Counterexample
 
@@ -1190,9 +1203,9 @@ Bot 5's pre-fix state without checking.
   identical to Bot 5's POST-FIX formula.
 - Bot 6 never had Bot 5's `NameError` crash bug — its `entry` dict is
   correctly constructed from this bot's very first version.
-- The REPORTED take-profit (`tp2`) is a fixed 2:1, exactly like Bots
-  1, 2, 3, and 5 — the `rr_ratio=5.0` passed in only ever reaches
-  `tp3`, never reported.
+- The REPORTED take-profit (`tp1`) is a fixed 1:1, exactly like every
+  bot on this platform — the `rr_ratio=5.0` passed in only ever
+  reaches `tp3` (`take_profit_3`), never the primary `take_profit`.
 
 ### Common Mistakes
 
@@ -1207,16 +1220,18 @@ ORIGINAL authoring, fixed before Bot 6 was ever written.
    identical to Bot 5's post-fix formula.
 2. Bot 6 never carried Bot 5's `NameError` crash bug — verified
    directly from its own, correctly-constructed `entry` dict.
-3. Its REPORTED take-profit (`tp2`) is a fixed 2:1, the same finding
-   as Bots 1, 2, 3, and 5 — the passed `rr_ratio=5.0` only reaches
-   `tp3`, never reported.
+3. Its REPORTED take-profit (`tp1`) is a fixed 1:1, the same finding
+   confirmed across every bot on this platform — the passed
+   `rr_ratio=5.0` only reaches `tp3` (`take_profit_3`), never the
+   primary `take_profit`.
 
 ### Practice Drill
 
 Given three confirmed purge/confirmation-candle scenarios (provided in
 Practise — the same set used in BOT5-07's drill), calculate the exact
-stop price, stop distance, and the actual (fixed 2:1) TP2 target for
-each, confirming each matches Bot 5's result for the same inputs.
+stop price, stop distance, and the actual (fixed 1:1) `tp1`
+take-profit target for each, confirming each matches Bot 5's result
+for the same inputs.
 
 ### Scenario Challenge
 
@@ -1239,7 +1254,7 @@ multiplier?
 (c) The passed `rr_ratio` (5:1 by default)
 (d) A fixed 3:1
 
-Answer: (b).
+Answer: (a).
 
 ### Flashcards
 
@@ -1248,8 +1263,9 @@ Answer: (b).
   specific to Bot 5's original authoring, already fixed before Bot 6
   was written.
 - Front: What is Bot 6's REPORTED take-profit multiplier? Back: A
-  fixed 2:1 (`tp2`) — the same finding as Bots 1, 2, 3, and 5; the
-  passed `rr_ratio=5.0` only ever reaches `tp3`, never reported.
+  fixed 1:1 (`tp1`) — confirmed across every bot on this platform; the
+  passed `rr_ratio=5.0` only ever reaches `tp3` (`take_profit_3`),
+  never the primary `take_profit`.
 
 ### Reflection
 
@@ -1260,9 +1276,9 @@ being assumed safe by association?
 
 ### Mastery Criteria
 
-Correctly calculate stop, distance, and the actual TP2 target for all
-three practice-drill scenarios, confirming each matches Bot 5's
-result for the same inputs.
+Correctly calculate stop, distance, and the actual `tp1` take-profit
+target for all three practice-drill scenarios, confirming each
+matches Bot 5's result for the same inputs.
 
 ### Spaced Review
 
@@ -1273,9 +1289,11 @@ pipeline walkthrough.
 
 Verified against `JeafxSMCv2Bot.analyze()` Steps 8-9 in
 `bot_strategies.py` — the `* 0.2` buffer, the correctly-constructed
-`entry` dict, `setup_quality=1.3`, and the hardcoded `tp2` multiplier
-all quoted directly from source, confirmed absent of any `NameError`-
-style defect.
+`entry` dict, `setup_quality=1.3`, and the
+`take_profit=targets["tp1"]` assignment, all quoted directly from
+source and re-verified fresh (correcting an earlier version of this
+lesson's own mistaken `tp2` conclusion), confirmed absent of any
+`NameError`-style defect.
 
 ---
 
@@ -1305,7 +1323,7 @@ first qualifying 5M confirmation candle (BOT6-04), determine direction
 from Bot 2's CHoCH call or Bot 3's FVG+BOS call — either sufficient,
 disagreement blocks (BOT6-05), determine entry price from the matching
 FVG or the confirmation candle itself (BOT6-07), and calculate the
-strict stop and the actual fixed-2:1 TP2 target (BOT6-08).
+strict stop and the actual fixed-1:1 `tp1` target (BOT6-08).
 
 **Technical explanation.** This exercise mirrors
 `JeafxSMCv2Bot.analyze()`'s real control flow — six gates, two
@@ -1381,7 +1399,8 @@ cross-bot mix-ups this exercise exists to catch.
 
 Given a full chart scenario (provided in Practise) with 1H, 15M, and
 5M data, work through the complete pipeline to produce the exact
-entry, stop, and TP2 target Bot 6's code would output.
+entry, stop, and real `tp1` take-profit target Bot 6's code would
+output.
 
 ### Scenario Challenge
 
@@ -1419,9 +1438,9 @@ Answer: (c).
 
 ### Mastery Criteria
 
-Correctly produce the exact entry, stop, and TP2 target for the
-practice-drill scenario, and correctly show the outcome change in the
-direction-agreement comparison exercise.
+Correctly produce the exact entry, stop, and real `tp1` take-profit
+target for the practice-drill scenario, and correctly show the
+outcome change in the direction-agreement comparison exercise.
 
 ### Reflection
 
@@ -1469,7 +1488,7 @@ zone, find the first qualifying confirmation candle, determine
 direction from Bot 2's CHoCH call or Bot 3's FVG+BOS call (either
 sufficient, disagreement blocks), determine entry price from the
 FVG-or-candle source rule, and calculate the strict stop and the
-actual fixed-2:1 target — or correctly stop at whichever of the six
+actual fixed-1:1 target — or correctly stop at whichever of the six
 BOT6-06 gates fails.
 
 **Technical explanation.** This exercise mirrors
@@ -1478,7 +1497,7 @@ BOT6-06 gates fails.
 `"1H"`, `"15M"`, and `"5M"` together (no `"4H"` requirement, unlike
 Bot 5's invocation). A correct capstone answer matches every field of
 the real `BotSignal` (confidence fixed at `0.88`, `setup_quality` 1.3,
-reported take-profit a fixed 2:1 — all tied with Bot 5, not exceeding
+reported take-profit a fixed 1:1 — all tied with Bot 5, not exceeding
 it) or a precise `None` with the specific failing gate, out of six
 possible.
 
@@ -1499,8 +1518,8 @@ and 5M data. Working the complete pipeline: a refined zone
 confirmation candle, Bot 2's CHoCH call returning `"long"` with Bot
 3's FVG+BOS call agreeing, a matching FVG setting a long entry, a stop
 20% of the confirmation candle's range beyond the sweep's extreme, and
-the actual fixed-2:1 TP2 target at 0.88 confidence — matching what the
-real `JeafxSMCv2Bot.analyze()` would output.
+the actual fixed-1:1 `take_profit` at 0.88 confidence — matching what
+the real `JeafxSMCv2Bot.analyze()` would output.
 
 ### Counterexample
 
@@ -1515,7 +1534,7 @@ zone, purge, and confirmation candle otherwise look.
 
 Good: Working the complete pipeline from raw data, correctly applying
 both first-match-wins loops, correctly evaluating BOTH direction
-sources before combining them, and correctly stating the fixed-2:1
+sources before combining them, and correctly stating the fixed-1:1
 target rather than a naive 5:1 read. Bad: Applying any other bot's
 zone check, loop-match rule, direction-source count (4H BOS, or
 requiring both sources to agree), or target assumption to what is
@@ -1530,8 +1549,8 @@ specifically a Bot 6 scenario.
 - Direction requires checking BOTH sources, with EITHER sufficient and
   only genuine disagreement blocking — not a 4H BOS, and not an AND
   requirement.
-- The reported take-profit is a fixed 2:1, exactly like Bots 1, 2, 3,
-  and 5 — not the 5:1 the "4-6R target" framing might suggest.
+- The reported take-profit is a fixed 1:1, exactly like every bot on
+  this platform — not the 5:1 the "4-6R target" framing might suggest.
 
 ### Common Mistakes
 
@@ -1550,8 +1569,9 @@ genuinely its own, verified individually, never a shared template.
 3. Across the full six-bot roster, gate counts range from two (Bot 3)
    to eleven (Bot 4), confidence is fixed for five bots and
    conditional for one (Bot 2), and every reported take-profit that
-   goes through `calculate_targets` is a fixed 2:1 — verified facts,
-   not assumptions carried over from any single bot's docstring.
+   goes through `calculate_targets` is a fixed 1:1 (`tp1`) — verified
+   facts, not assumptions carried over from any single bot's
+   docstring.
 
 ### Practice Drill
 
@@ -1570,8 +1590,9 @@ including exactly which gate this fails at.
 Q1 (True/False): Bot 6's reported take-profit reflects the 5.0
 `rr_ratio` it passes into `calculate_targets`, the same way a naive
 read of its "4-6R target" framing might suggest.
-Answer: False — `tp2` is hardcoded to a fixed 2:1, exactly the same
-verified finding as Bots 1, 2, 3, and 5.
+Answer: False — the reported field is `tp1`, hardcoded to a fixed
+1:1, the same verified finding confirmed across every bot on this
+platform.
 
 Q2 (Multiple choice): Across all six bots in this curriculum, which
 two are tied for the second-most real gates?
@@ -1589,9 +1610,10 @@ Answer: (c) — both have six, behind only Bot 4's eleven.
   FVGs, or direction calls pre-identified, and no 4H data at all.
 - Front: Across the full six-bot roster, what's the one shared,
   verified fact about every bot that calls `calculate_targets`? Back:
-  Its reported take-profit (`tp2`) is always a fixed 2:1, regardless
-  of the `rr_ratio` parameter passed in — true for Bots 1, 2, 3, 5,
-  and 6 (Bot 4 never calls it at all).
+  Its reported take-profit (`tp1`) is always a fixed 1:1, regardless
+  of the `rr_ratio` parameter passed in — true for every bot on this
+  platform that reports a `take_profit` field (Bot 4 never calls it
+  at all).
 
 ### Mastery Criteria
 

@@ -920,29 +920,42 @@ curriculum that quietly repeated the docstring's aspiration as if it
 were implemented behavior would be teaching something the code
 doesn't actually do.
 
+**Correction, re-verified against current source:** an earlier
+version of this lesson stated the REPORTED take-profit is `tp2` (a
+fixed 2:1). Re-checking `bot_strategies.py` directly shows this was
+wrong — `BotSignal(... take_profit=targets["tp1"], ...)` — the
+reported field is `tp1`, a fixed 1:1, across every bot on this
+platform, with no exceptions. `tp2` is real, but it's reported
+separately as `take_profit_2`, never as the primary `take_profit`
+field. The numbers and quiz answers below reflect the corrected,
+verified value.
+
 ### Core Teaching
 
 **Plain-English explanation.** Bot 3's stop is placed just beyond the
 selected FVG's far extreme, with a buffer equal to 10% of the gap's
 own size — not a fixed pip distance, and not anchored to a separate
-swing point the way Bot 1's is. Its REPORTED take-profit is TP2 from
-a multi-target split (the same pattern as Bot 1 and Bot 2) — and, as
-BOT1-07 found, TP2 is always a fixed 2:1, regardless of the `rr_ratio`
-passed in. Position sizing uses a 1.15 setup-quality multiplier,
-between Bot 1's 1.2 and Bot 2's 1.1.
+swing point the way Bot 1's is. Its REPORTED take-profit is TP1 from
+a multi-target split (the same pattern as every bot on this
+platform) — a fixed 1:1, regardless of the `rr_ratio` passed in.
+Position sizing uses a 1.15 setup-quality multiplier, between Bot 1's
+1.2 and Bot 2's 1.1.
 
 **Technical explanation.** For a long: `sl_price = target_fvg.bottom -
 (target_fvg.top - target_fvg.bottom) * 0.1`; for a short:
 `sl_price = target_fvg.top + (...) * 0.1` — the buffer is exactly
 10% of the FVG's own top-to-bottom size, computed locally (`method:
 "fvg_extreme"`), not via a shared engine call, matching BOT3-04's
-hand-calculated entry pattern. `calculate_targets(..., rr_ratio=4.0)`,
-reporting `tp2` — but `tp2`'s multiplier is hardcoded to 2:1 in
-`EntryExitEngine.calculate_targets`, so the `rr_ratio=4.0` Bot 3 passes
-in never reaches its reported take-profit; it only sizes `tp3`, a
-runner level this bot never reports. Bot 3's real, reported target is
-a fixed 2:1, the same as Bot 1, Bot 2, and (after a fix) Bot 5.
-`calculate_position_risk(setup_quality=1.15)`, then
+hand-calculated entry pattern. `calculate_targets(..., rr_ratio=4.0)`
+produces `tp1` (fixed 1:1), `tp2` (fixed 2:1), and `tp3` (the passed
+`rr_ratio`, 4:1 by default) — and `BotSignal`'s own
+`take_profit=targets["tp1"]` assignment means the `rr_ratio=4.0` Bot 3
+passes in never reaches its REPORTED take-profit at all; it only
+sizes `tp3`, a runner level reported separately as `take_profit_3`,
+never as `take_profit`. Bot 3's real, reported target is a fixed 1:1
+— the same as every bot on this platform, confirmed by checking every
+`take_profit=targets[...]` line in `bot_strategies.py` directly, not
+sampled. `calculate_position_risk(setup_quality=1.15)`, then
 `calculate_lot_size`. Separately, and just as important: THIS IS THE
 ENTIRE MANAGEMENT LOGIC — the class docstring's rule 5 ("Trail stop by
 new BOS formations") is NOT implemented anywhere in `analyze()`; the
@@ -966,8 +979,10 @@ The selected FVG spans 1.0900 (bottom) to 1.0920 (top) — a 20-pip
 gap. For a long entry at the midpoint (1.0910, BOT3-04), the stop sits
 at `1.0900 - (0.0020 * 0.1) = 1.0898` — 2 pips of buffer beyond the
 gap's own bottom. Stop distance from entry is 12 pips; the reported
-TP2 sits 24 pips above entry (a fixed 2:1) — not 48 pips (4:1), even
-though `rr_ratio=4.0` was passed to `calculate_targets`.
+`take_profit` (`tp1`) sits 12 pips above entry, at 1.0922 (a fixed
+1:1) — not 24 pips (2:1, that's `take_profit_2`), and not 48 pips
+(4:1, that's `take_profit_3`), even though `rr_ratio=4.0` was passed
+to `calculate_targets`.
 
 ### Counterexample
 
@@ -993,9 +1008,10 @@ management style.
   that specific gap, not a fixed distance.
 - The stop and entry calculations are both hand-written, local
   arithmetic — matching BOT3-04's pattern, not a shared engine call.
-- The REPORTED take-profit (`tp2`) is always a fixed 2:1 — the
+- The REPORTED take-profit (`tp1`) is always a fixed 1:1 — the
   `rr_ratio=4.0` passed into `calculate_targets` only ever reaches
-  `tp3`, a runner level that's never reported.
+  `tp3` (`take_profit_3`), a runner level reported separately, never
+  as `take_profit`.
 - The docstring's "trail stop by BOS" line is NOT implemented
   anywhere in this bot's actual `analyze()` function — a real,
   confirmed gap between stated intent and actual code.
@@ -1005,16 +1021,20 @@ management style.
 Trusting a class's documented intent (the docstring) as equivalent to
 its actual implemented behavior is exactly the mistake this lesson
 exists to prevent — always verify against the real code path, the
-same discipline this whole curriculum applies throughout.
+same discipline this whole curriculum applies throughout (including,
+as this lesson's own correction shows, re-verifying a PREVIOUS
+version of this very curriculum against the code rather than trusting
+it unchecked).
 
 ### Key Takeaways
 
 1. Bot 3's stop buffer is 10% of the selected FVG's own size — a
    proportional, hand-calculated distance, not a fixed pip amount.
-2. Its REPORTED take-profit (`tp2`) is always a fixed 2:1 — the
+2. Its REPORTED take-profit (`tp1`) is always a fixed 1:1 — the
    `rr_ratio=4.0` it passes to `calculate_targets` only ever reaches
-   `tp3`, a runner level that's never reported as `take_profit`.
-   Sizing uses a 1.15 setup-quality multiplier.
+   `tp3`, a runner level reported separately as `take_profit_3`,
+   never as `take_profit`. Sizing uses a 1.15 setup-quality
+   multiplier.
 3. The docstring's "trail stop by BOS formations" line is NOT actually
    implemented in `analyze()` — the real function returns one static
    signal with no ongoing trailing logic.
@@ -1023,8 +1043,8 @@ same discipline this whole curriculum applies throughout.
 
 Given three FVG top/bottom pairs with entry prices (provided in
 Practise), calculate the exact stop price, stop distance, and the
-actual (fixed 2:1) TP2 target for each — not the docstring's 4:1
-figure.
+actual (fixed 1:1) `take_profit` target for each — not the
+docstring's 4:1 figure, and not `tp2`/`tp3`.
 
 ### Scenario Challenge
 
@@ -1050,11 +1070,11 @@ Q2 (Multiple choice): How is Bot 3's stop buffer calculated?
 
 Answer: (b).
 
-Q3 (True/False): Bot 3's reported take-profit reflects the 4.0
-`rr_ratio` it passes into `calculate_targets`.
-Answer: False — `tp2` (what it reports) is hardcoded to a fixed 2:1;
-the passed `rr_ratio` only ever reaches `tp3`, a runner level never
-used as the reported `take_profit` (the same finding as BOT1-07).
+Q3 (True/False): Bot 3's reported `take_profit` field reflects the
+4.0 `rr_ratio` it passes into `calculate_targets`.
+Answer: False — the reported field is `tp1`, hardcoded to a fixed
+1:1; the passed `rr_ratio` only ever reaches `tp3`
+(`take_profit_3`), never the reported `take_profit`.
 
 ### Flashcards
 
@@ -1062,8 +1082,9 @@ used as the reported `take_profit` (the same finding as BOT1-07).
   FVG's own size, beyond its far extreme — proportional to that
   specific gap.
 - Front: Does Bot 3's reported take-profit actually reflect its 4.0
-  rr_ratio? Back: No — `tp2` is hardcoded to a fixed 2:1 regardless;
-  the same finding as Bot 1 and Bot 2.
+  rr_ratio? Back: No — the reported `take_profit` field is `tp1`,
+  hardcoded to a fixed 1:1, regardless of `rr_ratio` — the same
+  finding confirmed across every bot on this platform.
 - Front: Does Bot 3 actually implement stop-trailing by BOS, as its
   docstring describes? Back: No — this is a confirmed gap between
   documented intent and actual code; `analyze()` returns one static
@@ -1073,14 +1094,16 @@ used as the reported `take_profit` (the same finding as BOT1-07).
 
 Why is it important, when learning a real codebase, to verify a
 class's actual behavior against its code rather than trusting its
-docstring or comments alone? Where else in this curriculum have you
-seen a similar "verify against real code" discipline applied?
+docstring or comments alone — or even a previous lesson's own stated
+"finding," as this lesson's own correction shows? Where else in this
+curriculum have you seen a similar "verify against real code"
+discipline applied?
 
 ### Mastery Criteria
 
-Correctly calculate stop, distance, and TP2 for all three
-practice-drill FVG pairs, and correctly state that stop-trailing is
-not implemented in the real code.
+Correctly calculate stop, distance, and the real `tp1` take-profit
+for all three practice-drill FVG pairs, and correctly state that
+stop-trailing is not implemented in the real code.
 
 ### Spaced Review
 
@@ -1092,10 +1115,11 @@ failure-mode analysis.
 Verified against `FVGExpansionBot.analyze()` Steps 4-6 in
 `bot_strategies.py` AND `EntryExitEngine.calculate_targets` in
 `smc_algorithms.py` — the `* 0.1` buffer calculation, `rr_ratio=4.0`,
-`setup_quality=1.15`, and `tp2`'s hardcoded 2:1 multiplier all quoted
-directly from source, alongside a confirmed line-by-line check that no
-trailing logic exists anywhere in this bot's class despite the
-docstring's rule 5.
+`setup_quality=1.15`, and the `take_profit=targets["tp1"]` assignment
+all quoted directly from source, re-verified fresh (correcting an
+earlier version of this lesson's own mistaken `tp2` claim), alongside
+a confirmed line-by-line check that no trailing logic exists anywhere
+in this bot's class despite the docstring's rule 5.
 
 ---
 
@@ -1274,9 +1298,9 @@ entry and stop, which neither of the other two bots uses.
 through Bot 3's pipeline in order: find the eligible 1H FVG within
 the 30-70% mitigation window (BOT3-02), confirm the matching 15M BOS
 (BOT3-03), calculate the direct midpoint entry (BOT3-04/06), and
-calculate the proportional 10%-of-gap stop and the actual, fixed-2:1
-TP2 target (BOT3-07) — not the 4:1 the docstring or `rr_ratio`
-parameter might suggest.
+calculate the proportional 10%-of-gap stop and the actual, fixed-1:1
+`take_profit` target (BOT3-07) — not the 2:1 or 4:1 the docstring or
+`rr_ratio` parameter might suggest.
 
 **Technical explanation.** This exercise mirrors
 `FVGExpansionBot.analyze()`'s real, shorter control flow — two gates
@@ -1290,14 +1314,15 @@ calculations specific to each individual FVG's own size.
 
 See diagram: `visuals/bot3-09-full-pipeline-worksheet.svg` — a
 five-row worksheet (eligible FVG -> BOS match -> direction/entry ->
-stop -> TP2/sizing) mirroring `analyze()`'s real, shorter step
+stop -> take_profit/sizing) mirroring `analyze()`'s real, shorter step
 sequence.
 
 ### Worked Example
 
 A full worked scenario (provided in Practise) walks a 1H chart with
 one FVG at 55% mitigation, ACTIVE, matched by a 15M bullish BOS,
-ending with the exact entry, stop, and TP2 numbers Bot 3's real code
+ending with the exact entry, stop, and real `tp1` take-profit numbers
+Bot 3's real code
 would compute for that data.
 
 ### Counterexample
@@ -1343,7 +1368,8 @@ lesson exists to catch.
 
 Given a full chart scenario (provided in Practise) with 1H and 15M
 data, work through the complete pipeline to produce the exact entry
-price, stop price, and TP2 target Bot 3's code would output.
+price, stop price, and real `tp1` take-profit target Bot 3's code
+would output.
 
 ### Scenario Challenge
 
@@ -1378,9 +1404,9 @@ Answer: (b).
 
 ### Mastery Criteria
 
-Correctly produce the exact entry, stop, and TP2 target for the
-practice-drill scenario, and correctly identify the failing gate in
-the `None`-producing scenario.
+Correctly produce the exact entry, stop, and real `tp1` take-profit
+target for the practice-drill scenario, and correctly identify the
+failing gate in the `None`-producing scenario.
 
 ### Reflection
 
@@ -1424,7 +1450,7 @@ behavior does NOT apply, since it isn't actually implemented.
 the entire pipeline from scratch: detect 1H FVGs and their mitigation
 percentages, find one in the 30-70% ACTIVE window, detect a matching
 15M BOS, calculate the direct midpoint entry, calculate the 10%-of-gap
-stop, and produce the final, actual fixed-2:1 TP2 target and 0.82
+stop, and produce the final, actual fixed-1:1 `take_profit` and 0.82
 confidence — or correctly stop at whichever of the two BOT3-05 gates
 fails.
 
@@ -1448,7 +1474,7 @@ A full capstone scenario (provided in Practise) supplies raw 1H and
 15M data. Working the complete pipeline: one 1H FVG at 62% mitigation,
 ACTIVE, a matching bearish 15M BOS, producing a short entry at the FVG
 midpoint, a stop 10% of the gap's size beyond its top, and the actual
-fixed-2:1 TP2 target at 0.82 confidence — matching what
+fixed-1:1 `take_profit` at 0.82 confidence — matching what
 `FVGExpansionBot.analyze()` would output for this exact data.
 
 ### Counterexample

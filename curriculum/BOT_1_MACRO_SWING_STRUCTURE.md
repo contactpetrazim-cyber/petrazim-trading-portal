@@ -46,8 +46,8 @@ between Bot 1 and the rest. It also runs the widest stops of any bot
 and passes the highest reward-to-risk PARAMETER into its target
 calculation (5.0, vs. 3.0-4.0 for the others) — though see BOT1-07 for
 a real, verified nuance: the actually-reported take-profit field is a
-fixed 2:1 for every bot that shares this calculation, regardless of
-that parameter. Bot 1 is explicitly designed to be held for multi-day
+fixed 1:1 for every bot on this platform, regardless of that
+parameter. Bot 1 is explicitly designed to be held for multi-day
 to multi-week moves rather than closed same-session.
 
 ### Visual Model
@@ -938,17 +938,26 @@ as general concepts; this lesson is where those concepts become
 concrete, real numbers for Bot 1 specifically — the exact stop
 reference point and target ratio its own code uses.
 
+**Correction, re-verified against current source:** an earlier
+version of this lesson stated the REPORTED take-profit is `tp2` (a
+fixed 2:1). Re-checking `bot_strategies.py` directly shows this was
+wrong — `BotSignal(... take_profit=targets["tp1"], ...)` — the
+reported field is `tp1`, a fixed 1:1, across every bot on this
+platform, with no exceptions. `tp2` is real, but it's reported
+separately as `take_profit_2`, never as the primary `take_profit`
+field. The numbers and quiz answers below reflect the corrected,
+verified value.
+
 ### Core Teaching
 
 **Plain-English explanation.** Bot 1's stop is placed beyond the
 actual 1D swing point that defined the confirmed trend (BOT1-02) —
 not a fixed pip distance, and not the 4H zone's own edge. Its
-REPORTED take-profit is the SECOND level (TP2) of a multi-target
-split (C8-03) — and TP2 is always a fixed 2:1 reward-to-risk from the
-stop distance, regardless of any other configured ratio. Position
-size is calculated from account balance, a risk percentage adjusted by
-setup quality, and the actual stop distance — C8-01's formula, applied
-mechanically.
+REPORTED take-profit is the FIRST level (TP1) of a multi-target
+split (C8-03) — a fixed 1:1 reward-to-risk from the stop distance,
+regardless of any other configured ratio. Position size is calculated
+from account balance, a risk percentage adjusted by setup quality,
+and the actual stop distance — C8-01's formula, applied mechanically.
 
 **Technical explanation.** `sl_swing = lows[-1]` for a long (the most
 recent 1D swing low from BOT1-02's own trend calculation) or
@@ -959,38 +968,39 @@ rr_ratio=5.0, multi_target=True)` — but a close read of
 entry ± sl_distance * 1.0` and `tp2 = entry ± sl_distance * 2.0` are
 BOTH hardcoded multipliers, completely ignoring the passed `rr_ratio`
 — only `tp3 = entry ± sl_distance * rr` actually uses it. Bot 1 reports
-`targets["tp2"]` as its signal's `take_profit`, which means the
+`targets["tp1"]` as its signal's `take_profit`, which means the
 `rr_ratio=5.0` it passes in NEVER reaches the field a trader or the
 platform actually sees as the target — it only sizes `tp3`, the
-"runner" level in the 30/40/30 multi-target allocation, which no bot
-in this codebase reports as its primary `take_profit`. Bot 1's real,
-reported target is a fixed 2:1, the same as every other bot that calls
-`calculate_targets` and reports `tp2` (Bot 2, Bot 3, and — after a
-real bug fix — Bot 5; see BOT5-07). Risk: `calculate_position_risk
-(setup_quality=1.2)` — a fixed 1.2 quality multiplier specific to Bot
-1 (compare to Bot 2's 1.1, Bot 3's 1.15, Bot 5's 1.3) — then
-`calculate_lot_size(account_balance, risk, sl["sl_distance"])` applies
-C8-01's real sizing formula.
+"runner" level in the 30/40/30 multi-target allocation, reported
+separately as `take_profit_3`, never as the primary `take_profit`.
+Bot 1's real, reported target is a fixed 1:1 — the same as every bot
+on this platform, confirmed by checking every `take_profit=
+targets[...]` line in `bot_strategies.py` directly, not sampled.
+Risk: `calculate_position_risk(setup_quality=1.2)` — a fixed 1.2
+quality multiplier specific to Bot 1 (compare to Bot 2's 1.1, Bot 3's
+1.15, Bot 5's 1.3) — then `calculate_lot_size(account_balance, risk,
+sl["sl_distance"])` applies C8-01's real sizing formula.
 
 ### Visual Model
 
 See diagram: `visuals/bot1-07-stop-target-sizing.svg` — the entry
-(mean of zone), stop (beyond the 1D swing), and the reported TP2
-target at a fixed 2:1 from that stop distance, with a separate,
-smaller marker further out for TP3 (the actual 5:1 "runner" level)
-labeled "computed, never reported as take_profit."
+(mean of zone), stop (beyond the 1D swing), and the reported TP1
+target at a fixed 1:1 from that stop distance, with separate, smaller
+markers further out for TP2 (2:1, reported as `take_profit_2`) and
+TP3 (the actual 5:1 "runner" level, `take_profit_3`) labeled
+"computed, reported separately, never as the primary take_profit."
 
 ### Worked Example
 
 Entry is 1.0875 (BOT1-06). The 1D swing low that defined the confirmed
 uptrend sits at 1.0800 — the stop is placed just beyond it. Stop
-distance is 75 pips. The reported take-profit (TP2) sits 150 pips
-above entry (a fixed 2:1) — NOT 375 pips (5:1), even though
-`rr_ratio=5.0` was passed to `calculate_targets`; that 5:1 value only
-ever reaches `tp3`, a runner level Bot 1 never reports as its
-take-profit. With a 1.2 setup-quality-adjusted risk percentage and the
-real stop distance, `calculate_lot_size` produces the exact position
-size for the account balance in question.
+distance is 75 pips. The reported take-profit (`tp1`) sits 75 pips
+above entry, at 1.0950 (a fixed 1:1) — NOT 150 pips (2:1, that's
+`take_profit_2`), and NOT 375 pips (5:1, that's `take_profit_3`),
+even though `rr_ratio=5.0` was passed to `calculate_targets`. With a
+1.2 setup-quality-adjusted risk percentage and the real stop
+distance, `calculate_lot_size` produces the exact position size for
+the account balance in question.
 
 ### Counterexample
 
@@ -998,26 +1008,28 @@ A trader manually recreating this signal, having read Bot 1's class
 docstring ("Target 3:1 minimum, often 5:1+ for swing trades"), sets
 their own take-profit at 5:1 from the stop distance. This overstates
 what the actual signal reports — the real `take_profit` field Bot 1
-produces is always a fixed 2:1; the docstring's higher figures describe
-the runner level (tp3) a trader might hold part of the position for
-after scaling out at tp2, not the single reported take-profit value.
+produces is always a fixed 1:1; the docstring's higher figures
+describe the runner level (`take_profit_3`) a trader might hold part
+of the position for after scaling out at `tp1`, not the single
+primary reported take-profit value.
 
 ### Good Example / Bad Example
 
 Good: Anchoring the stop to the exact 1D swing that defined the
 confirmed trend, and knowing the actual reported take-profit is
-always a fixed 2:1 regardless of the bot's configured `rr_ratio`. Bad:
+always a fixed 1:1 regardless of the bot's configured `rr_ratio`. Bad:
 Assuming the bot's docstring-stated "5:1" target is what appears in
 the signal's `take_profit` field — it isn't; that field is always
-`tp2`, hardcoded to 2:1.
+`tp1`, hardcoded to 1:1.
 
 ### What to Look Out For
 
 - The stop references the SAME 1D swing point already used to confirm
   trend direction in BOT1-02 — not a new, separate level.
-- The reported take-profit (`tp2`) is ALWAYS a fixed 2:1 — the
+- The reported take-profit (`tp1`) is ALWAYS a fixed 1:1 — the
   `rr_ratio=5.0` passed into `calculate_targets` only ever reaches
-  `tp3`, a runner level that's computed but never reported.
+  `tp3`, a runner level that's computed and reported as
+  `take_profit_3`, never as the primary `take_profit`.
 - Bot 1's setup-quality multiplier (1.2) is fixed and specific to this
   bot — other bots use different values for the same formula.
 
@@ -1025,25 +1037,26 @@ the signal's `take_profit` field — it isn't; that field is always
 
 Assuming a bot's configured `rr_ratio` parameter equals its actually
 reported take-profit ratio is the single most consequential mistake
-this lesson exists to correct — for every bot in this codebase that
-reports `tp2`, the real answer is always a fixed 2:1, regardless of
+this lesson exists to correct — for every bot on this platform, the
+reported `take_profit` is always a fixed 1:1 (`tp1`), regardless of
 what `rr_ratio` value was passed in.
 
 ### Key Takeaways
 
 1. Bot 1's stop is anchored to the real 1D swing point that confirmed
    the trend — not a fixed distance.
-2. Its REPORTED take-profit (`tp2`) is always a fixed 2:1 — the
+2. Its REPORTED take-profit (`tp1`) is always a fixed 1:1 — the
    `rr_ratio=5.0` it passes to `calculate_targets` only ever reaches
-   `tp3`, a runner level that's never reported as `take_profit`.
+   `tp3`, a runner level reported separately as `take_profit_3`,
+   never as `take_profit`.
 3. Position sizing uses C8-01's real formula with a bot-specific
    setup-quality multiplier of 1.2.
 
 ### Practice Drill
 
 Given three complete entry/1D-swing pairs (provided in Practise),
-calculate the exact stop price and the actual reported TP2 target
-(fixed 2:1) for each, following Bot 1's real rules — not the
+calculate the exact stop price and the actual reported `tp1` target
+(fixed 1:1) for each, following Bot 1's real rules — not the
 docstring's 5:1 figure.
 
 ### Scenario Challenge
@@ -1061,11 +1074,11 @@ Answer: False — it's anchored to the actual 1D swing point that
 confirmed the trend, which varies trade to trade.
 
 Q2 (Multiple choice): What reward-to-risk ratio does Bot 1's actual
-REPORTED take-profit (`tp2`) reflect, regardless of the `rr_ratio=5.0`
+REPORTED take-profit (`tp1`) reflect, regardless of the `rr_ratio=5.0`
 passed into `calculate_targets`?
 (a) 5:1, matching the passed parameter
-(b) A fixed 2:1 — `tp2`'s multiplier is hardcoded, ignoring `rr_ratio`
-(c) 1:1
+(b) A fixed 1:1 — `tp1`'s multiplier is hardcoded, ignoring `rr_ratio`
+(c) 2:1
 (d) It varies trade to trade based on setup quality
 
 Answer: (b).
@@ -1076,21 +1089,24 @@ Answer: (b).
   swing point that defined the confirmed trend direction (BOT1-02) —
   not a fixed distance.
 - Front: Does Bot 1's reported take-profit actually reflect the 5:1
-  it passes to `calculate_targets`? Back: No — `tp2` (what it reports)
-  is hardcoded to a fixed 2:1 in `EntryExitEngine.calculate_targets`;
-  the passed `rr_ratio` only ever reaches `tp3`, a runner level never
-  used as the reported `take_profit`.
+  it passes to `calculate_targets`? Back: No — `tp1` (what it
+  reports) is hardcoded to a fixed 1:1 in
+  `EntryExitEngine.calculate_targets`; the passed `rr_ratio` only
+  ever reaches `tp3`, a runner level reported separately as
+  `take_profit_3`, never as the primary `take_profit`.
 
 ### Reflection
 
 Before this lesson, would you have assumed a bot's configured
 `rr_ratio` parameter always equals its reported take-profit ratio?
 What does this real code finding suggest about verifying a specific
-field's actual value rather than trusting a parameter name?
+field's actual value rather than trusting a parameter name — or even
+a previous lesson's own stated "finding," as this lesson's own
+correction shows?
 
 ### Mastery Criteria
 
-Correctly calculate stop and the actual (fixed 2:1) TP2 target for
+Correctly calculate stop and the actual (fixed 1:1) `tp1` target for
 all three practice-drill pairs, without defaulting to the docstring's
 5:1 figure.
 
@@ -1103,8 +1119,11 @@ foundation for BOT1-08's failure-mode analysis.
 
 Verified against `MacroSwingStructureBot.analyze()` Steps 5-7 AND
 `EntryExitEngine.calculate_targets` in `smc_algorithms.py` — the
-hardcoded `tp1`/`tp2` multipliers (1.0/2.0, ignoring `rr_ratio`) and
-`tp3`'s use of the passed `rr` value, both quoted directly from source.
+hardcoded `tp1`/`tp2` multipliers (1.0/2.0, ignoring `rr_ratio`),
+`tp3`'s use of the passed `rr` value, and the
+`take_profit=targets["tp1"]` assignment, all quoted directly from
+source and re-verified fresh (correcting an earlier version of this
+lesson's own mistaken `tp2` claim).
 
 ---
 
@@ -1295,9 +1314,9 @@ data, 4H swing and zone data), work through Bot 1's pipeline exactly
 in its real order: confirm the 1D trend (BOT1-02), check 4H BOS
 alignment (BOT1-03), select the eligible zone (BOT1-04), confirm no
 gate failed (BOT1-05), calculate the mean entry (BOT1-06), and
-calculate the structure-anchored stop and the actual, fixed-2:1 TP2
-target (BOT1-07) — not the 5:1 the docstring or `rr_ratio` parameter
-might suggest.
+calculate the structure-anchored stop and the actual, fixed-1:1 `tp1`
+target (BOT1-07) — not the 2:1 or 5:1 the docstring or `rr_ratio`
+parameter might suggest.
 
 **Technical explanation.** This exercise deliberately mirrors the
 literal control flow of `MacroSwingStructureBot.analyze()` — each
@@ -1314,13 +1333,13 @@ See diagram: `visuals/bot1-09-full-pipeline-worksheet.svg` — a
 seven-row worksheet template mirroring `analyze()`'s own step
 sequence, each row requiring a specific real output (trend direction,
 BOS type, selected zone, gate-pass confirmation, entry price, stop
-price, TP2) before the next row can be filled in.
+price, `tp1`) before the next row can be filled in.
 
 ### Worked Example
 
 A full worked scenario (provided in Practise) walks a 1D chart through
 all four recent swings, a 4H chart with a matching BOS and one ACTIVE
-bullish zone, ending with the exact same entry/stop/TP2 numbers Bot
+bullish zone, ending with the exact same entry/stop/`tp1` numbers Bot
 1's actual code would output for that data.
 
 ### Counterexample
@@ -1367,7 +1386,8 @@ the actual pipeline computes, not approximating it.
 
 Given a full chart scenario (provided in Practise) with 1D and 4H
 data, work through all seven real pipeline steps to produce the exact
-entry price, stop price, and TP2 target Bot 1's code would output.
+entry price, stop price, and real `tp1` take-profit target Bot 1's
+code would output.
 
 ### Scenario Challenge
 
@@ -1407,9 +1427,9 @@ Answer: (b).
 
 ### Mastery Criteria
 
-Correctly produce the exact entry, stop, and TP2 target for the
-practice-drill scenario, and correctly identify the failing gate in
-the `None`-producing scenario.
+Correctly produce the exact entry, stop, and real `tp1` take-profit
+target for the practice-drill scenario, and correctly identify the
+failing gate in the `None`-producing scenario.
 
 ### Reflection
 
@@ -1437,9 +1457,9 @@ step here exists that isn't a real line of code in `bot_strategies.py`.
 **Estimated study time:** 18 minutes
 **Prerequisites:** BOT1-01 through BOT1-09
 **Learning objectives:** Given raw multi-timeframe chart data, produce
-the complete Bot 1 decision — either a full signal (entry, stop, TP2,
-lot size, reasoning) or a correctly-identified `None` with the exact
-failing gate — matching what the real pipeline would output.
+the complete Bot 1 decision — either a full signal (entry, stop,
+`tp1`, lot size, reasoning) or a correctly-identified `None` with the
+exact failing gate — matching what the real pipeline would output.
 
 ### Why This Matters
 
@@ -1456,8 +1476,8 @@ update.
 swings, zones, or trend pre-identified), work the entire pipeline from
 scratch: detect the swings, determine the trend, detect the 4H BOS,
 detect the 4H zones, run all four BOT1-05 gates, and — if every gate
-passes — produce the exact entry, stop, TP2, and a `reasoning` string
-in the same style Bot 1's own code generates.
+passes — produce the exact entry, stop, real `tp1` take-profit, and a
+`reasoning` string in the same style Bot 1's own code generates.
 
 **Technical explanation.** This exercise is deliberately built to
 mirror `BotOrchestrator.run_all()`'s own real invocation of
@@ -1483,10 +1503,11 @@ A full capstone scenario (provided in Practise) supplies raw 1D and
 4H candle series. Working the complete pipeline: 4+ 1D swings confirm
 a bearish trend, a matching bearish 4H BOS is detected, one ACTIVE
 bearish 4H zone is found, all four gates pass, entry is calculated at
-the zone mean, stop beyond the confirming 1D swing high, and TP2 at
-its actual fixed 2:1 (not the 5:1 the passed `rr_ratio` parameter
-might suggest) — producing a complete signal matching what
-`MacroSwingStructureBot.analyze()` would output for this exact data.
+the zone mean, stop beyond the confirming 1D swing high, and the real
+`tp1` take-profit at its actual fixed 1:1 (not the 2:1 or 5:1 the
+passed `rr_ratio` parameter might suggest) — producing a complete
+signal matching what `MacroSwingStructureBot.analyze()` would output
+for this exact data.
 
 ### Counterexample
 
@@ -1511,7 +1532,7 @@ data first.
 - A correct `None` answer, with the specific gate identified, is just
   as complete a capstone answer as a full signal — don't force a
   signal where the real pipeline wouldn't produce one.
-- Every field of a produced signal (direction, entry, stop, TP2, lot
+- Every field of a produced signal (direction, entry, stop, `tp1`, lot
   size) must trace back to a real calculation from BOT1-01 through
   BOT1-07 — nothing estimated or approximated.
 - This capstone uses RAW candle data — swings, BOS, and zones are not
@@ -1557,7 +1578,7 @@ bot, and correctly identifying the specific failing gate demonstrates
 the same mastery as producing a correct signal.
 
 Q2 (Multiple choice): What must every field of a produced capstone
-signal (entry, stop, TP2, lot size) be traceable to?
+signal (entry, stop, `tp1`, lot size) be traceable to?
 (a) A reasonable estimate given the overall chart
 (b) A specific, real calculation from the raw data, following
     BOT1-01 through BOT1-07's actual rules
