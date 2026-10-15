@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { X, Loader2, RotateCcw, Sun, Moon, Palette, Target, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Maximize2, Crosshair, TrendingUp, PenLine, Square, Eraser, Zap, Search, Receipt, Eye, EyeOff, Globe2, MonitorSmartphone, Check, Clock3, RefreshCw, Ban, Percent, ArrowUpCircle, ArrowDownCircle, BarChart3 } from 'lucide-react';
+import { X, Loader2, RotateCcw, Sun, Moon, Palette, Target, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Maximize2, Crosshair, TrendingUp, PenLine, Square, Eraser, Zap, Search, Receipt, Eye, EyeOff, Globe2, MonitorSmartphone, Check, Clock3, RefreshCw, Ban, Percent, ArrowUpCircle, ArrowDownCircle, BarChart3, ListOrdered } from 'lucide-react';
 import { CandleChart, CHART_LAYOUT, computeChartRange, type Candle, type ChartLine, type ChartZone, type ChartMarker, type OverlaySeries, type DrawnSegment } from './CandleChart';
 import { formatSignedMoney, type ChartPosition } from './TradingViewChart';
 import { PositionManager } from './PositionManager';
 import { FoldedCard } from './FoldedCard';
 import { PairsPanel } from './PairsPanel';
+import { ReasoningAnnotations } from './ReasoningAnnotations';
 import { useQuickPairsStore } from '../hooks/useQuickPairs';
 import { useYAxisZoom, applyYZoom } from '../hooks/useYAxisZoom';
 import { orderFlowApi, oandaApi, tradesApi } from '../services/api';
@@ -361,6 +362,7 @@ export function PositionOnChartModal({
   const [error, setError] = useState<string | null>(null);
   const [retryTick, setRetryTick] = useState(0);
   const [positionOpen, setPositionOpen] = useState(false);
+  const [reasoningOpen, setReasoningOpen] = useState(false);
 
   // Resize/scroll/zoom — by direct request ("add feature to resize or
   // move the chart or scroll to the left or down or increase or
@@ -1435,6 +1437,21 @@ export function PositionOnChartModal({
               <Target size={13} /> Position
             </button>
           )}
+          {/* Reasoning — by direct request ("CAN the snapshot chart and
+              the approval charts and on charts be annotated with the
+              items from the reasoning summary labelled 1 to x ... with
+              a toggle on or off annotation"). Only when this modal was
+              handed a real Trade with its own reasoning_log, same
+              gating as Position above. */}
+          {trade?.reasoning_log && isOriginalSymbol && (
+            <button
+              onClick={() => setReasoningOpen((o) => !o)}
+              aria-label={reasoningOpen ? 'Hide reasoning annotations' : 'Show reasoning annotations'}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium ${reasoningOpen ? 'bg-corporate-hero text-white' : `${chromeMutedCls} ${toggleWrapCls}`}`}
+            >
+              <ListOrdered size={13} /> Reasoning
+            </button>
+          )}
           {/* Local candle color picker — by direct request ("add
               ability to change candle colour on the chart"). No chart
               TYPE row here on purpose — see COLOR_PRESETS' own comment
@@ -1608,6 +1625,11 @@ export function PositionOnChartModal({
               </FoldedCard>
             ))
           )}
+        </div>
+      )}
+      {reasoningOpen && trade?.reasoning_log && isOriginalSymbol && (
+        <div className={`mb-3 rounded-lg p-3 ${toggleWrapCls}`}>
+          <ReasoningAnnotations text={trade.reasoning_log} dark={localDark} foldable={false} />
         </div>
       )}
       {/* Zoom/pan toolbar — by direct request ("add feature to resize

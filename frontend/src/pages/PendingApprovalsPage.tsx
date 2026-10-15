@@ -4,6 +4,7 @@ import { formatDistanceToNow } from 'date-fns';
 import { ArrowUpRight, ArrowDownRight, Check, Ban, Clock3, RefreshCw, Bot, ChevronDown, ChevronUp, AlertTriangle, X, LineChart } from 'lucide-react';
 import { LoadingIndicator } from '../components/LoadingIndicator';
 import { PositionOnChartModal } from '../components/PositionOnChartModal';
+import { ReasoningAnnotations } from '../components/ReasoningAnnotations';
 import { tradeToChartPosition } from '../components/ChartPanel';
 import { useEffectiveChartColors } from '../hooks/useCandleColors';
 import { useQuickPairsStore, DEFAULT_QUICK_PAIRS } from '../hooks/useQuickPairs';
@@ -350,7 +351,9 @@ export function PendingApprovalsPage() {
                 </div>
 
                 {isExpanded && t.reasoning_log && (
-                  <p className={`mt-2 text-xs whitespace-pre-wrap ${dark ? 'text-gray-400' : 'text-gray-500'}`}>{t.reasoning_log}</p>
+                  <div className="mt-2">
+                    <ReasoningAnnotations text={t.reasoning_log} dark={dark} foldable={false} />
+                  </div>
                 )}
               </div>
             </div>
@@ -386,7 +389,9 @@ export function PendingApprovalsPage() {
                   </button>
                 </div>
                 {t.reasoning_log && (
-                  <p className={`mt-2 text-xs whitespace-pre-wrap ${dark ? 'text-gray-400' : 'text-gray-500'}`}>{t.reasoning_log}</p>
+                  <div className="mt-2">
+                    <ReasoningAnnotations text={t.reasoning_log} dark={dark} foldable={false} />
+                  </div>
                 )}
               </div>
             </div>
