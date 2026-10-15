@@ -116,6 +116,39 @@ def resolve_tunable_param(strategy_key: str, param: str, config: Dict) -> float:
         raw = default
     return max(lo, min(hi, raw))
 
+
+# By direct request ("fix permanently"), after the risk-geometry/
+# capital-adequacy safety net (_signal_risk_is_valid's own NOTIONAL
+# check, below) caught the SAME repeat failure mode hundreds of times
+# without ever being fixed at its source: FVGExpansionBot/
+# FVGExpansionV3Bot's stop is set 10% beyond the FVG's own width (see
+# their analyze()) — when a real gap happens to be narrow (confirmed
+# live: bot_3_fvg_expansion_2 on EURUSDT.P, sl_distance ~0.00024 on a
+# ~1.08 entry, notional $46,812.50 against a $50,000 cap), that 10% is
+# a tiny dollar distance, and a correct dollar-risk amount divided by a
+# tiny distance inflates lot_size — and therefore notional — into
+# something no real account can afford. The safety net correctly
+# rejects it every time (so no bad order was ever placed), but only
+# AFTER a signal was drafted, logged as an ERROR trade, and a scan
+# cycle burned on it — 334 times for one bot/pair alone in an earlier
+# audit, and still recurring. This widens (only ever away from entry,
+# never toward it, so it only ever REDUCES lot_size/notional, never
+# increases risk) a computed stop to at least this fraction of
+# entry_price before it's ever used to size a position, fixing the
+# problem where it originates instead of only catching it downstream.
+MIN_STOP_DISTANCE_PCT = 0.0015  # 0.15% of entry price
+
+
+def apply_min_stop_distance_floor(entry_price: float, sl_price: float, direction: str) -> float:
+    """Widens sl_price away from entry_price, if needed, so the
+    resulting distance is at least MIN_STOP_DISTANCE_PCT of
+    entry_price. A no-op for any stop that's already wide enough."""
+    min_distance = entry_price * MIN_STOP_DISTANCE_PCT
+    if abs(entry_price - sl_price) >= min_distance:
+        return sl_price
+    return entry_price - min_distance if direction == "long" else entry_price + min_distance
+
+
 @dataclass
 class BotSignal:
     bot_id: str
@@ -738,6 +771,11 @@ class FVGExpansionBot:
         else:
             sl_price = target_fvg.top + (target_fvg.top - target_fvg.bottom) * 0.1
 
+        # Floor — a narrow FVG on a low-volatility pair can make the
+        # above distance pathologically tiny, inflating lot_size/
+        # notional past what any account can afford. See
+        # apply_min_stop_distance_floor's own docstring.
+        sl_price = apply_min_stop_distance_floor(entry_price, sl_price, direction)
         sl_distance = abs(entry_price - sl_price)
 
         sl = {
@@ -878,6 +916,8 @@ class FVGExpansionV3Bot:
         else:
             sl_price = target_fvg.top + (target_fvg.top - target_fvg.bottom) * 0.1
 
+        # Floor — see apply_min_stop_distance_floor's own docstring.
+        sl_price = apply_min_stop_distance_floor(entry_price, sl_price, direction)
         sl_distance = abs(entry_price - sl_price)
         sl = {"stop_loss": sl_price, "sl_distance": sl_distance, "method": "fvg_extreme"}
 
