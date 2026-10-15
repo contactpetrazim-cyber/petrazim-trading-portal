@@ -607,6 +607,62 @@ def extend_stop_beyond_zone(stop_loss: float, zone: Zone, direction: Literal["lo
     return max(stop_loss, zone.top + buffer)
 
 
+def compute_trailing_stop(
+    entry_price: float,
+    initial_stop_price: float,
+    direction: Literal["long", "short"],
+    peak: float,
+    mode: str = "fixed",
+) -> float:
+    """The trailing-stop price implied by `peak` (the best price
+    reached since trailing activated). Shared by position_monitor.py
+    (live/paper trades) and backtest_engine.py (historical replay) —
+    previously each had its OWN separate copy of this exact formula;
+    consolidated by direct request ("fix permanently portal wide")
+    after that exact "two hand-maintained copies of the same fact"
+    pattern caused a real bug earlier this session (see BOT_REGISTRY's
+    own comment in bot_strategies.py) — one place means the two replay
+    paths can never again silently diverge.
+
+    mode="fixed" (the only mode that existed before this): trails at a
+    CONSTANT width equal to the trade's own original (pre-ratchet)
+    risk distance behind the peak, for as long as trailing stays
+    active, however far the trade runs.
+
+    mode="step_down" (new — by direct, critical request, after real
+    data showed 17 of 80 closed trades, 21%, hit TP1 then gave back
+    the ENTIRE remaining 70% of the position at a flat breakeven
+    floor: trailing only activates at TP2 by default, so the gap
+    between TP1 and TP2 has zero trailing protection, just that one
+    static floor — the 39 trades that DID reach TP2 and got real
+    trailing averaged 6.35R, against 0.28R for the TP1-only group,
+    confirming trailing itself is the real lever): starts at the SAME
+    full original-R width right when trailing first activates (so a
+    normal pullback right after proving the trade at 1R doesn't
+    instantly stop the runner out — the exact failure mode found),
+    then narrows linearly as the peak proves itself further, floored
+    so a very extended run always keeps a real, non-zero cushion
+    rather than trailing on the close."""
+    sl_distance = abs(entry_price - initial_stop_price)
+    if sl_distance <= 0:
+        return initial_stop_price
+
+    if mode == "step_down":
+        peak_r = abs(peak - entry_price) / sl_distance
+        # Full width through peak_r<=1 (right as trailing first can
+        # activate, e.g. right after TP1); narrows by TIGHTEN_RATE of
+        # the original width per additional R of peak proven beyond
+        # that, floored at FLOOR_FRAC of the original width.
+        TIGHTEN_RATE = 0.3
+        FLOOR_FRAC = 0.4
+        width_frac = max(FLOOR_FRAC, 1.0 - TIGHTEN_RATE * max(0.0, peak_r - 1.0))
+        width = sl_distance * width_frac
+    else:
+        width = sl_distance
+
+    return peak - width if direction == "long" else peak + width
+
+
 def select_fvg_by_depth(fvgs: List["FairValueGap"], direction: Literal["long", "short"]) -> Optional["FairValueGap"]:
     """By direct audit request ("if there's another FVG either
     shallower or deeper, pause and review which FVG price will
@@ -1022,7 +1078,10 @@ class EntryExitEngine:
         - OPEN: Entry at zone origin candle open
         - MEAN: Entry at mean threshold (top+bottom)/2
         - EQUILIBRIUM: Entry at 50% of zone (same as mean)
-        - AGGRESSIVE: Entry at zone extreme (top for long, bottom for short)
+        - AGGRESSIVE: Entry at zone extreme — bottom for long (the deepest,
+          most favorable discount), top for short (the highest, most
+          favorable premium); see the code below, not this line, which
+          previously said "top for long" backwards.
         """
         if entry_type == "open":
             entry_price = zone.origin_candle_open if hasattr(zone, 'origin_candle_open') else zone.mean_threshold

@@ -31,6 +31,7 @@ strongly_supported / hypothesis / unverified.
 from __future__ import annotations
 
 import json
+import re
 from collections import defaultdict
 from datetime import datetime
 from typing import Dict, List, Optional
@@ -38,7 +39,6 @@ from typing import Dict, List, Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.bot_strategies import BOT_REGISTRY
 from app.models.bot import BotConfig, BotStatus
 from app.models.trade import Trade, TradeStatus
 from app.models.trading_audit import (
@@ -57,17 +57,21 @@ NEGATIVE_EXPECTANCY_ACTION_THRESHOLD = 0.0  # strictly negative total PnL over t
 
 def _bot_family(bot_id: str) -> str:
     """Collapses a real BotConfig row's bot_id ("bot_9_volume_liq_wide_
-    range_2") to its strategy-family key ("bot_9") — derived directly
-    from BOT_REGISTRY (bot_strategies.py), the single source of truth
-    every other bot-roster consumer (BotOrchestrator, the backtest
-    adapter, TUNABLE_PARAM_BOUNDS) already reads from, instead of this
-    function's own former hand-maintained list of example bot_ids
-    (BOT_FAMILIES). That list was built before Bots 8-11 existed and
-    silently never got the 4 new entries — the same hand-maintained-
-    registry drift already found and permanently fixed once this
-    session. Deriving from BOT_REGISTRY means a future bot_12 is
-    correctly grouped the moment it's added there, with no second
-    place to remember.
+    range_2") to its REPORTING-family key ("bot_9") — the family a
+    trader actually thinks of as "one bot" across however many symbol
+    instances it runs on. Matches the "bot_<number>_..." shape
+    directly (a plain regex, not BOT_REGISTRY membership) — real bug,
+    found immediately while seeding Bot 12: that bot is deliberately
+    NOT in BOT_REGISTRY (it reuses Bot 2's own strategy class
+    byte-for-byte — see seed_ab_test_bots.py's own docstring for why,
+    a genuine A/B test of trade MANAGEMENT, not signal generation), so
+    checking BOT_REGISTRY membership here would have silently failed
+    to collapse its 4 real symbol instances into one family row,
+    exactly the kind of per-instance fragmentation this function
+    exists to prevent. Reporting identity (one row per real bot a
+    trader manages) and dispatch identity (BOT_REGISTRY, which
+    strategy class actually runs it) are two different concerns —
+    conflating them was the mistake; this only derives the former.
 
     apply_recommendation's own bot_id-prefix match
     (`row.bot_id.startswith(finding.bot_id + "_")`) still works
@@ -76,8 +80,8 @@ def _bot_family(bot_id: str) -> str:
     change shipped."""
     if bot_id.startswith("manual"):
         return "manual"
-    candidate = "_".join(bot_id.split("_")[:2])
-    return candidate if candidate in BOT_REGISTRY else bot_id
+    match = re.match(r"^(bot_\d+)(?:_|$)", bot_id)
+    return match.group(1) if match else bot_id
 
 
 async def _compute_instrument_inventory(db: AsyncSession, period_start: datetime, period_end: datetime) -> List[Dict]:
@@ -392,6 +396,12 @@ BOT_OPTIMIZATION_REFERENCE: List[Dict[str, str]] = [
     {"fam": "bot_11", "name": "Bot 11 — HF OB Reversal, Wider-Stop", "sl": "same as Bot 2 but 30% embed + 0.35% floor",
      "rel": "A/B vs Bot 2 — the direct test of 'is the SL too tight'",
      "note": "Real 60-day backtest: loses to Bot 2 on win rate, expectancy, and drawdown across almost every real instrument and percentile band tested."},
+    {"fam": "bot_12", "name": "Bot 12 — HF OB Reversal, Runner", "sl": "Identical to Bot 2 — this variant changes trade MANAGEMENT, not entry/SL",
+     "rel": "A/B vs Bot 2 — reuses Bot 2's entry logic byte-for-byte (strategy_key=bot_2); trailing activates at TP1 (R=1.0) instead of TP2 (R=2.0), using a new narrowing 'step_down' trail width "
+            "(full 1R width right as it activates, tightening only as the peak proves itself further) instead of the old constant-width trail",
+     "note": "Built from a real, critical finding: 17 of 80 closed trades (21%) hit TP1 then gave back the ENTIRE remaining 70% of the position at a flat breakeven floor, because trailing previously "
+             "only ever activated at TP2 and the gap between TP1 and TP2 had zero protection beyond that one static floor. The 39 trades that DID reach TP2 and got real trailing averaged 6.35R, "
+             "against 0.28R for the TP1-only group — trailing itself is the real lever, and Bot 12 tests giving it a full R earlier."},
 ]
 
 # Stage 9/10 findings — real results from this session's own

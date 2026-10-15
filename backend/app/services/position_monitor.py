@@ -88,6 +88,7 @@ import structlog
 from sqlalchemy import select
 
 from app.config import get_settings
+from app.core.smc_algorithms import compute_trailing_stop
 from app.database import AsyncSessionLocal
 from app.models.bot import BotConfig
 from app.models.trade import ExitType, Trade, TradeDirection, TradeLog, TradeStatus
@@ -474,23 +475,23 @@ class PositionMonitor:
         logger.info("position_monitor_closed", trade_id=trade.trade_id, exit_type=exit_type.value, exit_price=exit_price, pnl=round(pnl_this_close, 2))
 
     def _trailing_stop_from_peak(self, trade: Trade, peak: float) -> Optional[float]:
-        """The trail level implied by the given peak — the trade's own
-        ORIGINAL (pre-ratchet) risk distance behind it. Reuses
-        initial_stop_loss (not the live, already-ratcheted stop_loss)
-        as the distance basis — same "snapshot at open" column every
-        other immutable-reference field on this row already is. The
-        only trailing mode implemented in v1 regardless of BotConfig.
-        trailing_stop_distance's own "structure"/"atr"/"fixed" value —
-        see that column's own comment for why: this is the one mode
-        with zero new data dependencies (no candle/ATR fetch needed
-        here, which only ever has a ticker price)."""
+        """The trail level implied by the given peak — delegates to
+        compute_trailing_stop (smc_algorithms.py), the single shared
+        formula also used by backtest_engine.py's own replay, keyed by
+        trade.trailing_stop_distance (resolved once at trade-creation
+        time, same "snapshot at open" convention as initial_stop_loss
+        itself). Reuses initial_stop_loss (not the live, already-
+        ratcheted stop_loss) as the distance basis for every mode."""
         if trade.initial_stop_loss is None:
             return None
         sl_distance = abs(trade.entry_price - trade.initial_stop_loss)
         if sl_distance <= 0:
             return None
         is_long = trade.direction == TradeDirection.LONG
-        return peak - sl_distance if is_long else peak + sl_distance
+        return compute_trailing_stop(
+            trade.entry_price, trade.initial_stop_loss, "long" if is_long else "short",
+            peak, mode=trade.trailing_stop_distance or "fixed",
+        )
 
     async def _check_trailing(self, db, trade: Trade, price: float) -> None:
         """Manages the final runner leg once trailing has activated
