@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
-import { BookOpen } from 'lucide-react';
+import { BookOpen, FlaskConical, ChevronDown } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
 import { FoldedCard } from '../components/FoldedCard';
 import { LoadingIndicator } from '../components/LoadingIndicator';
+import { ScenarioDrillPanel } from '../components/ScenarioDrillPanel';
 import { useThemeStore } from '../hooks/useTheme';
 import { useAuth } from '../hooks/useAuth';
 import { apiFetch } from '../components/AccessExpiredGate';
@@ -18,6 +19,7 @@ interface Drill {
   attempts: number;
   correct_attempts: number;
   has_diagram: boolean;
+  has_scenario_set: boolean;
 }
 interface TrackGroup {
   track_id: string;
@@ -51,6 +53,7 @@ export function PracticeDrillsPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [phase, setPhase] = useState<FetchPhase>('idle');
+  const [openScenarioId, setOpenScenarioId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!targetLessonId || !groups) return;
@@ -196,6 +199,29 @@ export function PracticeDrillsPage() {
                     >
                       <BookOpen size={12} /> Review the reference chart/diagram
                     </a>
+                  )}
+                  {/* The actual interactive materials this drill's own
+                      prompt promises ("given five signal cards,
+                      provided in Practise") — by direct bug report,
+                      these never existed; only the prompt TEXT (which
+                      itself describes materials that weren't there)
+                      rendered. See ScenarioDrillPanel. Lazily mounted
+                      only once expanded, and only offered when this
+                      lesson actually has one authored (has_scenario_set)
+                      — most lessons don't yet; the rest is the SMC
+                      Academy overhaul's job, not fabricated here. */}
+                  {d.has_scenario_set && (
+                    <button
+                      onClick={() => setOpenScenarioId(openScenarioId === d.lesson_id ? null : d.lesson_id)}
+                      className={`inline-flex items-center gap-1 text-xs font-medium mb-3 ${dark ? 'text-white/50 hover:text-white' : 'text-corporate-hero hover:underline'}`}
+                    >
+                      <FlaskConical size={12} />
+                      {openScenarioId === d.lesson_id ? 'Hide interactive materials' : 'Open the interactive materials for this drill'}
+                      <ChevronDown size={12} className={`transition-transform ${openScenarioId === d.lesson_id ? 'rotate-180' : ''}`} />
+                    </button>
+                  )}
+                  {d.has_scenario_set && openScenarioId === d.lesson_id && (
+                    <ScenarioDrillPanel lessonId={d.lesson_id} dark={dark} />
                   )}
                   <div className="flex items-center gap-2">
                     <button
