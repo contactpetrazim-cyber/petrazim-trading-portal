@@ -343,7 +343,16 @@ export function TradesPage() {
   useEffect(() => {
     if (!trades.some((t) => t.status === 'active')) return;
     const id = setInterval(() => {
-      tradesApi.getTrades({ ...buildParams(), archived: false }).then((r) => setTrades(excludeAwaitingApproval(applyOutcomeFilter(r)))).catch(() => {});
+      // Same exclusion as loadTrades' own setTrades call — by direct
+      // bug report ("the trade error still shows up in incognito
+      // mode"). This silent background poller (keeps live unrealized
+      // PnL fresh while a trade is active) was a second, independent
+      // setTrades call that never got excludeErrorsAndCancelled added
+      // to it when that exclusion was introduced elsewhere, so an
+      // error/cancelled trade correctly filtered out of the initial
+      // load would silently reappear the next time this poller fired
+      // — not a caching issue, a real second code path.
+      tradesApi.getTrades({ ...buildParams(), archived: false }).then((r) => setTrades(excludeErrorsAndCancelled(excludeAwaitingApproval(applyOutcomeFilter(r))))).catch(() => {});
     }, LIVE_PNL_POLL_MS);
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
