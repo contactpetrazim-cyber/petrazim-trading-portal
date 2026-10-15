@@ -17,7 +17,7 @@ polls the same row for status/progress/results.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Optional
 
 import structlog
@@ -30,14 +30,9 @@ from app.db.repository import save_backtest_trades
 from app.models.bot import BotConfig
 from app.services.data_ingestion import shared_ingestion
 from app.engines.backtest_engine import BacktestEngine, Bar, CostModel
-from app.engines.strategy_adapter import SmcStrategyAdapter, STRATEGY_FAMILY
+from app.engines.strategy_adapter import SmcStrategyAdapter, STRATEGY_FAMILY, TF_ORDER, fetch_required_timeframe_candles
 
 logger = structlog.get_logger()
-
-# ccxt timeframe strings, same mapping market_scanner.py's own
-# _TIMEFRAME_TO_CCXT uses for the live scan.
-_TF_TO_CCXT = {"1D": "1d", "4H": "4h", "1H": "1h", "15M": "15m", "5M": "5m"}
-_TF_ORDER = ["1D", "4H", "1H", "15M", "5M"]
 
 # Conservative, explicitly-labeled-as-assumptions placeholder cost
 # figures per the approved plan — nothing in this codebase measures
@@ -51,15 +46,6 @@ _DEFAULT_COST_MODELS = {
     "forex": CostModel(spread=0.0, slippage=0.0, commission_r=0.0005),
 }
 _FOREX_LIKE_BROKERS = {"tradelocker", "metatrader", "oanda"}
-
-# Extra history fetched before `start_date` so the FIRST replayed bars
-# still have real higher-timeframe context to read (swing/zone
-# detectors need real lookback, not an artificially cold start) —
-# candles in this padding window are fetched for every secondary
-# timeframe, but the base/execution timeframe's own bar list passed to
-# BacktestEngine is sliced to begin at start_date, so no trade can ever
-# be entered before the requested window.
-_LOOKBACK_PADDING_DAYS = 30
 
 
 def _naive_utc(dt: datetime) -> datetime:
@@ -133,28 +119,29 @@ async def run_backtest(run_id: str) -> None:
         exchange = bot.exchange or "bingx"
         _bot_class, required = STRATEGY_FAMILY[bot.strategy_key]
         required_tf_labels = [label for _, label in required]
-        base_tf = min(required_tf_labels, key=lambda l: _TF_ORDER.index(l))
+        base_tf = min(required_tf_labels, key=lambda l: TF_ORDER.index(l))
 
         await _update_run(run_id, symbol=symbol, base_timeframe=base_tf, progress_pct=10.0)
 
-        fetch_start = start_date - timedelta(days=_LOOKBACK_PADDING_DAYS)
-        timeframe_candles = {}
-        for label in required_tf_labels:
-            candles = await shared_ingestion.fetch_historical_range(
-                exchange, symbol, _TF_TO_CCXT[label], start=fetch_start, end=end_date,
+        # fetch_required_timeframe_candles (strategy_adapter.py) checks
+        # EVERY required timeframe for real data in-window, not just
+        # the base one — see its own docstring for the real bug this
+        # fixes (Bot 5/6/8 silently "backtesting" to 0 signals when
+        # their secondary 5M timeframe ran past this exchange's real
+        # retention window, looking exactly like a genuine null result).
+        timeframe_candles, fetch_error = await fetch_required_timeframe_candles(
+            shared_ingestion, exchange, symbol, required_tf_labels, start_date, end_date,
+        )
+        if fetch_error:
+            await _update_run(
+                run_id, status=BacktestRunStatus.FAILED, error_message=fetch_error,
+                completed_at=datetime.now(timezone.utc),
             )
-            timeframe_candles[label] = candles
+            return
 
         await _update_run(run_id, progress_pct=40.0)
 
         base_candles = [c for c in timeframe_candles[base_tf] if c.timestamp >= start_date]
-        if not base_candles:
-            await _update_run(
-                run_id, status=BacktestRunStatus.FAILED,
-                error_message=f"No {base_tf} candles returned for {symbol} on {exchange} in the requested window",
-                completed_at=datetime.now(timezone.utc),
-            )
-            return
         bars = [Bar(timestamp=c.timestamp, open=c.open, high=c.high, low=c.low, close=c.close, volume=c.volume) for c in base_candles]
 
         trailing_activation_r = bot.trailing_stop_activation if bot.use_trailing_stop else None

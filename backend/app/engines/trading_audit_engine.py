@@ -369,16 +369,20 @@ BOT_OPTIMIZATION_REFERENCE: List[Dict[str, str]] = [
      "note": "Structurally over-restrictive: mandatory CHoCH confirmation rejects 91.5% of genuine spring/upthrust events — close to mutually exclusive with its own range-bound precondition by construction."},
     {"fam": "bot_5", "name": "Bot 5 — Jeafx SMC Style", "sl": "jeafx_purge_extreme, embed aligned zone, floored 0.15% (fixed this session)",
      "rel": "A/B vs Bot 6 (adds LTF-agreement gate) and Bot 8 (Bot 6 minus that gate)",
-     "note": "Designed as the 'high R:R specialist' (4-6R) but a platform-wide min_rr_ratio=3.0 override flattens it to the same target as every other bot — a real config gap, not a strategy gap."},
+     "note": "Designed as the 'high R:R specialist' (4-6R) but a platform-wide min_rr_ratio=3.0 override flattens it to the same target as every other bot — a real config gap, not a strategy gap. "
+             "Real 35-day backtest (post data-retention fix): 4 trades, 75% win rate, +0.862R expectancy — a promising but still very small sample."},
     {"fam": "bot_6", "name": "Bot 6 — SMC v2", "sl": "jeafx_purge_extreme, embed aligned zone, floored 0.15% (fixed this session)",
      "rel": "A/B baseline for Bot 8 (removes its LTF-agreement gate)",
-     "note": "Negative real expectancy, but 23 of 24 of those trades predate the 2026-10-14 mandatory-1H-BOS revision — mostly measuring already-superseded logic, not the current code."},
+     "note": "Negative real live-trade expectancy, but 23 of 24 of those trades predate the 2026-10-14 mandatory-1H-BOS revision — mostly measuring already-superseded logic, not the current code. "
+             "Real 35-day backtest (post data-retention fix): 4 trades, 25% win rate, -0.132R — still too small to read (n=4)."},
     {"fam": "bot_7", "name": "Bot 7 — FVG Expansion v3", "sl": "FVG-width based, floored 0.15% (PR #286)",
      "rel": "A/B vs Bot 3 — depth-based vs recency-based FVG selection, otherwise identical",
      "note": "Real sample still too small (n<15) to read anything into."},
     {"fam": "bot_8", "name": "Bot 8 — SMC v2 Single-Anchor", "sl": "same as Bot 6 (floored 0.15%)",
      "rel": "A/B vs Bot 6 — isolates the LTF-agreement gate",
-     "note": "Was silently unbacktestable until a registry gap was fixed this session; real backtest sample (BTC, 60d) came back 0 trades — too early to read."},
+     "note": "Was silently unbacktestable until a registry gap was fixed this session. Its own real 60-day backtest then looked like a 0-signal null result — a SEPARATE real bug (a flat 5M lookback "
+             "padding exceeding bingx's real 5M data retention, fixed this session); re-run over 35 real days: 21 trades (above the n=15 confidence floor), 38.1% win rate, -0.128R. Fires far more often "
+             "than Bot 6 on the identical window (21 vs 4), confirming the LTF-agreement gate is the dominant restrictor — but removing it hasn't yet produced a better real expectancy, just more trades."},
     {"fam": "bot_9", "name": "Bot 9 — Volume & Liquidity Wide-Range", "sl": "same as Bot 4 (floored 0.15%)",
      "rel": "A/B vs Bot 4 — widens the near-extreme band 15%→25%",
      "note": "Real backtest: a null result (0 signals, same as Bot 4 on the same window) — the band was not the binding constraint there."},
@@ -423,8 +427,34 @@ Bot 2 dominates Bot 11 on every single percentile band — better upside, better
 drawdown at every point in the distribution. Caveat: Bot 2's strong pooled number is partly carried
 by the tiny EUR sample (n=3); BTC alone was negative for both bots.
 
-Bot 4/5/6 each produced 0 real backtest trades on BTC over the same 60-day window — consistent with
-Bot 4's already-documented over-restriction finding; Bot 5/6 at zero is new and not yet explained.
+**Correction (same investigation, found immediately after):** Bot 4/5/6/8 each initially appeared to
+produce 0 real backtest trades on BTC over the same 60-day window. Investigated rather than reported
+as a null result, because Bot 5/6 have real LIVE trades inside that exact window — a genuine 0
+should have been impossible. Root cause: a flat 30-day lookback padding, applied to every required
+timeframe including 5M (Bot 5/6/8's own secondary confirmation timeframe), routinely pushed the 5M
+fetch's `since` past bingx's own real 5M retention window (confirmed empirically: 5m candles
+available ~44 days back, empty at ~46+) — and because 5M is never the BASE replay timeframe for
+these three bots, the existing "no base candles" guard never caught it. Fixed at the source
+(`fetch_required_timeframe_candles`, shared by backtest_runner.py and intelligent_tuning_worker.py):
+real per-timeframe padding, and a hard fail — naming the exact gap — the moment any REQUIRED
+timeframe (not just the base one) has no real data in the requested window, so this can never again
+look like a genuine zero-signal result. Bot 4 (which needs only 4H/1H, no 5M) was never affected by
+this specific bug; its own 0-trade result is still the separately-confirmed over-restriction finding.
+
+Re-ran Bot 5/6/8 on BTC over a 35-day window (safely inside bingx's real 5M retention) after the fix:
+
+| Bot | Trades | Win rate | Expectancy (R) | Max DD (R) |
+|---|---|---|---|---|
+| Bot 5 | 4 | 75.0% | +0.862 | 0.03 |
+| Bot 6 | 4 | 25.0% | -0.132 | 1.09 |
+| Bot 8 | 21 | 38.1% | -0.128 | 4.89 |
+
+All three samples are still small (Bot 5/6: n=4; Bot 8: n=21, the only one past the n=15 confidence
+floor). Bot 8 (Bot 6 minus the LTF-agreement gate) fires far more often than Bot 6 on the identical
+window (21 vs 4) — consistent with the earlier live-replay finding that this gate is the dominant
+restrictor — but its real expectancy is not better than Bot 6's, both negative. Removing the gate
+produces more trades, not necessarily better ones; this needs a larger sample before concluding
+either way.
 """
 
 

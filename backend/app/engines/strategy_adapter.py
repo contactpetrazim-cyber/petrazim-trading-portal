@@ -34,7 +34,8 @@ NOT reimplement any detection/entry/stop/target logic. It only:
 from __future__ import annotations
 
 import bisect
-from typing import Dict, List, Optional
+from datetime import datetime, timedelta
+from typing import Dict, List, Optional, Tuple
 
 from app.core.bot_strategies import BOT_REGISTRY, BotSignal, _signal_risk_is_valid
 from app.core.smc_algorithms import Candle
@@ -185,3 +186,56 @@ class SmcStrategyAdapter:
             initial_stop_price=signal.stop_loss,
             lot_size=signal.lot_size,
         )
+
+
+# ccxt timeframe strings + lookback padding — by direct request
+# ("FIX PORTAL WIDE permanently"), consolidated here after the same
+# constants (and the same silent-failure bug) were found independently
+# duplicated in both backtest_runner.py and intelligent_tuning_worker.py:
+# a single flat 30-day padding, applied uniformly to every required
+# timeframe including 5M, routinely requests 5M candles from past an
+# exchange's real retention window (confirmed empirically on bingx:
+# 5m candles available ~44 days back, empty at ~46+) — and because the
+# BASE replay timeframe for bot_5/6/8 is 4H/1H (not 5M, which they only
+# use secondarily for FVG confirmation), the existing "no base candles"
+# guard never caught it: the backtest just silently produced "0
+# trades" that looked exactly like a real null result. Caught live:
+# Bot 5/6/8 all "backtested" to 0 signals on a real 60-day BTC window
+# despite having real live trades inside that same window.
+TF_TO_CCXT = {"1D": "1d", "4H": "4h", "1H": "1h", "15M": "15m", "5M": "5m"}
+TF_ORDER = ["1D", "4H", "1H", "15M", "5M"]
+# Roughly 200-300 bars of real wall-clock context per timeframe,
+# rounded up for safety — NOT one flat value sized for the coarsest
+# timeframe and misapplied to the finest one.
+LOOKBACK_PADDING_DAYS_BY_TF = {"1D": 220, "4H": 40, "1H": 10, "15M": 3, "5M": 1}
+
+
+async def fetch_required_timeframe_candles(
+    shared_ingestion, exchange: str, symbol: str, required_tf_labels: List[str],
+    start_date: datetime, end_date: datetime,
+) -> Tuple[Dict[str, List[Candle]], Optional[str]]:
+    """Fetches every timeframe a strategy family needs, with real
+    per-timeframe lookback padding, then verifies EVERY one of them
+    (not just the base/replay timeframe — see this function's own
+    module docstring) actually has candles inside [start_date,
+    end_date] before the caller trusts any of it. Returns
+    (timeframe_candles, error_message) — error_message is None on
+    success, otherwise names exactly which timeframe/window had no
+    real data, so a genuine data-availability gap is never mistaken
+    for a legitimate zero-signal backtest result again."""
+    timeframe_candles: Dict[str, List[Candle]] = {}
+    for label in required_tf_labels:
+        fetch_start = start_date - timedelta(days=LOOKBACK_PADDING_DAYS_BY_TF.get(label, 30))
+        timeframe_candles[label] = await shared_ingestion.fetch_historical_range(
+            exchange, symbol, TF_TO_CCXT[label], start=fetch_start, end=end_date,
+        )
+
+    for label in required_tf_labels:
+        in_window = [c for c in timeframe_candles[label] if c.timestamp >= start_date]
+        if not in_window:
+            return timeframe_candles, (
+                f"No {label} candles returned for {symbol} on {exchange} in the requested window "
+                f"({start_date.date()} to {end_date.date()}) — likely past this exchange's real "
+                f"retention for that timeframe, not a genuine zero-signal result."
+            )
+    return timeframe_candles, None
