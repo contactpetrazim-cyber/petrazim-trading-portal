@@ -364,7 +364,10 @@ BOT_OPTIMIZATION_REFERENCE: List[Dict[str, str]] = [
      "rel": "—", "note": "No A/B variant, no known open issue."},
     {"fam": "bot_2", "name": "Bot 2 — HF Order Block Reversal", "sl": "sweep_extreme/structure_swing, embed OB +10%, floored 0.15% (fixed this session)",
      "rel": "A/B vs Bot 11 (30% embed + 0.35% floor)",
-     "note": "Real 60-day backtest: beats Bot 11 on 3 of 4 real instruments and on every Monte Carlo percentile band pooled — the wider stop does not pay for itself."},
+     "note": "Real 60-day backtest: beats Bot 11 on 3 of 4 real instruments and on every Monte Carlo percentile band pooled — the wider stop does not pay for itself. "
+             "A second, separate hypothesis (always enter at the OB's own extreme, like Bot 11/12, instead of Bot 2's current mean-if-swept entry) was built, real-backtested across all 7 real "
+             "symbols, and REFUTED: worse win rate on every single symbol (e.g. 26% vs 45% on BTC), pooled average R flipping from +0.08 to -0.12 across 100+ trades. Bot 2's current "
+             "mean-if-swept entry is confirmed the better design, not a flaw — removed before shipping rather than kept as a live variant known to underperform."},
     {"fam": "bot_3", "name": "Bot 3 — FVG Expansion & Fill", "sl": "FVG-width based, floored 0.15% (PR #286)",
      "rel": "A/B baseline for Bot 7 (deliberately no OB/premium-discount checks)",
      "note": "Strongest real sample this session: n=61, 82% win rate, real positive expectancy."},
