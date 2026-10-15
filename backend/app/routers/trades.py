@@ -911,7 +911,7 @@ async def trade_forensics(
     endpoint just above — no batch precompute, no staleness to manage.
     """
     trade = await _get_owned_trade(trade_id, user, db)
-    result = await compute_trade_forensics(trade)
+    result = await compute_trade_forensics(db, trade)
     if "error" in result:
         raise HTTPException(status_code=422, detail=result["error"])
     return result

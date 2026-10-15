@@ -42,9 +42,13 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Dict, Optional
 
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.core.bot_strategies import TUNABLE_PARAM_BOUNDS
 from app.core.smc_algorithms import FVGDetector, LiquidityDetector, MarketStructureDetector, ZoneDetector
 from app.engines.strategy_adapter import STRATEGY_FAMILY, TF_ORDER, fetch_required_timeframe_candles
+from app.models.bot import BotConfig
 from app.models.trade import ExitType, Trade, TradeDirection
 from app.services.data_ingestion import shared_ingestion
 
@@ -56,14 +60,37 @@ from app.services.data_ingestion import shared_ingestion
 _FORENSICS_LOOKBACK_DAYS = 40
 
 
-def _resolve_strategy_key(bot_id: Optional[str]) -> Optional[str]:
+async def _resolve_strategy_key(db: AsyncSession, bot_id: Optional[str]) -> Optional[str]:
+    """DISPATCH identity (which strategy class/required timeframes to
+    replay), not reporting identity — these are different concerns
+    (see trading_audit_engine._bot_family's own comment for the
+    reporting-side version of this same lesson). The real source of
+    truth is BotConfig.strategy_key, exactly what BotOrchestrator/
+    market_scanner.py itself dispatches by ("this is what run_all
+    actually dispatches by, not a derived guess from the bot_id
+    string" — BotConfig.strategy_key's own comment, models/bot.py).
+
+    A derived guess from the bot_id's own naming convention is WRONG
+    whenever a bot's strategy_key doesn't match its own bot_id prefix
+    — a real, confirmed case: Bot 12 (bot_id prefix "bot_12") reuses
+    Bot 2's strategy class via strategy_key="bot_2" on its own
+    BotConfig row (a trade-MANAGEMENT A/B test, not a new signal
+    strategy — see seed_ab_test_bots.py), so "bot_12" was never added
+    to STRATEGY_FAMILY/BOT_REGISTRY at all. The old naming-guess
+    version of this function returned None for every real bot_12
+    trade, silently refusing forensics for an entire bot. Falls back
+    to the naming-convention guess only when the DB row is missing or
+    its strategy_key is NULL (the known, harmless bot_6_smc_v2 rows —
+    same fallback order market_scanner.py's own resolution already
+    uses: `bot.strategy_key or "_".join(bot.bot_id.split("_")[:2])`)."""
     if not bot_id or bot_id.startswith("manual"):
         return None
-    candidate = "_".join(bot_id.split("_")[:2])
+    bot_config = (await db.execute(select(BotConfig).where(BotConfig.bot_id == bot_id))).scalar_one_or_none()
+    candidate = (bot_config.strategy_key if bot_config else None) or "_".join(bot_id.split("_")[:2])
     return candidate if candidate in STRATEGY_FAMILY else None
 
 
-async def compute_trade_forensics(trade: Trade) -> Dict:
+async def compute_trade_forensics(db: AsyncSession, trade: Trade) -> Dict:
     """Real, on-demand per-trade SMC forensic reconstruction. Returns
     an error dict (never raises) for a trade this can't cover — a
     manual trade (no strategy to replay), one with no entry_timestamp
@@ -72,7 +99,7 @@ async def compute_trade_forensics(trade: Trade) -> Dict:
     if not trade.entry_timestamp:
         return {"error": "This trade has no entry timestamp yet — nothing to reconstruct."}
 
-    strategy_key = _resolve_strategy_key(trade.bot_id)
+    strategy_key = await _resolve_strategy_key(db, trade.bot_id)
     if strategy_key is None:
         return {"error": f"No recognized bot strategy for bot_id={trade.bot_id!r} — forensic reconstruction only covers bot-placed trades with a known strategy family."}
 
