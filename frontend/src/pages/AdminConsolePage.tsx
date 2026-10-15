@@ -440,6 +440,11 @@ export function AdminConsolePage() {
           title="Monthly Trading Audit"
           summary="Instrument/bot inventory, reconciliation, and expectancy findings — review and selectively apply recommendations"
         />
+        <AdminLinkCard
+          to="/admin/bot-optimization" icon={<Bot size={18} />} dark={dark}
+          title="Bot Optimization Matrix"
+          summary="Per-bot, per-instrument SL/TP/entry mechanics against real trade history and A/B findings"
+        />
       </div>
 
       <div className="space-y-3 mb-4">

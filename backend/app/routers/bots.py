@@ -4,11 +4,12 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from typing import List
+from typing import List, Optional
 from datetime import datetime, timedelta
 from app.database import get_db
 from app.models.bot import BotConfig, BotStatus, ExecutionMode, BotMode
 from app.core.bot_strategies import TUNABLE_PARAM_BOUNDS
+from app.engines.trading_audit_engine import compute_bot_instance_expectancy, rollup_instance_rows_to_family
 from app.models.user import User, UserRole
 from app.core.access_gate import require_active_access
 from app.core.auth import get_current_user, require_super_admin
@@ -351,6 +352,31 @@ async def list_bots(db: AsyncSession = Depends(get_db), user: User = Depends(req
         query = query.where(BotConfig.user_id == user.id)
     result = await db.execute(query)
     return result.scalars().all()
+
+@router.get("/optimization-matrix")
+async def get_bot_optimization_matrix(db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access)):
+    """Real, live per-bot-family and per-instance trade stats, backing
+    the Bot Optimization Matrix page (linked from both the Bots page
+    and the Admin portal — by direct request: "add the bot
+    optimisation dashboard to the portal - bot page in the trader
+    dashboard and also in admin portal").
+
+    Same ownership scoping as list_bots above — a non-staff trader
+    only ever sees expectancy computed from bots they themselves own,
+    never another trader's real performance, by restricting the query
+    to their own bot_ids before any stats are computed (not by
+    filtering the result after the fact)."""
+    now = datetime.utcnow()
+    period_start = datetime(2020, 1, 1)
+
+    bot_ids: Optional[List[str]] = None
+    if user.role not in STAFF_ROLES:
+        owned = (await db.execute(select(BotConfig.bot_id).where(BotConfig.user_id == user.id))).scalars().all()
+        bot_ids = list(owned)
+
+    instances = await compute_bot_instance_expectancy(db, period_start, now, bot_ids=bot_ids)
+    families = rollup_instance_rows_to_family(instances)
+    return {"bot_instance_expectancy": instances, "bot_family_expectancy": families}
 
 @router.get("/exchange-balances")
 async def get_exchange_balances(db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access)):

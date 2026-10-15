@@ -1,0 +1,249 @@
+import { useEffect, useState } from 'react';
+import { ClipboardList, Info } from 'lucide-react';
+import { PageHeader } from '../components/PageHeader';
+import { FoldedCard } from '../components/FoldedCard';
+import { LoadingIndicator } from '../components/LoadingIndicator';
+import { useAuth } from '../hooks/useAuth';
+import { useThemeStore } from '../hooks/useTheme';
+import { fetchJsonWithRetry, type FetchPhase } from '../lib/resilientFetch';
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+
+interface ExpectancyRow {
+  bot_family?: string;
+  bot_id?: string;
+  n: number;
+  wins: number;
+  losses: number;
+  win_rate_pct: number | null;
+  total_pnl: number;
+  avg_r: number | null;
+  expectancy_per_trade: number | null;
+}
+
+interface MatrixResponse {
+  bot_family_expectancy: ExpectancyRow[];
+  bot_instance_expectancy: ExpectancyRow[];
+}
+
+// Minimum trade count before an expectancy number is trusted enough
+// to grade — same "don't act on n<15" threshold the audit engine's
+// own MIN_TRADES_FOR_ACTIONABLE_EXPECTANCY already uses.
+const MIN_TRADES_FOR_GRADE = 15;
+
+function gradeFamily(row: ExpectancyRow): { label: string; cls: string } {
+  if (row.n < MIN_TRADES_FOR_GRADE) return { label: `Insufficient evidence (n=${row.n})`, cls: 'text-gray-400' };
+  const r = row.avg_r ?? 0;
+  if (row.total_pnl > 0 && r > 0) return { label: 'Performing well', cls: 'text-emerald-500' };
+  if (row.total_pnl > 0 || r > 0) return { label: 'Promising — needs more validation', cls: 'text-amber-500' };
+  return { label: 'Underperforming — needs optimisation', cls: 'text-red-500' };
+}
+
+// Static reference content — authored this session from reading each
+// bot's real code, not pulled from a dataset (qualitative description
+// of methodology, not a numeric figure the backend computes). Mirrors
+// the same content published as a Claude Artifact earlier in this
+// session's Stage 8 work; kept here too so it's visible in-portal
+// without needing a separate link out.
+const BOT_REFERENCE: Array<{
+  fam: string; name: string; instr: string; entry: string; sl: string; tp: string; rel: string; note: string; rec: string;
+}> = [
+  { fam: 'bot_1', name: 'Bot 1 — Macro Swing Structure', instr: 'BTC',
+    entry: 'Zone mean/aggressive', sl: 'structure_swing (floored 0.15%, embeds zone)', tp: '3R, 30/40/30 ladder, trail @2R',
+    rel: '—', note: 'No A/B variant, no known open issue.', rec: 'Leave as-is; too little data to act on.' },
+  { fam: 'bot_2', name: 'Bot 2 — HF Order Block Reversal', instr: 'BTC · JPY/EUR/XAUT · NAS100 · Oil',
+    entry: 'OB mean (if swept) / aggressive', sl: 'sweep_extreme or structure_swing, embed OB +10%, floored 0.15% (fixed this session)', tp: '3R, 30/40/30, trail @2R',
+    rel: 'A/B vs Bot 11 (same logic, 30% embed + 0.35% floor)',
+    note: 'Real 60-day out-of-sample backtest: Bot 2 beats Bot 11 on 3 of 4 real instruments (JPY, XAUT, and the pooled distribution) — the wider stop does not pay for itself.',
+    rec: 'Keep Bot 2\'s current (now-floored) stop as the default; Bot 11 stays as a monitored A/B, not a replacement.' },
+  { fam: 'bot_3', name: 'Bot 3 — FVG Expansion & Fill', instr: 'BTC · JPY/EUR/XAUT · NAS100 · Oil',
+    entry: 'FVG mean, depth-selected', sl: 'FVG-width based, floored 0.15% (PR #286)', tp: '3R, 30/40/30, trail @2R',
+    rel: 'Deliberately left without OB/premium-discount checks — the A/B baseline for Bot 7',
+    note: 'Strongest real sample this session: n=61, 82% win rate, real positive expectancy.', rec: 'Performing well on real evidence. No change indicated.' },
+  { fam: 'bot_4', name: 'Bot 4 — Volume & Liquidity Sweep', instr: 'BTC · JPY/EUR/XAUT',
+    entry: 'Spring/upthrust close', sl: 'spring/upthrust extreme, embed POI zone, floored 0.15% (fixed this session)', tp: '3R (confluence-scored), capped at range',
+    rel: 'A/B vs Bot 9 (25% near-extreme band) and Bot 10 (held-the-test confirmation)',
+    note: 'Structurally over-restrictive: real replay found its mandatory CHoCH confirmation rejects 91.5% of genuine spring/upthrust events — close to mutually exclusive with its own range-bound precondition by construction.',
+    rec: 'Bot 9/10 are the live test of two fixes to this exact gate; let them accumulate real trades before touching Bot 4 itself.' },
+  { fam: 'bot_5', name: 'Bot 5 — Jeafx SMC Style', instr: 'BTC',
+    entry: 'OB mean / 15M FVG depth-selected', sl: 'jeafx_purge_extreme, embed aligned zone, floored 0.15% (fixed this session)', tp: 'Code default 4-6R — but platform-wide min_rr_ratio=3.0 overrides it down to 3R live, same as every other bot',
+    rel: 'A/B vs Bot 6 (adds LTF-agreement gate) and Bot 8 (Bot 6 minus that gate)',
+    note: 'Decent real expectancy despite a sub-50% win rate — the R:R carries it.',
+    rec: 'Real config gap: Bot 5 was designed as the "high R:R specialist" but a uniform min_rr_ratio flattens it to the same target as every other bot. Worth a deliberate per-bot override once backtests show whether 4-6R actually improves on 3R.' },
+  { fam: 'bot_6', name: 'Bot 6 — SMC v2', instr: 'XAUT · BTC · JPY/EUR/XAUT · NAS100 · Oil',
+    entry: 'OB mean / 15M FVG depth-selected', sl: 'jeafx_purge_extreme, embed aligned zone, floored 0.15% (fixed this session)', tp: 'Same min_rr_ratio=3.0 override as Bot 5',
+    rel: 'A/B baseline for Bot 8 (removes its LTF-agreement gate)',
+    note: 'Negative real expectancy — but 23 of 24 of those trades predate the 2026-10-14 mandatory-1H-BOS revision, so this number is mostly measuring already-superseded logic.',
+    rec: 'Do not pause or "fix" Bot 6 off this number alone — it\'s stale by construction. Bot 8 re-tests the current logic cleanly.' },
+  { fam: 'bot_7', name: 'Bot 7 — FVG Expansion v3', instr: 'BTC',
+    entry: 'FVG mean, depth-selected', sl: 'FVG-width based, floored 0.15% (PR #286)', tp: '3R, 30/40/30, trail @2R',
+    rel: 'A/B vs Bot 3 — depth-based vs recency-based FVG selection, otherwise identical',
+    note: 'Real sample still too small to read anything into.', rec: 'Let it accumulate trades; revisit once n crosses 15.' },
+  { fam: 'bot_8', name: 'Bot 8 — SMC v2 Single-Anchor', instr: 'XAUT · BTC · JPY/EUR/XAUT · NAS100 · Oil',
+    entry: 'Same as Bot 6', sl: 'Same as Bot 6 (floored 0.15%)', tp: 'Same min_rr_ratio=3.0 override',
+    rel: 'A/B vs Bot 6 — isolates the LTF-agreement gate (Bot 8 = Bot 6 minus that one gate)',
+    note: 'Was silently unbacktestable until a registry gap was fixed this session; only just started accumulating real trades.',
+    rec: 'Let it accumulate a real sample before judging it.' },
+  { fam: 'bot_9', name: 'Bot 9 — Volume & Liquidity Wide-Range', instr: 'BTC · JPY/EUR/XAUT',
+    entry: 'Same as Bot 4', sl: 'Same as Bot 4 (floored 0.15%)', tp: '3R, capped at range',
+    rel: 'A/B vs Bot 4 — widens the near-extreme band 15%→25%, isolates only that one variable',
+    note: 'Real backtest so far: a null result (0 signals, same as Bot 4 on the same window) — the band was not the binding constraint there.',
+    rec: 'Let it accumulate a real sample across more market conditions before judging it.' },
+  { fam: 'bot_10', name: 'Bot 10 — Volume & Liquidity Held-Reclaim', instr: 'BTC · JPY/EUR/XAUT',
+    entry: 'Same as Bot 4', sl: 'Same as Bot 4 (floored 0.15%)', tp: '3R, capped at range',
+    rel: 'A/B vs Bot 4 — replaces the mandatory CHoCH confirmation with a Wyckoff "held the test" check (confirmed 16/47 vs CHoCH\'s 0/47 on the same real events)',
+    note: 'Its EURUSDT.P instance silently failed to log a single trade since creation (a database column was too narrow for its own trade_id) — fixed this session.',
+    rec: 'Should finally start logging real trades going forward; revisit once it has a real sample.' },
+  { fam: 'bot_11', name: 'Bot 11 — HF OB Reversal, Wider-Stop', instr: 'BTC · JPY/EUR/XAUT · NAS100 · Oil',
+    entry: 'Same as Bot 2', sl: 'Same as Bot 2, but 30% embed buffer + 0.35% floor (vs Bot 2\'s 10%/0.15%)', tp: '3R, 30/40/30, trail @2R',
+    rel: 'A/B vs Bot 2 — the direct answer to "is the SL too tight"',
+    note: 'Real 60-day backtest: loses to Bot 2 on win rate, expectancy, AND drawdown across almost every real instrument and percentile band tested — the wider stop does not earn its keep.',
+    rec: 'Keep as a monitored A/B only; do not widen Bot 2\'s own stop based on this result.' },
+];
+
+/**
+ * BotOptimizationMatrixPage — Stage 8 of the SMC Forensic Audit,
+ * in-portal. By direct request ("add the bot optimisation dashboard
+ * to the portal - bot page in the trader dashboard and also in admin
+ * portal"). One shared component, mounted at both /bot-optimization
+ * (trader, Layout) and /admin/bot-optimization (Admin, CorporateLayout)
+ * — each page passes its own `dark` so this component never has to
+ * guess which portal's theme it's rendering under.
+ *
+ * Read-only: no "run"/"apply" actions like the Monthly Trading Audit
+ * page has. The live numbers come from GET /bots/optimization-matrix,
+ * which applies the exact same per-trader ownership scoping
+ * routers/bots.py's own list_bots does — a non-staff trader only ever
+ * sees expectancy computed from bots they themselves own.
+ *
+ * `portal` picks which of useThemeStore's independent light/dark
+ * slots to follow (same pattern BotsPage/AdminTradingAuditPage each
+ * already use themselves) — "trader" for the /bot-optimization route,
+ * "admin" for /admin/bot-optimization.
+ */
+export function BotOptimizationMatrixPage({ portal }: { portal: 'trader' | 'admin' }) {
+  const { token } = useAuth();
+  const { portalThemes } = useThemeStore();
+  const dark = portalThemes[portal] === 'dark';
+  const [data, setData] = useState<MatrixResponse | null>(null);
+  const [phase, setPhase] = useState<FetchPhase>('idle');
+
+  useEffect(() => {
+    if (!token) return;
+    fetchJsonWithRetry<MatrixResponse>(
+      `${API_URL}/bots/optimization-matrix`, { headers: { Authorization: `Bearer ${token}` } }, setPhase,
+    ).then((r) => { if (r) setData(r); });
+  }, [token]);
+
+  const mutedCls = dark ? 'text-white/50' : 'text-gray-500';
+  const cardCls = dark ? 'bg-corporate-surface-dark border-corporate-border-dark' : 'bg-white border-gray-200';
+
+  return (
+    <div>
+      <PageHeader
+        title="Bot Optimization Matrix"
+        subtitle="Per-bot, per-instrument entry/SL/TP mechanics cross-referenced with real trade history and this session's own A/B findings."
+      />
+
+      {!data && <LoadingIndicator phase={phase} dark={dark} />}
+
+      {data && (
+        <div className="space-y-4">
+          <FoldedCard title="Per-Family Trade History" icon={<ClipboardList size={18} />} dark={dark} defaultOpen>
+            <div className="overflow-x-auto">
+              <table className="text-xs w-full border-collapse">
+                <thead>
+                  <tr className={mutedCls}>
+                    <th className="text-left p-2">Family</th>
+                    <th className="text-right p-2">Trades</th>
+                    <th className="text-right p-2">Win rate</th>
+                    <th className="text-right p-2">Total P&amp;L</th>
+                    <th className="text-right p-2">Avg R</th>
+                    <th className="text-left p-2">Evidence grade</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.bot_family_expectancy.map((row) => {
+                    const grade = gradeFamily(row);
+                    return (
+                      <tr key={row.bot_family} className={`border-t ${dark ? 'border-white/5' : 'border-gray-100'}`}>
+                        <td className="p-2 font-mono font-semibold">{row.bot_family}</td>
+                        <td className="p-2 text-right">{row.n}</td>
+                        <td className="p-2 text-right">{row.win_rate_pct ?? '—'}%</td>
+                        <td className={`p-2 text-right ${row.total_pnl >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
+                          ${row.total_pnl.toFixed(2)}
+                        </td>
+                        <td className="p-2 text-right">{row.avg_r ?? '—'}</td>
+                        <td className={`p-2 font-semibold ${grade.cls}`}>{grade.label}</td>
+                      </tr>
+                    );
+                  })}
+                  {data.bot_family_expectancy.length === 0 && (
+                    <tr><td colSpan={6} className={`p-2 ${mutedCls}`}>No closed trades yet.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            <p className={`text-[11px] mt-2 flex items-start gap-1.5 ${mutedCls}`}>
+              <Info size={13} className="shrink-0 mt-0.5" />
+              Evidence grade follows the same "don't rank by win rate alone, don't act on n&lt;15" discipline the Monthly Trading Audit uses.
+            </p>
+          </FoldedCard>
+
+          <FoldedCard title="Per-Instance Detail" icon={<ClipboardList size={18} />} dark={dark}>
+            <div className="overflow-x-auto">
+              <table className="text-xs w-full border-collapse">
+                <thead>
+                  <tr className={mutedCls}>
+                    <th className="text-left p-2">Bot ID</th>
+                    <th className="text-right p-2">Trades</th>
+                    <th className="text-right p-2">Wins</th>
+                    <th className="text-right p-2">Losses</th>
+                    <th className="text-right p-2">Total P&amp;L</th>
+                    <th className="text-right p-2">Avg R</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.bot_instance_expectancy.map((row) => (
+                    <tr key={row.bot_id} className={`border-t ${dark ? 'border-white/5' : 'border-gray-100'}`}>
+                      <td className="p-2 font-mono">{row.bot_id}</td>
+                      <td className="p-2 text-right">{row.n}</td>
+                      <td className="p-2 text-right text-emerald-500">{row.wins}</td>
+                      <td className="p-2 text-right text-red-500">{row.losses}</td>
+                      <td className={`p-2 text-right ${row.total_pnl >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
+                        ${row.total_pnl.toFixed(2)}
+                      </td>
+                      <td className="p-2 text-right">{row.avg_r ?? '—'}</td>
+                    </tr>
+                  ))}
+                  {data.bot_instance_expectancy.length === 0 && (
+                    <tr><td colSpan={6} className={`p-2 ${mutedCls}`}>No closed trades yet.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </FoldedCard>
+
+          <FoldedCard title="Per-Bot Mechanics, Findings & Next Step" icon={<ClipboardList size={18} />} dark={dark}>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {BOT_REFERENCE.map((c) => (
+                <div key={c.fam} className={`rounded-xl border p-3.5 ${cardCls}`}>
+                  <div className={`text-sm font-semibold mb-0.5 ${dark ? 'text-white' : 'text-corporate-text-on-bg'}`}>{c.name}</div>
+                  <div className={`text-[11px] mb-2 ${mutedCls}`}>{c.instr}</div>
+                  <dl className="text-xs grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5">
+                    <dt className={mutedCls}>Entry</dt><dd>{c.entry}</dd>
+                    <dt className={mutedCls}>Stop loss</dt><dd>{c.sl}</dd>
+                    <dt className={mutedCls}>Targets</dt><dd>{c.tp}</dd>
+                    <dt className={mutedCls}>A/B relationship</dt><dd>{c.rel}</dd>
+                  </dl>
+                  <p className={`text-xs mt-2 pt-2 border-t ${dark ? 'border-white/10' : 'border-gray-100'} ${mutedCls}`}>{c.note}</p>
+                  <p className={`text-xs mt-1.5 italic ${mutedCls}`}>→ {c.rec}</p>
+                </div>
+              ))}
+            </div>
+          </FoldedCard>
+        </div>
+      )}
+    </div>
+  );
+}

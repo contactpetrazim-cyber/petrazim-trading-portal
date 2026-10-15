@@ -139,6 +139,91 @@ async def _compute_bot_family_expectancy(db: AsyncSession, period_start: datetim
     return sorted(rows, key=lambda r: -(r["total_pnl"] or 0))
 
 
+def _expectancy_row(ts: List[Trade], key: str, key_value: str) -> Dict:
+    """Shared by compute_bot_instance_expectancy and
+    _compute_bot_family_expectancy's own math — one real trade list in,
+    one scorecard row out."""
+    n = len(ts)
+    wins = sum(1 for t in ts if (t.realized_pnl or 0) > 0)
+    losses = sum(1 for t in ts if (t.realized_pnl or 0) < 0)
+    total_pnl = sum((t.realized_pnl or 0) for t in ts)
+    r_vals = [t.r_multiple for t in ts if t.r_multiple is not None]
+    avg_r = sum(r_vals) / len(r_vals) if r_vals else None
+    return {
+        key: key_value, "n": n, "wins": wins, "losses": losses,
+        "win_rate_pct": round(wins / n * 100, 1) if n else None,
+        "total_pnl": round(total_pnl, 2),
+        "avg_r": round(avg_r, 3) if avg_r is not None else None,
+        "expectancy_per_trade": round(total_pnl / n, 2) if n else None,
+    }
+
+
+async def compute_bot_instance_expectancy(
+    db: AsyncSession, period_start: datetime, period_end: datetime, bot_ids: Optional[List[str]] = None,
+) -> List[Dict]:
+    """Same real trade-history query as _compute_bot_family_expectancy,
+    but keyed by the raw bot_id (one row per real BotConfig instance —
+    e.g. bot_9_volume_liq_wide_range vs _2 stay separate) instead of
+    collapsed to the strategy family. Backs the Bot Optimization
+    Matrix (Bots page / Admin portal): that page shows both the
+    per-family rollup and the per-instance detail, and needs the same
+    real numbers either way, not two independently-computed paths.
+
+    `bot_ids`, when given, restricts the result to exactly those
+    bot_ids — how the caller enforces the same per-trader ownership
+    scoping routers/bots.py's own list_bots already applies (a non-
+    staff trader must never see another trader's bot performance)."""
+    conditions = [
+        Trade.status == TradeStatus.CLOSED,
+        Trade.created_at >= period_start, Trade.created_at < period_end,
+    ]
+    if bot_ids is not None:
+        conditions.append(Trade.bot_id.in_(bot_ids))
+    trades = (await db.execute(select(Trade).where(*conditions))).scalars().all()
+
+    by_bot: Dict[str, List[Trade]] = defaultdict(list)
+    for t in trades:
+        by_bot[t.bot_id].append(t)
+
+    rows = [_expectancy_row(ts, "bot_id", bot_id) for bot_id, ts in by_bot.items()]
+    return sorted(rows, key=lambda r: -(r["total_pnl"] or 0))
+
+
+def rollup_instance_rows_to_family(instance_rows: List[Dict]) -> List[Dict]:
+    """Pure function: groups compute_bot_instance_expectancy's own
+    rows by strategy family (via _bot_family) — the exact weighted-
+    average math a per-family scorecard needs (total_pnl/wins/losses
+    sum directly; avg_r must be weighted by each instance's own trade
+    count, not averaged flat, or a 2-trade and a 40-trade instance
+    would count equally). Used so the Bot Optimization Matrix can
+    roll up a trader's OWN, already-ownership-filtered instance rows
+    into a family view without a second database query scoped
+    differently from the first."""
+    groups: Dict[str, Dict] = {}
+    for row in instance_rows:
+        fam = _bot_family(row["bot_id"])
+        g = groups.setdefault(fam, {"bot_family": fam, "n": 0, "wins": 0, "losses": 0, "total_pnl": 0.0, "r_weighted": 0.0})
+        n = row["n"]
+        g["n"] += n
+        g["wins"] += row["wins"]
+        g["losses"] += row["losses"]
+        g["total_pnl"] += row["total_pnl"]
+        if row["avg_r"] is not None:
+            g["r_weighted"] += row["avg_r"] * n
+
+    rows = []
+    for fam, g in groups.items():
+        n = g["n"]
+        rows.append({
+            "bot_family": fam, "n": n, "wins": g["wins"], "losses": g["losses"],
+            "win_rate_pct": round(g["wins"] / n * 100, 1) if n else None,
+            "total_pnl": round(g["total_pnl"], 2),
+            "avg_r": round(g["r_weighted"] / n, 3) if n else None,
+            "expectancy_per_trade": round(g["total_pnl"] / n, 2) if n else None,
+        })
+    return sorted(rows, key=lambda r: -(r["total_pnl"] or 0))
+
+
 def _price_key(p: Optional[float], decimals: int = 6) -> Optional[float]:
     return None if p is None else round(p, decimals)
 
