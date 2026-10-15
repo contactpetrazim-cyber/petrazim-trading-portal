@@ -831,15 +831,17 @@ setup rules rather than general SMC concepts.
 
 ---
 
-## ORIENT-06 — How the Five Bots Relate to One Another
+## ORIENT-06 — How the Seven Bots Relate to One Another
 
 **Level:** 0
-**Estimated study time:** 12 minutes
+**Estimated study time:** 14 minutes
 **Prerequisites:** ORIENT-02
-**Learning objectives:** Name each of the five bots and its core
+**Learning objectives:** Name each of the seven bots and its core
 specialization, explain how they differ from one another in the
-market conditions they're built for, and explain why running all five
-is not the same as running one bot five times.
+market conditions they're built for, explain why running all seven
+is not the same as running one bot seven times, and explain why two
+bots can share almost the same playbook (Bot 5/Bot 6, Bot 3/Bot 7) and
+still both be worth running.
 
 ### Why This Matters
 
@@ -852,15 +854,18 @@ correctly instead of treating every bot's output the same way.
 
 ### Core Teaching
 
-**Plain-English explanation.** Each of the five bots reads the same
+**Plain-English explanation.** Each of the seven bots reads the same
 underlying SMC vocabulary (structure, liquidity, zones, imbalance) but
 is tuned to look for a different specific pattern in a different
-context. Think of them less as five copies of the same strategy and
-more as five specialists, each best suited to a particular kind of
+context. Think of them less as seven copies of the same strategy and
+more as seven specialists, each best suited to a particular kind of
 market behavior — some to strong directional moves, some to reversals
-at extremes, some to the aftermath of a stop-loss sweep.
+at extremes, some to the aftermath of a stop-loss sweep. Two of the
+seven (Bot 6 and Bot 7) are deliberately close variants of an earlier
+bot rather than fully independent specialists — see the note below on
+why that's still worth running as two bots, not one.
 
-**Technical explanation.** The five bots and their core focus:
+**Technical explanation.** The seven bots and their core focus:
 
 - Bot 1 — Macro Swing Structure: higher-timeframe trend and structure
   continuation. Best suited to markets in a clear, established trend.
@@ -870,14 +875,29 @@ at extremes, some to the aftermath of a stop-loss sweep.
   significant structural levels.
 - Bot 3 — Imbalance Expansion: displacement-driven Fair Value Gap
   setups requiring higher-timeframe BOS confirmation. Best suited to
-  strong, expansionary directional moves.
+  strong, expansionary directional moves. Deliberately kept without
+  order-block or premium/discount checks — this is intentional
+  methodology, not an omission, so its live track record stays a clean
+  A/B baseline against Bot 7 below.
 - Bot 4 — Volume & Liquidity Sweep: setups built around volume
   behavior at liquidity pools. Best suited to markets where volume
   data meaningfully diverges around key levels.
 - Bot 5 — Liquidity Purge Specialist: setups built specifically around
   a liquidity sweep followed by displacement and CHoCH, taught only
   from documented, testable rules (see ORIENT-01's note on why Bot 5
-  avoids claims about a specific named external methodology).
+  avoids claims about a specific named external methodology). Reads
+  4H for its mandatory trade-direction signal, with the liquidity
+  sweep itself gating ENTRY TIMING only, not direction.
+- Bot 6 — SMC v2: the same Liquidity Purge playbook as Bot 5 — sweep,
+  displacement, CHoCH — but anchored one timeframe tier lower: its
+  mandatory direction signal comes from 1H instead of 4H, so it reads
+  the same kind of setup faster and more often, at the cost of reacting
+  to a less macro-level signal.
+- Bot 7 — FVG Expansion v3: the same displacement-and-FVG core as
+  Bot 3, but with a different rule for WHICH fair value gap it selects
+  when several are available (depth-based selection instead of Bot 3's
+  plain recency order). Run alongside Bot 3 specifically so the two can
+  be compared head-to-head on the same market.
 
 Because each bot is tuned to different conditions, they don't all fire
 at once, and that's intentional — a quiet week from Bot 1 in a choppy,
@@ -885,13 +905,23 @@ range-bound market is the system correctly declining to force a
 trend-continuation trade into conditions that don't support one, not a
 malfunction.
 
-**Visual model.** [VISUAL: orient-06-five-lanes — Five parallel lanes
+**Why two near-identical bots (5/6, 3/7) are still worth running as
+two:** they're not redundant copies — each tests one real, specific
+variable (timeframe anchor for 5/6; FVG-selection order for 3/7)
+against an otherwise-identical baseline. Running both side by side is
+what actually lets the system find out which variable choice performs
+better in real conditions, rather than guessing.
+
+**Visual model.** [VISUAL: orient-06-seven-lanes — Seven parallel lanes
 on a highway, each labeled with a bot name and a small icon of its
 core pattern (trend line, order block, expanding gap, volume bars,
-sweep-and-reverse arrow). Above the lanes, a "Market Conditions"
-banner showing weather-style icons (trending, ranging, volatile,
-quiet) with dotted lines connecting each condition to the lane(s) it
-tends to activate most.]
+sweep-and-reverse arrow for Bot 5, a second sweep-and-reverse arrow for
+Bot 6 shown one lane over with a "1H" tag instead of Bot 5's "4H" tag,
+and a second expanding-gap icon for Bot 7 shown next to Bot 3's with a
+"depth-selected" tag). Above the lanes, a "Market Conditions" banner
+showing weather-style icons (trending, ranging, volatile, quiet) with
+dotted lines connecting each condition to the lane(s) it tends to
+activate most.]
 
 ### Worked Example
 
@@ -916,17 +946,21 @@ stay quiet.
 - A quiet bot is not necessarily a broken bot — check whether current
   market conditions actually match what that specific bot is built
   for before assuming a malfunction.
-- Running all five bots does not mean five independent shots at the
-  same opportunity — it means five different lenses on the market,
-  each most useful in different conditions.
+- Running all seven bots does not mean seven independent shots at the
+  same opportunity — it means seven different lenses on the market
+  (five genuinely distinct, two deliberate variants of an existing
+  lens), each most useful in different conditions.
 - Learning one bot's rules does not transfer automatically to another
   — Bot 3's displacement-and-FVG focus and Bot 2's order-block
   reversal focus require genuinely different confirmation checklists.
+  Even Bot 5 and Bot 6, which share almost the same playbook, differ
+  in exactly one load-bearing way: which timeframe sets direction.
 
 ### Key Takeaways
 
 1. Each bot specializes in a different market behavior, not a
-   different copy of the same strategy.
+   different copy of the same strategy — except Bot 6 and Bot 7, which
+   are deliberate, single-variable variants of Bot 5 and Bot 3.
 2. A bot staying quiet in conditions it isn't built for is correct
    behavior, not malfunction.
 3. Running multiple bots means multiple specialized lenses on the
@@ -971,7 +1005,7 @@ match that bot's specific setup requirements.
 
 ### Reflection
 
-Which of the five bots' descriptions sounds most aligned with how you
+Which of the seven bots' descriptions sounds most aligned with how you
 already tend to read charts? Note it — you may find that bot's rules
 the most intuitive to learn first.
 
@@ -990,6 +1024,6 @@ independent spaced recall.
 ### Bot Connection
 
 This lesson IS the bot connection — it's the map every later bot-specific
-track (Bot 1 through Bot 5 Mastery) builds on, each following the same
+track (Bot 1 through Bot 7 Mastery) builds on, each following the same
 Concept-Identification-Context-Setup-Invalidation-Entry-Management-Failure-
 Practice-Capstone ten-stage structure introduced here.
