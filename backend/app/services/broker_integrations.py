@@ -45,21 +45,32 @@ async def _paper_place_order(
         # this function's own real-ticker fetch was silently failing
         # for every BingX paper trade and falling straight through to
         # the caller's own (theoretical, possibly stale) price with no
-        # visible error. BingXBroker.get_ticker_price only replaces an
-        # EXISTING "/" with "-" — it never INSERTS one into a plain
-        # concatenated symbol like "BTCUSDT", which BingX's own API
-        # rejects outright (confirmed: this exact same gap was already
+        # visible error — confirmed this exact gap was already
         # documented and worked around externally in live_price.py's
         # own get_broker_ticker_price, but never fixed here, where
-        # _paper_place_order calls get_ticker_price directly). Applying
-        # that same dash-insertion here, inline, rather than importing
+        # _paper_place_order calls get_ticker_price directly. Applying
+        # that same cleaning here, inline, rather than importing
         # live_price.py (which itself imports the broker classes FROM
         # this file — a circular import).
-        ticker_symbol = symbol
+        #
+        # SECOND bug, found live via a follow-up audit ("some bots have
+        # not traded since our strategy updates" — ruled out, then this
+        # turned up instead): the first fix only cleaned the symbol
+        # INSIDE the BingX branch — every OTHER broker (binance, mexc,
+        # bybit) still got the raw, un-stripped symbol with its ".P"
+        # perpetual suffix still attached (e.g. "BTCUSDT.P"), which
+        # Binance's real API rejects outright ("Invalid symbol.",
+        # confirmed live). live_price.py's own cleaning (strip
+        # "BINANCE:"/"/"/"-", then any trailing ".P") applies to EVERY
+        # broker; only the dash-reinsertion afterward is BingX-specific
+        # (Binance/Bybit/MEXC all want the plain concatenated form —
+        # their own get_ticker_price methods already strip any dash,
+        # and MEXC's own _mexc_symbol splits it itself).
+        clean = symbol.upper().replace("BINANCE:", "").replace("/", "").replace("-", "")
+        if clean.endswith(".P"):
+            clean = clean[:-2]
+        ticker_symbol = clean
         if isinstance(client, BingXBroker):
-            clean = symbol.upper().replace("/", "").replace("-", "")
-            if clean.endswith(".P"):
-                clean = clean[:-2]
             for quote in ("USDT", "USDC", "USD"):
                 if clean.endswith(quote) and clean != quote:
                     ticker_symbol = f"{clean[:-len(quote)]}-{quote}"
