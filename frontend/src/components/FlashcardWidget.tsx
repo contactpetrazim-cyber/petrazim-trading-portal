@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Layers, ChevronRight } from 'lucide-react';
+import { Layers, RotateCw } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { apiFetch } from './AccessExpiredGate';
 import { fetchJsonWithRetry, type FetchPhase } from '../lib/resilientFetch';
@@ -86,17 +86,42 @@ export function FlashcardWidget({ lessonId, dark }: { lessonId: string; dark: bo
       {cards && cards[index] && (
         <div>
           <p className={`text-xs mb-2 ${dark ? 'text-white/40' : 'text-gray-400'}`}>Card {index + 1} of {cards.length}</p>
+
+          {/* A real 3D flip — by direct request ("Flash card should
+              actually demo a flash card with a flip button - make it
+              look real"): this used to just swap term/definition text
+              in place inside the same flat box. perspective on the
+              outer wrapper + rotateY + backface-visibility:hidden on
+              each face is what makes it genuinely flip rather than
+              cross-fade — the back face is pre-rotated 180deg so its
+              text reads normally once the card has turned around. */}
           <button
             onClick={() => setFlipped((f) => !f)}
-            className={`w-full text-left rounded-xl p-5 mb-3 min-h-[100px] flex items-center transition-colors ${
-              dark ? 'bg-white/5 hover:bg-white/10' : 'bg-corporate-bg hover:bg-corporate-hero/5'
-            }`}
+            aria-label={flipped ? 'Flip back to term' : 'Flip to reveal definition'}
+            className="w-full mb-3 min-h-[120px]"
+            style={{ perspective: '1000px' }}
           >
-            {!flipped ? (
-              <span className={`text-base font-semibold ${dark ? 'text-white' : 'text-corporate-text-on-bg'}`}>{cards[index].term}</span>
-            ) : (
-              <span className={`text-sm ${dark ? 'text-white/80' : 'text-gray-700'}`}>{cards[index].definition}</span>
-            )}
+            <div
+              className="relative w-full min-h-[120px]"
+              style={{
+                transformStyle: 'preserve-3d',
+                transform: flipped ? 'rotateY(180deg)' : 'rotateY(0deg)',
+                transition: 'transform 0.5s',
+              }}
+            >
+              <div
+                className={`absolute inset-0 rounded-xl p-5 flex items-center text-left ${dark ? 'bg-white/5' : 'bg-corporate-bg'}`}
+                style={{ backfaceVisibility: 'hidden' }}
+              >
+                <span className={`text-base font-semibold ${dark ? 'text-white' : 'text-corporate-text-on-bg'}`}>{cards[index].term}</span>
+              </div>
+              <div
+                className={`absolute inset-0 rounded-xl p-5 flex items-center text-left ${dark ? 'bg-white/10' : 'bg-corporate-hero/10'}`}
+                style={{ backfaceVisibility: 'hidden', transform: 'rotateY(180deg)' }}
+              >
+                <span className={`text-sm ${dark ? 'text-white/80' : 'text-gray-700'}`}>{cards[index].definition}</span>
+              </div>
+            </div>
           </button>
 
           {!flipped ? (
@@ -104,7 +129,7 @@ export function FlashcardWidget({ lessonId, dark }: { lessonId: string; dark: bo
               onClick={() => setFlipped(true)}
               className="flex items-center gap-1.5 text-sm font-semibold text-white px-4 py-2 rounded-xl bg-corporate-hero"
             >
-              Reveal definition <ChevronRight size={14} />
+              <RotateCw size={14} /> Flip to reveal
             </button>
           ) : (
             <div className="flex gap-2">

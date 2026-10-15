@@ -37,10 +37,11 @@ on why it has no account-balance figure).
 
 from __future__ import annotations
 
+import json
 import random
 import re
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -51,7 +52,7 @@ from app.core.access_gate import require_active_access
 from app.database import get_db
 from app.engines.progression_engine import RETENTION_INTERVALS_DAYS, schedule_next_retention_check
 from app.models.curriculum import (
-    Lesson, LearningTrack, PracticeAttempt, RetentionCheck, UserLearningStats,
+    Lesson, LearningTrack, PracticeAttempt, PracticeScenarioSet, RetentionCheck, UserLearningStats,
 )
 from app.models.user import User
 
@@ -117,6 +118,13 @@ class DrillItem(BaseModel):
     # place." The real fix is upstream of the link itself: only offer
     # it when the lesson genuinely has a diagram to jump to.
     has_diagram: bool
+    # By direct bug report ("the drills prompts are not follow through
+    # ...only the summary shows"): dozens of authored prompts literally
+    # say "given five signal cards (provided in Practise)..." while the
+    # page only ever rendered that prompt's own TEXT, never the signal
+    # cards/chart sequences/numeric logs/tool it refers to. Gates the
+    # frontend's inline ScenarioDrillPanel — see PracticeScenarioSet.
+    has_scenario_set: bool
 
 
 class DrillTrackGroup(BaseModel):
@@ -148,6 +156,10 @@ async def list_drills(db: AsyncSession = Depends(get_db), user: User = Depends(r
         a["attempts"] += 1
         a["correct"] += int(correct)
 
+    scenario_set_lesson_ids = set(
+        (await db.execute(select(PracticeScenarioSet.lesson_id))).scalars().all()
+    )
+
     out: List[DrillTrackGroup] = []
     for t in tracks:
         drills: List[DrillItem] = []
@@ -160,10 +172,34 @@ async def list_drills(db: AsyncSession = Depends(get_db), user: User = Depends(r
                 lesson_id=str(l.id), lesson_title=l.title, prompt=prompt,
                 attempts=a["attempts"], correct_attempts=a["correct"],
                 has_diagram=bool(_HAS_DIAGRAM_RE.search(l.content_body or "")),
+                has_scenario_set=l.id in scenario_set_lesson_ids,
             ))
         if drills:
             out.append(DrillTrackGroup(track_id=str(t.id), track_title=t.title, drills=drills))
     return out
+
+
+# ---------------------------------------------------------------------------
+# Scenario sets — the actual signal cards / chart sequences / numeric logs
+# / tools a Practice Drill prompt promises (see PracticeScenarioSet).
+# ---------------------------------------------------------------------------
+
+class ScenarioSetResponse(BaseModel):
+    kind: str
+    items: List[Dict[str, Any]]
+    summary: Optional[str] = None
+
+
+@router.get("/drills/{lesson_id}/scenario-set", response_model=Optional[ScenarioSetResponse])
+async def get_scenario_set(
+    lesson_id: str, db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access),
+):
+    row = (await db.execute(
+        select(PracticeScenarioSet).where(PracticeScenarioSet.lesson_id == lesson_id)
+    )).scalar_one_or_none()
+    if row is None:
+        return None
+    return ScenarioSetResponse(kind=row.kind, items=json.loads(row.items_json), summary=row.summary)
 
 
 @router.post("/drills/attempt", response_model=dict)

@@ -97,6 +97,37 @@ class PracticeAttempt(Base):
     attempted_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
 
 
+class PracticeScenarioSet(Base):
+    """The actual interactive materials a lesson's authored '### Practice
+    Drill' prompt refers to as "(provided in Practise)" — by direct bug
+    report: every one of these prompts was shipped as plain prose, with
+    the promised signal cards / chart sequences / numeric logs / coin-flip
+    tool never actually built, so the drill page only ever showed the
+    prompt's own TEXT (which literally says "given five signal cards..."
+    with no cards anywhere) rather than the real exercise.
+
+    One row per lesson (a lesson's Practice Drill is a single exercise,
+    never several). `kind` selects which generic renderer the frontend's
+    ScenarioDrillPanel uses (see routers/practise.py); `items_json` is a
+    kind-specific JSON array, each item self-contained with its own
+    correct answer and explanation so this is genuinely self-checking,
+    not more self-graded prose. `summary` is optional kind-level text
+    shown once every item has been attempted (e.g. the expectancy-ranking
+    punchline for ORIENT-02's three trade logs).
+
+    Authored directly against each lesson's own real prompt text and,
+    for bot-specific drills, against the bots' own real code (see
+    scripts/seed_practice_scenarios.py) — never AI-generated or
+    invented, same discipline as Lesson.content_body itself."""
+    __tablename__ = "practice_scenario_sets"
+
+    lesson_id = Column(UUID(as_uuid=True), ForeignKey("lessons.id"), primary_key=True)
+    kind = Column(String(50), nullable=False)
+    items_json = Column(Text, nullable=False)
+    summary = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+
+
 class RetentionCheck(Base):
     """Spaced-recall check-ins — adapted from the Academy's spaced-recall
     nudge pattern. due_at is computed by schedule_next_retention_check()
