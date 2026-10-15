@@ -116,11 +116,16 @@ export function TradeForensicsModal({ tradeId, dark, onClose }: { tradeId: strin
   );
 }
 
-function Legend({ color, label, shape = 'dot' }: { color: string; label: string; shape?: 'dot' | 'diamond' }) {
+function Legend({ color, label, shape = 'dot' }: { color: string; label: string; shape?: 'dot' | 'diamond' | 'triangle' }) {
   return (
     <span className="flex items-center gap-1">
       {shape === 'diamond' ? (
         <span className="inline-block w-2 h-2 rotate-45" style={{ background: color }} />
+      ) : shape === 'triangle' ? (
+        <span
+          className="inline-block"
+          style={{ width: 0, height: 0, borderLeft: '4px solid transparent', borderRight: '4px solid transparent', borderBottom: `6px solid ${color}` }}
+        />
       ) : (
         <span className="inline-block w-2 h-2 rounded-full" style={{ background: color }} />
       )}
@@ -259,6 +264,21 @@ function ForensicsBody({ forensics, timeframe, tradeId, dark }: { forensics: Tra
         if (idx == null) return;
         markers.push({ index: idx, price: sw.sweep_price, label: 'Sweep', color: PURPLE, shape: 'diamond' });
       });
+      // Entry/exit triangles — by direct request ("Include an entry
+      // and exit triangle to indicate the entry and exit candle as
+      // annotations - that can be toggled off and on with
+      // annotations on or off"), same shape/direction convention
+      // TradeSnapshotModal's own entry/exit markers already use:
+      // triangle-up (apex reaching up toward the price) for entry,
+      // triangle-down (apex reaching down) for exit.
+      const entryIdx = nearestCandleIndex(visibleCandles, forensics.entry_timestamp);
+      if (entryIdx != null && forensics.entry_price != null) {
+        markers.push({ index: entryIdx, price: forensics.entry_price, label: 'Entry', color: dark ? '#60a5fa' : '#005FB8', shape: 'triangle-up' });
+      }
+      const exitIdx = nearestCandleIndex(visibleCandles, forensics.exit_timestamp);
+      if (exitIdx != null && forensics.exit_price != null) {
+        markers.push({ index: exitIdx, price: forensics.exit_price, label: 'Exit', color: AMBER, shape: 'triangle-down' });
+      }
     }
 
     const lines: ChartLine[] = [];
@@ -364,6 +384,8 @@ function ForensicsBody({ forensics, timeframe, tradeId, dark }: { forensics: Tra
         <Legend color={BLUE} label="BOS" shape="diamond" />
         <Legend color={AMBER} label="CHoCH" shape="diamond" />
         <Legend color={PURPLE} label="Liquidity sweep" shape="diamond" />
+        <Legend color={dark ? '#60a5fa' : '#005FB8'} label="Entry candle" shape="triangle" />
+        <Legend color={AMBER} label="Exit candle" shape="triangle" />
       </div>
     </div>
   );
