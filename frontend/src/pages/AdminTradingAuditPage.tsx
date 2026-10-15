@@ -432,7 +432,7 @@ export function AdminTradingAuditPage() {
                             <th className="text-right p-2">N</th>
                             <th className="text-right p-2">Win rate</th>
                             <th className="text-right p-2">Expectancy (R)</th>
-                            <th className="text-right p-2">Max DD</th>
+                            <th className="text-right p-2">Max DD (R)</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -446,11 +446,25 @@ export function AdminTradingAuditPage() {
                               ) : (
                                 <>
                                   <td className={`p-2 text-right ${textCls}`}>{row.total_trades ?? '—'}</td>
-                                  <td className={`p-2 text-right ${textCls}`}>{row.win_rate != null ? `${(row.win_rate * 100).toFixed(1)}%` : '—'}</td>
+                                  {/* row.win_rate is ALREADY a percentage (backend's
+                                      _summarize: round(100.0 * wins / total, 2)), not a
+                                      fraction — by direct bug report with screenshot
+                                      ("10000.0%" for a single winning trade): multiplying
+                                      by 100 again here inflated every value 100x. */}
+                                  <td className={`p-2 text-right ${textCls}`}>{row.win_rate != null ? `${row.win_rate.toFixed(1)}%` : '—'}</td>
                                   <td className={`p-2 text-right ${row.expectancy_r != null && row.expectancy_r >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
                                     {row.expectancy_r != null ? row.expectancy_r.toFixed(3) : '—'}
                                   </td>
-                                  <td className={`p-2 text-right ${textCls}`}>{row.max_drawdown_pct != null ? `${row.max_drawdown_pct.toFixed(1)}%` : '—'}</td>
+                                  {/* max_drawdown_pct is, despite its name, a peak-to-
+                                      trough drawdown measured in R-multiples on the
+                                      CUMULATIVE R sequence (backend's own comment: "R-
+                                      multiple drawdown is the honest equivalent" to a
+                                      dollar drawdown, which needs an account-size
+                                      assumption this isolated backtest deliberately
+                                      avoids) — NOT a percentage of equity. Shown as a
+                                      plain R figure, matching the corrected column
+                                      header, instead of a misleading "%" suffix. */}
+                                  <td className={`p-2 text-right ${textCls}`}>{row.max_drawdown_pct != null ? row.max_drawdown_pct.toFixed(2) : '—'}</td>
                                 </>
                               )}
                             </tr>

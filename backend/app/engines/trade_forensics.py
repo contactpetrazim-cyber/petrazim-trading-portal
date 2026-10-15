@@ -106,6 +106,19 @@ async def compute_trade_forensics(db: AsyncSession, trade: Trade) -> Dict:
     exchange = (trade.broker_name or "bingx").lower()
     _bot_class, required = STRATEGY_FAMILY[strategy_key]
     required_tf_labels = [label for _, label in required]
+    # Always reconstruct 4H and 1D structure too, even for a bot whose
+    # own strategy never reads them — by direct request ("include 4H
+    # / 1D timeframe for all forensic charts irrespective of strategy
+    # - it will be good to observe the HTF bias"). A bot like Bot 3/6/
+    # 7/8 (1H/15M/5M only) would otherwise never get real higher-
+    # timeframe context on this chart at all. Only affects which
+    # timeframes get a structure reconstruction and the HTF-bias read
+    # below (now always the real daily trend, dropping "1D" in) —
+    # base_tf (price-path precision, right below) deliberately keeps
+    # using the bot's own REAL required_tf_labels, unaffected by this
+    # addition, since that's about replaying this trade's own actual
+    # execution granularity, not giving it extra context.
+    display_tf_labels = list(dict.fromkeys(required_tf_labels + ["4H", "1D"]))
 
     entry_ts = trade.entry_timestamp
     # One bar past entry so the entry candle itself is included — same
@@ -115,7 +128,7 @@ async def compute_trade_forensics(db: AsyncSession, trade: Trade) -> Dict:
     fetch_start = structure_end - timedelta(days=_FORENSICS_LOOKBACK_DAYS)
 
     timeframe_candles, fetch_error = await fetch_required_timeframe_candles(
-        shared_ingestion, exchange, trade.symbol, required_tf_labels, fetch_start, structure_end,
+        shared_ingestion, exchange, trade.symbol, display_tf_labels, fetch_start, structure_end,
     )
     if fetch_error:
         return {"error": fetch_error}
@@ -129,7 +142,7 @@ async def compute_trade_forensics(db: AsyncSession, trade: Trade) -> Dict:
     liq_detector = LiquidityDetector()
 
     structure: Dict[str, Dict] = {}
-    for label in required_tf_labels:
+    for label in display_tf_labels:
         candles = [c for c in timeframe_candles.get(label, []) if c.timestamp <= entry_ts]
         if len(candles) < 10:
             structure[label] = {"note": f"Too few real candles ({len(candles)}) before entry for meaningful detection."}
@@ -196,12 +209,16 @@ async def compute_trade_forensics(db: AsyncSession, trade: Trade) -> Dict:
             ],
         }
 
-    # Coarsest required timeframe's own swing trend = the real HTF bias
-    # at entry time — same "last 2 highs/2 lows" trend read every
+    # Coarsest DISPLAYED timeframe's own swing trend = the real HTF
+    # bias at entry time — same "last 2 highs/2 lows" trend read every
     # bot's own early direction step already uses (e.g.
     # MacroSwingStructureBot's bullish_trend/bearish_trend check, read
-    # directly from source), applied here generically.
-    htf_label = min(required_tf_labels, key=lambda l: TF_ORDER.index(l))
+    # directly from source), applied here generically. Uses
+    # display_tf_labels (always includes "1D"), not the bot's own
+    # required_tf_labels, so HTF bias now always reflects the real
+    # daily trend rather than whatever the bot's own narrowest
+    # "highest" timeframe happens to be (e.g. 1H for Bot 3/6/7/8).
+    htf_label = min(display_tf_labels, key=lambda l: TF_ORDER.index(l))
     htf_bias = "unclear"
     htf_swings = structure.get(htf_label, {}).get("swing_points", [])
     highs = [s for s in htf_swings if s["type"] == "SWING_HIGH"]
