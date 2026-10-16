@@ -229,9 +229,27 @@ async def fetch_required_timeframe_candles(
     timeframe_candles: Dict[str, List[Candle]] = {}
     for label in required_tf_labels:
         fetch_start = start_date - timedelta(days=LOOKBACK_PADDING_DAYS_BY_TF.get(label, 30))
-        timeframe_candles[label] = await shared_ingestion.fetch_historical_range(
-            exchange, symbol, TF_TO_CCXT[label], start=fetch_start, end=end_date,
-        )
+        try:
+            timeframe_candles[label] = await shared_ingestion.fetch_historical_range(
+                exchange, symbol, TF_TO_CCXT[label], start=fetch_start, end=end_date,
+            )
+        except Exception as e:
+            # Real bug, found live: a transient exchange error (e.g.
+            # bingx's own rate-limit response, hit repeatedly against
+            # real production data this session) used to propagate
+            # straight out of this function unhandled, despite every
+            # caller's own design assuming it returns an error STRING
+            # here rather than crashing — a real batch analysis script
+            # calling compute_trade_forensics crashed entirely on
+            # trade 34 of 158 this way. Converts any real fetch
+            # failure into the same (partial_dict, error_message)
+            # contract the "no candles in window" case below already
+            # uses, so every caller (backtest_runner.py,
+            # trading_audit_engine.py's compute_live_backtest_
+            # validation, trade_forensics.py) gets a clean, reportable
+            # error instead of an unhandled crash — fixed once, here,
+            # for all three.
+            return timeframe_candles, f"Could not fetch real {label} candles for {symbol} on {exchange}: {e}"
 
     for label in required_tf_labels:
         in_window = [c for c in timeframe_candles[label] if c.timestamp >= start_date]
