@@ -83,6 +83,40 @@ const EVIDENCE_LABEL: Record<string, string> = {
   verified: 'Verified', strongly_supported: 'Strongly supported', hypothesis: 'Hypothesis', unverified: 'Unverified',
 };
 
+// One sidebar row — shared between the real-runs list and the folded
+// "Live Check Runs" card so both render identically (select + delete).
+function RunRow({
+  r, selected, onSelect, onDelete, deleting, dark, cardCls, mutedCls,
+}: {
+  r: RunSummary; selected: boolean; onSelect: (id: string) => void; onDelete: (id: string) => void;
+  deleting: boolean; dark: boolean; cardCls: string; mutedCls: string;
+}) {
+  return (
+    <div
+      className={`w-full flex items-start gap-1 p-3 rounded-xl border text-xs ${
+        selected ? 'border-corporate-hero bg-corporate-hero/5' : cardCls
+      }`}
+    >
+      <button onClick={() => onSelect(r.id)} className="flex-1 min-w-0 text-left">
+        <div className={`font-semibold ${dark ? 'text-white' : 'text-corporate-text-on-bg'}`}>
+          {new Date(r.generated_at).toLocaleDateString()} ({r.triggered_by})
+        </div>
+        <div className={mutedCls}>
+          {new Date(r.period_start).toLocaleDateString()} – {new Date(r.period_end).toLocaleDateString()} · {r.status}
+        </div>
+      </button>
+      <button
+        onClick={() => onDelete(r.id)}
+        disabled={deleting}
+        title="Delete this audit run"
+        className={`shrink-0 p-1 rounded disabled:opacity-40 ${dark ? 'text-white/30 hover:text-red-400' : 'text-gray-400 hover:text-red-500'}`}
+      >
+        <Trash2 size={13} />
+      </button>
+    </div>
+  );
+}
+
 /**
  * AdminTradingAuditPage — the Monthly Trading Audit engine's Admin UI.
  * By direct request: "I want the Trading portal to be able to do this
@@ -137,7 +171,15 @@ export function AdminTradingAuditPage() {
     ).then((r) => {
       if (r) {
         setRuns(r);
-        if (r.length && !selectedRunId) setSelectedRunId(r[0].id);
+        // Default to the most recent REAL run, not a "live_check"
+        // probe, even if one happens to be more recent — those are
+        // internal verification artifacts, folded away by default
+        // (see the sidebar's own comment), so they shouldn't be what
+        // a visitor lands on either.
+        if (r.length && !selectedRunId) {
+          const firstReal = r.find((run) => run.triggered_by !== 'live_check');
+          setSelectedRunId((firstReal ?? r[0]).id);
+        }
       } else setError('Could not load past audit runs.');
     });
   }
@@ -255,6 +297,9 @@ export function AdminTradingAuditPage() {
   // which columns were missing in the screenshots.
   const textCls = dark ? 'text-white' : 'text-corporate-text-on-bg';
 
+  const realRuns = runs?.filter((r) => r.triggered_by !== 'live_check') ?? [];
+  const liveCheckRuns = runs?.filter((r) => r.triggered_by === 'live_check') ?? [];
+
   function downloadReport() {
     if (!detail?.report_markdown) return;
     const blob = new Blob([detail.report_markdown], { type: 'text/markdown' });
@@ -292,30 +337,11 @@ export function AdminTradingAuditPage() {
       {runs && runs.length > 0 && (
         <div className="flex gap-4 flex-col lg:flex-row">
           <div className="lg:w-64 shrink-0 space-y-1.5">
-            {runs.map((r) => (
-              <div
-                key={r.id}
-                className={`w-full flex items-start gap-1 p-3 rounded-xl border text-xs ${
-                  selectedRunId === r.id ? 'border-corporate-hero bg-corporate-hero/5' : cardCls
-                }`}
-              >
-                <button onClick={() => setSelectedRunId(r.id)} className="flex-1 min-w-0 text-left">
-                  <div className={`font-semibold ${dark ? 'text-white' : 'text-corporate-text-on-bg'}`}>
-                    {new Date(r.generated_at).toLocaleDateString()} ({r.triggered_by})
-                  </div>
-                  <div className={mutedCls}>
-                    {new Date(r.period_start).toLocaleDateString()} – {new Date(r.period_end).toLocaleDateString()} · {r.status}
-                  </div>
-                </button>
-                <button
-                  onClick={() => deleteRun(r.id)}
-                  disabled={deletingRunId === r.id}
-                  title="Delete this audit run"
-                  className={`shrink-0 p-1 rounded disabled:opacity-40 ${dark ? 'text-white/30 hover:text-red-400' : 'text-gray-400 hover:text-red-500'}`}
-                >
-                  <Trash2 size={13} />
-                </button>
-              </div>
+            {realRuns.length === 0 && (
+              <p className={`text-xs ${mutedCls}`}>No real audit runs yet — only internal "Live Check" probes exist (see below the Visual Dashboard).</p>
+            )}
+            {realRuns.map((r) => (
+              <RunRow key={r.id} r={r} selected={selectedRunId === r.id} onSelect={setSelectedRunId} onDelete={deleteRun} deleting={deletingRunId === r.id} dark={dark} cardCls={cardCls} mutedCls={mutedCls} />
             ))}
           </div>
 
@@ -336,6 +362,28 @@ export function AdminTradingAuditPage() {
                   findings={detail.findings}
                   dark={dark}
                 />
+
+                {/* "live_check" runs are internal verification probes
+                    (full-history period_start/period_end sentinels,
+                    e.g. 01/01/2020-01/01/2030, used while this session
+                    was live-verifying the backtest validation/
+                    forensics work directly against the production DB)
+                    — never produced by the real "Run Audit Now" button
+                    or the scheduled worker. By direct request ("All
+                    live check info should be embedded in a foldable
+                    card - default is fold" / "live checks card should
+                    come below the visual dashboard"), listed here,
+                    folded by default, rather than mixed into the real
+                    run-history sidebar on the left. */}
+                {liveCheckRuns.length > 0 && (
+                  <FoldedCard title={`Live Check Runs (${liveCheckRuns.length})`} summary="Internal verification probes, not real audit history" icon={<Activity size={18} />} dark={dark}>
+                    <div className="space-y-1.5">
+                      {liveCheckRuns.map((r) => (
+                        <RunRow key={r.id} r={r} selected={selectedRunId === r.id} onSelect={setSelectedRunId} onDelete={deleteRun} deleting={deletingRunId === r.id} dark={dark} cardCls={cardCls} mutedCls={mutedCls} />
+                      ))}
+                    </div>
+                  </FoldedCard>
+                )}
 
                 {/* The "provide docs" half of the original request — a
                     real, standalone Markdown report generated from

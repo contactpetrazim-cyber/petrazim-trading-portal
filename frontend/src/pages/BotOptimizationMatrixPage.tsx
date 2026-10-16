@@ -3,40 +3,17 @@ import { ClipboardList, Info } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
 import { FoldedCard } from '../components/FoldedCard';
 import { LoadingIndicator } from '../components/LoadingIndicator';
+import { BotOptimizationVisualDashboard } from '../components/BotOptimizationVisualDashboard';
 import { useAuth } from '../hooks/useAuth';
 import { useThemeStore } from '../hooks/useTheme';
 import { fetchJsonWithRetry, type FetchPhase } from '../lib/resilientFetch';
+import { gradeFamily, type ExpectancyRow } from '../lib/botGrading';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-
-interface ExpectancyRow {
-  bot_family?: string;
-  bot_id?: string;
-  n: number;
-  wins: number;
-  losses: number;
-  win_rate_pct: number | null;
-  total_pnl: number;
-  avg_r: number | null;
-  expectancy_per_trade: number | null;
-}
 
 interface MatrixResponse {
   bot_family_expectancy: ExpectancyRow[];
   bot_instance_expectancy: ExpectancyRow[];
-}
-
-// Minimum trade count before an expectancy number is trusted enough
-// to grade — same "don't act on n<15" threshold the audit engine's
-// own MIN_TRADES_FOR_ACTIONABLE_EXPECTANCY already uses.
-const MIN_TRADES_FOR_GRADE = 15;
-
-function gradeFamily(row: ExpectancyRow): { label: string; cls: string } {
-  if (row.n < MIN_TRADES_FOR_GRADE) return { label: `Insufficient evidence (n=${row.n})`, cls: 'text-gray-400' };
-  const r = row.avg_r ?? 0;
-  if (row.total_pnl > 0 && r > 0) return { label: 'Performing well', cls: 'text-emerald-500' };
-  if (row.total_pnl > 0 || r > 0) return { label: 'Promising — needs more validation', cls: 'text-amber-500' };
-  return { label: 'Underperforming — needs optimisation', cls: 'text-red-500' };
 }
 
 // Static reference content — authored this session from reading each
@@ -154,6 +131,20 @@ export function BotOptimizationMatrixPage({ portal }: { portal: 'trader' | 'admi
 
       {data && (
         <div className="space-y-4">
+          {/* "Can we also have a visual specific dashboard for Bot
+              Optimization Matrix also same and similar" — by direct
+              request. Mirrors AuditVisualDashboard's own chart set
+              (bar charts, a pie, a pyramid), built from this page's
+              own real family/instance expectancy data and its real
+              gradeFamily() grading (lib/botGrading.ts) — imported
+              directly, not re-derived, so it can never grade a bot
+              differently from the table right below it. This
+              component is shared between the trader route
+              (/bot-optimization) and the admin route
+              (/admin/bot-optimization), so mounting it here puts it
+              in both places at once. */}
+          <BotOptimizationVisualDashboard familyRows={data.bot_family_expectancy} instanceRows={data.bot_instance_expectancy} dark={dark} />
+
           <FoldedCard title="Per-Family Trade History" icon={<ClipboardList size={18} />} dark={dark} defaultOpen>
             <div className="overflow-x-auto">
               <table className="text-xs w-full border-collapse">
