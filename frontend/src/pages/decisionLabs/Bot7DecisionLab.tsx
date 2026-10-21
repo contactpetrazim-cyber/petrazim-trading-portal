@@ -1,5 +1,8 @@
 import { PageHeader } from '../../components/PageHeader';
 import { DecisionLabEngine, type DecisionNode } from '../../components/DecisionLabEngine';
+import { FVGFillVisualizer } from '../../components/smcVisualizers/FVGFillVisualizer';
+import { BotRulesSlide } from '../../components/BotRulesSlide';
+import { ReplayRealSetup } from '../../components/ReplayRealSetup';
 import { useThemeStore } from '../../hooks/useTheme';
 
 const NODES: Record<string, DecisionNode> = {
@@ -28,6 +31,19 @@ export function Bot7DecisionLab() {
   return (
     <div>
       <PageHeader title="Decision Lab — Bot 7: FVG Expansion v3" subtitle="Walk the real direction-first, depth-selected scenario at your own pace. No timer, no score." />
+
+      <div className="mb-5">
+        <FVGFillVisualizer dark={dark} />
+      </div>
+
+      <div className="mb-5">
+        <BotRulesSlide botId="bot_7" dark={dark} />
+      </div>
+
+      <div className="mb-5">
+        <ReplayRealSetup botId="bot_7_fvg_expansion_v3" dark={dark} />
+      </div>
+
       <DecisionLabEngine title="Bot 7 — FVG Expansion v3" framework="direction-first BOS confirmation, then depth-based FVG selection" startId="start" nodes={NODES} backHref="/learn" dark={dark} />
     </div>
   );

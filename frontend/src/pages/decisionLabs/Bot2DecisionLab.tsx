@@ -1,5 +1,9 @@
 import { PageHeader } from '../../components/PageHeader';
 import { DecisionLabEngine, type DecisionNode } from '../../components/DecisionLabEngine';
+import { OrderBlockZoneVisualizer } from '../../components/smcVisualizers/OrderBlockZoneVisualizer';
+import { BOSCHoCHVisualizer } from '../../components/smcVisualizers/BOSCHoCHVisualizer';
+import { BotRulesSlide } from '../../components/BotRulesSlide';
+import { ReplayRealSetup } from '../../components/ReplayRealSetup';
 import { useThemeStore } from '../../hooks/useTheme';
 
 const NODES: Record<string, DecisionNode> = {
@@ -28,6 +32,23 @@ export function Bot2DecisionLab() {
   return (
     <div>
       <PageHeader title="Decision Lab — Bot 2: Order Block Reversal" subtitle="Walk the real Bot 1 vs Bot 2 mismatch scenario at your own pace. No timer, no score." />
+
+      <div className="mb-5">
+        <OrderBlockZoneVisualizer dark={dark} />
+      </div>
+
+      <div className="mb-5">
+        <BOSCHoCHVisualizer dark={dark} />
+      </div>
+
+      <div className="mb-5">
+        <BotRulesSlide botId="bot_2" dark={dark} />
+      </div>
+
+      <div className="mb-5">
+        <ReplayRealSetup botId="bot_2_ob_reversal" dark={dark} />
+      </div>
+
       <DecisionLabEngine title="Bot 2 — Order Block Reversal" framework="Bot 2's own reversal philosophy vs. Bot 1's continuation philosophy" startId="start" nodes={NODES} backHref="/learn" dark={dark} />
     </div>
   );
