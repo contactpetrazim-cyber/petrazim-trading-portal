@@ -38,7 +38,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -46,6 +46,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.access_gate import require_active_access, require_completion_access, learner_progress_snapshot
 from app.core.idempotency import idempotency_guard
 from app.database import get_db
+from app.engines.bot_simulation import compute_bot_simulation
 from app.engines.learning_content_ai import (
     extract_authored_flashcards, generate_flashcards, generate_recap, generate_retrieval_questions,
 )
@@ -54,6 +55,7 @@ from app.engines.progression_engine import (
     MasteryInput, StreakUpdateResult, can_attempt_stage, compute_mastery_level,
     schedule_next_retention_check, stage_completion_meets_requirements, update_streak, xp_for_stage,
 )
+from app.models.bot import BotConfig
 from app.models.curriculum import (
     BookmarkedStage, Certificate, FlashcardCache, FlashcardReview, GameResult, Lesson,
     LearningTrack, LessonRecap, MasteryLevel, NotebookEntry, PracticeAttempt, QuizAttempt,
@@ -492,6 +494,39 @@ async def get_lesson(
         title=lesson.title, content_body=lesson.content_body or "",
         estimated_minutes=lesson.estimated_minutes,
     )
+
+
+@router.get("/bots/{bot_id}/simulation")
+async def bot_simulation(
+    bot_id: str,
+    direction: str = Query(..., pattern="^(long|short)$", description="'long' or 'short'"),
+    symbol: Optional[str] = Query(None, description="Defaults to the matched real trade's symbol, or this bot's first configured symbol"),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_active_access),
+):
+    """SMC Bot Academy plan item 6 — the animated "watch it happen"
+    bot-simulation player's backend. Read-only, no order-placement
+    capability anywhere in this path: it never calls a bot's own
+    `.analyze()`, never constructs a `BotSignal`, and never writes to
+    `trades`/`closed_trades`. See `bot_simulation.py`'s own module
+    docstring for the full design — in short, it steps a real
+    historical candle window (preferring this bot's own real closed
+    trade for the requested direction; a clearly-labeled real-recent-
+    market fallback otherwise — never a fabricated price) one base-
+    timeframe bar at a time, re-running the SAME real detector classes
+    every bot already uses, and returns the full result shaped for
+    `CandleChart.tsx` (zones/markers, each tagged with the step it was
+    first, no-lookahead, detected) for the frontend to reveal in sync
+    with playback.
+    """
+    bot = (await db.execute(select(BotConfig).where(BotConfig.bot_id == bot_id))).scalar_one_or_none()
+    if bot is None:
+        raise HTTPException(status_code=404, detail=f"No bot found with bot_id={bot_id!r}")
+
+    result = await compute_bot_simulation(db, bot, direction.lower(), symbol, user)
+    if "error" in result:
+        raise HTTPException(status_code=422, detail=result["error"])
+    return result
 
 
 def _content_hash(text: str) -> str:
