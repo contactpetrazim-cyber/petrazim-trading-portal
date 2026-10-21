@@ -4,6 +4,7 @@ import { OrderBlockZoneVisualizer } from '../../components/smcVisualizers/OrderB
 import { BOSCHoCHVisualizer } from '../../components/smcVisualizers/BOSCHoCHVisualizer';
 import { BotRulesSlide } from '../../components/BotRulesSlide';
 import { ReplayRealSetup } from '../../components/ReplayRealSetup';
+import { BotSimulationPlayer } from '../../components/BotSimulationPlayer';
 import { useThemeStore } from '../../hooks/useTheme';
 
 const NODES: Record<string, DecisionNode> = {
@@ -47,6 +48,10 @@ export function Bot2DecisionLab() {
 
       <div className="mb-5">
         <ReplayRealSetup botId="bot_2_ob_reversal" dark={dark} />
+      </div>
+
+      <div className="mb-5">
+        <BotSimulationPlayer botId="bot_2_ob_reversal" dark={dark} />
       </div>
 
       <DecisionLabEngine title="Bot 2 — Order Block Reversal" framework="Bot 2's own reversal philosophy vs. Bot 1's continuation philosophy" startId="start" nodes={NODES} backHref="/learn" dark={dark} />

@@ -3,6 +3,7 @@ import { DecisionLabEngine, type DecisionNode } from '../../components/DecisionL
 import { LiquiditySweepVisualizer } from '../../components/smcVisualizers/LiquiditySweepVisualizer';
 import { BotRulesSlide } from '../../components/BotRulesSlide';
 import { ReplayRealSetup } from '../../components/ReplayRealSetup';
+import { BotSimulationPlayer } from '../../components/BotSimulationPlayer';
 import { useThemeStore } from '../../hooks/useTheme';
 
 /**
@@ -89,6 +90,10 @@ export function Bot5DecisionLab() {
 
       <div className="mb-5">
         <ReplayRealSetup botId="bot_5_jeafx" dark={dark} />
+      </div>
+
+      <div className="mb-5">
+        <BotSimulationPlayer botId="bot_5_jeafx" dark={dark} />
       </div>
 
       <DecisionLabEngine

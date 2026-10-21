@@ -3,6 +3,7 @@ import { DecisionLabEngine, type DecisionNode } from '../../components/DecisionL
 import { FVGFillVisualizer } from '../../components/smcVisualizers/FVGFillVisualizer';
 import { BotRulesSlide } from '../../components/BotRulesSlide';
 import { ReplayRealSetup } from '../../components/ReplayRealSetup';
+import { BotSimulationPlayer } from '../../components/BotSimulationPlayer';
 import { useThemeStore } from '../../hooks/useTheme';
 
 const NODES: Record<string, DecisionNode> = {
@@ -42,6 +43,10 @@ export function Bot7DecisionLab() {
 
       <div className="mb-5">
         <ReplayRealSetup botId="bot_7_fvg_expansion_v3" dark={dark} />
+      </div>
+
+      <div className="mb-5">
+        <BotSimulationPlayer botId="bot_7_fvg_expansion_v3" dark={dark} />
       </div>
 
       <DecisionLabEngine title="Bot 7 — FVG Expansion v3" framework="direction-first BOS confirmation, then depth-based FVG selection" startId="start" nodes={NODES} backHref="/learn" dark={dark} />

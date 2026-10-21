@@ -2,6 +2,7 @@ import { PageHeader } from '../../components/PageHeader';
 import { DecisionLabEngine, type DecisionNode } from '../../components/DecisionLabEngine';
 import { BotRulesSlide } from '../../components/BotRulesSlide';
 import { ReplayRealSetup } from '../../components/ReplayRealSetup';
+import { BotSimulationPlayer } from '../../components/BotSimulationPlayer';
 import { useThemeStore } from '../../hooks/useTheme';
 
 const NODES: Record<string, DecisionNode> = {
@@ -37,6 +38,10 @@ export function Bot4DecisionLab() {
 
       <div className="mb-5">
         <ReplayRealSetup botId="bot_4_volume_liq" dark={dark} />
+      </div>
+
+      <div className="mb-5">
+        <BotSimulationPlayer botId="bot_4_volume_liq" dark={dark} />
       </div>
 
       <DecisionLabEngine title="Bot 4 — Volume & Liquidity Sweep" framework="Auction Market Theory's Spring and Upthrust" startId="start" nodes={NODES} backHref="/learn" dark={dark} />
