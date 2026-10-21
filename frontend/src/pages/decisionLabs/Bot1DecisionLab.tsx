@@ -4,6 +4,7 @@ import { OrderBlockZoneVisualizer } from '../../components/smcVisualizers/OrderB
 import { PremiumDiscountRangeDiagram } from '../../components/smcVisualizers/PremiumDiscountRangeDiagram';
 import { BotRulesSlide } from '../../components/BotRulesSlide';
 import { ReplayRealSetup } from '../../components/ReplayRealSetup';
+import { BotSimulationPlayer } from '../../components/BotSimulationPlayer';
 import { useThemeStore } from '../../hooks/useTheme';
 
 /**
@@ -95,6 +96,10 @@ export function Bot1DecisionLab() {
 
       <div className="mb-5">
         <ReplayRealSetup botId="bot_1_macro_swing" dark={dark} />
+      </div>
+
+      <div className="mb-5">
+        <BotSimulationPlayer botId="bot_1_macro_swing" dark={dark} />
       </div>
 
       <DecisionLabEngine
