@@ -12,9 +12,9 @@ import { AWARDS_REFRESH_EVENT } from '../components/BadgeUnlockWatcher';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
-// Decision Lab routes, matched by track title substring — 4 of 18
-// tracks so far (Section 11's own template, not every track yet; see
-// RiskManagementDecisionLab's docstring).
+// Decision Lab routes, matched by track title substring — 17 tracks
+// so far, now including all 7 bots (Section 11's own template, not
+// every track yet; see RiskManagementDecisionLab's docstring).
 // Match strings are deliberately the full "Core N — Title" / "Bot N —
 // Title" text (not a short word like "Liquidity" alone) — several bot
 // tracks share words with core tracks (e.g. Bot 4/5 both have
@@ -38,6 +38,8 @@ const DECISION_LABS: [string, string][] = [
   ['Bot 3 — Imbalance Expansion', '/learn/decision-lab/bot-3'],
   ['Bot 4 — Volume & Liquidity Sweep', '/learn/decision-lab/bot-4'],
   ['Bot 5 — Liquidity Purge Specialist', '/learn/decision-lab/bot-5'],
+  ['Bot 6 — SMC v2', '/learn/decision-lab/bot-6'],
+  ['Bot 7 — FVG Expansion v3', '/learn/decision-lab/bot-7'],
 ];
 
 interface Stage {
