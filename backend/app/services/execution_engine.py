@@ -112,9 +112,68 @@ def _resize_risk_for_real_fill(row, trade_id: str) -> None:
     Snapshot feature displays — see its own comment on Trade.
     initial_lot_size) when resizing: this runs at the real entry
     moment, so the resized value IS what the trade's setup actually
-    was at entry, not a later correction to misrepresent history."""
+    was at entry, not a later correction to misrepresent history.
+
+    SEPARATE, more severe bug fixed here too, found by direct request
+    ("critically review and investigate" against two real screenshots
+    of low-value wins closing well under 1R): take_profit_1/2/3 are
+    ALSO computed at signal time (EntryExitEngine.calculate_targets)
+    from the bot's THEORETICAL entry_price — `tp1 = entry ± sl_distance
+    * 1.0` etc. — and, exactly like lot_size/risk_amount above, were
+    never recomputed once entry_price is overwritten with the real
+    fill. Confirmed directly against 3 real Bot 12 trades
+    (TRD_bot_12_ob_reversal_runner_20261019_063635/070431/070839):
+    each one's stale take_profit_1 (82924.33, a SHORT's target, which
+    must sit BELOW entry to represent real profit) ended up ABOVE each
+    trade's own real fill entry_price (82835.1/82846.2/82864.0) —
+    because the real fill landed MORE favorably (lower) than the
+    theoretical entry TP1 was computed from, by more than the original
+    1R distance. The system still closed 30% of the position the
+    moment price touched that stale level, logged it as
+    "auto_take_profit_1_hit", and recorded a LOSS (-$16.03/-$14.04/
+    -$10.84) under that label — a real loss mislabeled a win. These 3
+    trades alone cost -$40.91 of Bot 12's -$10.73 total across 16
+    trades this period — the other 13 trades were net +$30.18; this
+    bug was actively dragging a real A/B test's own measured
+    performance into apparent negative territory.
+
+    Fixed by recomputing take_profit_1/2/3 here too, against the REAL
+    entry_price and the REAL stop distance, preserving whichever R-
+    multiple ladder the bot's own signal originally intended — derived
+    algebraically from the stale, already-known tp1/tp3/stop_loss
+    (D = |stale_tp1 - stop_loss| / 2, rr = |stale_tp3 - stale_tp1| / D
+    + 1; see calculate_targets' own tp1=E±D, tp3=E±rr*D definitions for
+    why this recovers D/rr without ever needing the discarded
+    theoretical entry_price itself), reusing calculate_targets (same
+    single source of truth as calculate_lot_size above) rather than a
+    second copy of its formula. This runs UNCONDITIONALLY (not a
+    shrink-only guard like lot_size below) because it is a correctness
+    fix, not a risk-conservatism choice — a take_profit level sitting
+    on the wrong side of the real entry is never a trade-off worth
+    keeping either direction the fill drifts. Also updates
+    initial_take_profit_1 (the immutable "what this trade's setup
+    actually was at entry" snapshot), same reasoning as initial_lot_size
+    above."""
     real_stop_distance = abs(row.entry_price - row.stop_loss)
-    if real_stop_distance <= 0 or not row.risk_percent or not row.lot_size:
+    if real_stop_distance <= 0:
+        return
+    if row.take_profit_1 is not None:
+        d = abs(row.take_profit_1 - row.stop_loss) / 2
+        if d > 0:
+            is_long = row.take_profit_1 > row.stop_loss
+            rr = 1.0
+            if row.take_profit_3 is not None:
+                rr = abs(row.take_profit_3 - row.take_profit_1) / d + 1.0
+            new_tp1 = row.entry_price + real_stop_distance if is_long else row.entry_price - real_stop_distance
+            row.take_profit_1 = round(new_tp1, 5)
+            row.initial_take_profit_1 = row.take_profit_1
+            if row.take_profit_2 is not None:
+                new_tp2 = row.entry_price + real_stop_distance * 2.0 if is_long else row.entry_price - real_stop_distance * 2.0
+                row.take_profit_2 = round(new_tp2, 5)
+            if row.take_profit_3 is not None:
+                new_tp3 = row.entry_price + real_stop_distance * rr if is_long else row.entry_price - real_stop_distance * rr
+                row.take_profit_3 = round(new_tp3, 5)
+    if not row.risk_percent or not row.lot_size:
         return
     from app.core.smc_algorithms import EntryExitEngine
     implied_balance = row.risk_amount / (row.risk_percent / 100)
