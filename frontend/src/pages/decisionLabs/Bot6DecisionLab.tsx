@@ -1,5 +1,8 @@
 import { PageHeader } from '../../components/PageHeader';
 import { DecisionLabEngine, type DecisionNode } from '../../components/DecisionLabEngine';
+import { LiquiditySweepVisualizer } from '../../components/smcVisualizers/LiquiditySweepVisualizer';
+import { BotRulesSlide } from '../../components/BotRulesSlide';
+import { ReplayRealSetup } from '../../components/ReplayRealSetup';
 import { useThemeStore } from '../../hooks/useTheme';
 
 const NODES: Record<string, DecisionNode> = {
@@ -28,6 +31,19 @@ export function Bot6DecisionLab() {
   return (
     <div>
       <PageHeader title="Decision Lab — Bot 6: SMC v2" subtitle="Walk the real mandatory-agreement scenario at your own pace. No timer, no score." />
+
+      <div className="mb-5">
+        <LiquiditySweepVisualizer dark={dark} />
+      </div>
+
+      <div className="mb-5">
+        <BotRulesSlide botId="bot_6" dark={dark} />
+      </div>
+
+      <div className="mb-5">
+        <ReplayRealSetup botId="bot_6_smc_v2" dark={dark} />
+      </div>
+
       <DecisionLabEngine title="Bot 6 — SMC v2" framework="the mandatory 1H-BOS bias requiring at least one lower-timeframe read to agree" startId="start" nodes={NODES} backHref="/learn" dark={dark} />
     </div>
   );
