@@ -105,6 +105,12 @@ TUNABLE_PARAM_BOUNDS: Dict[str, Dict[str, Tuple[float, float, float]]] = {
     # reusing Bot 3's 15M-tuned values for a timeframe they were never
     # tuned against.
     "bot_13": {"left_bars": (2, 10, 3), "right_bars": (2, 10, 3), "htf_left_bars": (2, 10, 5), "htf_right_bars": (2, 10, 5)},
+    # bot_14: Bot 5's own left_bars/right_bars (1H order-block
+    # structure, since this reuses Bot 5's entry logic byte-for-byte)
+    # PLUS the same separate 1D HTF-bias swing-detection pair as
+    # bot_13 — same reasoning: defaulted to Bot 1's own tuned 1D
+    # values (5, 5), not Bot 5's own 1H-tuned values.
+    "bot_14": {"left_bars": (2, 10, 3), "right_bars": (2, 10, 2), "htf_left_bars": (2, 10, 5), "htf_right_bars": (2, 10, 5)},
 }
 
 
@@ -1715,6 +1721,218 @@ class JeafxSMCBot:
 
 
 # =============================================================================
+# BOT 14: Jeafx SMC, HTF-Gated (Bot 5 Update) — real finding, A/B test
+# =============================================================================
+
+class JeafxSMCHTFGatedBot:
+    """
+    Bot 14: Jeafx SMC, HTF-Gated
+
+    Bot 5's exact own setup (JeafxSMCBot — 1H fresh zone, 4H BOS
+    direction, 15M purge timing gate, 5M confirmation + FVG, entry/
+    stop/target formulas, all byte-for-byte identical), with exactly
+    ONE change: a real 1D HTF-alignment gate added right after
+    direction is determined.
+
+    Built from the same real finding as Bot 13 (see that bot's own
+    docstring for the full numbers): a direct audit question —
+    "when the higher time frame is unclear, is there a higher chance
+    the trade results in a loss?" — tested against 153 of 158 real
+    closed bot trades via the real forensic reconstruction engine
+    (engines/trade_forensics.py). The pattern held clearly for Bot 5
+    specifically: 40% loss rate when its own direction ALIGNED with a
+    clear 1D bias, vs. 62% when the 1D bias was unclear — the same
+    direction of effect as Bot 3 (8% vs. 28%), not the reversed one
+    seen for Bot 2/Bot 6. Bot 5's own 4H-BOS direction step is already
+    an HTF read, but of a MUCH lower timeframe than 1D — this gate is
+    a genuinely separate, higher check, not a duplicate of Step 2's
+    own 4H logic.
+
+    Deliberately NOT added here, same reasoning as Bot 13's own scope:
+    no change to the zone/purge/confirmation logic, the FVG-selection,
+    or the entry/stop/target math at all — isolating the ONE new
+    variable (the 1D HTF gate) is the entire point of this A/B test.
+    """
+
+    def __init__(self, config: Dict):
+        self.bot_id = "bot_14_jeafx_htf_gated"
+        self.bot_name = "SMC BOT HTF-Gated"
+        self.config = config
+        self.structure_detector = MarketStructureDetector(
+            left_bars=int(resolve_tunable_param("bot_14", "left_bars", config)),
+            right_bars=int(resolve_tunable_param("bot_14", "right_bars", config)),
+        )
+        self.htf_left_bars = int(resolve_tunable_param("bot_14", "htf_left_bars", config))
+        self.htf_right_bars = int(resolve_tunable_param("bot_14", "htf_right_bars", config))
+        self.entry_engine = EntryExitEngine(default_rr=4.0)
+        self.risk_manager = RiskManager(base_risk_percent=1.0)
+
+    def analyze(self,
+                candles_1d: List[Candle],
+                candles_4h: List[Candle],
+                candles_1h: List[Candle],
+                candles_15m: List[Candle],
+                candles_5m: List[Candle],
+                account_balance: float,
+                symbol: str,
+                risk_per_trade: Optional[float] = None,
+                min_rr_ratio: Optional[float] = None,
+                bot_id: Optional[str] = None) -> Optional[BotSignal]:
+
+        # Steps 1-2: identical to Bot 5 — 1H fresh order block/demand
+        # zone, direction from the last 4H BOS.
+        zone_detector = ZoneDetector()
+        swings_1h = self.structure_detector.detect_swing_highs(candles_1h) + \
+                    self.structure_detector.detect_swing_lows(candles_1h)
+
+        zones = zone_detector.detect_order_blocks(candles_1h, swings_1h)
+        fresh_zones = [z for z in zones
+                      if z.status.name == "ACTIVE" and z.test_count <= 1]
+        if not fresh_zones:
+            return None
+
+        swings_4h = self.structure_detector.detect_swing_highs(candles_4h) + \
+                    self.structure_detector.detect_swing_lows(candles_4h)
+        bos_4h = self.structure_detector.detect_bos(
+            candles_4h, self.structure_detector.filter_significant_swings(swings_4h)
+        )
+        if not bos_4h:
+            return None
+        last_bos_4h = bos_4h[-1]
+        if last_bos_4h["type"] == "bullish_bos":
+            direction = "long"
+        elif last_bos_4h["type"] == "bearish_bos":
+            direction = "short"
+        else:
+            return None
+
+        # Step 2b (THE new gate, everything else in this method is Bot
+        # 5's own unchanged pipeline): require the real 1D HTF bias to
+        # be CLEAR and to AGREE with this trade's own direction — the
+        # "aligned" bucket from the real finding above, the one that
+        # actually outperformed, not just "any clear bias at all".
+        htf_bias = compute_htf_bias(candles_1d, self.htf_left_bars, self.htf_right_bars)
+        if htf_bias == "unclear":
+            return None
+        if direction == "long" and htf_bias != "bullish":
+            return None
+        if direction == "short" and htf_bias != "bearish":
+            return None
+
+        # Step 3 (Bot 5's own Step 2b): LTF conflict check — identical
+        # to Bot 5.
+        choch_dir = _choch_direction_15m(self.structure_detector, candles_15m)
+        fvg_bos_dir = _fvg_bos_direction_1h_15m(candles_1h, candles_15m)
+        if (choch_dir and choch_dir != direction) or (fvg_bos_dir and fvg_bos_dir != direction):
+            return None
+
+        # Step 4 (Bot 5's own Step 3): 15M liquidity purge — entry-
+        # timing/zone-alignment gate, identical to Bot 5.
+        liq_detector = LiquidityDetector(tolerance_pips=1.0)
+        pools = liq_detector.detect_equal_highs_lows(candles_15m, lookback=30)
+        sweeps = liq_detector.detect_liquidity_sweeps(pools, candles_15m[-5:])
+        if not sweeps:
+            return None
+        last_sweep = sweeps[-1]
+
+        # Step 5 (Bot 5's own Step 4): zone aligned with sweep.
+        sweep_price = last_sweep["sweep_price"]
+        aligned_zone = None
+        for z in fresh_zones:
+            if z.bottom <= sweep_price <= z.top:
+                aligned_zone = z
+                break
+        if not aligned_zone:
+            return None
+
+        # Discount (long) / premium (short) check — identical to Bot 5.
+        swing_high_1h = max((s.price for s in swings_1h), default=None)
+        swing_low_1h = min((s.price for s in swings_1h), default=None)
+        if swing_high_1h is not None and swing_low_1h is not None:
+            zone_detector.classify_premium_discount([aligned_zone], swing_high_1h, swing_low_1h)
+            if (direction == "long" and aligned_zone.classification == "premium") or \
+               (direction == "short" and aligned_zone.classification == "discount"):
+                return None
+
+        # Step 6 (Bot 5's own Step 5): confirmation candle on 5M —
+        # identical to Bot 5.
+        recent_5m = candles_5m[-5:]
+        confirmation_candle = None
+        for c in recent_5m:
+            body_size = abs(c.close - c.open)
+            avg_body = sum(abs(x.close - x.open) for x in candles_5m[-20:]) / 20
+            if body_size > avg_body * 1.5:
+                if aligned_zone.bottom <= c.close <= aligned_zone.top:
+                    confirmation_candle = c
+                    break
+        if not confirmation_candle:
+            return None
+
+        # Step 7 (Bot 5's own Step 6): FVG must form on or after
+        # confirmation, in the 4H-BOS direction — identical to Bot 5.
+        fvg_detector = FVGDetector()
+        recent_fvgs = fvg_detector.detect_fvg(candles_5m[-10:])
+        candidate_fvgs = [
+            f for f in recent_fvgs
+            if f.candle1.timestamp >= confirmation_candle.timestamp and
+            ((f.gap_type == "bullish" and direction == "long") or (f.gap_type == "bearish" and direction == "short"))
+        ]
+        valid_fvg = select_fvg_by_depth(candidate_fvgs, direction)
+
+        # Step 8 (Bot 5's own Step 7): entry at 50% of confirmation
+        # candle or FVG — identical to Bot 5.
+        if valid_fvg:
+            entry_price = (valid_fvg.top + valid_fvg.bottom) / 2
+        else:
+            entry_price = (confirmation_candle.open + confirmation_candle.close) / 2
+
+        # Step 9 (Bot 5's own Step 8): strict SL beyond purge extreme,
+        # identical to Bot 5.
+        expected_sweep_type = "buy_side_sweep" if direction == "long" else "sell_side_sweep"
+        if last_sweep["type"] != expected_sweep_type:
+            return None
+
+        purge_extreme = last_sweep["sweep_price"]
+        buffer = abs(confirmation_candle.high - confirmation_candle.low) * 0.2
+        if direction == "long":
+            sl_price = purge_extreme - buffer
+        else:
+            sl_price = purge_extreme + buffer
+        sl_price = extend_stop_beyond_zone(sl_price, aligned_zone, direction)
+        sl_price = apply_min_stop_distance_floor(entry_price, sl_price, direction)
+        sl_distance = abs(entry_price - sl_price)
+        sl = {"stop_loss": sl_price, "sl_distance": sl_distance, "method": "jeafx_purge_extreme"}
+
+        # Step 10 (Bot 5's own Step 9): high R:R target — identical to
+        # Bot 5.
+        entry = {"entry_price": entry_price, "direction": direction}
+        targets = self.entry_engine.calculate_targets(entry, sl, rr_ratio=min_rr_ratio if min_rr_ratio is not None else 5.0)
+
+        risk = self.risk_manager.calculate_position_risk(setup_quality=1.3, base_risk_override=risk_per_trade)
+        lots = self.entry_engine.calculate_lot_size(account_balance, risk, sl_distance)
+
+        return BotSignal(
+            bot_id=bot_id or self.bot_id,
+            bot_name=self.bot_name,
+            symbol=symbol,
+            direction=direction,
+            confidence=0.88,
+            entry_price=round(entry_price, 5),
+            stop_loss=round(sl_price, 5),
+            take_profit=targets["tp1"],
+            take_profit_2=targets["tp2"],
+            take_profit_3=targets["tp3"],
+            lot_size=lots["lot_size"],
+            risk_percent=risk,
+            reasoning=f"SMC BOT HTF-Gated {direction}. 1D HTF bias ({htf_bias}) aligned with direction — gate passed. "
+                     f"4H BOS confirms trend. 1H fresh zone. 15M {last_sweep['type']} (timing gate). "
+                     f"5M confirmation candle + FVG: {valid_fvg is not None}. "
+                     f"Entry at 50%. Strict SL beyond purge. 5R target.",
+            timestamp=datetime.utcnow()
+        )
+
+
+# =============================================================================
 # BOT 6: SMC v2 — Bot 5's own zone/purge/confirmation setup, direction
 # from its own 1H BOS bias confirmed by Bot 2/Bot 3's LTF signals
 # =============================================================================
@@ -2758,6 +2976,41 @@ class OrderBlockReversalWiderStopBot:
 # BOT ORCHESTRATOR
 # =============================================================================
 
+def _annotate_htf_conviction(signal: Optional["BotSignal"], market_data: Dict) -> None:
+    """Metadata-only HTF-alignment signal — by direct request ("A/B
+    test variant... build a new bot variant for Bot 3 and/or Bot 5...
+    Metadata-only first"), as a lighter-weight companion to Bot 13/
+    Bot 14's own hard HTF gate: this NEVER rejects a signal or changes
+    entry/stop/target/sizing for ANY bot, including Bot 3/Bot 5
+    themselves — purely informational, appended to the signal's own
+    reasoning text (already persisted as Trade.reasoning_log, so this
+    needs no new DB column/migration to become visible).
+
+    Deliberately centralized here in run_all, not added inside any
+    individual bot's own analyze() — zero risk to Bot 3/Bot 5's own
+    live behavior (both are real, currently-trading baseline bots this
+    session has repeatedly kept byte-for-byte unchanged for exactly
+    this reason). Uses whatever 1D candles are ALREADY present in this
+    scan group's market_data (true for ANY (exchange, symbol) group
+    where a 1D-consuming bot — bot_1/bot_13/bot_14 — is also
+    configured, since market_scanner.py fetches the union of every
+    active bot's required timeframes for a group) rather than fetching
+    1D data of its own — if no 1D data happens to be available for
+    this group, this is a silent no-op, same "None/omitted rather than
+    guess" convention as the rest of this codebase.
+
+    left_bars/right_bars=(5, 5) — the same default used for 1D by
+    bot_1/bot_13/bot_14 (Bot 1's own tuned 1D values) — since this is
+    one shared, bot-agnostic reading, not a per-bot tunable."""
+    if signal is None:
+        return
+    candles_1d = market_data.get("1D")
+    if not candles_1d or len(candles_1d) < 10:
+        return
+    htf_bias = compute_htf_bias(candles_1d, 5, 5)
+    signal.reasoning = f"{signal.reasoning} | 1D HTF bias: {htf_bias} (informational only, not gating)."
+
+
 def _signal_risk_is_valid(signal: "BotSignal", account_balance: float) -> tuple[bool, Optional[str]]:
     """Two independent checks every signal from every bot must pass
     before being trusted, regardless of which strategy or symbol
@@ -2901,6 +3154,7 @@ BOT_REGISTRY: Dict[str, tuple] = {
     "bot_10": (VolumeLiquidityHeldReclaimBot, [("candles_4h", "4H"), ("candles_1h", "1H")]),
     "bot_11": (OrderBlockReversalWiderStopBot, [("candles_4h", "4H"), ("candles_1h", "1H"), ("candles_15m", "15M")]),
     "bot_13": (FVGExpansionHTFGatedBot, [("candles_1d", "1D"), ("candles_1h", "1H"), ("candles_15m", "15M")]),
+    "bot_14": (JeafxSMCHTFGatedBot, [("candles_1d", "1D"), ("candles_4h", "4H"), ("candles_1h", "1H"), ("candles_15m", "15M"), ("candles_5m", "5M")]),
 }
 
 
@@ -3022,6 +3276,7 @@ class BotOrchestrator:
                         symbol=market_data.get("symbol", "UNKNOWN"), error=str(e),
                     )
                     continue
+                _annotate_htf_conviction(sig, market_data)
                 self._collect(signals, sig, account_balance)
 
         # Data-driven over BOT_REGISTRY (see its own comment) instead

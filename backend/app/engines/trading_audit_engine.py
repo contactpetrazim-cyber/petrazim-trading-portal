@@ -426,6 +426,13 @@ BOT_OPTIMIZATION_REFERENCE: List[Dict[str, str]] = [
              "platform-wide. Real sample still accumulating; the strongest baseline to compare against is Bot 3's own real live history, not this engine's own backtest replay — a same-day sanity "
              "backtest of Bot 3 itself returned an implausibly low 3.7% win rate on 107 trades, wildly inconsistent with Bot 3's real ~82% live win rate, suggesting a real backtest-engine fidelity "
              "issue for this bot family worth its own separate investigation."},
+    {"fam": "bot_14", "name": "Bot 14 — Jeafx SMC, HTF-Gated", "sl": "Identical to Bot 5 — this variant changes only the entry GATE, not SL/target math",
+     "rel": "A/B vs Bot 5 — adds the same real 1D HTF-alignment gate as Bot 13, applied to Bot 5's own setup instead of Bot 3's; nothing else differs",
+     "note": "Built from the same finding as Bot 13 (see that bot's own note for the full numbers): Bot 5 specifically showed 40% loss rate when its own direction aligned with a clear 1D bias, vs "
+             "62% when the 1D bias was unclear — the same direction of effect as Bot 3, not the reversed one seen for Bot 2/Bot 6, so this gate is scoped to Bot 5 for the same reason Bot 13 is "
+             "scoped to Bot 3. Real sample not yet accumulated (ships this session) — the strongest baseline to compare against is Bot 5's own real live history. Also ships a separate, lighter, "
+             "non-gating 'htf_conviction' annotation (1D HTF bias appended to a signal's own reasoning text, informational only) for every bot family whose scan group already has 1D candles "
+             "available — including Bot 3 and Bot 5's own ORIGINAL, ungated signals, with zero change to either bot's actual trading behavior."},
 ]
 
 # Stage 9, now wired in for real (by direct request, "continue
@@ -454,6 +461,7 @@ BACKTEST_VALIDATION_TARGETS = [
     ("bot_10", "BTCUSDT.P", "bingx", 60),
     ("bot_11", "BTCUSDT.P", "bingx", 60),
     ("bot_13", "BTCUSDT.P", "bingx", 60),
+    ("bot_14", "BTCUSDT.P", "bingx", 35),
 ]
 
 
