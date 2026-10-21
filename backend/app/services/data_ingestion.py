@@ -129,12 +129,26 @@ class MarketDataIngestion:
         # cycle fails for every bot, which is the actual reason no bot
         # ever produced a recommendation: zero real candle data ever
         # reached BotOrchestrator to analyze.
+        #
+        # ONE client per exchange, not one per (exchange, route) — real
+        # memory bug, found via direct report ("why am I getting this
+        # error message despite system being healthy") against Render's
+        # own 512MB free-tier backend, which was crash-looping roughly
+        # every 15-20 minutes. Measured live, directly: creating all 3
+        # routes' worth of clients for just 2 exchanges (bingx, mexc)
+        # cost ~394MB RSS, because ccxt's own loadMarkets() response
+        # (bingx: 3570 symbols, mexc: 3065) was being loaded and cached
+        # SEPARATELY for proxy/backup/direct — three full copies of the
+        # exact same exchange metadata, which has nothing to do with
+        # which network path reaches it. _get_exchange_client below now
+        # keeps exactly one client per exchange and switches its
+        # `httpsProxy` attribute per call instead of building/caching a
+        # second or third client — see that method's own docstring for
+        # why mutating it on an already-built client is safe. Same
+        # real failover resilience (a banned/unreachable route still
+        # falls through to the next one), at 1/3 the cached-metadata
+        # memory cost.
         self._exchange_clients: Dict[str, object] = {}
-        # Three routing tiers per exchange, each its own cached client
-        # (long-lived, same reasoning as self._exchange_clients' own
-        # comment above) — see _get_exchange_client's own docstring.
-        self._exchange_backup_clients: Dict[str, object] = {}
-        self._exchange_direct_clients: Dict[str, object] = {}
         # (loaded_at_monotonic, markets_dict) per exchange — see
         # symbol_is_tradeable's own docstring.
         self._markets_cache: Dict[str, "tuple[float, dict]"] = {}
@@ -163,26 +177,39 @@ class MarketDataIngestion:
         placement uses for this exchange, or a direct connection for an
         exchange with none configured), "backup" (the Fixie backup
         proxy), or "direct" (no proxy at all, Render's own raw IP —
-        the ONLY route this method had before this fix, and the one a
-        direct-IP ban like the one that prompted this change takes
-        down entirely)."""
+        the ONLY route this method had before the original fix, and
+        the one a direct-IP ban like the one that prompted that change
+        takes down entirely).
+
+        ONE cached client per exchange (not per exchange+route) — see
+        __init__'s own comment on self._exchange_clients for the real
+        ~394MB measured cost of caching a separate client (each with
+        its own full loadMarkets() copy) per route. Switching routes
+        just reassigns this same client's `httpsProxy` attribute —
+        ccxt reads it fresh on every request rather than baking it in
+        at construction, confirmed directly in _build_exchange_client's
+        own proxy-assignment line, so this takes effect immediately on
+        the very next call with no reconnect needed. Safe to mutate a
+        shared client between calls here specifically because
+        fetch_historical_ccxt's own route loop (below) awaits each
+        route fully before trying the next — one cooperative asyncio
+        thread, no two routes ever in flight on this client at once."""
         primary_setting, backup_setting = _PROXY_SETTINGS.get(exchange, (None, None))
-
-        if route == "backup":
-            if exchange not in self._exchange_backup_clients:
-                proxy_url = getattr(settings, backup_setting, "") if backup_setting else ""
-                self._exchange_backup_clients[exchange] = self._build_exchange_client(exchange, proxy_url or None)
-            return self._exchange_backup_clients[exchange]
-
-        if route == "direct":
-            if exchange not in self._exchange_direct_clients:
-                self._exchange_direct_clients[exchange] = self._build_exchange_client(exchange, None)
-            return self._exchange_direct_clients[exchange]
 
         if exchange not in self._exchange_clients:
             proxy_url = getattr(settings, primary_setting, "") if primary_setting else ""
             self._exchange_clients[exchange] = self._build_exchange_client(exchange, proxy_url or None)
-        return self._exchange_clients[exchange]
+        client = self._exchange_clients[exchange]
+
+        if route == "backup":
+            proxy_url = getattr(settings, backup_setting, "") if backup_setting else ""
+            client.httpsProxy = proxy_url or None
+        elif route == "direct":
+            client.httpsProxy = None
+        else:
+            proxy_url = getattr(settings, primary_setting, "") if primary_setting else ""
+            client.httpsProxy = proxy_url or None
+        return client
 
     async def fetch_historical_ccxt(self,
                                     exchange: str,
