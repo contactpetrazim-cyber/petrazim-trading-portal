@@ -1905,12 +1905,14 @@ class ExecutionEngine:
         # any favorable deviation, however large, always passes. This
         # never WIDENS protection against a bad fill (the adverse side
         # keeps the exact same tolerance as before) — it only stops
-        # rejecting trades that can't be going wrong.
-        if trade.get("direction") == "long":
-            adverse_pct = max(0.0, (live_price - signal_price) / live_price * 100) if live_price else 0.0
-        else:
-            adverse_pct = max(0.0, (signal_price - live_price) / live_price * 100) if live_price else 0.0
-        deviation_pct = adverse_pct
+        # rejecting trades that can't be going wrong. Now pulled out as
+        # price_deviation_adverse_pct (smc_algorithms.py) — the exact
+        # same formula market_scanner.py's own cheap pre-filter also
+        # calls, so the two can never silently diverge; see that
+        # function's own docstring for the real, measured cost of
+        # skipping this (294 wasted attempts for one stale signal).
+        from app.core.smc_algorithms import price_deviation_adverse_pct
+        deviation_pct = price_deviation_adverse_pct(signal_price, live_price, trade.get("direction"))
         ok = deviation_pct <= self.settings.PRICE_DEVIATION_TOLERANCE_PCT
         return {
             "ok": ok,

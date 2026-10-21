@@ -717,6 +717,40 @@ def compute_htf_bias(candles: List[Candle], left_bars: int, right_bars: int) -> 
     return "unclear"
 
 
+def price_deviation_adverse_pct(signal_price: float, current_price: float, direction: Literal["long", "short"]) -> float:
+    """How far `current_price` has moved AGAINST `signal_price`, as a
+    percent of `current_price` — 0.0 whenever the move is flat or
+    FAVORABLE (a long getting a cheaper current price, a short getting
+    a higher one is strictly better than the plan, never a risk to
+    guard against — see execution_engine.py's own
+    _check_price_deviation, which ports this exact direction-aware
+    logic rather than a plain abs(current-signal)).
+
+    Pulled out as the one shared formula both a real-time safety check
+    (execution_engine.py's own _check_price_deviation, comparing
+    against a live broker ticker) AND a cheap, already-in-memory
+    PRE-filter (market_scanner.py's own _is_price_still_plausible,
+    comparing against the scan cycle's own freshly-fetched candle
+    close) both call — by direct request ("can we do something to fix
+    this permanently for all bots... be creative and innovative")
+    after live data showed a single stale, unfilled FVG signal
+    (bot_3_fvg_expansion_4) got regenerated and sent all the way to
+    execution, rejected by the real broker-ticker guard, EVERY scan
+    cycle for 2 days 20 hours straight — 294 wasted Trade-row writes,
+    broker ticker calls, and log lines for one opportunity that was
+    simply never coming back within tolerance. Same formula in both
+    places means the cheap pre-filter can never block something the
+    real guard would have allowed, or vice versa (modulo the tiny,
+    structurally-conservative gap between "latest fetched candle
+    close" and "this instant's live tick" — never more than one scan
+    interval old, far smaller than PRICE_DEVIATION_TOLERANCE_PCT)."""
+    if not current_price:
+        return 0.0
+    if direction == "long":
+        return max(0.0, (current_price - signal_price) / current_price * 100)
+    return max(0.0, (signal_price - current_price) / current_price * 100)
+
+
 # =============================================================================
 # MODULE 2: FAIR VALUE GAP (FVG) DETECTION
 # =============================================================================
