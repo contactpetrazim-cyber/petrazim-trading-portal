@@ -253,9 +253,23 @@ class BarWindow:
 # ---------------------------------------------------------------------------
 
 class BacktestEngine:
-    def __init__(self, cost_model: Optional[CostModel] = None, max_hold_bars: int = 500):
+    def __init__(self, cost_model: Optional[CostModel] = None, max_hold_bars: int = 500, disable_breakeven_ratchet: bool = False):
         self.cost_model = cost_model or CostModel()
         self.max_hold_bars = max_hold_bars
+        # Default False — every existing caller (weekly_review_engine.py,
+        # intelligent_tuning_worker.py, trading_audit_engine.py) keeps
+        # today's real behavior exactly. True disables ONLY the
+        # breakeven-at-TP1/TP1-floor-at-TP2 stop ratchet in
+        # _advance_ladder below — everything else (legs firing,
+        # trailing activation once configured) stays identical — by
+        # direct request ("can we test not SL move - will we have
+        # better results ... if the SL was not moved to Breakeven" —
+        # a real, data-driven counterfactual: replay the SAME real
+        # historical trades against the SAME real candles twice, the
+        # only difference being this one flag, to isolate purely the
+        # ratchet's own effect from everything else that also changed
+        # (entry slippage, the TP-geometry bug, etc.).
+        self.disable_breakeven_ratchet = disable_breakeven_ratchet
         self._run_id = uuid.uuid4().hex[:8]
 
     def new_run_id(self) -> str:
@@ -461,11 +475,16 @@ class BacktestEngine:
 
         # Ratchet — breakeven after TP1, TP1's own price after TP2.
         # Tighten-only, exactly like _partial_close's max/min guard.
-        if leg.level == 1:
-            open_pos["stop_price"] = max(stop, open_pos["entry_price"]) if is_long else min(stop, open_pos["entry_price"])
-        elif leg.level == 2 and open_pos.get("tp1_price") is not None:
-            tp1 = open_pos["tp1_price"]
-            open_pos["stop_price"] = max(open_pos["stop_price"], tp1) if is_long else min(open_pos["stop_price"], tp1)
+        # Skipped entirely when disable_breakeven_ratchet is set (see
+        # __init__'s own comment) — the stop then simply stays at
+        # whatever it already was (the original stop, unless trailing
+        # has separately taken over) for the rest of the trade.
+        if not self.disable_breakeven_ratchet:
+            if leg.level == 1:
+                open_pos["stop_price"] = max(stop, open_pos["entry_price"]) if is_long else min(stop, open_pos["entry_price"])
+            elif leg.level == 2 and open_pos.get("tp1_price") is not None:
+                tp1 = open_pos["tp1_price"]
+                open_pos["stop_price"] = max(open_pos["stop_price"], tp1) if is_long else min(open_pos["stop_price"], tp1)
         if leg.level == 1:
             open_pos["tp1_price"] = leg.price
 
