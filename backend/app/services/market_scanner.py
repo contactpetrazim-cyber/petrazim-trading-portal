@@ -35,7 +35,7 @@ from datetime import datetime
 import json
 
 from app.config import get_settings
-from app.core.bot_strategies import BotOrchestrator, Candle
+from app.core.bot_strategies import BotOrchestrator, BotSignal, Candle
 from app.database import AsyncSessionLocal
 from app.models.bot import BotConfig, BotStatus
 from app.models.platform_setting import MARKET_SCANNER_ENABLED_KEY, MASTER_ACCOUNT_BALANCE_KEY, PlatformSetting
@@ -96,6 +96,59 @@ async def get_effective_account_balance(db: AsyncSession, bot: BotConfig) -> flo
 # BotOrchestrator dispatches by these timeframe keys (bot_strategies.py's
 # run_all) — each maps to the ccxt timeframe string data_ingestion.py needs.
 _TIMEFRAME_TO_CCXT = {"1D": "1d", "4H": "4h", "1H": "1h", "15M": "15m", "5M": "5m"}
+
+# Finest (most current) first — used by _is_price_still_plausible below
+# to pick the freshest real price already sitting in this cycle's own
+# fetched market_data, with no extra fetch of its own.
+_TF_FINENESS_ORDER = ["5M", "15M", "1H", "4H", "1D"]
+
+
+def _is_price_still_plausible(signal: BotSignal, market_data: Dict) -> bool:
+    """Cheap pre-filter, run BEFORE a signal ever reaches
+    ExecutionEngine.process_signal — by direct request ("can we do
+    something to fix this permanently for all bots... be creative and
+    innovative") after live data showed the real cost of skipping it:
+    a single stale, unfilled FVG signal (bot_3_fvg_expansion_4) got
+    regenerated identically and sent all the way through to execution
+    EVERY scan cycle for 2 days 20 hours straight — 294 wasted Trade-
+    row writes, broker ticker API calls, and log lines, for one
+    opportunity price was simply never coming back to within
+    tolerance for. Across bot_3/bot_7 alone, 621 of 627 real "error"
+    Trade rows this period collapsed into just 10 distinct underlying
+    setups once de-duplicated by (bot_id, entry_price, direction) —
+    the other 611 were pure repeat noise.
+
+    Reuses price_deviation_adverse_pct (smc_algorithms.py) — the exact
+    same direction-aware formula ExecutionEngine's own
+    _check_price_deviation uses against a REAL broker ticker — but
+    compares against the freshest candle close ALREADY sitting in this
+    cycle's own market_data (whichever timeframe this scan group
+    fetched that's finest-grained), not a new API call. This can never
+    reject anything the real, authoritative guard would have allowed
+    (same formula, same PRICE_DEVIATION_TOLERANCE_PCT, and a fetched
+    candle close is at most one scan interval old — far smaller than
+    that tolerance) — it only skips the common case where price is
+    SO far away that calling the real guard was always going to be a
+    wasted round trip. The real guard still runs, unchanged, as the
+    final authority for every signal that passes this cheap check;
+    this never replaces it, only avoids reaching it needlessly.
+
+    Fails OPEN (returns True, let process_signal's own real guard
+    decide) whenever no candle data is available to compare against —
+    same "don't guess, don't block on an unknown" convention
+    _check_price_deviation itself already uses for an unreachable
+    ticker."""
+    current_price = None
+    for tf in _TF_FINENESS_ORDER:
+        candles = market_data.get(tf)
+        if candles:
+            current_price = candles[-1].close
+            break
+    if current_price is None:
+        return True
+    from app.core.smc_algorithms import price_deviation_adverse_pct
+    deviation_pct = price_deviation_adverse_pct(signal.entry_price, current_price, signal.direction)
+    return deviation_pct <= settings.PRICE_DEVIATION_TOLERANCE_PCT
 
 
 def _effective_bot_settings(bot: BotConfig, effective_balance: float) -> Dict[str, float]:
@@ -450,6 +503,24 @@ class MarketScanner:
                         # keeps the data source and the execution venue
                         # the same exchange, exactly as that docstring
                         # says they should be.
+                        # Cheap pre-filter against this cycle's own
+                        # already-fetched candles, BEFORE ever reaching
+                        # process_signal (which creates a Trade row and
+                        # calls the real broker ticker) — see
+                        # _is_price_still_plausible's own docstring for
+                        # the real, measured cost of skipping this (294
+                        # wasted attempts for one stale signal). A
+                        # signal that fails this is logged at debug,
+                        # not info, specifically so this doesn't just
+                        # trade one log-spam problem for another.
+                        if not _is_price_still_plausible(signal, market_data):
+                            logger.debug(
+                                "market_scan_signal_price_implausible_skipped",
+                                bot_id=signal.bot_id, symbol=symbol, exchange=exchange,
+                                entry_price=signal.entry_price,
+                            )
+                            continue
+
                         signal.preferred_broker = exchange
                         mode = bot.execution_mode.value
                         exec_result = await self.execution_engine.process_signal(signal, mode, db)
