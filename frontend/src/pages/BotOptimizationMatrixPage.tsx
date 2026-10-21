@@ -86,6 +86,11 @@ const BOT_REFERENCE: Array<{
     rel: 'A/B vs Bot 3 — adds a real 1D HTF-alignment gate (reject unless the 1D bias is clear AND agrees with the trade\'s own direction); nothing else differs',
     note: 'Built from a real finding: 153 of 158 real closed bot trades, re-analyzed through the forensics engine for their real 1D HTF bias at entry, showed direction-aligned trades meaningfully outperforming both unclear-bias and counter-trend trades (33.3% loss rate / +2.38R avg vs 41.8%/+1.20R and 43.5%/+1.92R) — but ONLY for continuation-style bots (Bot 3: 8% loss clear vs 28% unclear; Bot 5: 40% vs 62%). Reversal-style bots (Bot 2, Bot 6) showed the OPPOSITE pattern, so this gate is deliberately scoped to Bot 3 only. A same-day sanity backtest of Bot 3 itself returned an implausibly low 3.7% win rate, wildly inconsistent with its real ~82% live win rate — a separate, real backtest-engine fidelity question worth its own investigation, not yet resolved.',
     rec: 'Let real trades accumulate and compare against Bot 3\'s own real history directly — this engine\'s own backtest replay is not currently trustworthy for this bot family.' },
+  { fam: 'bot_14', name: 'Bot 14 — Jeafx SMC, HTF-Gated', instr: 'BTC',
+    entry: 'Identical to Bot 5', sl: 'Identical to Bot 5 — this variant changes only the entry GATE', tp: '5R, identical to Bot 5',
+    rel: 'A/B vs Bot 5 — adds the same real 1D HTF-alignment gate as Bot 13, applied to Bot 5\'s own setup instead of Bot 3\'s; nothing else differs',
+    note: 'Built from the same finding as Bot 13 (see that bot\'s own note): Bot 5 specifically showed 40% loss rate when its own direction aligned with a clear 1D bias, vs 62% when the 1D bias was unclear — the same direction of effect as Bot 3, not the reversed one seen for Bot 2/Bot 6. Real sample not yet accumulated. A separate, lighter, non-gating "htf_conviction" annotation (1D HTF bias appended to a signal\'s own reasoning, informational only) now ships for every bot family whose scan group already has 1D candles available — including Bot 3 and Bot 5\'s own ORIGINAL, ungated signals, with zero change to either bot\'s actual trading behavior.',
+    rec: 'Let real trades accumulate and compare against Bot 5\'s own real history directly, same approach as Bot 13 vs Bot 3.' },
 ];
 
 /**
