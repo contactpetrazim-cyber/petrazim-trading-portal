@@ -62,6 +62,75 @@ from app.services.trading_sessions import schedule_allows as _bot_schedule_allow
 # existing caller.
 
 
+def _resize_risk_for_real_fill(row, trade_id: str) -> None:
+    """Called right after row.entry_price is overwritten with a real
+    fill price (both call sites below) — re-caps lot_size/risk_amount
+    against the REAL stop distance that fill implies, never exceeding
+    the risk this trade originally promised.
+
+    Real bug, found by direct report against live data ("the Risk
+    amount is constantly been exceeded ... when a SL is reached and a
+    trade closes ... the risk amount should never be exceeded ...
+    that's the basis of the edge"). Confirmed via direct query against
+    40 real closed stop-loss trades: 6/40 (15%) realized a loss bigger
+    than their own stored risk_amount, one by over 60%. Root cause is
+    exactly the tradeoff the surrounding call sites' own comments
+    already document: lot_size/risk_amount were sized (in
+    bot_strategies.py, before this trade ever existed) against the
+    bot's THEORETICAL signal.entry_price's own distance to stop_loss —
+    but the REAL stop distance a trade actually experiences is
+    |fill_price - stop_loss|, which this fill can reveal to be WIDER
+    than the theoretical one (e.g. a short that fills LOWER than its
+    theoretical entry). lot_size was never re-sized for that real,
+    wider distance, so the real loss on a stop-out came out bigger
+    than risk_amount ever promised — confirmed directly:
+    TRD_bot_3_fvg_expansion_4_20261018_160815's real lot_size (~67.26,
+    back-solved from its own realized_pnl) was ~40% above the ~47.92
+    its stored risk_amount/stop-distance implied. The Human-in-the-
+    Loop approval path (approve_trade, the second call site) is even
+    more exposed to this than the autonomous path: it can genuinely
+    delay execution by minutes or hours past when entry_price was
+    first computed, versus the autonomous path's usual few seconds.
+
+    Fixed here, the one place both the real fill price and the
+    original stop_loss/risk_amount are already known together:
+    re-derive what lot_size WOULD have been sized to, against the REAL
+    stop distance, reusing EntryExitEngine.calculate_lot_size (the same
+    lot-step-floored math bot_strategies.py itself uses — not a
+    second, independently-maintained copy of it). Only ever shrinks
+    lot_size, never grows it: if the real fill happened to land
+    favorably (a narrower real distance than theoretical), the
+    original, already-risk-capped lot_size is left exactly as-is
+    rather than opportunistically sized up — this exists to enforce
+    the stated risk ceiling, not to re-optimize size in the trade's
+    favor. account_balance is re-derived from this trade's own
+    already-stored risk_amount/risk_percent (risk_amount = balance *
+    risk_percent/100) rather than re-fetched from BotConfig, so this
+    needs no extra DB round-trip and exactly reverses the same formula
+    that produced it. Also updates initial_lot_size (the immutable
+    "what this trade's setup actually was at entry" snapshot the Trade
+    Snapshot feature displays — see its own comment on Trade.
+    initial_lot_size) when resizing: this runs at the real entry
+    moment, so the resized value IS what the trade's setup actually
+    was at entry, not a later correction to misrepresent history."""
+    real_stop_distance = abs(row.entry_price - row.stop_loss)
+    if real_stop_distance <= 0 or not row.risk_percent or not row.lot_size:
+        return
+    from app.core.smc_algorithms import EntryExitEngine
+    implied_balance = row.risk_amount / (row.risk_percent / 100)
+    resized = EntryExitEngine().calculate_lot_size(implied_balance, row.risk_percent, real_stop_distance)
+    safe_lot_size = min(row.lot_size, resized["lot_size"])
+    if safe_lot_size < row.lot_size:
+        logger.warning(
+            "trade_risk_resized_on_fill", trade_id=trade_id,
+            theoretical_lot_size=row.lot_size, real_lot_size=safe_lot_size,
+            theoretical_risk_amount=row.risk_amount, real_stop_distance=real_stop_distance,
+        )
+        row.lot_size = safe_lot_size
+        row.initial_lot_size = safe_lot_size
+        row.risk_amount = round(safe_lot_size * real_stop_distance, 2)
+
+
 class ExecutionEngine:
     """Core execution engine with multi-broker support."""
 
@@ -864,6 +933,7 @@ class ExecutionEngine:
             fill_price = result.get("fill_price")
             if fill_price is not None:
                 row.entry_price = float(fill_price)
+                _resize_risk_for_real_fill(row, trade_id)
             row.entry_timestamp = datetime.utcnow()
             row.broker_order_id = str(result.get("order_id", ""))
             row.broker_name = result.get("broker", row.broker_name)
@@ -1116,6 +1186,7 @@ class ExecutionEngine:
                     fill_price = result.get("fill_price")
                     if fill_price is not None:
                         row.entry_price = float(fill_price)
+                        _resize_risk_for_real_fill(row, trade_id)
                     row.entry_timestamp = datetime.utcnow()
                     row.approved_at = datetime.utcnow()
                     row.approval_notes = notes
