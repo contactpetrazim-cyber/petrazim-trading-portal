@@ -683,6 +683,40 @@ def select_fvg_by_depth(fvgs: List["FairValueGap"], direction: Literal["long", "
     return max(fvgs, key=lambda f: f.top)
 
 
+def compute_htf_bias(candles: List[Candle], left_bars: int, right_bars: int) -> str:
+    """Real higher-timeframe trend read — "last 2 highs/2 lows" rule,
+    the same one MacroSwingStructureBot's own bullish_trend/
+    bearish_trend check already uses (Bot 1's real 1D direction
+    step), and originally reimplemented inline inside
+    engines/trade_forensics.py's own compute_trade_forensics for its
+    "HTF bias at entry" field. Pulled out here as the one real
+    implementation BOTH consumers call, after this exact "two
+    independently-maintained copies of the same formula" anti-pattern
+    was found and fixed repeatedly elsewhere in this codebase
+    (BOT_REGISTRY, the 5M-retention-gap fix, compute_trailing_stop) —
+    trade_forensics.py now calls this too, instead of its own inline
+    copy.
+
+    Returns "bullish" only if BOTH the last two swing highs AND the
+    last two swing lows are each higher than their own prior one (a
+    genuine higher-high/higher-low sequence); "bearish" is the mirror
+    case; "unclear" otherwise (including when fewer than two of
+    either swing type exist yet)."""
+    detector = MarketStructureDetector(left_bars=left_bars, right_bars=right_bars)
+    swings = sorted(
+        detector.detect_swing_highs(candles) + detector.detect_swing_lows(candles),
+        key=lambda s: s.timestamp,
+    )[-10:]
+    highs = [s for s in swings if s.structure_type == StructureType.SWING_HIGH]
+    lows = [s for s in swings if s.structure_type == StructureType.SWING_LOW]
+    if len(highs) >= 2 and len(lows) >= 2:
+        if highs[-1].price > highs[-2].price and lows[-1].price > lows[-2].price:
+            return "bullish"
+        if highs[-1].price < highs[-2].price and lows[-1].price < lows[-2].price:
+            return "bearish"
+    return "unclear"
+
+
 # =============================================================================
 # MODULE 2: FAIR VALUE GAP (FVG) DETECTION
 # =============================================================================

@@ -81,6 +81,11 @@ const BOT_REFERENCE: Array<{
     rel: 'A/B vs Bot 2 — reuses Bot 2\'s entry logic byte-for-byte (strategy_key=bot_2, no new strategy class)',
     note: 'Built from a real finding: 17 of 80 closed trades (21%) hit TP1 then gave back the ENTIRE remaining 70% of the position at a flat breakeven floor, because trailing previously only activated at TP2 and nothing protected the gap between TP1 and TP2. Trades that DID reach TP2 averaged 6.35R vs 0.28R for the TP1-only group.',
     rec: 'Compare Bot 2 vs Bot 12 once both accumulate real trades post-change; this tests whether activating trailing a full R earlier (with a width that narrows rather than staying constant) captures more of that 6.35R-vs-0.28R gap.' },
+  { fam: 'bot_13', name: 'Bot 13 — FVG Expansion, HTF-Gated', instr: 'BTC',
+    entry: 'Identical to Bot 3', sl: 'Identical to Bot 3 — this variant changes only the entry GATE', tp: '4R, identical to Bot 3',
+    rel: 'A/B vs Bot 3 — adds a real 1D HTF-alignment gate (reject unless the 1D bias is clear AND agrees with the trade\'s own direction); nothing else differs',
+    note: 'Built from a real finding: 153 of 158 real closed bot trades, re-analyzed through the forensics engine for their real 1D HTF bias at entry, showed direction-aligned trades meaningfully outperforming both unclear-bias and counter-trend trades (33.3% loss rate / +2.38R avg vs 41.8%/+1.20R and 43.5%/+1.92R) — but ONLY for continuation-style bots (Bot 3: 8% loss clear vs 28% unclear; Bot 5: 40% vs 62%). Reversal-style bots (Bot 2, Bot 6) showed the OPPOSITE pattern, so this gate is deliberately scoped to Bot 3 only. A same-day sanity backtest of Bot 3 itself returned an implausibly low 3.7% win rate, wildly inconsistent with its real ~82% live win rate — a separate, real backtest-engine fidelity question worth its own investigation, not yet resolved.',
+    rec: 'Let real trades accumulate and compare against Bot 3\'s own real history directly — this engine\'s own backtest replay is not currently trustworthy for this bot family.' },
 ];
 
 /**
