@@ -693,7 +693,7 @@ recognized" defensive gate is gone entirely (direction no longer reads
 `last_sweep["type"]` at all, so there's nothing left to defensively
 check there); two new, genuinely reachable gates took its place. Six
 real gates today, not five — this closes out the gate-count comparison
-across all six bots now covered in this curriculum: Bot 1 (four), Bot
+across all six bots now covered in this curriculum: Bot 1 (five), Bot
 2 (three), Bot 3 (two), Bot 4 (eleven), Bot 5 (six), Bot 6 (BOT6-06).
 
 ### Core Teaching
@@ -821,7 +821,7 @@ Answer: (c).
   recognition, sweep detection, zone-sweep alignment, and
   confirmation-candle detection.
 - Front: Across all six bots, what's the full range of gate counts?
-  Back: Two (Bot 3) to eleven (Bot 4) — Bot 1 has four, Bot 2 has
+  Back: Two (Bot 3) to eleven (Bot 4) — Bot 1 has five, Bot 2 has
   three, Bot 5 has six.
 
 ### Mastery Criteria
@@ -1651,7 +1651,7 @@ platform.
 
 Q2 (Multiple choice): Across all five bots in this curriculum, which
 has the most real hard gates?
-(a) Bot 1 (four)
+(a) Bot 1 (five)
 (b) Bot 2 (three)
 (c) Bot 4 (eleven)
 (d) Bot 5 (six)

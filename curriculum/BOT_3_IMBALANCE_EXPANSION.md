@@ -631,7 +631,7 @@ none currently sit in the 30-70% mitigation window while still ACTIVE
 doesn't match the selected FVG's gap type (BOT3-03).
 
 **Technical explanation.** This is the shortest gate list of the three
-bots covered so far — Bot 1 has four, Bot 2 has three, Bot 3 has two.
+bots covered so far — Bot 1 has five, Bot 2 has three, Bot 3 has two.
 There is no third gate analogous to Bot 2's inside-zone-price test,
 because Bot 3's entry price is DERIVED from the FVG itself (BOT3-04),
 not checked against a separately-observed current price — there's
@@ -641,7 +641,7 @@ nothing equivalent to "is price currently inside this zone" to check.
 
 See diagram: `visuals/bot3-05-two-gates.svg` — a two-step sequence
 (eligible FVG found? -> matching 15M BOS found?), each with a "return
-None" branch, contrasted against Bot 1's four-gate and Bot 2's
+None" branch, contrasted against Bot 1's five-gate and Bot 2's
 three-gate sequences shown alongside for scale.
 
 ### Worked Example
@@ -705,7 +705,7 @@ explain why no such gate exists in Bot 3's real logic.
 ### Mini Quiz
 
 Q1 (True/False): Bot 3 has the same number of hard gates as Bot 1.
-Answer: False — Bot 3 has two gates; Bot 1 has four.
+Answer: False — Bot 3 has two gates; Bot 1 has five.
 
 Q2 (Multiple choice): Why doesn't Bot 3 need an "is price inside the
 zone" gate like Bot 2's?
@@ -733,7 +733,7 @@ practice-drill scenarios.
 
 ### Reflection
 
-Comparing the gate counts across Bot 1 (four), Bot 2 (three), and Bot
+Comparing the gate counts across Bot 1 (five), Bot 2 (three), and Bot
 3 (two), what does that progression suggest about how each bot's
 specific mechanics — not some universal rulebook — determines how
 many real checks it needs?

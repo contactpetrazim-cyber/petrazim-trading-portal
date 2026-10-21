@@ -645,7 +645,7 @@ points where it stops and returns no signal: (1) no ACTIVE order block
 exists on EITHER 4H or the 1H fallback (BOT2-02); (2) the current 15M
 price isn't actually inside any of the active zones found (BOT2-02);
 (3) no 15M CHoCH is detected, or its type is unrecognized (BOT2-03).
-Note there are only three gates here — fewer than Bot 1's four — since
+Note there are only three gates here — fewer than Bot 1's five — since
 the sweep and FVG checks (BOT2-04) are never hard gates.
 
 **Technical explanation.** This matters because, unlike Bot 1 (four
@@ -690,7 +690,7 @@ isn't actually inside.
 
 ### What to Look Out For
 
-- Only three hard gates exist for Bot 2 — fewer than Bot 1's four.
+- Only three hard gates exist for Bot 2 — fewer than Bot 1's five.
 - The sweep and FVG checks (BOT2-04) are NEVER among these three hard
   gates — they only shape a signal that's already going to fire.
 - All three hard gates must pass in order — an early failure means
