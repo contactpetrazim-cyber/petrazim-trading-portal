@@ -64,6 +64,8 @@ const Bot2DecisionLab = lazy(() => import('./pages/decisionLabs/Bot2DecisionLab'
 const Bot3DecisionLab = lazy(() => import('./pages/decisionLabs/Bot3DecisionLab').then((module) => ({ default: module.Bot3DecisionLab })));
 const Bot4DecisionLab = lazy(() => import('./pages/decisionLabs/Bot4DecisionLab').then((module) => ({ default: module.Bot4DecisionLab })));
 const Bot5DecisionLab = lazy(() => import('./pages/decisionLabs/Bot5DecisionLab').then((module) => ({ default: module.Bot5DecisionLab })));
+const Bot6DecisionLab = lazy(() => import('./pages/decisionLabs/Bot6DecisionLab').then((module) => ({ default: module.Bot6DecisionLab })));
+const Bot7DecisionLab = lazy(() => import('./pages/decisionLabs/Bot7DecisionLab').then((module) => ({ default: module.Bot7DecisionLab })));
 const VisualGlossaryPage = lazy(() => import('./pages/VisualGlossaryPage').then((module) => ({ default: module.VisualGlossaryPage })));
 const WhatHappensNextGame = lazy(() => import('./pages/WhatHappensNextGame').then((module) => ({ default: module.WhatHappensNextGame })));
 const ConceptSpotterGame = lazy(() => import('./pages/ConceptSpotterGame').then((module) => ({ default: module.ConceptSpotterGame })));
@@ -408,6 +410,8 @@ function App() {
         <Route path="/learn/decision-lab/bot-3" element={<CorporateLayout><Bot3DecisionLab /></CorporateLayout>} />
         <Route path="/learn/decision-lab/bot-4" element={<CorporateLayout><Bot4DecisionLab /></CorporateLayout>} />
         <Route path="/learn/decision-lab/bot-5" element={<CorporateLayout><Bot5DecisionLab /></CorporateLayout>} />
+        <Route path="/learn/decision-lab/bot-6" element={<CorporateLayout><Bot6DecisionLab /></CorporateLayout>} />
+        <Route path="/learn/decision-lab/bot-7" element={<CorporateLayout><Bot7DecisionLab /></CorporateLayout>} />
         <Route path="/learn/visual-glossary" element={<CorporateLayout><VisualGlossaryPage /></CorporateLayout>} />
         <Route path="/practise/games/what-happens-next" element={<CorporateLayout><WhatHappensNextGame /></CorporateLayout>} />
         <Route path="/practise/games/concept-spotter" element={<CorporateLayout><ConceptSpotterGame /></CorporateLayout>} />
