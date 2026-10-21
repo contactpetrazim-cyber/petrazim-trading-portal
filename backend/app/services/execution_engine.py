@@ -9,7 +9,7 @@ import httpx
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
-from app.core.bot_strategies import BotSignal, apply_min_stop_distance_floor
+from app.core.bot_strategies import BotSignal, apply_min_stop_distance_floor, resolve_min_stop_pct
 from app.services.broker_integrations import (
     BingXBroker, TradeLockerBroker, BinanceBroker, BybitBroker, MexcBroker, MetaApiBroker,
     _FAILOVER_EXCEPTIONS,
@@ -178,7 +178,9 @@ def _resize_risk_for_real_fill(row, trade_id: str) -> None:
     floor-compliant distance. Also updates initial_stop_loss (the
     immutable snapshot), same reasoning as initial_take_profit_1/
     initial_lot_size above."""
-    row.stop_loss = apply_min_stop_distance_floor(row.entry_price, row.stop_loss, row.direction.value)
+    row.stop_loss = apply_min_stop_distance_floor(
+        row.entry_price, row.stop_loss, row.direction.value, min_pct=resolve_min_stop_pct(row.symbol),
+    )
     row.initial_stop_loss = row.stop_loss
     real_stop_distance = abs(row.entry_price - row.stop_loss)
     if real_stop_distance <= 0:
