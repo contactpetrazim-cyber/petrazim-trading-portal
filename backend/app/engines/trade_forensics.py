@@ -46,7 +46,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.bot_strategies import TUNABLE_PARAM_BOUNDS
-from app.core.smc_algorithms import FVGDetector, LiquidityDetector, MarketStructureDetector, ZoneDetector
+from app.core.smc_algorithms import FVGDetector, LiquidityDetector, MarketStructureDetector, ZoneDetector, compute_htf_bias
 from app.engines.strategy_adapter import STRATEGY_FAMILY, TF_ORDER, fetch_required_timeframe_candles
 from app.models.bot import BotConfig
 from app.models.trade import ExitType, Trade, TradeDirection
@@ -210,24 +210,21 @@ async def compute_trade_forensics(db: AsyncSession, trade: Trade) -> Dict:
         }
 
     # Coarsest DISPLAYED timeframe's own swing trend = the real HTF
-    # bias at entry time — same "last 2 highs/2 lows" trend read every
-    # bot's own early direction step already uses (e.g.
-    # MacroSwingStructureBot's bullish_trend/bearish_trend check, read
-    # directly from source), applied here generically. Uses
-    # display_tf_labels (always includes "1D"), not the bot's own
-    # required_tf_labels, so HTF bias now always reflects the real
-    # daily trend rather than whatever the bot's own narrowest
-    # "highest" timeframe happens to be (e.g. 1H for Bot 3/6/7/8).
+    # bias at entry time, via the shared compute_htf_bias
+    # (smc_algorithms.py) — the same real "last 2 highs/2 lows" rule
+    # MacroSwingStructureBot's own bullish_trend/bearish_trend check
+    # uses, and now also what Bot 13's own HTF-alignment gate calls,
+    # so this reconstruction and that live gate can never drift into
+    # two independently-maintained copies of the same formula (the
+    # exact anti-pattern found and fixed repeatedly elsewhere in this
+    # codebase). Uses display_tf_labels (always includes "1D"), not
+    # the bot's own required_tf_labels, so HTF bias now always
+    # reflects the real daily trend rather than whatever the bot's own
+    # narrowest "highest" timeframe happens to be (e.g. 1H for Bot
+    # 3/6/7/8).
     htf_label = min(display_tf_labels, key=lambda l: TF_ORDER.index(l))
-    htf_bias = "unclear"
-    htf_swings = structure.get(htf_label, {}).get("swing_points", [])
-    highs = [s for s in htf_swings if s["type"] == "SWING_HIGH"]
-    lows = [s for s in htf_swings if s["type"] == "SWING_LOW"]
-    if len(highs) >= 2 and len(lows) >= 2:
-        if highs[-1]["price"] > highs[-2]["price"] and lows[-1]["price"] > lows[-2]["price"]:
-            htf_bias = "bullish"
-        elif highs[-1]["price"] < highs[-2]["price"] and lows[-1]["price"] < lows[-2]["price"]:
-            htf_bias = "bearish"
+    htf_candles = [c for c in timeframe_candles.get(htf_label, []) if c.timestamp <= entry_ts]
+    htf_bias = compute_htf_bias(htf_candles, left_bars, right_bars) if len(htf_candles) >= 10 else "unclear"
 
     # Real price path between entry and exit — base timeframe only, the
     # one every bot actually enters/exits trades against. This is a

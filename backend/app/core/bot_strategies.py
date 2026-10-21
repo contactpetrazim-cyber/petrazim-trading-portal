@@ -29,7 +29,7 @@ from app.core.smc_algorithms import (
     MarketStructureDetector, ZoneDetector, FVGDetector,
     LiquidityDetector, EntryExitEngine, RiskManager,
     Candle, SwingPoint, Zone, FairValueGap, LiquidityPool,
-    extend_stop_beyond_zone, select_fvg_by_depth
+    extend_stop_beyond_zone, select_fvg_by_depth, compute_htf_bias
 )
 from app.core.mtf_engine import MTFAlignmentEngine, AlignmentSignal, TimeframeState, Bias, Timeframe
 from app.config import get_settings
@@ -97,6 +97,14 @@ TUNABLE_PARAM_BOUNDS: Dict[str, Dict[str, Tuple[float, float, float]]] = {
     "bot_9": {"left_bars": (2, 10, 5), "right_bars": (2, 10, 3)},
     "bot_10": {"left_bars": (2, 10, 5), "right_bars": (2, 10, 3)},
     "bot_11": {"left_bars": (2, 10, 3), "right_bars": (2, 10, 3)},
+    # bot_13: Bot 3's own left_bars/right_bars (15M structure, since
+    # this reuses Bot 3's entry logic byte-for-byte) PLUS a second,
+    # separate pair for the new 1D HTF-bias gate's own swing
+    # detection — defaulted to Bot 1's own tuned 1D values (5, 5),
+    # the only other bot that reads 1D structure at all, rather than
+    # reusing Bot 3's 15M-tuned values for a timeframe they were never
+    # tuned against.
+    "bot_13": {"left_bars": (2, 10, 3), "right_bars": (2, 10, 3), "htf_left_bars": (2, 10, 5), "htf_right_bars": (2, 10, 5)},
 }
 
 
@@ -963,6 +971,152 @@ class FVGExpansionV3Bot:
             risk_percent=risk,
             reasoning=f"FVG Expansion v3 {direction}. 15M BOS (significant swings) sets direction. "
                      f"1H FVG {target_fvg.gap_type} {target_fvg.mitigated_percent:.0%} mitigated, depth-selected. "
+                     f"Entry at FVG 50%. SL beyond FVG extreme. 4R target.",
+            timestamp=datetime.utcnow()
+        )
+
+
+# =============================================================================
+# BOT 13: FVG Expansion, HTF-Gated (Bot 3 Update) — real finding, A/B test
+# =============================================================================
+
+class FVGExpansionHTFGatedBot:
+    """
+    Bot 13: FVG Expansion, HTF-Gated
+
+    Bot 3's exact own setup (FVGExpansionBot — FVG eligibility, 15M
+    BOS direction, entry/stop/target formulas, all byte-for-byte
+    identical), with exactly ONE change: a real 1D HTF-alignment gate
+    added before the signal is returned.
+
+    Built from a real finding, not a hunch: a direct audit question —
+    "when the higher time frame is unclear, is there a higher chance
+    the trade results in a loss?" — was tested against 153 of 158 real
+    closed bot trades, re-analyzed through the real forensic
+    reconstruction engine (engines/trade_forensics.py) for their real
+    1D HTF bias at entry. The honest answer was more precise than the
+    question: trades whose own direction ALIGNED with a clear 1D bias
+    did meaningfully better (n=51, 33.3% loss rate, +2.38R avg) than
+    BOTH unclear-bias trades (n=79, 41.8% loss rate, +1.20R avg) AND
+    counter-trend trades fighting a clear bias (n=23, 43.5% loss rate,
+    +1.92R avg) — but this pattern was NOT uniform across bots. It
+    held clearly for continuation-style bots (Bot 3: 8% loss rate
+    clear vs. 28% unclear; Bot 5: 40% vs. 62%) but REVERSED for
+    reversal-style bots (Bot 2: 62% vs. 29%; Bot 6: 72% vs. 60%) —
+    sensible, not noise: a reversal thesis is fighting a clear trend
+    by construction, so an ambiguous daily chart is exactly where it
+    has room to work. A blanket gate across every bot would have
+    helped Bot 3/5 and actively hurt Bot 2/6. This bot deliberately
+    tests the gate on ONLY Bot 3's own setup — the largest, cleanest
+    sample in the finding — as a real, isolated A/B test, not a
+    platform-wide behavior change.
+
+    Deliberately NOT added here, same reasoning as Bot 7/Bot 11/Bot
+    12's own A/B scope: no order-block/zone reference, no discount/
+    premium check, no change to the FVG-selection or entry/stop/
+    target math at all — isolating the ONE new variable (the HTF
+    gate) is the entire point.
+    """
+
+    def __init__(self, config: Dict):
+        self.bot_id = "bot_13_fvg_expansion_htf_gated"
+        self.bot_name = "FVG Expansion HTF-Gated"
+        self.config = config
+        self.structure_detector = MarketStructureDetector(
+            left_bars=int(resolve_tunable_param("bot_13", "left_bars", config)),
+            right_bars=int(resolve_tunable_param("bot_13", "right_bars", config)),
+        )
+        self.htf_left_bars = int(resolve_tunable_param("bot_13", "htf_left_bars", config))
+        self.htf_right_bars = int(resolve_tunable_param("bot_13", "htf_right_bars", config))
+        self.entry_engine = EntryExitEngine(default_rr=4.0)
+        self.risk_manager = RiskManager(base_risk_percent=1.0)
+
+    def analyze(self,
+                candles_1d: List[Candle],
+                candles_1h: List[Candle],
+                candles_15m: List[Candle],
+                account_balance: float,
+                symbol: str,
+                risk_per_trade: Optional[float] = None,
+                min_rr_ratio: Optional[float] = None,
+                bot_id: Optional[str] = None) -> Optional[BotSignal]:
+
+        # Steps 1-2: identical to Bot 3 — unmitigated 1H FVGs (30-70%
+        # mitigated, ACTIVE), most recent one, confirmed by a matching
+        # 15M BOS.
+        fvg_detector = FVGDetector()
+        fvgs = fvg_detector.detect_fvg(candles_1h)
+        fvgs = fvg_detector.track_mitigation(fvgs, candles_1h)
+        partial_fvgs = [
+            f for f in fvgs
+            if 0.3 <= f.mitigated_percent <= 0.7 and f.status.name == "ACTIVE"
+        ]
+        if not partial_fvgs:
+            return None
+        target_fvg = partial_fvgs[-1]
+
+        swings_15m = self.structure_detector.detect_swing_highs(candles_15m) + \
+                     self.structure_detector.detect_swing_lows(candles_15m)
+        bos_15m = self.structure_detector.detect_bos(candles_15m, swings_15m)
+        if not bos_15m:
+            return None
+        last_bos = bos_15m[-1]
+        if target_fvg.gap_type == "bullish" and last_bos["type"] != "bullish_bos":
+            return None
+        if target_fvg.gap_type == "bearish" and last_bos["type"] != "bearish_bos":
+            return None
+        direction = "long" if target_fvg.gap_type == "bullish" else "short"
+
+        # Step 3 (THE new gate, everything else below is Bot 3's own
+        # unchanged pipeline): require the real 1D HTF bias to be
+        # CLEAR and to AGREE with this trade's own direction — the
+        # "aligned" bucket from the real finding above, the one that
+        # actually outperformed, not just "any clear bias at all"
+        # (counter-trend was the worst bucket, not a middle ground).
+        htf_bias = compute_htf_bias(candles_1d, self.htf_left_bars, self.htf_right_bars)
+        if htf_bias == "unclear":
+            return None
+        if direction == "long" and htf_bias != "bullish":
+            return None
+        if direction == "short" and htf_bias != "bearish":
+            return None
+
+        # Step 4: Entry at FVG mean or 50% — identical to Bot 3.
+        entry_price = (target_fvg.top + target_fvg.bottom) / 2
+
+        # Step 5: Stop beyond FVG extreme — identical to Bot 3.
+        if direction == "long":
+            sl_price = target_fvg.bottom - (target_fvg.top - target_fvg.bottom) * 0.1
+        else:
+            sl_price = target_fvg.top + (target_fvg.top - target_fvg.bottom) * 0.1
+        sl_price = apply_min_stop_distance_floor(entry_price, sl_price, direction)
+        sl_distance = abs(entry_price - sl_price)
+        sl = {"stop_loss": sl_price, "sl_distance": sl_distance, "method": "fvg_extreme"}
+
+        targets = self.entry_engine.calculate_targets(
+            {"entry_price": entry_price, "direction": direction},
+            sl, rr_ratio=min_rr_ratio if min_rr_ratio is not None else 4.0
+        )
+
+        risk = self.risk_manager.calculate_position_risk(setup_quality=1.15, base_risk_override=risk_per_trade)
+        lots = self.entry_engine.calculate_lot_size(account_balance, risk, sl_distance)
+
+        return BotSignal(
+            bot_id=bot_id or self.bot_id,
+            bot_name=self.bot_name,
+            symbol=symbol,
+            direction=direction,
+            confidence=0.82,
+            entry_price=round(entry_price, 5),
+            stop_loss=round(sl_price, 5),
+            take_profit=targets["tp1"],
+            take_profit_2=targets["tp2"],
+            take_profit_3=targets["tp3"],
+            lot_size=lots["lot_size"],
+            risk_percent=risk,
+            reasoning=f"FVG Expansion HTF-Gated {direction}. 1H FVG {target_fvg.gap_type} "
+                     f"{target_fvg.mitigated_percent:.0%} mitigated. 15M BOS confirms. "
+                     f"1D HTF bias ({htf_bias}) aligned with direction — gate passed. "
                      f"Entry at FVG 50%. SL beyond FVG extreme. 4R target.",
             timestamp=datetime.utcnow()
         )
@@ -2746,32 +2900,36 @@ BOT_REGISTRY: Dict[str, tuple] = {
     "bot_9": (VolumeLiquidityWideRangeBot, [("candles_4h", "4H"), ("candles_1h", "1H")]),
     "bot_10": (VolumeLiquidityHeldReclaimBot, [("candles_4h", "4H"), ("candles_1h", "1H")]),
     "bot_11": (OrderBlockReversalWiderStopBot, [("candles_4h", "4H"), ("candles_1h", "1H"), ("candles_15m", "15M")]),
+    "bot_13": (FVGExpansionHTFGatedBot, [("candles_1d", "1D"), ("candles_1h", "1H"), ("candles_15m", "15M")]),
 }
 
 
 class BotOrchestrator:
-    """Manages all 11 dispatched bots (7 original + 4 A/B test variants
+    """Manages all 12 dispatched bots (7 original + 5 A/B test variants
     with their own strategy class: Bot 8 vs Bot 6, Bot 9 and Bot 10 vs
-    Bot 4, Bot 11 vs Bot 2) and routes signals to execution. Bot roster
-    and candle requirements come from BOT_REGISTRY above — the single
-    place a new bot needs to be added. Bot 12 is a 12th real, live bot
-    but deliberately NOT in this registry — it reuses Bot 2's own
-    strategy class/dispatch entirely (see its own seeding comment in
-    seed_ab_test_bots.py), testing a trade-management change rather
-    than a signal-generation one, so it needs no entry of its own
-    here.
+    Bot 4, Bot 11 vs Bot 2, Bot 13 vs Bot 3) and routes signals to
+    execution. Bot roster and candle requirements come from
+    BOT_REGISTRY above — the single place a new bot needs to be added.
+    Bot 12 is a real, live bot but deliberately NOT in this registry
+    — it reuses Bot 2's own strategy class/dispatch entirely (see its
+    own seeding comment in seed_ab_test_bots.py), testing a trade-
+    management change rather than a signal-generation one, so it needs
+    no entry of its own here.
 
-    A 13th variant (OrderBlockReversalExtremeEntryBot — always
-    entering at the order block's own extreme, instead of Bot 2's
-    mean-if-swept branch) was built and real-backtested against all 7
-    of Bot 2's own symbols, then REMOVED after the data refuted the
-    hypothesis decisively: worse win rate on every single symbol
-    (e.g. 26% vs 45% on BTC), pooled average R flipping from +0.08
-    to -0.12 across 100+ trades. Recorded here, not as a registered
-    bot, because being in BOT_REGISTRY at all makes a strategy live
-    and tradeable by default (see run_all's own data-driven dispatch
-    loop below) — a confirmed-negative variant has no reason to keep
-    that door open."""
+    A DIFFERENT, now-removed "bot_13" (OrderBlockReversalExtremeEntryBot
+    — always entering at the order block's own extreme, instead of Bot
+    2's mean-if-swept branch) was built and real-backtested against all
+    7 of Bot 2's own symbols, then REMOVED after the data refuted the
+    hypothesis decisively: worse win rate on every single symbol (e.g.
+    26% vs 45% on BTC), pooled average R flipping from +0.08 to -0.12
+    across 100+ trades — never registered here, because being in
+    BOT_REGISTRY at all makes a strategy live and tradeable by default
+    (see run_all's own data-driven dispatch loop below), and a
+    confirmed-negative variant has no reason to keep that door open.
+    The bot_13 slot was later reused for a genuinely different, real
+    finding — FVGExpansionHTFGatedBot's own real 1D HTF-alignment
+    gate on Bot 3 — see that class's own docstring for the data behind
+    it."""
 
     def __init__(self, configs: Dict[str, Dict]):
         self.bots = {
