@@ -1282,9 +1282,33 @@ class MexcBroker:
             logger.error("mexc_request_failed", error=str(e))
             return {"success": False, "error": str(e)}
 
-    @staticmethod
-    def _mexc_symbol(symbol: str) -> str:
+    # Real-world naming overrides, checked before the generic BASE_QUOTE
+    # split below — see data_ingestion.py's own _SYMBOL_OVERRIDES for
+    # the full story (same root cause, this broker's own parallel,
+    # separately-maintained symbol path): "NCCO1OILBRENT2USDUSDT.P"/
+    # "NCCO1OILWTI2USDUSDT.P" are BingX's own native ticker names for
+    # Brent/WTI crude oil, reused as-is for MEXC too, where the real
+    # native contract symbols (confirmed directly against a live
+    # client's own loaded market `id` field) are "UKOIL_USDT" and
+    # "USOIL_USDT" — a completely different naming scheme the generic
+    # split could never derive. Without this, even after the candle-
+    # fetch side is fixed, a paper fill on these 2 pairs would still
+    # fail (wrong symbol reaching get_ticker_price/place_order), just
+    # with a different real-looking error instead of the original
+    # "choking" symptom.
+    _SYMBOL_OVERRIDES = {
+        "NCCO1OILBRENT2USDUSDT.P": "UKOIL_USDT",
+        "NCCO1OILBRENT2USDUSDT": "UKOIL_USDT",
+        "NCCO1OILWTI2USDUSDT.P": "USOIL_USDT",
+        "NCCO1OILWTI2USDUSDT": "USOIL_USDT",
+    }
+
+    @classmethod
+    def _mexc_symbol(cls, symbol: str) -> str:
         """MEXC contract symbols use BASE_QUOTE, e.g. BTC_USDT."""
+        override = cls._SYMBOL_OVERRIDES.get(symbol.upper())
+        if override:
+            return override
         s = symbol.replace("-", "").replace("/", "").upper()
         if "_" in symbol:
             return symbol.upper()

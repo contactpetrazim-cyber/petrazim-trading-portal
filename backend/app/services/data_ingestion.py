@@ -44,6 +44,52 @@ _PROXY_SETTINGS = {
 }
 
 
+# Per-exchange symbol overrides, checked BEFORE the generic
+# TradingView->ccxt heuristic below — by direct report ("I observed
+# that when I had only the BTC pair ... I had more trades and better
+# results, but upon adding other pairs I noticed a choking"). Real
+# root cause, confirmed directly against both exchanges' own loaded
+# `markets` dicts: "NCCO1OILBRENT2USDUSDT.P"/"NCCO1OILWTI2USDUSDT.P"
+# are BingX's own NATIVE ticker names for Brent/WTI crude oil (BingX
+# really does list "NCCO1OILBRENT2USD/USDT:USDT" — the generic
+# heuristic's output happens to match it exactly, by coincidence, not
+# because it's a real TradingView-standard symbol) — reused as-is for
+# MEXC too, where the real, differently-named markets are
+# "UKOIL/USDT:USDT" and "USOIL/USDT:USDT". Every candle fetch for
+# these 2 (exchange, symbol) combinations failed on EVERY timeframe,
+# EVERY scan cycle, for every bot configured on them (confirmed live:
+# 338 of 362 "trades" for the WTI pair alone were silent fetch
+# errors) — real "choking": as more pairs were added, an increasing
+# share of total scan activity was being spent on combinations that
+# could never produce a single real candle, not because of the pair
+# count itself but because 2 of those specific pairs were dead on
+# arrival on MEXC. A real audit of EVERY other currently-configured
+# (exchange, symbol) combination, cross-checked against each
+# exchange's own real loaded markets, confirmed these are the ONLY 2
+# broken pairs — not a general MEXC-naming problem.
+#
+# Keyed by (exchange, TradingView/BotConfig symbol, with or without
+# the ".P" perpetual suffix already present in every real BotConfig
+# row) -> the real ccxt-unified symbol on that specific exchange.
+_SYMBOL_OVERRIDES: Dict[tuple, str] = {
+    ("mexc", "NCCO1OILBRENT2USDUSDT.P"): "UKOIL/USDT:USDT",
+    ("mexc", "NCCO1OILWTI2USDUSDT.P"): "USOIL/USDT:USDT",
+}
+
+
+def resolve_ccxt_symbol(exchange: str, symbol: str) -> str:
+    """The real symbol to pass to a ccxt call for THIS exchange —
+    checks _SYMBOL_OVERRIDES first (an exchange-specific real-world
+    naming difference no generic heuristic could derive), falling back
+    to to_ccxt_symbol's own generic TradingView->ccxt transformation
+    for every other, already-working combination. The one call every
+    ccxt-symbol call site in this module should use instead of calling
+    to_ccxt_symbol directly, so a future override never needs adding
+    in more than one place."""
+    override = _SYMBOL_OVERRIDES.get((exchange.lower(), symbol.upper()))
+    return override if override else to_ccxt_symbol(symbol)
+
+
 def to_ccxt_symbol(symbol: str) -> str:
     """
     "BTCUSDT" (TradingView/BotConfig convention, no separator) ->
@@ -251,7 +297,7 @@ class MarketDataIngestion:
         error" principle as broker_integrations.py's own
         _send_with_failover.
         """
-        ccxt_symbol = to_ccxt_symbol(symbol)
+        ccxt_symbol = resolve_ccxt_symbol(exchange, symbol)
         since_ms = int(since.timestamp() * 1000) if since else None
 
         import ccxt
@@ -365,7 +411,7 @@ class MarketDataIngestion:
         trading on an exchange it's otherwise fully credentialed for;
         a genuinely bad symbol still gets caught downstream the normal
         way (the candle fetch itself raising)."""
-        ccxt_symbol = to_ccxt_symbol(symbol)
+        ccxt_symbol = resolve_ccxt_symbol(exchange, symbol)
         now = time.monotonic()
         cached = self._markets_cache.get(exchange)
         if cached and (now - cached[0]) < self._MARKETS_CACHE_TTL_SECONDS:
