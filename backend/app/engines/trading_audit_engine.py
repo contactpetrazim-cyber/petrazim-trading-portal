@@ -433,6 +433,20 @@ BOT_OPTIMIZATION_REFERENCE: List[Dict[str, str]] = [
              "scoped to Bot 3. Real sample not yet accumulated (ships this session) — the strongest baseline to compare against is Bot 5's own real live history. Also ships a separate, lighter, "
              "non-gating 'htf_conviction' annotation (1D HTF bias appended to a signal's own reasoning text, informational only) for every bot family whose scan group already has 1D candles "
              "available — including Bot 3 and Bot 5's own ORIGINAL, ungated signals, with zero change to either bot's actual trading behavior."},
+    {"fam": "bot_15", "name": "Bot 15 — SMC v2, Early-Trail (A/B)", "sl": "Identical to Bot 6 — this variant changes only trade MANAGEMENT (trailing), not entry/SL/TP math",
+     "rel": "A/B vs Bot 6 — reuses Bot 6's entry logic byte-for-byte (strategy_key=bot_6, no new strategy class); trailing activates at TP1 (R=1.0) instead of TP2 (R=2.0), using the same "
+            "narrowing 'step_down' trail Bot 12 already tests, instead of a flat breakeven floor between TP1 and TP2",
+     "note": "Built from a platform-wide real finding (critical review requested directly, 'the results and wins were not running to their full potential ... less than 1 RR'): 59 of 146 real "
+             "closed trades that hit TP1 never reached TP2, averaging just 0.181R (98% closed below 1.0R despite proving themselves at 1R) — vs 3.840R average for trades that DID reach TP2. "
+             "Bot 6 specifically showed this pattern in 21% of its own closed trades (6 of 29), the second-worst rate of any bot checked. Bot 12 already tests this exact fix on Bot 2's own setup; "
+             "Bot 15 is the same real experiment applied to Bot 6 instead. Real sample not yet accumulated (ships this session) — the strongest baseline to compare against is Bot 6's own real "
+             "live history, now that the separate take-profit-geometry bug that was contaminating Bot 12's own early results is fixed (see execution_engine.py's own PR #320)."},
+    {"fam": "bot_16", "name": "Bot 16 — SMC v2 Single-Anchor, Early-Trail (A/B)", "sl": "Identical to Bot 8 — this variant changes only trade MANAGEMENT (trailing), not entry/SL/TP math",
+     "rel": "A/B vs Bot 8 — reuses Bot 8's entry logic byte-for-byte (strategy_key=bot_8, no new strategy class); same early-trailing change as Bot 15, applied to Bot 8 instead of Bot 6",
+     "note": "Same platform-wide finding as Bot 15's own note. Bot 8 specifically showed this pattern in 42% of its own closed trades (11 of 26) — by far the WORST rate of any bot checked, "
+             "nearly double Bot 6's own 21% and five times Bot 5's 8%, plausibly because removing Bot 6's LTF-agreement gate (Bot 8's own defining difference from Bot 6) lets in more marginal "
+             "setups that reach TP1 but lack the follow-through to reach TP2 unassisted. The bot most likely to benefit from this fix, and the clearest real test of whether it helps. Real "
+             "sample not yet accumulated (ships this session)."},
 ]
 
 # Stage 9, now wired in for real (by direct request, "continue

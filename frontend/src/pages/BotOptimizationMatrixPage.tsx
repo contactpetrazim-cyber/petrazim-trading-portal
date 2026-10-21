@@ -91,6 +91,16 @@ const BOT_REFERENCE: Array<{
     rel: 'A/B vs Bot 5 — adds the same real 1D HTF-alignment gate as Bot 13, applied to Bot 5\'s own setup instead of Bot 3\'s; nothing else differs',
     note: 'Built from the same finding as Bot 13 (see that bot\'s own note): Bot 5 specifically showed 40% loss rate when its own direction aligned with a clear 1D bias, vs 62% when the 1D bias was unclear — the same direction of effect as Bot 3, not the reversed one seen for Bot 2/Bot 6. Real sample not yet accumulated. A separate, lighter, non-gating "htf_conviction" annotation (1D HTF bias appended to a signal\'s own reasoning, informational only) now ships for every bot family whose scan group already has 1D candles available — including Bot 3 and Bot 5\'s own ORIGINAL, ungated signals, with zero change to either bot\'s actual trading behavior.',
     rec: 'Let real trades accumulate and compare against Bot 5\'s own real history directly, same approach as Bot 13 vs Bot 3.' },
+  { fam: 'bot_15', name: 'Bot 15 — SMC v2, Early-Trail (A/B)', instr: 'XAUT',
+    entry: 'Identical to Bot 6', sl: 'Identical to Bot 6', tp: 'Trailing activates at TP1 (R=1.0) not TP2 (R=2.0), using the "step_down" narrowing trail Bot 12 already tests',
+    rel: 'A/B vs Bot 6 — reuses Bot 6\'s entry logic byte-for-byte (strategy_key=bot_6, no new strategy class); this variant changes only trade MANAGEMENT',
+    note: 'Built from a platform-wide finding (direct critical review request, "the results and wins were not running to their full potential ... less than 1 RR"): 59 of 146 real closed trades that hit TP1 never reached TP2, averaging just 0.181R (98% closed below 1.0R despite proving themselves at 1R) vs 3.840R for trades that DID reach TP2. Bot 6 specifically showed this in 21% of its own closed trades (6 of 29) — the second-worst rate of any bot checked. Bot 12 already tests this exact fix on Bot 2\'s own setup; Bot 15 is the same real experiment applied to Bot 6. Real sample not yet accumulated.',
+    rec: 'Let real trades accumulate and compare against Bot 6\'s own real history, now that the separate take-profit-geometry bug that was contaminating Bot 12\'s own early results is fixed (PR #320).' },
+  { fam: 'bot_16', name: 'Bot 16 — SMC v2 Single-Anchor, Early-Trail (A/B)', instr: 'BTC',
+    entry: 'Identical to Bot 8', sl: 'Identical to Bot 8', tp: 'Same early-trailing change as Bot 15, applied to Bot 8 instead of Bot 6',
+    rel: 'A/B vs Bot 8 — reuses Bot 8\'s entry logic byte-for-byte (strategy_key=bot_8, no new strategy class); this variant changes only trade MANAGEMENT',
+    note: 'Same platform-wide finding as Bot 15\'s own note. Bot 8 specifically showed this in 42% of its own closed trades (11 of 26) — by far the WORST rate of any bot checked, nearly double Bot 6\'s own 21% and five times Bot 5\'s 8%, plausibly because removing Bot 6\'s LTF-agreement gate (Bot 8\'s own defining difference from Bot 6) lets in more marginal setups that reach TP1 but lack the follow-through to reach TP2 unassisted. The bot most likely to benefit from this fix. Real sample not yet accumulated.',
+    rec: 'The clearest real test of whether earlier trailing helps — prioritize watching this one.' },
 ];
 
 /**
