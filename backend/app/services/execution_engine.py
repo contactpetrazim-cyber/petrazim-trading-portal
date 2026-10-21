@@ -9,7 +9,7 @@ import httpx
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
-from app.core.bot_strategies import BotSignal
+from app.core.bot_strategies import BotSignal, apply_min_stop_distance_floor
 from app.services.broker_integrations import (
     BingXBroker, TradeLockerBroker, BinanceBroker, BybitBroker, MexcBroker, MetaApiBroker,
     _FAILOVER_EXCEPTIONS,
@@ -153,7 +153,33 @@ def _resize_risk_for_real_fill(row, trade_id: str) -> None:
     keeping either direction the fill drifts. Also updates
     initial_take_profit_1 (the immutable "what this trade's setup
     actually was at entry" snapshot), same reasoning as initial_lot_size
-    above."""
+    above.
+
+    THIRD bug, same family, fixed here too: the min-stop-distance FLOOR
+    (apply_min_stop_distance_floor, bot_strategies.py) is only ever
+    applied once, at signal time, against the bot's THEORETICAL
+    entry_price — exactly the same stale-price problem as take_profit_1/
+    2/3 above, just on the stop side. A real fill that lands MORE
+    favorably than the theoretical entry (e.g. a long filling lower)
+    shrinks the EFFECTIVE stop distance relative to the real entry_price
+    without ever re-checking it against the floor, so a stop that was
+    correctly floor-compliant at signal time can end up tighter than the
+    floor once the real fill is in. Confirmed directly against real
+    bot_5_jeafx trades: 4 of 7 real closed trades show an initial stop
+    distance (0.030%-0.095% of real entry_price) below the platform's
+    own stated 0.15% floor, despite every one of those SL branches
+    calling apply_min_stop_distance_floor already — the floor was real
+    at signal time, just silently invalidated by this same fill-price
+    drift. Re-applying it here, against the now-real entry_price, widens
+    (never tightens — same outward-only guarantee
+    apply_min_stop_distance_floor already provides) row.stop_loss before
+    any of the target/lot-size recompute below runs, so every
+    downstream real_stop_distance use already reflects the real,
+    floor-compliant distance. Also updates initial_stop_loss (the
+    immutable snapshot), same reasoning as initial_take_profit_1/
+    initial_lot_size above."""
+    row.stop_loss = apply_min_stop_distance_floor(row.entry_price, row.stop_loss, row.direction.value)
+    row.initial_stop_loss = row.stop_loss
     real_stop_distance = abs(row.entry_price - row.stop_loss)
     if real_stop_distance <= 0:
         return
