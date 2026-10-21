@@ -254,8 +254,22 @@ export function TradesPage() {
       // narrows this card. The backend's `status` param only matches
       // one value at a time, so this is two fetches merged client-side.
       const { status: _ignoredFilterStatus, ...baseParams } = params;
+      // exclude_noise=true on this one fetch — by direct report ("the
+      // quick filters 'All' does not always show all the recent
+      // trades accurately"). This list already throws away error/
+      // cancelled rows client-side via excludeErrorsAndCancelled
+      // below, UNCONDITIONALLY, regardless of which pill is active —
+      // but that happened AFTER the server's own fixed-size page
+      // (LIMIT 50 by default) had already been filled, so a burst of
+      // error rows (confirmed real: one stale signal alone produced
+      // 294 of them over a few days, before the scanner-side fix)
+      // could silently crowd out genuinely recent real trades from
+      // ever reaching this page at all. Passing the same exclusion
+      // server-side, before the limit applies, is what actually fixes
+      // it — the client-side filter below stays as a harmless no-op
+      // safety net, not the real fix.
       const [recent, archived, deleted, errored, cancelled] = await Promise.all([
-        tradesApi.getTrades({ ...params, archived: false }),
+        tradesApi.getTrades({ ...params, archived: false, exclude_noise: true }),
         tradesApi.getTrades({ ...params, archived: true }),
         tradesApi.getTrades({ ...params, deleted: true }),
         tradesApi.getTrades({ ...baseParams, status: 'error', archived: false }),

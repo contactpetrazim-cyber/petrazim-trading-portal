@@ -164,6 +164,26 @@ async def list_trades(
     # regardless of their archived state (a trade can be deleted
     # straight from either Recent or Archive).
     deleted: bool = Query(False, description="False (default) hides deleted trades, True shows only deleted trades (ignores `archived`)"),
+    # By direct report ("the quick filters 'All' does not always show
+    # all the recent trades accurately"). Real root cause, confirmed
+    # directly: Trades.tsx's own "All" view fetches this endpoint with
+    # NO status filter at all (every status mixed together), gets back
+    # the 50 most recently-CREATED rows, and only THEN throws away
+    # error/cancelled/awaiting-approval rows client-side. Error rows
+    # in particular can be created far more often than real trades
+    # (confirmed elsewhere this session: one stale signal alone
+    # produced 294 error rows over a few days) — when enough of them
+    # land inside that 50-row creation-time window, they silently
+    # crowd out genuinely recent real trades from ever reaching the
+    # page at all, even though those trades exist further back in the
+    # same query. Excluding error/cancelled HERE, before LIMIT is
+    # applied, guarantees the page is always full of rows the caller
+    # actually wants to see, however many noise rows exist in between
+    # them. Default False — every existing caller (including this
+    # same endpoint's own archived/deleted/errored/cancelled-specific
+    # fetches, which deliberately DO want error/cancelled rows) keeps
+    # today's exact behavior.
+    exclude_noise: bool = Query(False, description="True excludes error/cancelled trades from the result BEFORE the limit is applied, so they can never crowd out real recent trades on a fixed-size page"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
@@ -178,6 +198,8 @@ async def list_trades(
         query = query.where(Trade.is_deleted == True)  # noqa: E712
     else:
         query = query.where(Trade.is_deleted == False, Trade.is_archived == archived)  # noqa: E712
+    if exclude_noise:
+        query = query.where(Trade.status.notin_([TradeStatus.ERROR, TradeStatus.CANCELLED]))
     query = _apply_source_filter(query, source)
 
     # Real bug, found while wiring TradeSpecsPanel's "?status=active"
