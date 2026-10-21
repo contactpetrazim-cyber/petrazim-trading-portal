@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { X, Clock3, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
 import { tradesApi } from '../services/api';
 import type { TradeSnapshot, SnapshotTimeframe } from '../types';
@@ -129,6 +129,19 @@ const LEVEL_EVENT_META: Record<string, { label: string; color: string }> = {
   manual_close: { label: 'Close', color: '#f59e0b' },
 };
 
+// Horizontal (time) axis zoom — by direct request ("Also add both x
+// axis and y axis zoom to all snapshot charts plus scroll"). Unlike
+// TradeForensicsModal's own X-zoom (which re-slices the candle array
+// down to fewer candles, always exactly filling the chart — a
+// deliberate "no pan gestures" choice for that diagnostic view), this
+// one widens the SAME candles (more pixels per candle, real
+// magnification) and leaves navigating the now-oversized chart to the
+// existing `overflow-x-auto` wrapper's native horizontal scrollbar —
+// zoom and scroll are two different controls here because the request
+// explicitly asked for both, not one standing in for the other.
+const MIN_X_ZOOM = 0.3;
+const MAX_X_ZOOM = 6;
+
 function SnapshotChart({ snapshot, dark }: { snapshot: TradeSnapshot; dark: boolean }) {
   const { candles, entry_price, entry_timestamp, stop_loss, take_profit_1, take_profit_2, take_profit_3, exit_price, exit_timestamp, level_events, direction, trailing_active, trailing_stop_price } = snapshot;
   // Vertical (price) axis zoom — by direct request ("make the
@@ -138,6 +151,26 @@ function SnapshotChart({ snapshot, dark }: { snapshot: TradeSnapshot; dark: bool
   // its own module docstring), so it owns this state directly rather
   // than going through CandleChart's priceRangeOverride prop.
   const { yZoom, zoomInY, zoomOutY, resetY } = useYAxisZoom();
+  const [xZoom, setXZoom] = useState(1);
+  const zoomInX = () => setXZoom((z) => Math.min(MAX_X_ZOOM, z * 1.3));
+  const zoomOutX = () => setXZoom((z) => Math.max(MIN_X_ZOOM, z / 1.3));
+  const resetX = () => setXZoom(1);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  // Re-centers the scroll position on the entry candle whenever the
+  // zoom level changes (same "recenter on zoom" spirit
+  // TradeForensicsModal/PositionOnChartModal already use for their own
+  // X-zoom) — without this, zooming in on a long window leaves you
+  // looking at the chart's left edge instead of the trade itself.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || candles.length === 0) return;
+    const idx = nearestCandleIndex(candles, entry_timestamp);
+    if (idx == null) return;
+    const chartW = Math.max(400, candles.length * 8) * xZoom;
+    const x = 56 + (idx + 0.5) * (chartW / candles.length);
+    el.scrollLeft = Math.max(0, x - el.clientWidth / 2);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [xZoom, candles, entry_timestamp]);
   if (candles.length === 0) {
     return <p className={`text-sm ${dark ? 'text-white/40' : 'text-gray-400'}`}>No candle data for this window.</p>;
   }
@@ -157,7 +190,7 @@ function SnapshotChart({ snapshot, dark }: { snapshot: TradeSnapshot; dark: bool
   // Reserves a left margin for tick labels; candles/lines/markers all
   // shift right by AXIS_W so nothing draws under the labels.
   const AXIS_W = 56;
-  const chartW = Math.max(400, candles.length * 8);
+  const chartW = Math.max(400, candles.length * 8) * xZoom;
   const w = chartW + AXIS_W;
   const h = 260;
   const candleW = (chartW / candles.length) * 0.65;
@@ -215,18 +248,30 @@ function SnapshotChart({ snapshot, dark }: { snapshot: TradeSnapshot; dark: bool
           charts, snapshots and approval charts"). Same icons/pattern
           as On Chart's own Y-axis zoom buttons. */}
       <div className={`flex items-center gap-1 mb-2 rounded-lg p-1 w-fit ${dark ? 'bg-white/5' : 'bg-black/5'}`}>
-        <span className={`text-[10px] font-semibold px-0.5 ${dark ? 'text-white/50' : 'text-gray-500'}`}>Y</span>
+        <span className={`text-[10px] font-semibold px-0.5 ${dark ? 'text-white/50' : 'text-gray-500'}`}>X</span>
+        <button onClick={zoomOutX} disabled={xZoom <= MIN_X_ZOOM} aria-label="Zoom out time axis" title="Zoom out time axis" className={`p-1.5 rounded-md disabled:opacity-30 ${dark ? 'text-white/50 hover:text-white' : 'text-gray-500 hover:text-gray-700'}`}>
+          <ZoomOut size={14} />
+        </button>
+        <button onClick={zoomInX} disabled={xZoom >= MAX_X_ZOOM} aria-label="Zoom in time axis" title="Zoom in time axis" className={`p-1.5 rounded-md disabled:opacity-30 ${dark ? 'text-white/50 hover:text-white' : 'text-gray-500 hover:text-gray-700'}`}>
+          <ZoomIn size={14} />
+        </button>
+        <span className={`text-[10px] font-semibold px-1 ${dark ? 'text-white/50' : 'text-gray-500'}`}>Y</span>
         <button onClick={zoomOutY} disabled={yZoom <= 0.25} aria-label="Zoom out price axis" title="Zoom out price axis" className={`p-1.5 rounded-md disabled:opacity-30 ${dark ? 'text-white/50 hover:text-white' : 'text-gray-500 hover:text-gray-700'}`}>
           <ZoomOut size={14} />
         </button>
         <button onClick={zoomInY} disabled={yZoom >= 6} aria-label="Zoom in price axis" title="Zoom in price axis" className={`p-1.5 rounded-md disabled:opacity-30 ${dark ? 'text-white/50 hover:text-white' : 'text-gray-500 hover:text-gray-700'}`}>
           <ZoomIn size={14} />
         </button>
-        <button onClick={resetY} disabled={yZoom === 1} aria-label="Reset price axis zoom" title="Reset price axis zoom" className={`flex items-center gap-1 px-2 py-1.5 rounded-md text-[11px] font-medium disabled:opacity-30 ${dark ? 'text-white/50 hover:text-white' : 'text-gray-500 hover:text-gray-700'}`}>
+        <button onClick={() => { resetX(); resetY(); }} disabled={xZoom === 1 && yZoom === 1} aria-label="Reset zoom" title="Reset zoom" className={`flex items-center gap-1 px-2 py-1.5 rounded-md text-[11px] font-medium disabled:opacity-30 ${dark ? 'text-white/50 hover:text-white' : 'text-gray-500 hover:text-gray-700'}`}>
           <Maximize2 size={12} /> Reset
         </button>
       </div>
-      <div className="overflow-x-auto">
+      {/* Scroll — by direct request ("plus scroll"). Zooming in (xZoom
+          > 1) makes `w` wider than this wrapper, so the native
+          horizontal scrollbar/trackpad/drag-to-scroll becomes the pan
+          control — no separate pan state to track, same real-world
+          feel as any oversized scrollable element. */}
+      <div className="overflow-x-auto" ref={scrollRef}>
         <svg viewBox={`0 0 ${w} ${h}`} width={w} height={h} className="block">
           {candles.map((c, i) => {
             const up = c.close >= c.open;
