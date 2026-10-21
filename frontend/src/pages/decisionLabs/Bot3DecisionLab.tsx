@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
 import { DecisionLabEngine, type DecisionNode } from '../../components/DecisionLabEngine';
 import { FVGFillVisualizer } from '../../components/smcVisualizers/FVGFillVisualizer';
+import { BotRulesSlide } from '../../components/BotRulesSlide';
 import { useThemeStore } from '../../hooks/useTheme';
 
 /**
@@ -106,6 +107,10 @@ export function Bot3DecisionLab() {
 
       <div className="mb-5">
         <FVGFillVisualizer dark={dark} />
+      </div>
+
+      <div className="mb-5">
+        <BotRulesSlide botId="bot_3" dark={dark} />
       </div>
 
       <DecisionLabEngine
