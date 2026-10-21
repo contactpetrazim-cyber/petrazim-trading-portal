@@ -308,12 +308,12 @@ BOT7_01_ITEMS = [
 async def seed_bot_concept_scenarios():
     async with AsyncSessionLocal() as db:
         count = 0
-        count += await _upsert(db, BOT2_01_TITLE, "signal_cards", BOT2_01_ITEMS)
-        count += await _upsert(db, BOT3_01_TITLE, "signal_cards", BOT3_01_ITEMS)
-        count += await _upsert(db, BOT4_01_TITLE, "signal_cards", BOT4_01_ITEMS)
-        count += await _upsert(db, BOT5_01_TITLE, "signal_cards", BOT5_01_ITEMS)
-        count += await _upsert(db, BOT6_01_TITLE, "signal_cards", BOT6_01_ITEMS)
-        count += await _upsert(db, BOT7_01_TITLE, "classify", BOT7_01_ITEMS)
+        count += await _upsert(db, BOT2_01_TITLE, "signal_cards", BOT2_01_ITEMS, bot_id="bot_2")
+        count += await _upsert(db, BOT3_01_TITLE, "signal_cards", BOT3_01_ITEMS, bot_id="bot_3")
+        count += await _upsert(db, BOT4_01_TITLE, "signal_cards", BOT4_01_ITEMS, bot_id="bot_4")
+        count += await _upsert(db, BOT5_01_TITLE, "signal_cards", BOT5_01_ITEMS, bot_id="bot_5")
+        count += await _upsert(db, BOT6_01_TITLE, "signal_cards", BOT6_01_ITEMS, bot_id="bot_6")
+        count += await _upsert(db, BOT7_01_TITLE, "classify", BOT7_01_ITEMS, bot_id="bot_7")
         await db.commit()
         print(f"\n{count} of 6 bot-concept scenario sets seeded/updated.")
 

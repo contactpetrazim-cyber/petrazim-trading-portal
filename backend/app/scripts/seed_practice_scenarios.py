@@ -45,7 +45,7 @@ import sys
 from sqlalchemy import select
 
 from app.database import AsyncSessionLocal
-from app.models.curriculum import Lesson, PracticeScenarioSet
+from app.models.curriculum import Lesson, LearningTrack, PracticeScenarioSet
 
 # ---------------------------------------------------------------------------
 # ORIENT-01 — "Look at three chart screenshots (provided in the Practise
@@ -232,10 +232,25 @@ BOT1_01_ITEMS = [{
 }]
 
 
-async def _upsert(db, title: str, kind: str, items: list, summary: str | None = None) -> bool:
-    lesson = (await db.execute(select(Lesson).where(Lesson.title == title))).scalar_one_or_none()
+async def _upsert(db, title: str, kind: str, items: list, summary: str | None = None, bot_id: str | None = None) -> bool:
+    """`bot_id` (e.g. "bot_1") disambiguates a title that isn't actually
+    unique across the curriculum — discovered the hard way seeding Bot
+    1's "Practice: Running the Full Pipeline by Hand" lesson:
+    BOT_STAGE_TEMPLATE (seed_curriculum.py) reuses several stage titles
+    VERBATIM across all 7 bot tracks with no bot number in the string
+    at all ("Practice: Running the Full Pipeline by Hand", unlike
+    "Capstone: Full Bot N Decision Simulation", which does vary per
+    bot) — a plain `Lesson.title == title` lookup hits
+    MultipleResultsFound across those lessons. Passing bot_id joins to
+    LearningTrack and filters on its own `bot_id` column (confirmed
+    real and populated: "Bot 1 — Macro Swing Structure Mastery" etc.)
+    to pick the right one."""
+    query = select(Lesson).where(Lesson.title == title)
+    if bot_id is not None:
+        query = query.join(LearningTrack, LearningTrack.id == Lesson.track_id).where(LearningTrack.bot_id == bot_id)
+    lesson = (await db.execute(query)).scalar_one_or_none()
     if lesson is None:
-        print(f"  SKIP — no lesson titled {title!r} found (curriculum not seeded yet, or title drifted)")
+        print(f"  SKIP — no lesson titled {title!r}{f' in {bot_id}' if bot_id else ''} found (curriculum not seeded yet, or title drifted)")
         return False
     existing = (await db.execute(
         select(PracticeScenarioSet).where(PracticeScenarioSet.lesson_id == lesson.id)
