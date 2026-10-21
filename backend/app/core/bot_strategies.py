@@ -111,6 +111,10 @@ TUNABLE_PARAM_BOUNDS: Dict[str, Dict[str, Tuple[float, float, float]]] = {
     # bot_13 — same reasoning: defaulted to Bot 1's own tuned 1D
     # values (5, 5), not Bot 5's own 1H-tuned values.
     "bot_14": {"left_bars": (2, 10, 3), "right_bars": (2, 10, 2), "htf_left_bars": (2, 10, 5), "htf_right_bars": (2, 10, 5)},
+    # bot_17: Bot 3's own 15M left_bars/right_bars — the SAME tuning
+    # Bot 13 already uses for Bot 3's own 15M structure, since this is
+    # also Bot 3's own family, just with the OB-POI entry swap.
+    "bot_17": {"left_bars": (2, 10, 3), "right_bars": (2, 10, 3)},
 }
 
 
@@ -1124,6 +1128,150 @@ class FVGExpansionHTFGatedBot:
                      f"{target_fvg.mitigated_percent:.0%} mitigated. 15M BOS confirms. "
                      f"1D HTF bias ({htf_bias}) aligned with direction — gate passed. "
                      f"Entry at FVG 50%. SL beyond FVG extreme. 4R target.",
+            timestamp=datetime.utcnow()
+        )
+
+
+# =============================================================================
+# BOT 17: FVG Expansion, Order-Block POI (Bot 3 Update) — real finding, A/B test
+# =============================================================================
+
+class FVGExpansionOBPOIBot:
+    """
+    Bot 17: FVG Expansion, Order-Block POI
+
+    Bot 3's own direction logic, with the entry POI changed: instead of
+    picking an FVG and entering at its own midpoint, direction is
+    decided FIRST (15M BOS, same ordering fix Bot 7 already applies),
+    then entry is taken from the FARTHEST fresh 1H order block
+    matching that direction (the "end member" — oldest origin_timestamp
+    among fresh, test_count<=1 OBs — the one closest to the real level
+    of invalidation for the current structure), entering at that OB's
+    own extreme edge (bottom for a long, top for a short) rather than
+    an FVG's own midpoint. SL/TP/risk formulas otherwise unchanged from
+    Bot 3, just anchored to the OB's own zone width instead of the
+    FVG's.
+
+    Built from a direct request ("test using the order blocks -
+    farthest or end member order blocks before the level of
+    invalidation as the POI or entry instead of just any FVG in the
+    middle... test for all bots"). Backtested against real historical
+    data, isolated-mode, identical bars/costs/engine for both variants
+    (only this one variable changed): BTCUSDT.P 30d — baseline FVG-mid
+    n=69, win_rate=14.5%, expectancy=-0.242R vs this OB-POI variant
+    n=163, win_rate=59.5%, expectancy=+0.429R; XAUTUSDT.P 30d —
+    baseline n=55, win_rate=16.4%, expectancy=-0.268R vs OB-POI n=140,
+    win_rate=53.6%, expectancy=+0.355R. Consistent, large-sample,
+    same-direction result on both real symbols tested.
+
+    Honest caveat, carried over from Bot 13's own note: this session
+    already found Bot 3's OWN baseline backtest replay is wildly
+    inconsistent with Bot 3's real ~82% live win rate (a documented,
+    unresolved backtest-engine fidelity question for this bot family)
+    — these ABSOLUTE backtest numbers are not a reliable estimate of
+    real performance for either variant. The RELATIVE comparison (OB-
+    POI consistently, dramatically outperforming FVG-mid within the
+    SAME flawed engine, on the SAME bars, holding everything else
+    fixed) is still a real, structured signal worth testing live — but
+    this is shipped as a separate, isolated A/B bot specifically
+    BECAUSE of that uncertainty, exactly like every other hypothesis
+    this session: Bot 3 itself stays byte-for-byte untouched, its real
+    live track record is never put at risk on a backtest-only result.
+    """
+
+    def __init__(self, config: Dict):
+        self.bot_id = "bot_17_fvg_expansion_ob_poi"
+        self.bot_name = "FVG Expansion, OB-POI"
+        self.config = config
+        self.structure_detector = MarketStructureDetector(
+            left_bars=int(resolve_tunable_param("bot_17", "left_bars", config)),
+            right_bars=int(resolve_tunable_param("bot_17", "right_bars", config)),
+        )
+        self.entry_engine = EntryExitEngine(default_rr=4.0)
+        self.risk_manager = RiskManager(base_risk_percent=1.0)
+
+    def analyze(self,
+                candles_1h: List[Candle],
+                candles_15m: List[Candle],
+                account_balance: float,
+                symbol: str,
+                risk_per_trade: Optional[float] = None,
+                min_rr_ratio: Optional[float] = None,
+                bot_id: Optional[str] = None) -> Optional[BotSignal]:
+
+        # Step 1: 15M BOS decides direction FIRST — same ordering fix
+        # Bot 7 already applies to Bot 3's own setup.
+        swings_15m = self.structure_detector.detect_swing_highs(candles_15m) + \
+                     self.structure_detector.detect_swing_lows(candles_15m)
+        bos_15m = self.structure_detector.detect_bos(candles_15m, swings_15m)
+        if not bos_15m:
+            return None
+        last_bos = bos_15m[-1]
+        if last_bos["type"] == "bullish_bos":
+            direction = "long"
+        elif last_bos["type"] == "bearish_bos":
+            direction = "short"
+        else:
+            return None
+
+        # Step 2: farthest fresh 1H order block matching direction —
+        # the THE new POI, replacing Bot 3's own FVG selection entirely.
+        zone_detector = ZoneDetector()
+        swings_1h = self.structure_detector.detect_swing_highs(candles_1h) + \
+                    self.structure_detector.detect_swing_lows(candles_1h)
+        zones = zone_detector.detect_order_blocks(candles_1h, swings_1h)
+        # detect_order_blocks' own id prefix is the real bull/bear tag
+        # (zone_type is a generic ORDER_BLOCK enum member for both —
+        # see that method's own docstring/id scheme).
+        wanted_prefix = "ob_bull_" if direction == "long" else "ob_bear_"
+        fresh = [
+            z for z in zones
+            if z.status.name == "ACTIVE" and z.test_count <= 1 and z.id.startswith(wanted_prefix)
+        ]
+        if not fresh:
+            return None
+        target_ob = min(fresh, key=lambda z: z.origin_timestamp)
+
+        # Step 3: entry at the OB's own extreme edge (bottom for a
+        # long, top for a short) — the most conservative price within
+        # the zone, not its midpoint.
+        entry_price = target_ob.bottom if direction == "long" else target_ob.top
+
+        # Step 4: stop beyond the OB extreme — same 10%-of-zone-width
+        # buffer convention Bot 3 already uses for its own FVG extreme.
+        zone_width = target_ob.top - target_ob.bottom
+        if direction == "long":
+            sl_price = target_ob.bottom - zone_width * 0.1
+        else:
+            sl_price = target_ob.top + zone_width * 0.1
+        sl_price = apply_min_stop_distance_floor(entry_price, sl_price, direction)
+        sl_distance = abs(entry_price - sl_price)
+        sl = {"stop_loss": sl_price, "sl_distance": sl_distance, "method": "ob_extreme"}
+
+        targets = self.entry_engine.calculate_targets(
+            {"entry_price": entry_price, "direction": direction},
+            sl, rr_ratio=min_rr_ratio if min_rr_ratio is not None else 4.0
+        )
+
+        risk = self.risk_manager.calculate_position_risk(setup_quality=1.15, base_risk_override=risk_per_trade)
+        lots = self.entry_engine.calculate_lot_size(account_balance, risk, sl_distance)
+
+        return BotSignal(
+            bot_id=bot_id or self.bot_id,
+            bot_name=self.bot_name,
+            symbol=symbol,
+            direction=direction,
+            confidence=0.82,
+            entry_price=round(entry_price, 5),
+            stop_loss=round(sl_price, 5),
+            take_profit=targets["tp1"],
+            take_profit_2=targets["tp2"],
+            take_profit_3=targets["tp3"],
+            lot_size=lots["lot_size"],
+            risk_percent=risk,
+            reasoning=f"FVG Expansion OB-POI {direction}. 15M BOS sets direction. "
+                     f"Farthest fresh 1H order block, entry at extreme edge. "
+                     f"SL beyond OB extreme. 4R target.",
             timestamp=datetime.utcnow()
         )
 
@@ -3155,20 +3303,22 @@ BOT_REGISTRY: Dict[str, tuple] = {
     "bot_11": (OrderBlockReversalWiderStopBot, [("candles_4h", "4H"), ("candles_1h", "1H"), ("candles_15m", "15M")]),
     "bot_13": (FVGExpansionHTFGatedBot, [("candles_1d", "1D"), ("candles_1h", "1H"), ("candles_15m", "15M")]),
     "bot_14": (JeafxSMCHTFGatedBot, [("candles_1d", "1D"), ("candles_4h", "4H"), ("candles_1h", "1H"), ("candles_15m", "15M"), ("candles_5m", "5M")]),
+    "bot_17": (FVGExpansionOBPOIBot, [("candles_1h", "1H"), ("candles_15m", "15M")]),
 }
 
 
 class BotOrchestrator:
-    """Manages all 12 dispatched bots (7 original + 5 A/B test variants
+    """Manages all 13 dispatched bots (7 original + 6 A/B test variants
     with their own strategy class: Bot 8 vs Bot 6, Bot 9 and Bot 10 vs
-    Bot 4, Bot 11 vs Bot 2, Bot 13 vs Bot 3) and routes signals to
-    execution. Bot roster and candle requirements come from
-    BOT_REGISTRY above — the single place a new bot needs to be added.
-    Bot 12 is a real, live bot but deliberately NOT in this registry
-    — it reuses Bot 2's own strategy class/dispatch entirely (see its
-    own seeding comment in seed_ab_test_bots.py), testing a trade-
-    management change rather than a signal-generation one, so it needs
-    no entry of its own here.
+    Bot 4, Bot 11 vs Bot 2, Bot 13 vs Bot 3, Bot 14 vs Bot 5, Bot 17 vs
+    Bot 3) and routes signals to execution. Bot roster and candle
+    requirements come from BOT_REGISTRY above — the single place a new
+    bot needs to be added. Bot 12/15/16 are real, live bots but
+    deliberately NOT in this registry — each reuses an existing bot's
+    own strategy class/dispatch entirely (Bot 12 -> Bot 2, Bot 15 ->
+    Bot 6, Bot 16 -> Bot 8; see each one's own seeding comment),
+    testing a trade-management change rather than a signal-generation
+    one, so none of them needs an entry of its own here.
 
     A DIFFERENT, now-removed "bot_13" (OrderBlockReversalExtremeEntryBot
     — always entering at the order block's own extreme, instead of Bot

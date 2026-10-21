@@ -447,6 +447,15 @@ BOT_OPTIMIZATION_REFERENCE: List[Dict[str, str]] = [
              "nearly double Bot 6's own 21% and five times Bot 5's 8%, plausibly because removing Bot 6's LTF-agreement gate (Bot 8's own defining difference from Bot 6) lets in more marginal "
              "setups that reach TP1 but lack the follow-through to reach TP2 unassisted. The bot most likely to benefit from this fix, and the clearest real test of whether it helps. Real "
              "sample not yet accumulated (ships this session)."},
+    {"fam": "bot_17", "name": "Bot 17 — FVG Expansion, Order-Block POI", "sl": "ob_extreme (10%-of-zone-width buffer) — same convention as Bot 3's own fvg_extreme, applied to the OB's own width",
+     "rel": "A/B vs Bot 3 — direction decided first via 15M BOS (same ordering fix as Bot 7), then entry taken from the farthest fresh 1H order block's own extreme edge instead of any FVG's midpoint",
+     "note": "Built from a direct request (\"test using the order blocks - farthest or end member order blocks before the level of invalidation as the POI or entry instead of just any FVG in the "
+             "middle\"). Real isolated-mode backtest, identical bars/costs/engine for both variants (only the POI changed): BTCUSDT.P 30d — baseline FVG-mid n=69, win_rate=14.5%, "
+             "expectancy=-0.242R vs OB-POI n=163, win_rate=59.5%, expectancy=+0.429R; XAUTUSDT.P 30d — baseline n=55, win_rate=16.4%, expectancy=-0.268R vs OB-POI n=140, win_rate=53.6%, "
+             "expectancy=+0.355R. Consistent, large-sample, same-direction result on both real symbols tested. Honest caveat: Bot 3's OWN baseline backtest is already known to be wildly "
+             "inconsistent with its real ~82% live win rate (the same unresolved backtest-engine fidelity issue noted under Bot 13) — these absolute numbers aren't a reliable real-performance "
+             "estimate for either variant, but the RELATIVE improvement (same engine, same bars, one variable changed) is a real, structured signal worth testing live. Shipped as a separate, "
+             "isolated A/B bot for exactly that reason — Bot 3 itself stays byte-for-byte untouched, its real live track record never put at risk on a backtest-only result."},
 ]
 
 # Stage 9, now wired in for real (by direct request, "continue
@@ -476,6 +485,7 @@ BACKTEST_VALIDATION_TARGETS = [
     ("bot_11", "BTCUSDT.P", "bingx", 60),
     ("bot_13", "BTCUSDT.P", "bingx", 60),
     ("bot_14", "BTCUSDT.P", "bingx", 35),
+    ("bot_17", "BTCUSDT.P", "bingx", 60),
 ]
 
 
