@@ -1,6 +1,6 @@
 
 import axios from 'axios';
-import { Trade, BotConfig, BotPerformance, BotMetricsUpdate, DashboardStats, SignalPreview, PerformanceSummary, TradeBreakdown, TradeBreakdownPeriod, TodayTradeBreakdown, ExchangeMetaResponse, TraderBrokerConnection, AvailableBot, TraderBotSubscription, OutboundIpsResponse, FeeSettings, FeeLedgerEntry, MyFeesResponse, FeeGateStatus, FeeCheckoutSession, FeeCheckoutProvider, FeeVerifyResult, DeployStateResponse, TradeSnapshot, EncroachmentResponse, SnapshotTimeframe, ExchangeBalancesResponse, MasterExchangeBalancesResponse, SystemHealthResponse, SystemHealthSummaryResponse, BacktestRun, TradeForensics } from '../types';
+import { Trade, BotConfig, BotPerformance, BotMetricsUpdate, DashboardStats, SignalPreview, PerformanceSummary, TradeBreakdown, TradeBreakdownPeriod, TodayTradeBreakdown, ExchangeMetaResponse, TraderBrokerConnection, AvailableBot, TraderBotSubscription, OutboundIpsResponse, FeeSettings, FeeLedgerEntry, MyFeesResponse, FeeGateStatus, FeeCheckoutSession, FeeCheckoutProvider, FeeVerifyResult, DeployStateResponse, TradeSnapshot, EncroachmentResponse, SnapshotTimeframe, ExchangeBalancesResponse, MasterExchangeBalancesResponse, SystemHealthResponse, SystemHealthSummaryResponse, BacktestRun, TradeForensics, BotSimulationResponse } from '../types';
 import { useAuthStore } from '../hooks/useAuth';
 import { triggerAccessExpired } from '../components/AccessExpiredGate';
 import { triggerFeesOwed } from '../components/TradingFeeGate';
@@ -337,6 +337,16 @@ export const backtestsApi = {
   getRun: (runId: string) => api.get<BacktestRun>(`/backtests/${runId}`).then(r => r.data),
   listRuns: (botId: string, limit = 10) =>
     api.get<BacktestRun[]>('/backtests', { params: { bot_id: botId, limit } }).then(r => r.data),
+};
+
+export const curriculumApi = {
+  // SMC Bot Academy plan item 6 — the "watch it happen" simulation
+  // player's backend (GET /curriculum/bots/{bot_id}/simulation). Same
+  // `api` client every other authenticated call here uses, so this
+  // gets the same dual-failover (Render -> Nube VM) and 401 handling
+  // for free rather than a second, hand-rolled fetch path.
+  getBotSimulation: (botId: string, direction: 'long' | 'short', symbol?: string) =>
+    api.get<BotSimulationResponse>(`/curriculum/bots/${botId}/simulation`, { params: { direction, symbol } }).then(r => r.data),
 };
 
 export interface KlineBar {

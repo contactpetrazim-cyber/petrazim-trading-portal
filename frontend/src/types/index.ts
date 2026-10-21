@@ -279,6 +279,67 @@ export interface TradeForensics {
   narrative: string;
 }
 
+/** GET /curriculum/bots/{bot_id}/simulation — SMC Bot Academy plan
+ * item 6's "watch it happen" bot-simulation player. Bars + zones +
+ * markers already shaped for CandleChart.tsx; `reveal_bar_index` on
+ * every zone/marker is the step the real detector first produced it
+ * (no-lookahead) — the frontend player reveals each one once candle
+ * playback reaches that bar index, rather than showing everything at
+ * once. See backend/app/engines/bot_simulation.py's own docstring. */
+export interface BotSimulationBar {
+  timestamp: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+}
+export interface BotSimulationZone {
+  kind: 'order_block' | 'fvg';
+  timeframe: string;
+  direction: 'bullish' | 'bearish';
+  top: number;
+  bottom: number;
+  from_index: number;
+  to_index: number;
+  color: string;
+  label: string;
+  status: string;
+  classification?: string | null;
+  mitigated_percent?: number;
+  reveal_bar_index: number;
+}
+export interface BotSimulationMarker {
+  kind: 'swing' | 'bos' | 'choch' | 'sweep' | 'premium_discount';
+  timeframe: string;
+  index: number;
+  price: number;
+  label: string;
+  color: string;
+  shape: 'dot' | 'triangle-up' | 'triangle-down' | 'diamond';
+  side: 'above' | 'below';
+  reveal_bar_index: number;
+}
+export interface BotSimulationResponse {
+  bot_id: string;
+  strategy_key: string;
+  symbol: string;
+  exchange: string;
+  direction: 'long' | 'short';
+  base_timeframe: string;
+  required_timeframes: string[];
+  // 'real_trade' = this bot's own real closed trade for the
+  // requested direction; 'real_market_fallback' = no such trade
+  // exists yet, so this is real RECENT market data instead — never a
+  // fabricated price (see the plan's own non-negotiable).
+  source: 'real_trade' | 'real_market_fallback';
+  matched_trade_id: string | null;
+  is_synthetic: false;
+  label: string;
+  bars: BotSimulationBar[];
+  zones: BotSimulationZone[];
+  markers: BotSimulationMarker[];
+}
+
 /** Drawdown & Target Encroachment — by direct request ("a metric that
  * can help monitor specific trades drawdown encroachment ... how much
  * of my SL area is used or encroached into during each trade"). See
