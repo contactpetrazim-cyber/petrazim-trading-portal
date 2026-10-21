@@ -167,11 +167,55 @@ def apply_min_stop_distance_floor(entry_price: float, sl_price: float, direction
     resulting distance is at least min_pct (default: the platform-wide
     MIN_STOP_DISTANCE_PCT) of entry_price. A no-op for any stop that's
     already wide enough. `min_pct` is overridable per call site —
-    see bot_11's own use for a deliberately larger value."""
+    see bot_11's own use for a deliberately larger value, or pass
+    `resolve_min_stop_pct(symbol)` for the per-symbol override below."""
     min_distance = entry_price * min_pct
     if abs(entry_price - sl_price) >= min_distance:
         return sl_price
     return entry_price - min_distance if direction == "long" else entry_price + min_distance
+
+
+# Per-symbol floor override — by direct request ("widen the stop floor
+# for BTC-based bots"), after finding the platform-wide 0.15% floor is
+# genuinely narrower than BTC's own real volatility: measured directly
+# against 14 days of real BTCUSDT.P 15M candles, the average real
+# candle range is 0.2247% (median 0.1838%) — wider than the 0.15% a
+# stop is allowed to sit at, so completely ordinary price noise can
+# tag a correctly-floored BTC stop before the trade idea was ever
+# wrong. Set to 0.0023 (matching that real measurement, not a round
+# guess) so a BTC stop survives a typical candle's own range.
+#
+# XAUTUSDT.P was checked the same way and is DELIBERATELY left out:
+# its own real 15M range measured 0.093%-0.105% across both brokers
+# serving it (bingx/mexc) — NARROWER than XAUT's existing ~0.137%
+# average observed stop, meaning its stops are already wider than its
+# own typical noise. The "stop tighter than real volatility" mechanism
+# that justifies BTC's override does not hold for XAUT — its real loss-
+# rate problem (58.3%, the platform's worst) has some other cause,
+# not this one. Widening it here anyway, just because the two symbols
+# were grouped together in an earlier analysis, would be exactly the
+# kind of unverified, "plausible-sounding" change this session has
+# repeatedly avoided.
+_SYMBOL_MIN_STOP_DISTANCE_PCT_OVERRIDES = {
+    "BTC": 0.0023,
+}
+
+
+def resolve_min_stop_pct(symbol: Optional[str]) -> float:
+    """The real min-stop-distance floor for this symbol — the override
+    above if this symbol's base asset matches one, otherwise the
+    platform-wide MIN_STOP_DISTANCE_PCT unchanged. Pass the result as
+    apply_min_stop_distance_floor's own min_pct wherever a bot's SL
+    branch already has `symbol` in scope (every analyze() signature
+    does); leave bot_11's own deliberate _FLOOR_PCT override alone —
+    that's already wider than anything here and this never replaces
+    an explicit per-bot value, only the platform default."""
+    if not symbol:
+        return MIN_STOP_DISTANCE_PCT
+    for key, pct in _SYMBOL_MIN_STOP_DISTANCE_PCT_OVERRIDES.items():
+        if key in symbol.upper():
+            return pct
+    return MIN_STOP_DISTANCE_PCT
 
 
 @dataclass
@@ -605,7 +649,7 @@ class OrderBlockReversalBot:
             # floor every other stop-placement path enforces) this
             # produced a genuinely undersized, premature stop. Floor
             # — see apply_min_stop_distance_floor's own docstring.
-            final_stop_loss = apply_min_stop_distance_floor(entry["entry_price"], final_stop_loss, direction)
+            final_stop_loss = apply_min_stop_distance_floor(entry["entry_price"], final_stop_loss, direction, min_pct=resolve_min_stop_pct(symbol))
             sl = {
                 "stop_loss": final_stop_loss,
                 "sl_distance": abs(entry["entry_price"] - final_stop_loss),
@@ -812,7 +856,7 @@ class FVGExpansionBot:
         # above distance pathologically tiny, inflating lot_size/
         # notional past what any account can afford. See
         # apply_min_stop_distance_floor's own docstring.
-        sl_price = apply_min_stop_distance_floor(entry_price, sl_price, direction)
+        sl_price = apply_min_stop_distance_floor(entry_price, sl_price, direction, min_pct=resolve_min_stop_pct(symbol))
         sl_distance = abs(entry_price - sl_price)
 
         sl = {
@@ -954,7 +998,7 @@ class FVGExpansionV3Bot:
             sl_price = target_fvg.top + (target_fvg.top - target_fvg.bottom) * 0.1
 
         # Floor — see apply_min_stop_distance_floor's own docstring.
-        sl_price = apply_min_stop_distance_floor(entry_price, sl_price, direction)
+        sl_price = apply_min_stop_distance_floor(entry_price, sl_price, direction, min_pct=resolve_min_stop_pct(symbol))
         sl_distance = abs(entry_price - sl_price)
         sl = {"stop_loss": sl_price, "sl_distance": sl_distance, "method": "fvg_extreme"}
 
@@ -1099,7 +1143,7 @@ class FVGExpansionHTFGatedBot:
             sl_price = target_fvg.bottom - (target_fvg.top - target_fvg.bottom) * 0.1
         else:
             sl_price = target_fvg.top + (target_fvg.top - target_fvg.bottom) * 0.1
-        sl_price = apply_min_stop_distance_floor(entry_price, sl_price, direction)
+        sl_price = apply_min_stop_distance_floor(entry_price, sl_price, direction, min_pct=resolve_min_stop_pct(symbol))
         sl_distance = abs(entry_price - sl_price)
         sl = {"stop_loss": sl_price, "sl_distance": sl_distance, "method": "fvg_extreme"}
 
@@ -1244,7 +1288,7 @@ class FVGExpansionOBPOIBot:
             sl_price = target_ob.bottom - zone_width * 0.1
         else:
             sl_price = target_ob.top + zone_width * 0.1
-        sl_price = apply_min_stop_distance_floor(entry_price, sl_price, direction)
+        sl_price = apply_min_stop_distance_floor(entry_price, sl_price, direction, min_pct=resolve_min_stop_pct(symbol))
         sl_distance = abs(entry_price - sl_price)
         sl = {"stop_loss": sl_price, "sl_distance": sl_distance, "method": "ob_extreme"}
 
@@ -1521,7 +1565,7 @@ class VolumeLiquidityBot:
         # stop from range_size * 0.02 with no floor at all, so a tight
         # range could produce an undersized stop. See
         # apply_min_stop_distance_floor's own docstring.
-        sl_price = apply_min_stop_distance_floor(entry_price, sl_price, direction)
+        sl_price = apply_min_stop_distance_floor(entry_price, sl_price, direction, min_pct=resolve_min_stop_pct(symbol))
         sl_distance = abs(entry_price - sl_price)
         sl = {
             "stop_loss": sl_price,
@@ -1822,7 +1866,7 @@ class JeafxSMCBot:
         # other raw sweep-extreme SL branches (see Bot 2's own fix
         # comment for the full root cause). See
         # apply_min_stop_distance_floor's own docstring.
-        sl_price = apply_min_stop_distance_floor(entry_price, sl_price, direction)
+        sl_price = apply_min_stop_distance_floor(entry_price, sl_price, direction, min_pct=resolve_min_stop_pct(symbol))
         sl_distance = abs(entry_price - sl_price)
 
         sl = {
@@ -2047,7 +2091,7 @@ class JeafxSMCHTFGatedBot:
         else:
             sl_price = purge_extreme + buffer
         sl_price = extend_stop_beyond_zone(sl_price, aligned_zone, direction)
-        sl_price = apply_min_stop_distance_floor(entry_price, sl_price, direction)
+        sl_price = apply_min_stop_distance_floor(entry_price, sl_price, direction, min_pct=resolve_min_stop_pct(symbol))
         sl_distance = abs(entry_price - sl_price)
         sl = {"stop_loss": sl_price, "sl_distance": sl_distance, "method": "jeafx_purge_extreme"}
 
@@ -2269,7 +2313,7 @@ class JeafxSMCv2Bot:
         sl_price = extend_stop_beyond_zone(sl_price, aligned_zone, direction)
         # Floor — see Bot 2/Bot 5's own fix comment for the full root
         # cause; same gap, same fix, everywhere this pattern recurs.
-        sl_price = apply_min_stop_distance_floor(entry_price, sl_price, direction)
+        sl_price = apply_min_stop_distance_floor(entry_price, sl_price, direction, min_pct=resolve_min_stop_pct(symbol))
         sl_distance = abs(entry_price - sl_price)
         sl = {"stop_loss": sl_price, "sl_distance": sl_distance, "method": "jeafx_purge_extreme"}
 
@@ -2462,7 +2506,7 @@ class JeafxSMCv2SingleAnchorBot:
         sl_price = extend_stop_beyond_zone(sl_price, aligned_zone, direction)
         # Floor — see Bot 2/Bot 5's own fix comment for the full root
         # cause; same gap, same fix, everywhere this pattern recurs.
-        sl_price = apply_min_stop_distance_floor(entry_price, sl_price, direction)
+        sl_price = apply_min_stop_distance_floor(entry_price, sl_price, direction, min_pct=resolve_min_stop_pct(symbol))
         sl_distance = abs(entry_price - sl_price)
         sl = {"stop_loss": sl_price, "sl_distance": sl_distance, "method": "jeafx_purge_extreme"}
 
@@ -2663,7 +2707,7 @@ class VolumeLiquidityWideRangeBot:
         # other raw sweep/swing-extreme SL branches (see Bot 2's own
         # fix comment for the full root cause). See
         # apply_min_stop_distance_floor's own docstring.
-        sl_price = apply_min_stop_distance_floor(entry_price, sl_price, direction)
+        sl_price = apply_min_stop_distance_floor(entry_price, sl_price, direction, min_pct=resolve_min_stop_pct(symbol))
         sl_distance = abs(entry_price - sl_price)
         sl = {"stop_loss": sl_price, "sl_distance": sl_distance, "method": "spring_upthrust_extreme"}
 
@@ -2887,7 +2931,7 @@ class VolumeLiquidityHeldReclaimBot:
         # other raw sweep/swing-extreme SL branches (see Bot 2's own
         # fix comment for the full root cause). See
         # apply_min_stop_distance_floor's own docstring.
-        sl_price = apply_min_stop_distance_floor(entry_price, sl_price, direction)
+        sl_price = apply_min_stop_distance_floor(entry_price, sl_price, direction, min_pct=resolve_min_stop_pct(symbol))
         sl_distance = abs(entry_price - sl_price)
         sl = {"stop_loss": sl_price, "sl_distance": sl_distance, "method": "spring_upthrust_extreme"}
 
