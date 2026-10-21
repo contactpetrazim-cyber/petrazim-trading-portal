@@ -633,12 +633,12 @@ Verified against `MacroSwingStructureBot.analyze()` Step 3 in
 
 ---
 
-## BOT1-05 — Invalidation: The Four Conditions That Return No Signal
+## BOT1-05 — Invalidation: The Five Conditions That Return No Signal
 
 **Level:** 3
-**Estimated study time:** 12 minutes
+**Estimated study time:** 13 minutes
 **Prerequisites:** BOT1-02, BOT1-03, BOT1-04, C2-09
-**Learning objectives:** List all four conditions in Bot 1's pipeline
+**Learning objectives:** List all five conditions in Bot 1's pipeline
 that cause it to return no signal, in the order they're checked.
 
 ### Why This Matters
@@ -648,77 +648,94 @@ makes it concrete and exhaustive for Bot 1 specifically — the complete,
 real list of every reason this bot declines to signal, not an
 approximation of it.
 
+**Correction, re-verified against current source:** an earlier version
+of this lesson stated Bot 1 has four gates. Re-reading
+`MacroSwingStructureBot.analyze()` end to end shows a fifth, later
+`return None` the earlier count missed: the discount/premium check
+BOT1-04 already teaches as part of zone selection is a real, separate
+invalidation point, not just color on the entry calculation. The
+numbers below reflect the corrected, verified count.
+
 ### Core Teaching
 
 **Plain-English explanation.** Reading straight through
-`MacroSwingStructureBot.analyze()` in order, there are exactly four
+`MacroSwingStructureBot.analyze()` in order, there are exactly five
 points where it can stop and return no signal: (1) fewer than 4 total
 1D swing points (BOT1-02); (2) the 1D highs and lows don't agree on a
 single trend direction (BOT1-02); (3) no 4H BOS exists, or the one
 that does exist doesn't match the 1D trend direction (BOT1-03); (4) no
-ACTIVE, direction-matching 4H order block exists (BOT1-04). Any one of
-these four is sufficient on its own to end the pipeline with no trade.
+ACTIVE, direction-matching 4H order block exists (BOT1-04); (5) the
+most recent such order block sits on the WRONG side of the 4H range —
+premium for a long, discount for a short (BOT1-04's own discount/
+premium filter). Any one of these five is sufficient on its own to end
+the pipeline with no trade.
 
 **Technical explanation.** This ordered list matters because each
 check happens SEQUENTIALLY — the function returns immediately at the
 first failed condition, never evaluating anything downstream of it.
-This means a chart that fails condition 1 (too few 1D swings) never
-even gets checked against conditions 2 through 4; the four aren't
-independent parallel checks, they're a gate the analysis has to pass
-through in order.
+Gate 5 is its own distinct `if (direction == "long" and
+entry_zone.classification == "premium") or (direction == "short" and
+entry_zone.classification == "discount"): return None`, reached only
+after gate 4's `valid_zones` is already non-empty and `entry_zone =
+valid_zones[-1]` has been selected — a zone can exist, be ACTIVE, and
+match the trend direction, and still fail here if it sits on the
+wrong side of the broader 4H/1D range.
 
 ### Visual Model
 
-See diagram: `visuals/bot1-05-four-gates.svg` — a horizontal sequence
-of four gates (1D swing count -> 1D trend clarity -> 4H BOS alignment
--> 4H zone availability), each with a "return None" exit branching
-downward, only the far end leading to an actual signal.
+See diagram: `visuals/bot1-05-five-gates.svg` — a horizontal sequence
+of five gates (1D swing count -> 1D trend clarity -> 4H BOS alignment
+-> 4H zone availability -> zone's discount/premium side), each with a
+"return None" exit branching downward, only the far end leading to an
+actual signal.
 
 ### Worked Example
 
 A chart has a clean, confirmed 1D uptrend (passes gates 1-2) and a
-matching bullish 4H BOS (passes gate 3), but every existing 4H bullish
-order block is already MITIGATED. Gate 4 fails, and `analyze()`
-returns `None` — even though the first three gates were fully
-satisfied.
+matching bullish 4H BOS (passes gate 3), and an ACTIVE 4H bullish
+order block exists (passes gate 4) — but that block sits in the
+PREMIUM half of the 4H range. Gate 5 fails, and `analyze()` returns
+`None` — even though the first four gates were fully satisfied.
 
 ### Counterexample
 
 A chart has only 3 total 1D swing points. Gate 1 fails immediately —
 the function returns `None` before ever checking whether a 4H BOS
-exists or whether any zones are available, even if both of those
-would otherwise have been favorable.
+exists, whether any zones are available, or where they sit in the
+range, even if all of those would otherwise have been favorable.
 
 ### Good Example / Bad Example
 
-Good: Understanding that ANY one of the four gates failing is
+Good: Understanding that ANY one of the five gates failing is
 sufficient to end the analysis — there's no partial credit or
-weighted scoring across them. Bad: Assuming a "strong" pass on three
-of the four gates should count for something even if the fourth
+weighted scoring across them. Bad: Assuming a "strong" pass on four
+of the five gates should count for something even if the fifth
 fails — Bot 1's real logic has no such weighting.
 
 ### What to Look Out For
 
-- The four gates are checked IN ORDER — an early failure means later
+- The five gates are checked IN ORDER — an early failure means later
   gates are never evaluated at all.
-- Passing three of four gates still returns `None` if the fourth
+- Passing four of five gates still returns `None` if the fifth
   fails — there's no partial-credit scoring anywhere in this pipeline.
-- Every one of these four gates has already been taught individually
-  in BOT1-02 through BOT1-04 — this lesson is their assembly into one
-  complete list, not new material.
+- Gate 5 (discount/premium) is easy to under-count because it reads,
+  at a glance, like part of gate 4's zone selection — it's actually a
+  separate `return None` line of its own.
 
 ### Common Mistakes
 
-Treating a signal that "almost" formed (three of four gates passed) as
+Treating a signal that "almost" formed (four of five gates passed) as
 meaningfully different from one that failed at the first gate is a
 common misread — Bot 1's own logic treats every gate failure
 identically: no signal, regardless of which gate or how many others
-passed.
+passed. Citing "four gates" (the pre-correction count) is now the
+single most common Bot-1-specific mistake this lesson exists to
+correct.
 
 ### Key Takeaways
 
-1. Bot 1's pipeline has exactly four possible no-signal points, checked
-   in a fixed sequential order.
+1. Bot 1's pipeline has exactly five possible no-signal points, checked
+   in a fixed sequential order — not four.
 2. An early gate failure means later gates are never even evaluated.
 3. There is no partial credit — passing most gates but failing one
    still returns no signal, identically to failing the first gate.
@@ -726,21 +743,21 @@ passed.
 ### Practice Drill
 
 Given eight scenario summaries (provided in Practise), each describing
-which of the four gates pass or fail, determine at which gate (if any)
+which of the five gates pass or fail, determine at which gate (if any)
 `analyze()` would return `None`.
 
 ### Scenario Challenge
 
-A trader says "the setup was so close — three out of four conditions
+A trader says "the setup was so close — four out of five conditions
 were perfect." Using Bot 1's actual sequential-gate logic, explain why
 this framing (partial credit) doesn't match how the bot actually
 decides.
 
 ### Mini Quiz
 
-Q1 (True/False): Bot 1 evaluates all four gates independently and
+Q1 (True/False): Bot 1 evaluates all five gates independently and
 weighs how many passed.
-Answer: False — the four gates are sequential; a single failure ends
+Answer: False — the five gates are sequential; a single failure ends
 the analysis immediately, with no weighting of how many others passed.
 
 Q2 (Multiple choice): If a chart has fewer than 4 total 1D swing
@@ -752,18 +769,24 @@ points, which later gates get evaluated?
 
 Answer: (b).
 
+Q3 (True/False): An ACTIVE, direction-matching 4H order block is
+always enough to produce a Bot 1 signal.
+Answer: False — it can still fail the fifth gate if it sits on the
+wrong side of the 4H range (premium for a long, discount for a short).
+
 ### Flashcards
 
 - Front: How many distinct no-signal gates exist in Bot 1's pipeline?
-  Back: Four — 1D swing count, 1D trend clarity, 4H BOS alignment,
-  and 4H zone availability — checked in that sequential order.
-- Front: Does passing 3 of 4 gates count for anything? Back: No —
+  Back: Five — 1D swing count, 1D trend clarity, 4H BOS alignment, 4H
+  zone availability, and the zone's own discount/premium side —
+  checked in that sequential order.
+- Front: Does passing 4 of 5 gates count for anything? Back: No —
   Bot 1's logic has no partial-credit scoring; any single gate failure
   returns no signal, identically regardless of which gate.
 
 ### Mastery Criteria
 
-Correctly identify the failing gate (or confirm all four pass) in all
+Correctly identify the failing gate (or confirm all five pass) in all
 eight practice-drill scenarios.
 
 ### Spaced Review
@@ -1148,10 +1171,10 @@ a signal fired — or was manually forced — anyway).
 ### Core Teaching
 
 **Plain-English explanation.** A valid Bot 1 loss looks like this: all
-four gates from BOT1-05 genuinely passed, the entry, stop, and target
+five gates from BOT1-05 genuinely passed, the entry, stop, and target
 were calculated exactly as BOT1-06/07 describe, and the trade still
 hit its stop — normal variance from a genuinely sound signal (ORIENT-04).
-A bad Bot 1 loss looks like one of the four gates being ignored or
+A bad Bot 1 loss looks like one of the five gates being ignored or
 forced past — most commonly, a trader manually entering on a 4H CHoCH
 (BOT1-03) mistaking it for confirmation, or using a zone that wasn't
 actually ACTIVE (BOT1-04).
@@ -1159,7 +1182,7 @@ actually ACTIVE (BOT1-04).
 **Technical explanation.** Because `MacroSwingStructureBot.analyze()`
 either returns a complete, gate-passed `BotSignal` or `None` — with no
 partial or low-confidence signal in between — every REAL Bot 1 signal
-by construction already passed all four BOT1-05 gates. This means any
+by construction already passed all five BOT1-05 gates. This means any
 genuine Bot 1 signal that loses is, by definition, a valid loss in
 C9-02's sense: the process (the bot's own pipeline) was followed
 correctly, and the loss reflects real market variance, not a process
@@ -1170,7 +1193,7 @@ setup but that the actual pipeline would have returned `None` for.
 ### Visual Model
 
 See diagram: `visuals/bot1-08-valid-vs-bad-loss.svg` — two paths: a
-real bot-generated signal (all four gates passed) hitting its stop,
+real bot-generated signal (all five gates passed) hitting its stop,
 labeled "valid loss — normal variance"; and a manually forced trade
 that skipped a gate, labeled "bad loss — process was never actually
 followed."
@@ -1196,16 +1219,16 @@ satisfied; the process wasn't followed, a human simply resembled it.
 Good: Trusting that any genuine, bot-generated Bot 1 signal that
 loses is a valid loss by construction, since the pipeline enforces
 every gate automatically. Bad: Manually replicating what LOOKS like a
-Bot 1 setup while quietly skipping one of its four real gates, then
+Bot 1 setup while quietly skipping one of its five real gates, then
 treating a resulting loss as if the real process had been followed.
 
 ### What to Look Out For
 
 - A genuine, bot-generated Bot 1 signal is a valid loss by
-  construction if it loses — the pipeline itself enforces all four
+  construction if it loses — the pipeline itself enforces all five
   gates before ever producing a signal.
 - A manually-forced trade that resembles Bot 1's style is only a
-  valid Bot 1 loss if it ACTUALLY passes all four BOT1-05 gates, not
+  valid Bot 1 loss if it ACTUALLY passes all five BOT1-05 gates, not
   just superficially resembles one.
 - The single most common bad-loss pattern for this bot specifically is
   mistaking a 4H CHoCH for BOS confirmation (BOT1-03).
@@ -1215,21 +1238,21 @@ treating a resulting loss as if the real process had been followed.
 Assuming any trade that "looks like" a Bot 1 setup carries the same
 valid-loss status as an actual bot-generated signal is the most
 consequential mistake this lesson exists to correct — resemblance is
-not the same as actually passing all four gates.
+not the same as actually passing all five gates.
 
 ### Key Takeaways
 
 1. A genuine Bot 1 signal, by construction, has already passed all
-   four BOT1-05 gates — a loss on one is a valid loss (C9-02).
+   five BOT1-05 gates — a loss on one is a valid loss (C9-02).
 2. A manually-forced trade only counts as a genuine Bot 1 signal if it
-   ACTUALLY passes all four gates, not merely resembles the pattern.
+   ACTUALLY passes all five gates, not merely resembles the pattern.
 3. The most common Bot-1-specific bad-loss pattern is mistaking a 4H
    CHoCH for the BOS confirmation this bot actually requires.
 
 ### Practice Drill
 
 Given five losing-trade case studies styled after Bot 1 (provided in
-Practise), determine which are valid losses (all four gates genuinely
+Practise), determine which are valid losses (all five gates genuinely
 passed) and which are bad losses (a gate was actually skipped).
 
 ### Scenario Challenge
@@ -1243,7 +1266,7 @@ and explain what specifically should change going forward.
 
 Q1 (True/False): Every real, bot-generated Bot 1 signal that loses is
 automatically a valid loss.
-Answer: True — the pipeline only produces a signal after all four
+Answer: True — the pipeline only produces a signal after all five
 BOT1-05 gates genuinely pass, so a loss on a real signal reflects
 normal variance, not a process failure.
 
@@ -1259,7 +1282,7 @@ Answer: (b).
 ### Flashcards
 
 - Front: Is a losing, genuinely bot-generated Bot 1 signal a valid or
-  bad loss? Back: Valid — by construction it already passed all four
+  bad loss? Back: Valid — by construction it already passed all five
   BOT1-05 gates, so the loss reflects normal variance.
 - Front: What's the most common Bot-1-specific bad-loss pattern?
   Back: Mistaking a 4H CHoCH for the BOS confirmation this bot
@@ -1475,7 +1498,7 @@ update.
 **Plain-English explanation.** Given raw 1D and 4H candle data (no
 swings, zones, or trend pre-identified), work the entire pipeline from
 scratch: detect the swings, determine the trend, detect the 4H BOS,
-detect the 4H zones, run all four BOT1-05 gates, and — if every gate
+detect the 4H zones, run all five BOT1-05 gates, and — if every gate
 passes — produce the exact entry, stop, real `tp1` take-profit, and a
 `reasoning` string in the same style Bot 1's own code generates.
 
@@ -1502,7 +1525,7 @@ as one continuous flow for the first time in this track.
 A full capstone scenario (provided in Practise) supplies raw 1D and
 4H candle series. Working the complete pipeline: 4+ 1D swings confirm
 a bearish trend, a matching bearish 4H BOS is detected, one ACTIVE
-bearish 4H zone is found, all four gates pass, entry is calculated at
+bearish 4H zone is found, all five gates pass, entry is calculated at
 the zone mean, stop beyond the confirming 1D swing high, and the real
 `tp1` take-profit at its actual fixed 1:1 (not the 2:1 or 5:1 the
 passed `rr_ratio` parameter might suggest) — producing a complete
@@ -1544,7 +1567,7 @@ The most consequential mistake at this capstone level is treating
 `None` as a lesser or incomplete answer compared to a full signal —
 Bot 1's real pipeline returns `None` far more often than it returns a
 signal (BOT1-01's low-frequency point), and correctly identifying
-which of the four gates failed is exactly as demonstrative of mastery
+which of the five gates failed is exactly as demonstrative of mastery
 as producing a correct full signal.
 
 ### Key Takeaways
