@@ -818,7 +818,7 @@ but in a different shape: Bot 5's gates 2-3 (4H BOS existence, BOS
 type recognition) sit between zone refinement and the purge; Bot 6's
 corresponding direction gates (5-6) sit AFTER the purge, zone
 alignment, AND confirmation candle — the full six-bot comparison now
-reads: Bot 1 (four), Bot 2 (three), Bot 3 (two), Bot 4 (eleven), Bot 5
+reads: Bot 1 (five), Bot 2 (three), Bot 3 (two), Bot 4 (eleven), Bot 5
 (six, direction gates early), Bot 6 (six, direction gates late). Gates
 1-4 here are identical in position and mechanics to Bot 5's own gates
 1 and 4-6 (BOT6-02 through BOT6-04) — Bot 5's old gates 2-3 are simply
@@ -918,7 +918,7 @@ Answer: (c).
 
 - Front: How many real gates does Bot 6's pipeline have, and how does
   that compare to the other bots? Back: Six — tied with Bot 5, both
-  behind only Bot 4's eleven (Bot 1: four, Bot 2: three, Bot 3: two).
+  behind only Bot 4's eleven (Bot 1: five, Bot 2: three, Bot 3: two).
 - Front: How does Bot 6's gate ORDER differ from Bot 5's, despite the
   same total count? Back: Bot 5's direction gates sit early (right
   after zone refinement); Bot 6's sit late (after the purge AND

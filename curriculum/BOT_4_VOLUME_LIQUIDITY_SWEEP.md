@@ -681,7 +681,7 @@ a 4H point-of-interest check, an FVG-plus-ordering check, and a 4H
 BOS trend-agreement check (itself two gates: BOS must exist, AND it
 must agree). That's 4 new gates on top of the original 7, for eleven
 total — the longest gate list of any bot in this curriculum by an
-even wider margin now: Bot 1 (four), Bot 2 (three), Bot 3 (two), Bot 4
+even wider margin now: Bot 1 (five), Bot 2 (three), Bot 3 (two), Bot 4
 (eleven), Bot 5 (six), Bot 6 (BOT6-06).
 
 ### Core Teaching
@@ -708,7 +708,7 @@ confluence item.
 
 **Technical explanation.** This is now the longest verified gate list
 in this curriculum's cross-bot comparison by a wider margin than
-before — eleven, versus Bot 1's four, Bot 2's three, Bot 3's two, Bot
+before — eleven, versus Bot 1's five, Bot 2's three, Bot 3's two, Bot
 5's six, and Bot 6's own count (BOT6-06). Gate 5 (`if not any(z.bottom
 <= poi_price <= z.top for z in active_zones_4h): return None`) sits
 between the proximity test (gate 4) and the Spring/Upthrust search
@@ -728,7 +728,7 @@ independent, sequential `if` statements, not a combined branch.
 See diagram: `visuals/bot4-05-eleven-gates.svg` — an eleven-step
 sequential gate list with the four NEW gates (5, 9, 10, 11) visually
 highlighted against the original seven, shown at true relative length
-next to Bot 1's four, Bot 2's three, Bot 3's two, and Bot 5's six gate
+next to Bot 1's five, Bot 2's three, Bot 3's two, and Bot 5's six gate
 sequences from earlier lessons — Bot 4 remains the longest, now by a
 wider margin.
 
@@ -835,7 +835,7 @@ Answer: (d).
 - Front: How many real gates does Bot 4's pipeline have today, and how
   does that compare to the other bots? Back: Eleven — up from seven,
   after a confluence checklist was added by direct request; still the
-  longest of any bot covered (Bot 1: four, Bot 2: three, Bot 3: two,
+  longest of any bot covered (Bot 1: five, Bot 2: three, Bot 3: two,
   Bot 5: six).
 - Front: What are the three NEW confluence gates added to Bot 4's
   pipeline? Back: (1) the range extreme must sit inside a real ACTIVE
