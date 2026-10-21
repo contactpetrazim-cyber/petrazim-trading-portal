@@ -3,6 +3,7 @@ import { PageHeader } from '../../components/PageHeader';
 import { DecisionLabEngine, type DecisionNode } from '../../components/DecisionLabEngine';
 import { FVGFillVisualizer } from '../../components/smcVisualizers/FVGFillVisualizer';
 import { BotRulesSlide } from '../../components/BotRulesSlide';
+import { ReplayRealSetup } from '../../components/ReplayRealSetup';
 import { useThemeStore } from '../../hooks/useTheme';
 
 /**
@@ -111,6 +112,10 @@ export function Bot3DecisionLab() {
 
       <div className="mb-5">
         <BotRulesSlide botId="bot_3" dark={dark} />
+      </div>
+
+      <div className="mb-5">
+        <ReplayRealSetup botId="bot_3_fvg_expansion" dark={dark} />
       </div>
 
       <DecisionLabEngine
