@@ -133,6 +133,34 @@ async def compute_trade_forensics(db: AsyncSession, trade: Trade) -> Dict:
     if fetch_error:
         return {"error": fetch_error}
 
+    # Also always reconstruct 15M and 5M — by direct request ("ADD 15M
+    # and 5M to all forensic charts"), same "irrespective of strategy"
+    # precedent as 4H/1D above. Fetched in a SEPARATE, best-effort call
+    # rather than folded into display_tf_labels above: unlike 4H/1D,
+    # 5M (and sometimes 15M) candles have a real, much shorter exchange
+    # retention window (the ~35-day BingX 5M retention limit already
+    # found and worked around earlier this session for backtesting) —
+    # fetch_required_timeframe_candles fails its ENTIRE call if even
+    # ONE requested timeframe has no candles in-window, so a trade
+    # whose entry is older than that retention window would otherwise
+    # take down 1D/4H/1H structure too for a problem specific to 5M.
+    # A missing/partial fine-timeframe here degrades gracefully to its
+    # own "too few real candles" note below instead.
+    fine_extra_labels = [l for l in ("15M", "5M") if l not in display_tf_labels]
+    if fine_extra_labels:
+        # fetch_required_timeframe_candles returns whatever it DID
+        # fetch even on error (see its own docstring/implementation) —
+        # merge that partial dict in regardless, so one fine timeframe
+        # failing (e.g. 5M past retention) doesn't also discard the
+        # other one that may have succeeded (e.g. 15M). Any label still
+        # missing/empty falls through to the existing per-label "too
+        # few real candles" note below via timeframe_candles.get(...).
+        fine_candles, _fine_fetch_error = await fetch_required_timeframe_candles(
+            shared_ingestion, exchange, trade.symbol, fine_extra_labels, fetch_start, structure_end,
+        )
+        timeframe_candles.update(fine_candles)
+        display_tf_labels = display_tf_labels + fine_extra_labels
+
     bounds = TUNABLE_PARAM_BOUNDS.get(strategy_key, {})
     left_bars = int(bounds.get("left_bars", (2, 10, 3))[2])
     right_bars = int(bounds.get("right_bars", (2, 10, 3))[2])
