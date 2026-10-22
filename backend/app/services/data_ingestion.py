@@ -306,7 +306,7 @@ class MarketDataIngestion:
         for i, route in enumerate(routes):
             try:
                 ex = self._get_exchange_client(exchange, route)
-                ohlcv = await ex.fetch_ohlcv(ccxt_symbol, timeframe, since=since_ms, limit=limit)
+                ohlcv = await self._fetch_ohlcv_with_busy_retry(ex, ccxt_symbol, timeframe, since_ms, limit)
                 if i > 0:
                     logger.warning("candle_fetch_route_failover", exchange=exchange, route=route, previous_error=str(last_error))
                 return [
@@ -322,19 +322,66 @@ class MarketDataIngestion:
                     )
                     for timestamp_ms, open_p, high_p, low_p, close_p, volume in ohlcv
                 ]
-            except (ccxt.NetworkError, ccxt.ProxyError) as e:
+            except (ccxt.NetworkError, ccxt.ProxyError, ccxt.OperationFailed) as e:
                 # ProxyError (malformed proxy config, unreachable proxy
                 # at the transport level) is NOT a ccxt.NetworkError
                 # subclass — it inherits from ExchangeError instead —
                 # but it's exactly as eligible for failover as one:
                 # this specific route's transport is broken, not the
                 # exchange rejecting the actual request.
+                #
+                # ccxt.OperationFailed (added after a real, confirmed
+                # live bug: bot_8_smc_v2_single_anchor went permanently
+                # silent because every XAUTUSDT.P/bingx candle fetch
+                # failed, 13/13, across this container's entire uptime,
+                # while sibling bots on bingx with different symbols
+                # succeeded in the same window) — BingX's own code
+                # 100410/100500 response, which ccxt's own bingx.py
+                # source comments literally as "The current system is
+                # busy, please try again later", is classified by ccxt
+                # as OperationFailed, a plain BaseError subclass, NOT a
+                # NetworkError. Before this fix it fell into the
+                # generic `except Exception` below and raised
+                # immediately on the FIRST attempt — no retry, no
+                # backoff, no route failover — even though BingX's own
+                # message says this is transient. _fetch_ohlcv_with_busy_retry
+                # already gave this route a few backed-off retries; by
+                # the time we're here every one of those failed too, so
+                # falling through to the next route (which _is_ a
+                # different IP, in case the "busy" condition is
+                # IP-scoped) is strictly better than the old
+                # immediate-raise, and no worse than NetworkError's
+                # existing failover for a transport problem.
                 last_error = e
                 continue
             except Exception as e:
                 raise Exception(f"Failed to fetch from {exchange}: {str(e)}")
 
         raise Exception(f"Failed to fetch from {exchange} via every route (proxy, backup, direct): {last_error}")
+
+    @staticmethod
+    async def _fetch_ohlcv_with_busy_retry(ex, ccxt_symbol: str, timeframe: str, since_ms: Optional[int], limit: int):
+        """A bounded, backed-off retry loop scoped to exactly ONE ccxt
+        exception: OperationFailed, which is how ccxt classifies
+        BingX's code 100410/100500 "the current system is busy, please
+        try again later" response (see this function's only caller for
+        the full story). Every OTHER exception (NetworkError, a bad
+        symbol, anything else) is NOT caught here — it propagates
+        immediately to the caller's own existing handling, unchanged.
+        3 attempts (1 original + 2 retries) with a short, increasing
+        delay — enough for a genuinely transient "busy" window to
+        clear without turning one candle fetch into a long-running
+        operation that backs up the whole scan cycle behind it."""
+        import ccxt
+        last_error: Optional[Exception] = None
+        for attempt in range(3):
+            try:
+                return await ex.fetch_ohlcv(ccxt_symbol, timeframe, since=since_ms, limit=limit)
+            except ccxt.OperationFailed as e:
+                last_error = e
+                if attempt < 2:
+                    await asyncio.sleep(1.5 * (attempt + 1))
+        raise last_error
         # No `finally: await ex.close()` any more — every client is
         # long-lived (cached per exchange+route), not a one-shot
         # resource. Cleaned up when the process exits.
