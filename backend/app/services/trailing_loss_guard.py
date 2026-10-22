@@ -66,11 +66,13 @@ LOSS_GUARD_CUMULATIVE_MULTIPLE = 3.0
 # never recover once it crosses the streak count, regardless of
 # balance, credentials, or exchange config — confirmed this was the
 # actual, sole blocker for bot_5_jeafx, not any of those other
-# things. 72 hours is long enough that a genuine, fast consecutive-
-# loss streak (the real scenario this guard exists to catch) still
-# trips it, short enough that it can never become a permanent,
-# unrecoverable block the way an unbounded streak just did.
-LOSS_GUARD_STREAK_STALENESS_HOURS = 72
+# things. 48 hours (by direct request — "the break or rest time or
+# idle should be 48 hours max before a reset") is long enough that a
+# genuine, fast consecutive-loss streak (the real scenario this guard
+# exists to catch) still trips it, short enough that it can never
+# become a permanent, unrecoverable block the way an unbounded streak
+# just did.
+LOSS_GUARD_STREAK_STALENESS_HOURS = 48
 # Enough rows to detect a 3-streak and compute a stable recent-average
 # risk — not tied to LOSS_GUARD_STREAK_COUNT so the two can be tuned
 # independently without this silently running out of rows to look at.
