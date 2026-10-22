@@ -52,6 +52,25 @@ from app.models.trade import Trade, TradeStatus
 LOSS_GUARD_STREAK_COUNT = 3
 LOSS_GUARD_WINDOW_HOURS = 4
 LOSS_GUARD_CUMULATIVE_MULTIPLE = 3.0
+# Real bug, found live: Condition 1 (the consecutive-loss streak,
+# below) had no time bound at all, unlike Condition 2's own
+# LOSS_GUARD_WINDOW_HOURS cutoff — contradicting this module's own
+# stated design ("naturally clears the moment the real picture
+# improves... with zero separate bookkeeping to reset or expire").
+# Confirmed live: bot_5_jeafx's last 6 closed trades (Oct 4-7) were
+# all losses, nothing newer existed, so the guard stayed permanently
+# tripped for 15+ days straight — a real deadlock, not a cooldown:
+# clearing it needs a new win, but the guard blocks every new signal
+# from ever becoming a trade in the first place. A bot or pair that
+# goes quiet (any reason — paused, a data gap, this exact bug) can
+# never recover once it crosses the streak count, regardless of
+# balance, credentials, or exchange config — confirmed this was the
+# actual, sole blocker for bot_5_jeafx, not any of those other
+# things. 72 hours is long enough that a genuine, fast consecutive-
+# loss streak (the real scenario this guard exists to catch) still
+# trips it, short enough that it can never become a permanent,
+# unrecoverable block the way an unbounded streak just did.
+LOSS_GUARD_STREAK_STALENESS_HOURS = 72
 # Enough rows to detect a 3-streak and compute a stable recent-average
 # risk — not tied to LOSS_GUARD_STREAK_COUNT so the two can be tuned
 # independently without this silently running out of rows to look at.
@@ -70,15 +89,24 @@ def _evaluate(rows: list[Trade]) -> LossGuardResult:
 
     # Condition 1 — consecutive losses, counted back from the most
     # recent closed trade (rows are already ordered newest-first); a
-    # win or breakeven breaks the streak immediately.
-    streak = 0
-    for t in rows:
-        if (t.realized_pnl or 0) < 0:
-            streak += 1
-        else:
-            break
-    if streak >= LOSS_GUARD_STREAK_COUNT:
-        return LossGuardResult(True, f"{streak} consecutive losses")
+    # win or breakeven breaks the streak immediately. Only evaluated
+    # when that most recent trade is itself still recent — see
+    # LOSS_GUARD_STREAK_STALENESS_HOURS's own comment above for the
+    # real deadlock this staleness check prevents.
+    most_recent = rows[0]
+    streak_is_stale = (
+        most_recent.exit_timestamp is not None
+        and most_recent.exit_timestamp < datetime.utcnow() - timedelta(hours=LOSS_GUARD_STREAK_STALENESS_HOURS)
+    )
+    if not streak_is_stale:
+        streak = 0
+        for t in rows:
+            if (t.realized_pnl or 0) < 0:
+                streak += 1
+            else:
+                break
+        if streak >= LOSS_GUARD_STREAK_COUNT:
+            return LossGuardResult(True, f"{streak} consecutive losses")
 
     # Condition 2 — cumulative loss within the trailing window, judged
     # against this bot/pair's own recent average risk (self-scaling —
