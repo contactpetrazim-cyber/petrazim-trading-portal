@@ -107,6 +107,28 @@ class TestPortfolioBacktestEngine:
         result = engine.run([p])
         assert result.trades == []
 
+    def test_trade_ids_unique_across_bots_sharing_a_symbol(self):
+        """Real bug, found live: trade_counter is scoped per (bot_id,
+        symbol) but trade_id was built from symbol+run_id+counter only
+        — two bots trading the SAME symbol in one portfolio run both
+        produced trade_id f"{symbol}_{run_id}_0" for their first trade,
+        colliding on closed_trades.trade_id's UNIQUE constraint. Same
+        symbol, different bot_id, offset timestamps so each can open
+        independently (capital allows both at this leverage)."""
+        bars_a = make_bars(30, start=100, step=2.0, t0=datetime(2024, 1, 1))
+        bars_b = make_bars(30, start=100, step=2.0, t0=datetime(2024, 1, 1, 0, 30))
+        p1 = PortfolioParticipant(bot_id="bot_a", symbol="SAME_SYMBOL", adapter=FixedSignalOnceAdapter(risk_percent=0.5, bot_id="bot_a"), bars=bars_a)
+        p2 = PortfolioParticipant(bot_id="bot_b", symbol="SAME_SYMBOL", adapter=FixedSignalOnceAdapter(risk_percent=0.5, bot_id="bot_b"), bars=bars_b)
+
+        engine = PortfolioBacktestEngine(cost_model=CostModel(), starting_balance=10000.0, leverage=50.0)
+        result = engine.run([p1, p2])
+
+        assert len(result.trades) == 2
+        trade_ids = [t.trade_id for t in result.trades]
+        assert len(set(trade_ids)) == len(trade_ids), f"trade_id collision: {trade_ids}"
+        assert any(tid.startswith("bot_a_") for tid in trade_ids)
+        assert any(tid.startswith("bot_b_") for tid in trade_ids)
+
     def test_force_closes_anything_still_open_at_end_of_data(self):
         bars = make_bars(6, start=100, step=0.001)  # barely moves, won't hit stop/target
         adapter = FixedSignalOnceAdapter(stop_distance=50, target_distance=500, risk_percent=1.0)
