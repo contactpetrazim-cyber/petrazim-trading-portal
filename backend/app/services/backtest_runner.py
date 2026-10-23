@@ -17,6 +17,7 @@ polls the same row for status/progress/results.
 
 from __future__ import annotations
 
+import traceback
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -173,8 +174,25 @@ async def run_backtest(run_id: str) -> None:
         logger.info("backtest_run_completed", run_id=run_id, bot_id=bot_id, symbol=symbol, total_trades=stats["total_trades"])
 
     except Exception as e:
-        logger.error("backtest_run_failed", run_id=run_id, error=str(e))
-        await _update_run(run_id, status=BacktestRunStatus.FAILED, error_message=str(e)[:2000], completed_at=datetime.now(timezone.utc))
+        # Real bug, found live via audit: a run from 2026-10-14 failed
+        # with "can't compare offset-naive and offset-aware datetimes"
+        # and nothing beyond that bare message was ever recorded —
+        # str(e) alone, with no traceback, gave no way to tell which
+        # of several datetime-handling call sites (_naive_utc here,
+        # fetch_historical_range's pagination, ccxt's own since=
+        # handling) actually raised it. Re-running the same bot/
+        # symbol/window against current main did NOT reproduce it, so
+        # whatever caused it may already be fixed as a side effect of
+        # later changes, or was a transient near-live-edge timing
+        # issue — but if it (or anything else here) recurs, this makes
+        # it actually debuggable from GET /backtests/{id} alone,
+        # without needing live log access.
+        tb = traceback.format_exc()
+        logger.error("backtest_run_failed", run_id=run_id, error=str(e), traceback=tb)
+        await _update_run(
+            run_id, status=BacktestRunStatus.FAILED,
+            error_message=f"{e}\n\n{tb}"[:4000], completed_at=datetime.now(timezone.utc),
+        )
 
 
 def _summarize(trades: list) -> dict:
