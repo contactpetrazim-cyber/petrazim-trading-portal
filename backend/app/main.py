@@ -167,6 +167,34 @@ async def lifespan(app: FastAPI):
         await conn.run_sync(LegacyBase.metadata.create_all)
         await _repair_missing_columns(conn, LegacyBase, "legacy")
 
+        # Real bug, found live via audit: backend/app/services/
+        # backtest_runner.py's run_backtest is ONLY ever scheduled by
+        # the same POST /backtests request that creates the QUEUED
+        # row (a bare asyncio.create_task, no job queue) -- there is no
+        # cross-restart resume mechanism anywhere. If this process
+        # stops (a deploy, a crash, this VM's own frequent restarts)
+        # between the row being created and run_backtest reaching a
+        # terminal status, the row is orphaned forever: confirmed live
+        # in production -- a real run from 2026-10-14 has sat QUEUED at
+        # 0% progress for 9 days with nothing ever going to pick it up
+        # again. GET /backtests/{id} would poll that row forever with
+        # no error and no way to tell the difference between "still
+        # running" and "will never run." Swept on every startup so a
+        # restart during a run fails it visibly (with a clear reason)
+        # instead of leaving it silently stuck -- the caller can just
+        # retry.
+        swept = await conn.execute(text(
+            "UPDATE backtest_runs SET status = 'failed', progress_pct = 0, "
+            "error_message = 'Orphaned by a process restart: this run was "
+            "queued or running when the previous process instance stopped. "
+            "There is no cross-restart resume mechanism, so it would never "
+            "complete on its own -- please submit it again.', "
+            "completed_at = now() "
+            "WHERE status IN ('queued', 'running')"
+        ))
+        if swept.rowcount:
+            logger.warning("backtest_runs_orphaned_swept", count=swept.rowcount)
+
     # Autonomous market scanner — off by default (MARKET_SCANNER_ENABLED).
     # See market_scanner.py's module docstring for what this does and
     # why it's opt-in.
