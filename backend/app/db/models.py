@@ -102,25 +102,52 @@ class BacktestRunORM(Base):
     SQLAlchemy declarative Bases (this one, the same as
     ClosedTradeORM/closed_trades; bot_configs on app.database.Base) —
     see that file's own module docstring for the "built in an isolated
-    sandbox round" history. `scope` is always "isolated" for now;
-    "portfolio" (whole-operation, shared-ledger replay) is a later,
-    explicitly separate phase of the same approved plan.
+    sandbox round" history. `scope` is "isolated" (one bot_id, the
+    default) or "portfolio" (every participating bot replayed together
+    against one shared ledger — app/engines/portfolio_backtest_engine.py,
+    wired up via app/services/backtest_runner.py's run_portfolio_backtest).
+    For a portfolio run, `bot_id` itself is set to the constant
+    `_PORTFOLIO_BOT_ID_SENTINEL` (see backtest_runner.py) rather than a
+    real bot_id — this column is NOT NULL and semantically "exactly one
+    real bot" everywhere else in this codebase (ClosedTradeORM.bot_id
+    included), so reusing it for a multi-bot run would be misleading.
+    The real participant set lives in `bot_ids`: an explicit list if the
+    request named one, or null meaning "every currently-ACTIVE bot,
+    resolved fresh at RUN time (not request time) so a bot
+    activated/deactivated in between can't produce a stale list" — the
+    runner overwrites this column with the actually-resolved list once
+    that resolution happens, so a completed run's `bot_ids` is always
+    the real participant set, never just the request's own ambiguity.
     `variant_group` is unused until the Intelligent-mode auto-tuning
     phase — included now so that phase doesn't need its own migration,
     same reasoning ClosedTradeORM.variant_group was already added for.
-    `equity_curve` is a self-contained [{"timestamp": iso, "cum_r":
-    float}, ...] snapshot computed once at completion, deliberately
-    NOT re-derived later by querying closed_trades for this bot_id —
-    closed_trades(source='backtest') rows aren't tagged with which run
-    produced them (no run_id column there), so a second run for the
-    same bot would make that query ambiguous; storing the curve here
-    keeps each run's own result fully self-describing regardless of
-    how many other runs exist for the same bot."""
+    `equity_curve` is a self-contained snapshot computed once at
+    completion, deliberately NOT re-derived later by querying
+    closed_trades for this bot_id — closed_trades(source='backtest')
+    rows aren't tagged with which run produced them (no run_id column
+    there), so a second run for the same bot(s) would make that query
+    ambiguous; storing the curve here keeps each run's own result fully
+    self-describing regardless of how many other runs exist. Isolated
+    mode's own shape is [{"timestamp": iso, "cum_r": float}, ...]
+    (unchanged); portfolio mode's shape is a dict — see
+    backtest_runner.py's `_summarize_portfolio` for exactly what it
+    contains (starting/ending balance, the raw per-bot/symbol event
+    list, a per-bot trade breakdown, and any per-bot fetch errors) —
+    this column was always a generic JSON blob, never schema-locked to
+    isolated mode's own list shape, so no migration is needed for this
+    part either."""
     __tablename__ = "backtest_runs"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     bot_id = Column(String, nullable=False, index=True)
     scope = Column(String, nullable=False, default="isolated")
+    # Portfolio-mode only (see class docstring) — always null for an
+    # isolated run. New, nullable column rather than overloading bot_id
+    # or symbol: auto-added to the live table by main.py's existing
+    # generic `_repair_missing_columns` schema-repair sweep on next
+    # deploy (driven purely off this model, nothing hand-listed there),
+    # so this needs no migration file and no main.py edit.
+    bot_ids = Column(JSON, nullable=True)
     symbol = Column(String, nullable=True)
     base_timeframe = Column(String, nullable=True)
     start_date = Column(DateTime(timezone=True), nullable=False)

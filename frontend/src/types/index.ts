@@ -711,12 +711,9 @@ export interface FeeVerifyResult {
 // R-multiple sequence (not dollars — this backtest mode deliberately
 // doesn't assume a compounding account size, matching how every live
 // bot actually sizes trades off a static reference balance).
-export interface BacktestRun {
+interface BacktestRunBase {
   id: string;
   bot_id: string;
-  scope: string;
-  symbol: string | null;
-  base_timeframe: string | null;
   start_date: string;
   end_date: string;
   status: 'queued' | 'running' | 'completed' | 'failed';
@@ -726,7 +723,49 @@ export interface BacktestRun {
   win_rate: number | null;
   expectancy_r: number | null;
   max_drawdown_pct: number | null;
-  equity_curve: { timestamp: string; cum_r: number }[] | null;
   created_at: string;
   completed_at: string | null;
 }
+
+export interface IsolatedBacktestRun extends BacktestRunBase {
+  scope: 'isolated';
+  bot_ids: null;
+  symbol: string | null;
+  base_timeframe: string | null;
+  equity_curve: { timestamp: string; cum_r: number }[] | null;
+}
+
+// Portfolio mode's own per-bot/symbol open/close event trace — the raw
+// output of PortfolioBacktestEngine.run(), persisted as-is inside
+// equity_curve.events (backend/app/services/backtest_runner.py's own
+// _summarize_portfolio).
+export interface PortfolioEquityEvent {
+  timestamp: string;
+  balance: number;
+  bot_id: string;
+  symbol: string;
+  event: 'open' | 'close';
+  pnl: number;
+}
+
+export interface PortfolioBacktestEquityCurve {
+  starting_balance: number;
+  ending_balance: number;
+  rejected_by_capital_adequacy: number;
+  events: PortfolioEquityEvent[];
+  per_bot: Record<string, { trades: number; win_rate: number; expectancy_r: number }>;
+  errors: Record<string, string>;
+}
+
+export interface PortfolioBacktestRun extends BacktestRunBase {
+  scope: 'portfolio';
+  // Null while queued (not yet resolved); once running/completed,
+  // always the real resolved participant set — see BacktestRunORM's
+  // own docstring for why this is never just the request's own list.
+  bot_ids: string[] | null;
+  symbol: null;
+  base_timeframe: null;
+  equity_curve: PortfolioBacktestEquityCurve | null;
+}
+
+export type BacktestRun = IsolatedBacktestRun | PortfolioBacktestRun;
