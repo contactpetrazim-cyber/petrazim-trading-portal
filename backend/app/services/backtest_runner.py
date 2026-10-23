@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import traceback
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Dict, List, Optional
 
 import structlog
 from sqlalchemy import select
@@ -28,10 +28,11 @@ from app.database import AsyncSessionLocal as PrimaryAsyncSessionLocal
 from app.db.session import AsyncSessionLocal as LegacyAsyncSessionLocal
 from app.db.models import BacktestRunORM, BacktestRunStatus
 from app.db.repository import save_backtest_trades
-from app.models.bot import BotConfig
+from app.models.bot import BotConfig, BotStatus
 from app.services.data_ingestion import shared_ingestion
 from app.engines.backtest_engine import BacktestEngine, Bar, CostModel
 from app.engines.strategy_adapter import SmcStrategyAdapter, STRATEGY_FAMILY, TF_ORDER, fetch_required_timeframe_candles
+from app.engines.portfolio_backtest_engine import PortfolioBacktestEngine, PortfolioParticipant, PortfolioBacktestResult
 
 logger = structlog.get_logger()
 
@@ -47,6 +48,13 @@ _DEFAULT_COST_MODELS = {
     "forex": CostModel(spread=0.0, slippage=0.0, commission_r=0.0005),
 }
 _FOREX_LIKE_BROKERS = {"tradelocker", "metatrader", "oanda"}
+
+# BacktestRunORM.bot_id is NOT NULL and semantically "exactly one real
+# bot" everywhere else in this codebase — a portfolio run has no
+# single bot, so this constant marks the row instead of a comma-joined
+# string or similar. The real participant set lives in bot_ids (see
+# BacktestRunORM's own docstring).
+_PORTFOLIO_BOT_ID_SENTINEL = "__portfolio__"
 
 
 def _naive_utc(dt: datetime) -> datetime:
@@ -71,6 +79,29 @@ async def start_backtest_run(bot_id: str, start_date: datetime, end_date: dateti
     async with LegacyAsyncSessionLocal() as db:
         run = BacktestRunORM(
             bot_id=bot_id, scope="isolated", symbol=symbol,
+            start_date=start_date, end_date=end_date,
+            status=BacktestRunStatus.QUEUED, progress_pct=0.0,
+            created_by=created_by, created_at=datetime.now(timezone.utc),
+        )
+        db.add(run)
+        await db.commit()
+        await db.refresh(run)
+        return str(run.id)
+
+
+async def start_portfolio_backtest_run(
+    bot_ids: Optional[List[str]], start_date: datetime, end_date: datetime, created_by: Optional[str] = None,
+) -> str:
+    """Portfolio-mode counterpart to start_backtest_run above — creates
+    the QUEUED row and hands back its id immediately. `bot_ids` is
+    stored exactly as requested (an explicit list, or None meaning "all
+    ACTIVE bots"); run_portfolio_backtest overwrites it with the
+    actually-resolved list once that resolution happens at RUN time,
+    per BacktestRunORM's own docstring."""
+    start_date, end_date = _naive_utc(start_date), _naive_utc(end_date)
+    async with LegacyAsyncSessionLocal() as db:
+        run = BacktestRunORM(
+            bot_id=_PORTFOLIO_BOT_ID_SENTINEL, scope="portfolio", bot_ids=bot_ids, symbol=None,
             start_date=start_date, end_date=end_date,
             status=BacktestRunStatus.QUEUED, progress_pct=0.0,
             created_by=created_by, created_at=datetime.now(timezone.utc),
@@ -195,6 +226,144 @@ async def run_backtest(run_id: str) -> None:
         )
 
 
+async def run_portfolio_backtest(run_id: str) -> None:
+    """Portfolio-mode counterpart to run_backtest above, mirroring its
+    structure/progress-update/error-handling conventions exactly
+    (including the full-traceback-on-failure pattern): resolves the
+    real bot list (fresh, at RUN time — never trusting a list computed
+    back when the request was made), fetches each bot's own required
+    candles (reusing fetch_required_timeframe_candles per bot, exactly
+    like isolated mode — no reimplementation), feeds every bot's own
+    SmcStrategyAdapter + bars into PortfolioBacktestEngine's real
+    shared-ledger simulation, and persists the result. Never left stuck
+    at RUNNING/QUEUED."""
+    try:
+        await _update_run(run_id, status=BacktestRunStatus.RUNNING, progress_pct=5.0)
+
+        async with LegacyAsyncSessionLocal() as db:
+            run = (await db.execute(select(BacktestRunORM).where(BacktestRunORM.id == run_id))).scalar_one()
+            requested_bot_ids, start_date, end_date = run.bot_ids, _naive_utc(run.start_date), _naive_utc(run.end_date)
+
+        async with PrimaryAsyncSessionLocal() as db:
+            if requested_bot_ids:
+                bots = (await db.execute(select(BotConfig).where(BotConfig.bot_id.in_(requested_bot_ids)))).scalars().all()
+            else:
+                # Resolved fresh HERE, at run time — not back when
+                # start_portfolio_backtest_run created the row — so a
+                # bot activated/deactivated in between this run never
+                # produces a stale participant list.
+                bots = (await db.execute(select(BotConfig).where(BotConfig.status == BotStatus.ACTIVE))).scalars().all()
+
+        if not bots:
+            msg = (
+                f"None of the requested bot_ids were found: {requested_bot_ids}" if requested_bot_ids
+                else "No ACTIVE bots found to run a portfolio backtest against"
+            )
+            await _update_run(run_id, status=BacktestRunStatus.FAILED, error_message=msg, completed_at=datetime.now(timezone.utc))
+            return
+
+        resolved_bot_ids = [b.bot_id for b in bots]
+        await _update_run(run_id, bot_ids=resolved_bot_ids, progress_pct=10.0)
+
+        participants: List[PortfolioParticipant] = []
+        per_bot_errors: Dict[str, str] = {}
+        total = len(bots)
+        for i, bot in enumerate(bots):
+            if not bot.strategy_key or bot.strategy_key not in STRATEGY_FAMILY:
+                per_bot_errors[bot.bot_id] = f"no recognized strategy_key ({bot.strategy_key!r})"
+                continue
+            symbol = bot.symbols[0] if bot.symbols else None
+            if not symbol:
+                per_bot_errors[bot.bot_id] = "no symbol configured"
+                continue
+
+            exchange = bot.exchange or "bingx"
+            _bot_class, required = STRATEGY_FAMILY[bot.strategy_key]
+            required_tf_labels = [label for _, label in required]
+            base_tf = min(required_tf_labels, key=lambda l: TF_ORDER.index(l))
+
+            # Same real-candle-fetch machinery isolated mode uses — no
+            # reimplementation. No fake/synthetic data: a bot whose real
+            # candles are genuinely unavailable for this window is a
+            # real per-bot error surfaced on the completed run, never
+            # silently skipped as if it simply produced zero signals.
+            timeframe_candles, fetch_error = await fetch_required_timeframe_candles(
+                shared_ingestion, exchange, symbol, required_tf_labels, start_date, end_date,
+            )
+            if fetch_error:
+                per_bot_errors[bot.bot_id] = fetch_error
+                continue
+
+            base_candles = [c for c in timeframe_candles[base_tf] if c.timestamp >= start_date]
+            bars = [Bar(timestamp=c.timestamp, open=c.open, high=c.high, low=c.low, close=c.close, volume=c.volume) for c in base_candles]
+
+            trailing_activation_r = bot.trailing_stop_activation if bot.use_trailing_stop else None
+            adapter = SmcStrategyAdapter(
+                real_bot_id=bot.bot_id, strategy_key=bot.strategy_key, symbol=symbol,
+                timeframe_candles=timeframe_candles, account_balance=bot.account_balance_usd or 1000.0,
+                risk_per_trade=bot.risk_per_trade, min_rr_ratio=bot.min_rr_ratio,
+                tp1_percent=bot.tp1_percent, tp2_percent=bot.tp2_percent, tp3_percent=bot.tp3_percent,
+                trailing_activation_r=trailing_activation_r, trailing_stop_mode=bot.trailing_stop_distance or "fixed",
+            )
+            participants.append(PortfolioParticipant(bot_id=bot.bot_id, symbol=symbol, adapter=adapter, bars=bars))
+            await _update_run(run_id, progress_pct=10.0 + 50.0 * (i + 1) / total)
+
+        if not participants:
+            await _update_run(
+                run_id, status=BacktestRunStatus.FAILED,
+                error_message="No participating bot had usable real candle data: " + "; ".join(f"{k}: {v}" for k, v in per_bot_errors.items()),
+                completed_at=datetime.now(timezone.utc),
+            )
+            return
+
+        await _update_run(run_id, progress_pct=65.0)
+
+        # Same placeholder-cost convention isolated mode uses (see
+        # _DEFAULT_COST_MODELS' own comment above). A portfolio run can
+        # mix exchanges across bots, so this only picks the forex model
+        # when EVERY participating bot is forex-like — otherwise it
+        # falls back to the crypto default, the same conservative,
+        # labeled-as-assumption spirit, not a new blended model.
+        all_forex = all((b.exchange or "bingx") in _FOREX_LIKE_BROKERS for b in bots)
+        cost_model = _DEFAULT_COST_MODELS["forex" if all_forex else "crypto"]
+        await _update_run(run_id, progress_pct=70.0, cost_model={"spread": cost_model.spread, "slippage": cost_model.slippage, "commission_r": cost_model.commission_r})
+
+        engine = PortfolioBacktestEngine(cost_model=cost_model, max_hold_bars=2000)
+        result = engine.run(participants)
+
+        await _update_run(run_id, progress_pct=85.0)
+
+        async with LegacyAsyncSessionLocal() as db:
+            if result.trades:
+                # Same source='backtest' isolated mode already uses —
+                # ClosedTradeORM has no DB-level CHECK constraint on
+                # `source` (plain String column; confirmed by reading
+                # the real column def), and this run row's own
+                # scope='portfolio' is what actually distinguishes a
+                # portfolio run's trades from an isolated run's for
+                # later querying, not a new source value.
+                await save_backtest_trades(db, result.trades, source="backtest")
+
+        stats = _summarize_portfolio(result, per_bot_errors)
+        await _update_run(
+            run_id, status=BacktestRunStatus.COMPLETED, progress_pct=100.0,
+            completed_at=datetime.now(timezone.utc), **stats,
+        )
+        logger.info("portfolio_backtest_run_completed", run_id=run_id, bot_ids=resolved_bot_ids, total_trades=stats["total_trades"])
+
+    except Exception as e:
+        # Same full-traceback-on-failure pattern run_backtest's own
+        # except block uses — see its comment for why str(e) alone was
+        # never enough to actually debug a real failure from
+        # GET /backtests/{id} alone.
+        tb = traceback.format_exc()
+        logger.error("portfolio_backtest_run_failed", run_id=run_id, error=str(e), traceback=tb)
+        await _update_run(
+            run_id, status=BacktestRunStatus.FAILED,
+            error_message=f"{e}\n\n{tb}"[:4000], completed_at=datetime.now(timezone.utc),
+        )
+
+
 def _summarize(trades: list) -> dict:
     if not trades:
         return {"total_trades": 0, "win_rate": None, "expectancy_r": None, "max_drawdown_pct": None, "equity_curve": []}
@@ -224,4 +393,75 @@ def _summarize(trades: list) -> dict:
     return {
         "total_trades": total, "win_rate": win_rate, "expectancy_r": expectancy_r,
         "max_drawdown_pct": round(max_dd, 4), "equity_curve": equity_curve,
+    }
+
+
+def _summarize_portfolio(result: PortfolioBacktestResult, per_bot_errors: Dict[str, str]) -> dict:
+    """Portfolio-mode counterpart to _summarize above. Unlike isolated
+    mode, a portfolio run has a real shared DOLLAR ledger
+    (result.starting_balance/ending_balance) — no invented account-size
+    assumption needed — so max_drawdown_pct here is a genuine
+    peak-to-trough balance drawdown, expressed as a percent of peak
+    balance (matching the existing column's own name), not the
+    R-multiple proxy isolated mode's own _summarize settles for.
+
+    `equity_curve` is deliberately a dict here, not isolated mode's own
+    list-of-{timestamp,cum_r} — BacktestRunORM.equity_curve was always
+    a generic JSON blob (see its own docstring), never schema-locked to
+    one shape, so this is not a schema change. It carries everything a
+    per-bot breakdown needs without a new column: the raw per-
+    bot/symbol open/close event trace the engine itself already
+    produces, a per-bot trade/win-rate/expectancy breakdown, the
+    starting/ending balance and capital-adequacy-rejection count, and
+    any per-bot data/strategy errors (so a bot excluded from this run
+    for a real reason — not silently dropped — is still visible on the
+    completed run, not just in a log line)."""
+    trades = result.trades
+    total = len(trades)
+
+    if total == 0:
+        return {
+            "total_trades": 0, "win_rate": None, "expectancy_r": None, "max_drawdown_pct": None,
+            "equity_curve": {
+                "starting_balance": result.starting_balance, "ending_balance": result.ending_balance,
+                "rejected_by_capital_adequacy": result.rejected_by_capital_adequacy,
+                "events": result.equity_curve, "per_bot": {}, "errors": per_bot_errors,
+            },
+        }
+
+    wins = sum(1 for t in trades if t.r_multiple > 0)
+    win_rate = round(100.0 * wins / total, 2)
+    expectancy_r = round(sum(t.r_multiple for t in trades) / total, 4)
+
+    peak = result.starting_balance
+    max_dd_pct = 0.0
+    for point in result.equity_curve:
+        bal = point["balance"]
+        peak = max(peak, bal)
+        if peak > 0:
+            max_dd_pct = max(max_dd_pct, 100.0 * (peak - bal) / peak)
+
+    per_bot: Dict[str, Dict] = {}
+    for t in trades:
+        b = per_bot.setdefault(t.bot_id, {"trades": 0, "wins": 0, "sum_r": 0.0})
+        b["trades"] += 1
+        b["wins"] += 1 if t.r_multiple > 0 else 0
+        b["sum_r"] += t.r_multiple
+    per_bot_summary = {
+        bot_id: {
+            "trades": b["trades"],
+            "win_rate": round(100.0 * b["wins"] / b["trades"], 2),
+            "expectancy_r": round(b["sum_r"] / b["trades"], 4),
+        }
+        for bot_id, b in per_bot.items()
+    }
+
+    return {
+        "total_trades": total, "win_rate": win_rate, "expectancy_r": expectancy_r,
+        "max_drawdown_pct": round(max_dd_pct, 4),
+        "equity_curve": {
+            "starting_balance": result.starting_balance, "ending_balance": result.ending_balance,
+            "rejected_by_capital_adequacy": result.rejected_by_capital_adequacy,
+            "events": result.equity_curve, "per_bot": per_bot_summary, "errors": per_bot_errors,
+        },
     }

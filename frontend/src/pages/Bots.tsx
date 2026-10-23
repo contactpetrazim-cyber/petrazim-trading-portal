@@ -7,6 +7,7 @@ import { BotSleepAndSubAuto } from '../components/BotSleepAndSubAuto';
 import { ExchangeEngineControl } from '../components/ExchangeEngineControl';
 import { BotScheduleControl } from '../components/BotScheduleControl';
 import { BotBacktestPanel } from '../components/BotBacktestPanel';
+import { PortfolioBacktestPanel } from '../components/PortfolioBacktestPanel';
 import { BotStrategyModeControl } from '../components/BotStrategyModeControl';
 import { SystemHealthSummaryBadge } from '../components/SystemHealthSummaryBadge';
 import { BotConfig, BotPerformance, BotMetricsUpdate } from '../types';
@@ -439,6 +440,14 @@ export function BotsPage() {
       {/* System Health — the trader-facing "indicator signal", by
           direct answer ("Put in all"). Quiet when healthy. */}
       <SystemHealthSummaryBadge dark={dark} />
+
+      {/* Portfolio-mode backtest trigger — page-level, not per-card
+          like BotBacktestPanel, since it replays every selected bot
+          TOGETHER against one shared ledger rather than one bot in
+          isolation. */}
+      {!loading && !loadError && bots.length > 0 && (
+        <PortfolioBacktestPanel bots={bots} dark={dark} />
+      )}
 
       {loading && <p className="text-gray-400 text-sm">Loading…</p>}
 

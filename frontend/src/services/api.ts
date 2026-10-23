@@ -1,6 +1,6 @@
 
 import axios from 'axios';
-import { Trade, BotConfig, BotPerformance, BotMetricsUpdate, DashboardStats, SignalPreview, PerformanceSummary, TradeBreakdown, TradeBreakdownPeriod, TodayTradeBreakdown, ExchangeMetaResponse, TraderBrokerConnection, AvailableBot, TraderBotSubscription, OutboundIpsResponse, FeeSettings, FeeLedgerEntry, MyFeesResponse, FeeGateStatus, FeeCheckoutSession, FeeCheckoutProvider, FeeVerifyResult, DeployStateResponse, TradeSnapshot, EncroachmentResponse, SnapshotTimeframe, ExchangeBalancesResponse, MasterExchangeBalancesResponse, SystemHealthResponse, SystemHealthSummaryResponse, BacktestRun, TradeForensics, BotSimulationResponse } from '../types';
+import { Trade, BotConfig, BotPerformance, BotMetricsUpdate, DashboardStats, SignalPreview, PerformanceSummary, TradeBreakdown, TradeBreakdownPeriod, TodayTradeBreakdown, ExchangeMetaResponse, TraderBrokerConnection, AvailableBot, TraderBotSubscription, OutboundIpsResponse, FeeSettings, FeeLedgerEntry, MyFeesResponse, FeeGateStatus, FeeCheckoutSession, FeeCheckoutProvider, FeeVerifyResult, DeployStateResponse, TradeSnapshot, EncroachmentResponse, SnapshotTimeframe, ExchangeBalancesResponse, MasterExchangeBalancesResponse, SystemHealthResponse, SystemHealthSummaryResponse, BacktestRun, IsolatedBacktestRun, PortfolioBacktestRun, TradeForensics, BotSimulationResponse } from '../types';
 import { useAuthStore } from '../hooks/useAuth';
 import { triggerAccessExpired } from '../components/AccessExpiredGate';
 import { triggerFeesOwed } from '../components/TradingFeeGate';
@@ -328,15 +328,33 @@ export const botsApi = {
     ).then(r => r.data.results),
 };
 
-// Isolated-mode backtests — see backend/app/routers/backtests.py.
-// POST returns immediately (the run continues in the background);
-// poll getRun until status is 'completed'/'failed'.
+// Isolated + portfolio mode backtests — both go through the same
+// POST/GET /backtests (backend/app/routers/backtests.py), dispatched
+// server-side by `scope`. POST returns immediately (the run continues
+// in the background); poll getRun/getPortfolioRun until status is
+// 'completed'/'failed'.
 export const backtestsApi = {
   createRun: (req: { bot_id: string; start_date: string; end_date: string; symbol?: string }) =>
-    api.post<BacktestRun>('/backtests', req).then(r => r.data),
-  getRun: (runId: string) => api.get<BacktestRun>(`/backtests/${runId}`).then(r => r.data),
+    api.post<IsolatedBacktestRun>('/backtests', { scope: 'isolated', ...req }).then(r => r.data),
+  getRun: (runId: string) => api.get<IsolatedBacktestRun>(`/backtests/${runId}`).then(r => r.data),
   listRuns: (botId: string, limit = 10) =>
-    api.get<BacktestRun[]>('/backtests', { params: { bot_id: botId, limit } }).then(r => r.data),
+    api.get<IsolatedBacktestRun[]>('/backtests', { params: { bot_id: botId, limit } }).then(r => r.data),
+
+  // Portfolio mode: every currently-ACTIVE bot (or an explicit subset
+  // via bot_ids) replayed together against one shared ledger. bot_ids
+  // omitted/undefined means "all ACTIVE bots", resolved by the backend
+  // at RUN time, never here at request time.
+  createPortfolioRun: (req: { bot_ids?: string[]; start_date: string; end_date: string }) =>
+    api.post<PortfolioBacktestRun>('/backtests', { scope: 'portfolio', ...req }).then(r => r.data),
+  getPortfolioRun: (runId: string) => api.get<PortfolioBacktestRun>(`/backtests/${runId}`).then(r => r.data),
+  // The list endpoint has no server-side scope filter (it only filters
+  // by bot_id, which isolated runs have and portfolio runs don't) — so
+  // this fetches recent runs generically and filters to scope==='portfolio'
+  // client-side, rather than coupling the frontend to the backend's own
+  // internal "no single bot_id" sentinel value.
+  listPortfolioRuns: (limit = 10) =>
+    api.get<BacktestRun[]>('/backtests', { params: { limit: Math.max(limit * 4, 20) } })
+      .then(r => r.data.filter((run): run is PortfolioBacktestRun => run.scope === 'portfolio').slice(0, limit)),
 };
 
 export const curriculumApi = {

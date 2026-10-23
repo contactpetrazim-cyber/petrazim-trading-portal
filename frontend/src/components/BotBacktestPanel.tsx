@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { History, Play } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { BotConfig, BacktestRun } from '../types';
+import { BotConfig, IsolatedBacktestRun } from '../types';
 import { backtestsApi } from '../services/api';
 
 /**
@@ -20,7 +20,7 @@ import { backtestsApi } from '../services/api';
 export function BotBacktestPanel({ bot, dark }: { bot: BotConfig; dark: boolean; onChanged?: () => void }) {
   const [symbol, setSymbol] = useState(bot.symbols?.[0] || '');
   const [days, setDays] = useState(30);
-  const [run, setRun] = useState<BacktestRun | null>(null);
+  const [run, setRun] = useState<IsolatedBacktestRun | null>(null);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -168,7 +168,10 @@ export function BotBacktestPanel({ bot, dark }: { bot: BotConfig; dark: boolean;
   );
 }
 
-function Stat({ dark, label, value, tone = 'neutral' }: { dark: boolean; label: string; value: string; tone?: 'good' | 'bad' | 'warn' | 'neutral' }) {
+// Exported so PortfolioBacktestPanel.tsx (the page-level portfolio-mode
+// trigger) can reuse the exact same stat-tile look instead of
+// duplicating it.
+export function Stat({ dark, label, value, tone = 'neutral' }: { dark: boolean; label: string; value: string; tone?: 'good' | 'bad' | 'warn' | 'neutral' }) {
   const toneCls = tone === 'good' ? 'text-emerald-400' : tone === 'bad' ? 'text-red-400' : tone === 'warn' ? 'text-amber-400' : dark ? 'text-white' : 'text-gray-800';
   return (
     <div>
