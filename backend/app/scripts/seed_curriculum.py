@@ -238,6 +238,17 @@ BOT_LESSON_FILES = {
     "bot_4": "BOT_4_VOLUME_LIQUIDITY_SWEEP.md",
     "bot_5": "BOT_5_LIQUIDITY_PURGE_SPECIALIST.md",
     "bot_6": "BOT_6_SMC_V2.md",
+    # Real bug, found live: bot_7's track (BOT_TRACKS above) and its
+    # authored file (both added when the roster grew to 7) never got
+    # a matching entry here, so a fresh run of this script -- a
+    # from-scratch DB, a new environment, CI -- would create bot_7's
+    # track with only placeholder stage content, never its real
+    # authored lesson bodies. The live DB already has the real content
+    # (seeded once by the now-deleted scripts/add_bot7_track.py this
+    # script's own comment above references), so this had no live
+    # impact yet, but the next from-scratch seed would have silently
+    # regressed bot_7 to placeholders.
+    "bot_7": "BOT_7_FVG_EXPANSION_V3.md",
 }
 
 TRACKS = [
