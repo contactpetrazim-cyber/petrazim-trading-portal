@@ -44,6 +44,7 @@ from app.routers.trading_audit import router as trading_audit_router
 from app.routers.congress_trades import router as congress_trades_router
 from app.routers.news_monitor import router as news_monitor_router
 from app.routers.time_machine import router as time_machine_router
+from app.routers.trade_scanner import router as trade_scanner_router
 from app.database import engine, Base
 from app.db.session import engine as legacy_engine, Base as LegacyBase
 from app.db.models import BacktestRunStatus
@@ -380,6 +381,7 @@ app.include_router(trading_audit_router)
 app.include_router(congress_trades_router)
 app.include_router(news_monitor_router)
 app.include_router(time_machine_router)
+app.include_router(trade_scanner_router)
 
 # Phase-1 analytics engines — routers ship without their own prefix
 app.include_router(monte_carlo_router, prefix="/api/monte-carlo", tags=["monte-carlo"])
