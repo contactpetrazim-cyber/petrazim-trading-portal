@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Lock, Timer as TimerIcon, Trophy, BarChart3, Dumbbell, RotateCcw, Gamepad2, Activity, ArrowRight } from 'lucide-react';
+import { Lock, Timer as TimerIcon, Trophy, BarChart3, Dumbbell, RotateCcw, Gamepad2, Activity, ArrowRight, BookOpenCheck, Shapes } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
 import { LoadingIndicator } from '../components/LoadingIndicator';
 import { FocusTimer } from '../components/FocusTimer';
@@ -47,6 +47,15 @@ const QUICK_LINKS = [
   // accessible"): it previously only existed buried inside each bot's
   // own full Decision Lab page. See BotSimulationsPage's own docstring.
   { to: '/learn/simulations', label: 'Bot Simulations', icon: Activity },
+  // Case Study Walkthrough — a real, fully-built page (live candles,
+  // auto-detected swing/impulse annotations) that had ZERO link
+  // anywhere in the app before this, by direct request ("Add Case
+  // Study Walkthrough and Visual Glossary"). Visual Glossary was
+  // already reachable from Mastery Overview + inline on lessons; added
+  // here too for one-click access from the hub itself, matching every
+  // other QUICK_LINKS entry.
+  { to: '/learn/case-study', label: 'Case Study Walkthrough', icon: BookOpenCheck },
+  { to: '/learn/visual-glossary', label: 'Visual Glossary', icon: Shapes },
   { to: '/practise/drills', label: 'Practice Drills', icon: Dumbbell },
   { to: '/practise/review', label: 'Retention Review', icon: RotateCcw },
   { to: '/practise/game', label: 'Trading Simulator Game', icon: Gamepad2 },
