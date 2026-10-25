@@ -1,10 +1,28 @@
 import { useEffect, useRef, useState } from 'react';
-import { Activity, Play, Pause, RotateCcw, AlertTriangle } from 'lucide-react';
+import { Activity, Play, Pause, RotateCcw, AlertTriangle, Eye, EyeOff } from 'lucide-react';
 import { curriculumApi } from '../services/api';
 import type { BotSimulationResponse } from '../types';
 import { CandleChart, type Candle, type ChartZone, type ChartMarker } from './CandleChart';
 
 const STEP_MS = 450;
+// Zones/markers never expire (CandleChart keeps every revealed
+// annotation on screen forever, by design -- fine for a single
+// trade's handful of them). Over a long real-market-fallback window
+// (90 bars, see bot_simulation.py's own _FALLBACK_BARS, across 2
+// timeframes for most bots) dozens of REAL, legitimately-distinct
+// swings/OBs/zones/BOS accumulate, and CandleChart's label overlay has
+// no collision avoidance -- by direct bug report with screenshot
+// ("annotations are masking the candles ... can not see the
+// candles"), that many permanent text pills bury the chart entirely.
+// Fix scoped here (not in CandleChart, which many other bounded
+// callers -- trade snapshot/forensics/position-on-chart -- already use
+// correctly without this problem): keep every zone/marker's SHAPE
+// rendered forever (rects/dots/triangles -- real accumulated
+// structure, still useful context), but only give the label pill to
+// ones revealed within the last LABEL_RECENCY_BARS steps, so the
+// chart always reads as "what's happening right now" instead of a
+// wall of permanently stacked history.
+const LABEL_RECENCY_BARS = 10;
 
 /**
  * BotSimulationPlayer — SMC Bot Academy plan item 6, the animated
@@ -38,6 +56,14 @@ export function BotSimulationPlayer({ botId, dark = false }: { botId: string; da
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState(0);
   const [playing, setPlaying] = useState(false);
+  // The recency window above already thins out old labels, but by
+  // direct follow-up request ("in addition to your fix ... consider
+  // an annotation on/off toggle") a trainee who just wants to look at
+  // the raw candles for a moment — even with only the recent labels
+  // showing — gets a full manual override. Defaults on so the
+  // simulation's whole point (seeing detectors fire) isn't hidden by
+  // default.
+  const [showAnnotations, setShowAnnotations] = useState(true);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -92,6 +118,19 @@ export function BotSimulationPlayer({ botId, dark = false }: { botId: string; da
       <div className="flex items-center gap-2 mb-3">
         <Activity size={16} className={dark ? 'text-white/60' : 'text-corporate-hero'} />
         <span className={`text-sm font-semibold ${textCls}`}>Watch it happen — bot simulation</span>
+        <button
+          type="button"
+          onClick={() => setShowAnnotations((v) => !v)}
+          aria-pressed={showAnnotations}
+          title={showAnnotations ? 'Hide zone/marker annotations' : 'Show zone/marker annotations'}
+          className={`ml-auto flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-lg ${
+            showAnnotations
+              ? dark ? 'bg-white/10 text-white/70' : 'bg-corporate-bg text-gray-600'
+              : dark ? 'bg-corporate-hero/20 text-corporate-hero' : 'bg-corporate-hero/10 text-corporate-hero'
+          }`}
+        >
+          {showAnnotations ? <Eye size={12} /> : <EyeOff size={12} />} Annotations
+        </button>
       </div>
 
       <div className="flex gap-1.5 mb-3">
@@ -118,7 +157,7 @@ export function BotSimulationPlayer({ botId, dark = false }: { botId: string; da
 
           <CandleChart
             candles={data.bars.slice(0, step + 1).map((b): Candle => ({ open: b.open, high: b.high, low: b.low, close: b.close }))}
-            zones={data.zones
+            zones={!showAnnotations ? [] : data.zones
               .filter((z) => z.reveal_bar_index <= step)
               .map((z): ChartZone => ({
                 fromIndex: z.from_index,
@@ -126,14 +165,14 @@ export function BotSimulationPlayer({ botId, dark = false }: { botId: string; da
                 priceTop: z.top,
                 priceBottom: z.bottom,
                 color: z.color,
-                label: z.label,
+                label: step - z.reveal_bar_index <= LABEL_RECENCY_BARS ? z.label : undefined,
               }))}
-            markers={data.markers
+            markers={!showAnnotations ? [] : data.markers
               .filter((m) => m.reveal_bar_index <= step)
               .map((m): ChartMarker => ({
                 index: m.index,
                 price: m.price,
-                label: m.label,
+                label: step - m.reveal_bar_index <= LABEL_RECENCY_BARS ? m.label : '',
                 color: m.color,
                 side: m.side,
                 shape: m.shape,
