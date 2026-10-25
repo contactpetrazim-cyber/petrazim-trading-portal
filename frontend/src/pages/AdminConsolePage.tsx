@@ -11,6 +11,7 @@ import { LearningDashboardPanel } from '../components/LearningDashboardPanel';
 import { EverythingIncludedPanel } from '../components/EverythingIncludedPanel';
 import { PlatformOverviewPanel } from '../components/PlatformOverviewPanel';
 import { RoleAdministrationPanel } from '../components/RoleAdministrationPanel';
+import { FeatureAccessPanel } from '../components/FeatureAccessPanel';
 import { useAuth } from '../hooks/useAuth';
 import { useThemeStore } from '../hooks/useTheme';
 import { apiFetch } from '../components/AccessExpiredGate';
@@ -927,6 +928,10 @@ export function AdminConsolePage() {
 
       <div className="mb-4">
         <RoleAdministrationPanel dark={dark} />
+      </div>
+
+      <div className="mb-4">
+        <FeatureAccessPanel dark={dark} />
       </div>
 
       {/* All Users — folded closed by default too, by direct request

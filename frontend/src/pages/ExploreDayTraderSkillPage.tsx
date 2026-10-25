@@ -1,4 +1,5 @@
-import { Puzzle, ShieldCheck, Terminal, ExternalLink } from 'lucide-react';
+import { Puzzle, ShieldCheck, Terminal, ExternalLink, MessageCircle } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { PageHeader } from '../components/PageHeader';
 import { FoldedCard } from '../components/FoldedCard';
 import { useThemeStore } from '../hooks/useTheme';
@@ -53,12 +54,20 @@ export function ExploreDayTraderSkillPage() {
       <div className={`flex items-start gap-2 rounded-xl px-3 py-2.5 mb-4 text-xs ${dark ? 'bg-blue-500/10 text-blue-300' : 'bg-blue-50 text-blue-700'}`}>
         <Terminal size={14} className="mt-0.5 shrink-0" />
         <span>
-          This runs inside Claude Code/Claude Desktop, not inside this web app -- it can't be embedded as a page
-          here the way the rest of Explore is. Two of its data sources (congressional trade disclosures and
-          per-symbol news) were ported into real Petrazim features instead, linked below, so you get them without
-          leaving the portal.
+          The pack itself runs inside Claude Code/Claude Desktop, not inside this web app -- it can't be embedded
+          as a page here the way the rest of Explore is. Several of its data sources (congressional trade
+          disclosures, per-symbol news, the Time Machine replay, the chart scanner) were ported into real Petrazim
+          features instead, linked below, so you get them without leaving the portal.
         </span>
       </div>
+
+      <Link
+        to="/explore/day-trader-skill-chat"
+        className={`flex items-center gap-2 rounded-xl px-3 py-2.5 mb-4 text-xs font-medium ${dark ? 'bg-corporate-hero/20 text-corporate-hero' : 'bg-corporate-hero/10 text-corporate-hero'}`}
+      >
+        <MessageCircle size={14} />
+        Ask the Day Trader Skill Pack -- a real Claude call grounded in this pack's own knowledge (admin/invite-only)
+      </Link>
 
       <div className="space-y-3">
         <FoldedCard
