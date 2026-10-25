@@ -5,6 +5,14 @@ import type { BotSimulationResponse } from '../types';
 import { CandleChart, type Candle, type ChartZone, type ChartMarker } from './CandleChart';
 
 const STEP_MS = 450;
+// Speed control (direct request, "provide a speed control for the Bot
+// Simulations"): multiplies the base step interval, so 2x plays twice
+// as fast (half the delay) and 0.5x plays at half speed. Kept as a
+// small fixed set of steps rather than a free slider -- this is a
+// teaching aid where the point is comparing "normal" vs "slow it down
+// to see a specific detector fire" vs "speed through to the next
+// setup", not fine-grained pacing control.
+const SPEED_OPTIONS = [0.5, 1, 2, 4] as const;
 // Zones/markers never expire (CandleChart keeps every revealed
 // annotation on screen forever, by design -- fine for a single
 // trade's handful of them). Over a long real-market-fallback window
@@ -64,6 +72,7 @@ export function BotSimulationPlayer({ botId, dark = false }: { botId: string; da
   // simulation's whole point (seeing detectors fire) isn't hidden by
   // default.
   const [showAnnotations, setShowAnnotations] = useState(true);
+  const [speed, setSpeed] = useState<number>(1);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -95,9 +104,9 @@ export function BotSimulationPlayer({ botId, dark = false }: { botId: string; da
         }
         return s + 1;
       });
-    }, STEP_MS);
+    }, STEP_MS / speed);
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
-  }, [playing, data, lastIndex]);
+  }, [playing, data, lastIndex, speed]);
 
   function reset() {
     setPlaying(false);
@@ -187,9 +196,28 @@ export function BotSimulationPlayer({ botId, dark = false }: { botId: string; da
               style={{ width: `${lastIndex > 0 ? (step / lastIndex) * 100 : 100}%` }}
             />
           </div>
-          <p className={`text-[11px] mb-3 ${mutedCls}`}>
-            Step {step + 1} / {lastIndex + 1} · {data.base_timeframe} candles · {data.symbol}
-          </p>
+          <div className="flex items-center justify-between mb-3">
+            <p className={`text-[11px] ${mutedCls}`}>
+              Step {step + 1} / {lastIndex + 1} · {data.base_timeframe} candles · {data.symbol}
+            </p>
+            <div className="flex gap-1" role="group" aria-label="Playback speed">
+              {SPEED_OPTIONS.map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => setSpeed(s)}
+                  aria-pressed={speed === s}
+                  className={`text-[11px] font-semibold px-1.5 py-0.5 rounded-md ${
+                    speed === s
+                      ? 'bg-corporate-hero text-white'
+                      : dark ? 'bg-white/5 text-white/60' : 'bg-corporate-bg text-gray-500'
+                  }`}
+                >
+                  {s}x
+                </button>
+              ))}
+            </div>
+          </div>
 
           <div className="flex gap-2">
             <button
