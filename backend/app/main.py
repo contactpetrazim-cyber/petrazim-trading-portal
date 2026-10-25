@@ -43,6 +43,7 @@ from app.routers.fees import router as fees_router, admin_router as fees_admin_r
 from app.routers.trading_audit import router as trading_audit_router
 from app.database import engine, Base
 from app.db.session import engine as legacy_engine, Base as LegacyBase
+from app.db.models import BacktestRunStatus
 from app.services.execution_engine import ExecutionEngine
 from app.services.market_scanner import MarketScanner
 from app.services.position_monitor import PositionMonitor
@@ -183,14 +184,27 @@ async def lifespan(app: FastAPI):
         # restart during a run fails it visibly (with a clear reason)
         # instead of leaving it silently stuck -- the caller can just
         # retry.
+        #
+        # Real bug, found live: this raw SQL hardcoded the lowercase
+        # enum *values* ('queued'/'running'/'failed'), but SQLAlchemy's
+        # Enum(BacktestRunStatus) column (no values_callable override,
+        # same as every other Enum column in this codebase) persists
+        # Python enum *names* as the Postgres enum labels -- QUEUED/
+        # RUNNING/COMPLETED/FAILED, uppercase. The mismatch raised
+        # asyncpg.InvalidTextRepresentationError on every startup,
+        # crashing app boot entirely on every deploy since this sweep
+        # was introduced -- confirmed live on Render, which was stuck
+        # 4 commits behind main for 2 days as a result. Using the
+        # enum members' own .name keeps this from drifting again.
         swept = await conn.execute(text(
-            "UPDATE backtest_runs SET status = 'failed', progress_pct = 0, "
+            f"UPDATE backtest_runs SET status = '{BacktestRunStatus.FAILED.name}', "
+            "progress_pct = 0, "
             "error_message = 'Orphaned by a process restart: this run was "
             "queued or running when the previous process instance stopped. "
             "There is no cross-restart resume mechanism, so it would never "
             "complete on its own -- please submit it again.', "
             "completed_at = now() "
-            "WHERE status IN ('queued', 'running')"
+            f"WHERE status IN ('{BacktestRunStatus.QUEUED.name}', '{BacktestRunStatus.RUNNING.name}')"
         ))
         if swept.rowcount:
             logger.warning("backtest_runs_orphaned_swept", count=swept.rowcount)
