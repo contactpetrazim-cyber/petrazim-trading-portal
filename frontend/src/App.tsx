@@ -38,6 +38,9 @@ const CorporateHomePage = lazy(() => import('./pages/CorporateHomePage').then((m
 const AreaPage = lazy(() => import('./pages/AreaPage').then((module) => ({ default: module.AreaPage })));
 const LearnPage = lazy(() => import('./pages/LearnPage').then((module) => ({ default: module.LearnPage })));
 const BotSimulationsPage = lazy(() => import('./pages/BotSimulationsPage').then((module) => ({ default: module.BotSimulationsPage })));
+const ExploreCongressTradesPage = lazy(() => import('./pages/ExploreCongressTradesPage').then((module) => ({ default: module.ExploreCongressTradesPage })));
+const ExploreNewsMonitorPage = lazy(() => import('./pages/ExploreNewsMonitorPage').then((module) => ({ default: module.ExploreNewsMonitorPage })));
+const ExploreDayTraderSkillPage = lazy(() => import('./pages/ExploreDayTraderSkillPage').then((module) => ({ default: module.ExploreDayTraderSkillPage })));
 const LearnTrackPage = lazy(() => import('./pages/LearnTrackPage').then((module) => ({ default: module.LearnTrackPage })));
 const LessonPage = lazy(() => import('./pages/LessonPage').then((module) => ({ default: module.LessonPage })));
 const MasteryOverviewPage = lazy(() => import('./pages/MasteryOverviewPage').then((module) => ({ default: module.MasteryOverviewPage })));
@@ -337,6 +340,9 @@ function App() {
         <Route path="/learn/notes" element={<CorporateLayout><MyNotesPage /></CorporateLayout>} />
         <Route path="/learn/revision" element={<CorporateLayout><RevisionPlannerPage /></CorporateLayout>} />
         <Route path="/learn/simulations" element={<CorporateLayout><BotSimulationsPage /></CorporateLayout>} />
+        <Route path="/explore/congress-trades" element={<CorporateLayout><ExploreCongressTradesPage /></CorporateLayout>} />
+        <Route path="/explore/news-monitor" element={<CorporateLayout><ExploreNewsMonitorPage /></CorporateLayout>} />
+        <Route path="/explore/day-trader-skill" element={<CorporateLayout><ExploreDayTraderSkillPage /></CorporateLayout>} />
         <Route path="/tools" element={<CorporateLayout><ToolsPage /></CorporateLayout>} />
         <Route path="/tools/order-flow" element={
           <CorporateLayout><EntitlementGate feature="The Order Flow tool"><OrderFlowFullPage /></EntitlementGate></CorporateLayout>

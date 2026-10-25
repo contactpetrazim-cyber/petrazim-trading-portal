@@ -150,6 +150,22 @@ export const FEATURE_REGISTRY: FeatureEntry[] = [
     description: 'Fund Managers/Partners: run a branded bot for your own clients.' },
   { id: 'explore-signal-api', label: 'Signal Confidence API', area: 'explore', route: '/explore/signal-api',
     description: 'Pay-per-call API access to MTF/coach confidence scoring.' },
+  // Real, working features (unlike the four above, still queued) --
+  // by direct request ("Put all in the explore area - the new things
+  // area"). Congressional Trades + News Monitor are ported from the
+  // reviewed MIT-licensed day-trader-skill plugin's own data sources;
+  // Day Trader Skill Pack is an honest pointer to that plugin itself
+  // (a Claude Code plugin, not a web feature -- see that page's own
+  // docstring for why it can't be embedded here directly).
+  { id: 'explore-congress-trades', label: 'Congressional Trades', area: 'explore', route: '/explore/congress-trades',
+    description: 'Recent House STOCK Act trade disclosures (Periodic Transaction Reports) -- public, delayed, range-only.',
+    keywords: ['pelosi', 'congress', 'stock act', 'ptr', 'disclosure'] },
+  { id: 'explore-news-monitor', label: 'News Monitor', area: 'explore', route: '/explore/news-monitor',
+    description: 'Headlines and SEC 8-K filings for a symbol, with material items flagged.',
+    keywords: ['news', 'headlines', 'sec', '8-k', 'filings'] },
+  { id: 'explore-day-trader-skill', label: 'Day Trader Skill Pack', area: 'explore', route: '/explore/day-trader-skill',
+    description: 'An 11-skill Claude Code plugin for day trading -- install instructions and what’s in it.',
+    keywords: ['claude', 'plugin', 'skill', 'day trader'] },
 ];
 
 export function searchFeatures(query: string): FeatureEntry[] {
