@@ -12,6 +12,7 @@ from app.models.trade import Trade, TradeLog, TradeStatus, TradeDirection
 from app.models.user import User, UserRole
 from app.core.auth import get_current_user
 from app.core.access_gate import require_active_access, has_active_access, _raise_if_access_expired
+from app.core.ttl_cache import ttl_cache
 from app.schemas import TradeCreate, TradeResponse, TradeApproval, TradeArchiveUpdate, TradeDeleteUpdate
 from app.engines.trade_forensics import compute_trade_forensics
 from app.services.execution_engine import ExecutionEngine
@@ -276,6 +277,15 @@ async def approve_trade(
         approval.notes or "",
         db
     )
+    # Changes pending_approvals/active_trades for whoever owns this trade
+    # (and, since Admin/Super Admin dashboards aggregate across every
+    # user, potentially the platform-wide view too) -- clearing the
+    # whole dashboard_stats namespace rather than tracking down every
+    # affected user.id is the simple, safe call here: approvals are rare
+    # enough that a full-namespace clear costs nothing, and it rules out
+    # a stale pending-count for up to the cache's own TTL after a user
+    # just acted. See app/core/ttl_cache.py's own docstring.
+    ttl_cache.invalidate("dashboard_stats")
     return result
 
 @router.get("/active", response_model=List[TradeResponse])

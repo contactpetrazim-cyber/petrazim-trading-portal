@@ -17,6 +17,7 @@ polls the same row for status/progress/results.
 
 from __future__ import annotations
 
+import asyncio
 import traceback
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
@@ -189,7 +190,15 @@ async def run_backtest(run_id: str) -> None:
         await _update_run(run_id, progress_pct=50.0, cost_model={"spread": cost_model.spread, "slippage": cost_model.slippage, "commission_r": cost_model.commission_r})
 
         engine = BacktestEngine(cost_model=cost_model, max_hold_bars=2000)
-        trades = engine.run(bars, adapter, symbol=symbol)
+        # engine.run is a pure, synchronous, bar-by-bar replay -- CPU-
+        # bound for as long as the window has bars, same class of bug as
+        # market_scanner.py's own run_all call (see that fix's comment).
+        # Called inline, this freezes the entire process -- every
+        # concurrent request -- for the backtest's full duration, not
+        # just this one background task's own progress. Offloaded to a
+        # thread so a long backtest window degrades only its own
+        # progress bar, never every other user's response time.
+        trades = await asyncio.get_event_loop().run_in_executor(None, engine.run, bars, adapter, symbol)
 
         await _update_run(run_id, progress_pct=80.0)
 
@@ -329,7 +338,12 @@ async def run_portfolio_backtest(run_id: str) -> None:
         await _update_run(run_id, progress_pct=70.0, cost_model={"spread": cost_model.spread, "slippage": cost_model.slippage, "commission_r": cost_model.commission_r})
 
         engine = PortfolioBacktestEngine(cost_model=cost_model, max_hold_bars=2000)
-        result = engine.run(participants)
+        # Same reasoning as run_backtest's own fix above -- portfolio
+        # mode replays every participating bot together against one
+        # shared ledger, inherently sequential and typically heavier
+        # than isolated mode, so this is the single most important of
+        # these calls to keep off the event loop.
+        result = await asyncio.get_event_loop().run_in_executor(None, engine.run, participants)
 
         await _update_run(run_id, progress_pct=85.0)
 
