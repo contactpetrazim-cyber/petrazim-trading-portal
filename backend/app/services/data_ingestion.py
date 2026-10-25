@@ -11,7 +11,6 @@ from datetime import datetime, timedelta, timezone
 import asyncio
 import time
 import aiohttp
-import pandas as pd
 import structlog
 from app.config import get_settings
 from app.core.smc_algorithms import Candle
@@ -508,7 +507,18 @@ class MarketDataIngestion:
         """
         Load candles from CSV file.
         Expected columns: timestamp, open, high, low, close, volume
+
+        Imports pandas locally -- this is the only caller anywhere in the
+        codebase (confirmed via grep: zero other references to
+        load_from_csv), so a top-level `import pandas as pd` was paying
+        ~57MB of RSS (measured directly: resource.getrusage before/after
+        the bare import) in every process on this app's 512MB Render
+        plan for a path that's never actually exercised in production --
+        a real, measured contributor to the service's own OOM-kill crash
+        loop (confirmed via Render's event log: repeated oomKilled
+        server_failed events against the 512Mi limit).
         """
+        import pandas as pd
         df = pd.read_csv(filepath)
 
         # Parse timestamp
