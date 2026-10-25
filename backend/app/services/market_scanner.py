@@ -462,7 +462,28 @@ class MarketScanner:
                     # loop and silently skipping every OTHER symbol this
                     # cycle was about to scan.
                     try:
-                        signals = self.orchestrator.run_all(market_data, balance, bot_settings_by_balance[balance])
+                        # run_all is pure, synchronous, CPU-bound (every
+                        # bot's full SMC detection -- swings, BOS/CHoCH,
+                        # order blocks, FVGs, liquidity sweeps -- across
+                        # every required timeframe). Calling it directly
+                        # inside this async method used to run it INLINE
+                        # on the event loop: while it computed, the
+                        # entire process -- every concurrent HTTP
+                        # request, every websocket -- was frozen, for as
+                        # long as that one (exchange, symbol, balance)
+                        # group's analysis took. With up to 7 bots x
+                        # several symbols scanned per cycle, that's a
+                        # real, repeatable, multi-second stall sitting
+                        # right on the hot path a trader's dashboard
+                        # request shares with. Offloading to a thread
+                        # keeps the loop free to serve requests while
+                        # this computes -- the exact fix already used
+                        # for ccxt's own blocking calls (see
+                        # fetch_historical_ccxt's own comment on
+                        # ccxt.async_support).
+                        signals = await asyncio.get_event_loop().run_in_executor(
+                            None, self.orchestrator.run_all, market_data, balance, bot_settings_by_balance[balance]
+                        )
                     except Exception as e:
                         logger.error("market_scan_run_all_failed", exchange=exchange, symbol=symbol, balance=balance, error=str(e))
                         continue

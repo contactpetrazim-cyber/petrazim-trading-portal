@@ -26,6 +26,7 @@ never writes anything to the `trades`/`closed_trades` tables.
 
 from __future__ import annotations
 
+import asyncio
 import bisect
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
@@ -175,6 +176,41 @@ async def compute_bot_simulation(
     base_timestamps = [c.timestamp for c in base_candles]
     tf_timestamps = {tf: [c.timestamp for c in timeframe_candles.get(tf, [])] for tf in required_tf_labels}
 
+    zones, markers = await asyncio.get_event_loop().run_in_executor(
+        None, _run_detectors_sync, strategy_key, required_tf_labels, base_candles, base_timestamps, timeframe_candles, tf_timestamps,
+    )
+
+    return {
+        "bot_id": bot.bot_id, "strategy_key": strategy_key, "symbol": resolved_symbol, "exchange": exchange,
+        "direction": direction, "base_timeframe": base_tf, "required_timeframes": required_tf_labels,
+        "source": source, "matched_trade_id": matched_trade_id, "is_synthetic": False, "label": label,
+        "bars": [
+            {"timestamp": c.timestamp.isoformat(), "open": c.open, "high": c.high, "low": c.low, "close": c.close}
+            for c in base_candles
+        ],
+        "zones": zones,
+        "markers": markers,
+    }
+
+
+def _run_detectors_sync(
+    strategy_key: str, required_tf_labels: List[str], base_candles: List[Candle], base_timestamps: List[datetime],
+    timeframe_candles: Dict[str, List[Candle]], tf_timestamps: Dict[str, List[datetime]],
+) -> tuple[List[Dict], List[Dict]]:
+    """The actual CPU-bound work of compute_bot_simulation above: re-runs
+    every real SMC detector bar by bar, on an ever-growing candle slice
+    per timeframe, for every bar in the window (confirmed O(bars x
+    timeframes) real detector calls -- this is the loop that blew up
+    chart rendering before the recency-based label fix in
+    BotSimulationPlayer.tsx; the compute itself was always this heavy,
+    it just wasn't visible until that many results could all reach the
+    frontend). Pulled into its own plain synchronous function and run
+    via run_in_executor by the caller, rather than inline in the async
+    route handler -- the same event-loop-blocking bug as market_scanner.
+    py's own run_all call (see that fix's comment), except this one sits
+    directly on a live, user-facing GET request (and became a lot more
+    frequently hit once BotSimulationsPage made it one click from the
+    Learn hub)."""
     bounds = TUNABLE_PARAM_BOUNDS.get(strategy_key, {})
     left_bars = int(bounds.get("left_bars", (2, 10, 3))[2])
     right_bars = int(bounds.get("right_bars", (2, 10, 3))[2])
@@ -319,14 +355,4 @@ async def compute_bot_simulation(
                 entry["mitigated_percent"] = round(f.mitigated_percent, 3)
                 entry["label"] = f"{tf} FVG ({f.gap_type}, {round(f.mitigated_percent * 100)}% filled)"
 
-    return {
-        "bot_id": bot.bot_id, "strategy_key": strategy_key, "symbol": resolved_symbol, "exchange": exchange,
-        "direction": direction, "base_timeframe": base_tf, "required_timeframes": required_tf_labels,
-        "source": source, "matched_trade_id": matched_trade_id, "is_synthetic": False, "label": label,
-        "bars": [
-            {"timestamp": c.timestamp.isoformat(), "open": c.open, "high": c.high, "low": c.low, "close": c.close}
-            for c in base_candles
-        ],
-        "zones": list(ob_by_id.values()) + list(fvg_by_id.values()),
-        "markers": markers,
-    }
+    return list(ob_by_id.values()) + list(fvg_by_id.values()), markers

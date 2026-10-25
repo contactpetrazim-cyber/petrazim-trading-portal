@@ -232,7 +232,13 @@ class IntelligentTuningWorker:
             trailing_activation_r=trailing_activation_r, trailing_stop_mode=bot.trailing_stop_distance or "fixed",
         )
         engine = BacktestEngine(cost_model=CostModel(commission_r=0.001), max_hold_bars=2000)
-        return engine.run(bars, adapter, symbol=symbol)
+        # Same event-loop-blocking issue as backtest_runner.py's own
+        # run_backtest (see that fix's comment) -- this one matters even
+        # more here, since _tune_one_bot calls this in a loop (once for
+        # the baseline config, once per candidate parameter variant),
+        # so an un-offloaded call here would freeze every concurrent
+        # request for the ENTIRE tuning cycle, not just one backtest.
+        return await asyncio.get_event_loop().run_in_executor(None, engine.run, bars, adapter, symbol)
 
     async def _tune_one_bot(self, bot_id: str) -> None:
         async with AsyncSessionLocal() as db:

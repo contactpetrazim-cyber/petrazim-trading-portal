@@ -9,6 +9,7 @@ from app.models.trade import Trade, TradeStatus
 from app.models.bot import BotConfig, BotStatus
 from app.models.user import User, UserRole
 from app.core.access_gate import require_active_access
+from app.core.ttl_cache import ttl_cache
 from app.schemas import DashboardStats, PerformanceSummary, TodayTradeBreakdown, TradeBreakdown
 import structlog
 
@@ -81,9 +82,25 @@ def _breakdown_counts(all_trades: list) -> dict:
     )
 
 
+_STATS_CACHE_TTL_SECONDS = 8.0
+
+
 @router.get("/stats", response_model=DashboardStats)
 async def dashboard_stats(db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access)):
-    """Get real-time dashboard statistics for the caller (Admin/Super Admin see the whole platform)."""
+    """Get real-time dashboard statistics for the caller (Admin/Super Admin see the whole platform).
+
+    This is the single most frequently polled endpoint in the app (the
+    live dashboard re-fetches it every few seconds) and does 4 sequential
+    DB round trips, each crossing Render-Frankfurt <-> Supabase-eu-west-2
+    -- a real, repeatable, compounding latency cost for data that's
+    genuinely fine being a few seconds stale (nothing here gates an
+    action). Cached per-user for a short TTL via app/core/ttl_cache.py --
+    see that module's own docstring for why this is a plain in-process
+    cache rather than Redis."""
+    cached = ttl_cache.get("dashboard_stats", user.id)
+    if cached is not None:
+        return cached
+
     today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
 
     # ALL of today's trades, every status — the breakdown below needs
@@ -142,7 +159,7 @@ async def dashboard_stats(db: AsyncSession = Depends(get_db), user: User = Depen
     result = await db.execute(bots_query)
     active_bots = len(result.scalars().all())
 
-    return DashboardStats(
+    stats = DashboardStats(
         total_trades_today=total,
         active_trades=active,
         pending_approvals=pending,
@@ -152,6 +169,8 @@ async def dashboard_stats(db: AsyncSession = Depends(get_db), user: User = Depen
         active_bots=active_bots,
         today_breakdown=today_breakdown,
     )
+    ttl_cache.set("dashboard_stats", user.id, stats, ttl_seconds=_STATS_CACHE_TTL_SECONDS)
+    return stats
 
 @router.get("/trade-breakdown", response_model=TradeBreakdown)
 async def trade_breakdown(
