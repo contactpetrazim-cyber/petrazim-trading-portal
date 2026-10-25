@@ -25,7 +25,7 @@ an order regardless of what it's asked.
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 import httpx
 
@@ -68,19 +68,23 @@ class DayTraderSkillChatError(Exception):
     pass
 
 
-async def ask_day_trader_skill(question: str) -> str:
+async def _call_claude(system_prompt: str, user_message: str, *, max_tokens: int = MAX_REPLY_TOKENS) -> str:
+    """Shared single-call path for every paid-Claude feature gated behind
+    require_feature_access("day_trader_skill_chat") -- the chat page and
+    Trade Scanner's "AI read" both go through here, same budget, same
+    gate, same no-tool-access bound."""
     settings = get_settings()
     if not settings.ANTHROPIC_API_KEY:
         raise DayTraderSkillChatError(
-            "Day Trader Skill Chat needs an Anthropic API key configured on the backend "
+            "This feature needs an Anthropic API key configured on the backend "
             "(ANTHROPIC_API_KEY) -- it isn't set yet."
         )
 
     payload: Dict[str, Any] = {
         "model": settings.DAY_TRADER_SKILL_MODEL or DEFAULT_MODEL,
-        "max_tokens": MAX_REPLY_TOKENS,
-        "system": SYSTEM_PROMPT,
-        "messages": [{"role": "user", "content": question}],
+        "max_tokens": max_tokens,
+        "system": system_prompt,
+        "messages": [{"role": "user", "content": user_message}],
     }
     async with httpx.AsyncClient() as client:
         try:
@@ -105,3 +109,29 @@ async def ask_day_trader_skill(question: str) -> str:
     if not text:
         raise DayTraderSkillChatError("Claude returned an empty reply.")
     return text
+
+
+async def ask_day_trader_skill(question: str) -> str:
+    return await _call_claude(SYSTEM_PROMPT, question)
+
+
+SCAN_READ_SYSTEM_PROMPT = """You are reading the output of the Petrazim Trading Portal's Trade Scanner -- a real, rule-based momentum/RSI screen (breakout above the 20-bar high, bull flag, MA20 reclaim, RSI oversold, oversold bounce), already run against real recent price data for each symbol below. You're given each symbol's actual computed numbers (price, RSI, 10-bar run%, 5-bar range%), which setup tags fired, and which "watching" tags fired (a near-miss of one of the five rules at a loosened threshold -- e.g. RSI 31 when the oversold cutoff is 30).
+
+Your job: look across the whole batch and say what's actually worth a trader's attention and why, in plain language -- synthesis the rigid rules alone can't do (e.g. "three of these are all cooling off from a similar resistance level" or "this one's RSI near-miss is more interesting than that one because it's also building a tight range"). Use ONLY the numbers given -- never invent a number, a fact, or a data point not in the input. If genuinely nothing stands out, say so plainly rather than manufacturing interest.
+
+You have no tool access and cannot fetch new data -- you're reading exactly what's given, nothing more. Not financial advice: you're pointing out what's worth a closer look, not telling anyone what to do. Keep it to a short paragraph or a few bullet points, not an essay."""
+
+
+async def summarize_scan(items: List[Dict[str, Any]], *, exchange: str, timeframe: str) -> str:
+    if not items:
+        raise DayTraderSkillChatError("Nothing to summarize -- run a scan first.")
+    lines = [f"Exchange: {exchange}, timeframe: {timeframe}", ""]
+    for it in items:
+        setups = ", ".join(it.get("setups") or []) or "none"
+        watching = ", ".join(it.get("watching") or []) or "none"
+        lines.append(
+            f"- {it.get('symbol')}: price={it.get('price')}, rsi={it.get('rsi')}, "
+            f"run_pct={it.get('run_pct')}, range5_pct={it.get('range5_pct')}, "
+            f"setups=[{setups}], watching=[{watching}]"
+        )
+    return await _call_claude(SCAN_READ_SYSTEM_PROMPT, "\n".join(lines), max_tokens=500)
