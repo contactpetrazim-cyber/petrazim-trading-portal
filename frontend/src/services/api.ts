@@ -333,27 +333,35 @@ export const botsApi = {
 // server-side by `scope`. POST returns immediately (the run continues
 // in the background); poll getRun/getPortfolioRun until status is
 // 'completed'/'failed'.
+// NOTE: unlike almost every other router in this app (mounted bare in
+// main.py), backtests_router is mounted at the explicit prefix
+// "/api/backtests" -- same pattern as monte_carlo/validation_gate/
+// weekly_review, which InsightsPage.tsx already calls correctly as
+// `${API_URL}/api/monte-carlo/...` etc. Every URL below must include
+// that "/api" segment or it 404s against the real route ("Not Found",
+// confirmed live) -- this previously broke BOTH isolated and portfolio
+// backtests in production.
 export const backtestsApi = {
   createRun: (req: { bot_id: string; start_date: string; end_date: string; symbol?: string }) =>
-    api.post<IsolatedBacktestRun>('/backtests', { scope: 'isolated', ...req }).then(r => r.data),
-  getRun: (runId: string) => api.get<IsolatedBacktestRun>(`/backtests/${runId}`).then(r => r.data),
+    api.post<IsolatedBacktestRun>('/api/backtests', { scope: 'isolated', ...req }).then(r => r.data),
+  getRun: (runId: string) => api.get<IsolatedBacktestRun>(`/api/backtests/${runId}`).then(r => r.data),
   listRuns: (botId: string, limit = 10) =>
-    api.get<IsolatedBacktestRun[]>('/backtests', { params: { bot_id: botId, limit } }).then(r => r.data),
+    api.get<IsolatedBacktestRun[]>('/api/backtests', { params: { bot_id: botId, limit } }).then(r => r.data),
 
   // Portfolio mode: every currently-ACTIVE bot (or an explicit subset
   // via bot_ids) replayed together against one shared ledger. bot_ids
   // omitted/undefined means "all ACTIVE bots", resolved by the backend
   // at RUN time, never here at request time.
   createPortfolioRun: (req: { bot_ids?: string[]; start_date: string; end_date: string }) =>
-    api.post<PortfolioBacktestRun>('/backtests', { scope: 'portfolio', ...req }).then(r => r.data),
-  getPortfolioRun: (runId: string) => api.get<PortfolioBacktestRun>(`/backtests/${runId}`).then(r => r.data),
+    api.post<PortfolioBacktestRun>('/api/backtests', { scope: 'portfolio', ...req }).then(r => r.data),
+  getPortfolioRun: (runId: string) => api.get<PortfolioBacktestRun>(`/api/backtests/${runId}`).then(r => r.data),
   // The list endpoint has no server-side scope filter (it only filters
   // by bot_id, which isolated runs have and portfolio runs don't) — so
   // this fetches recent runs generically and filters to scope==='portfolio'
   // client-side, rather than coupling the frontend to the backend's own
   // internal "no single bot_id" sentinel value.
   listPortfolioRuns: (limit = 10) =>
-    api.get<BacktestRun[]>('/backtests', { params: { limit: Math.max(limit * 4, 20) } })
+    api.get<BacktestRun[]>('/api/backtests', { params: { limit: Math.max(limit * 4, 20) } })
       .then(r => r.data.filter((run): run is PortfolioBacktestRun => run.scope === 'portfolio').slice(0, limit)),
 };
 
