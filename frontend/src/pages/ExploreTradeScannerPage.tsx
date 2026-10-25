@@ -1,5 +1,5 @@
 import { useState, FormEvent } from 'react';
-import { Radar, AlertTriangle } from 'lucide-react';
+import { Radar, AlertTriangle, Sparkles, Lock } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
 import { tradeScannerApi } from '../services/api';
 import type { TradeScannerResponse, TradeScannerHit } from '../types';
@@ -13,29 +13,50 @@ const SETUP_LABEL: Record<string, string> = {
   oversold_bounce: 'Oversold bounce',
 };
 
+// Same five rules, loosened -- a real near-miss, not yet a hit (RSI 31
+// doesn't miss "oversold" any less meaningfully than RSI 29 hits it).
+// By direct request ("be proactive ... we may miss some").
+const WATCHING_LABEL: Record<string, string> = {
+  approaching_breakout_20: 'Approaching 20-bar high',
+  approaching_bull_flag: 'Building a flag',
+  approaching_reclaim_ma20: 'Approaching 20-bar MA',
+  approaching_oversold: 'Approaching oversold',
+  approaching_oversold_bounce: 'Approaching oversold bounce',
+};
+
 // Shows every scanned symbol's real numbers, hit or not -- a symbol
 // with no setup tags is an honest "nothing active right now" result,
 // not a failure, and hiding it left the UI with nothing to show on a
 // correct zero-hit scan (direct bug report: read as broken). Border
-// accent distinguishes an active setup from a checked-and-clear one.
+// accent distinguishes an active setup from a checked-and-clear one;
+// a near-miss (watching) gets a softer amber badge, one step down from
+// a confirmed hit's emerald one.
 function HitRow({ hit, dark }: { hit: TradeScannerHit; dark: boolean }) {
   const mutedCls = dark ? 'text-white/50' : 'text-gray-500';
   const hasSetup = hit.setups.length > 0;
+  const hasWatching = hit.watching.length > 0;
   return (
     <div className={`rounded-xl px-3 py-2.5 border ${
       hasSetup
         ? dark ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-emerald-50/50 border-emerald-100'
-        : dark ? 'bg-white/5 border-white/10' : 'bg-gray-50 border-gray-100'
+        : hasWatching
+          ? dark ? 'bg-amber-500/5 border-amber-500/20' : 'bg-amber-50/50 border-amber-100'
+          : dark ? 'bg-white/5 border-white/10' : 'bg-gray-50 border-gray-100'
     }`}>
       <div className="flex items-center justify-between gap-2 mb-1">
         <span className="text-sm font-semibold">{hit.symbol}</span>
         <span className={`text-xs ${mutedCls}`}>{hit.price} · RSI {hit.rsi ?? '—'} · run {hit.run_pct > 0 ? '+' : ''}{hit.run_pct}%</span>
       </div>
-      {hasSetup ? (
+      {(hasSetup || hasWatching) ? (
         <div className="flex flex-wrap gap-1.5">
           {hit.setups.map((tag) => (
             <span key={tag} className={`text-[10px] px-1.5 py-0.5 rounded-full ${dark ? 'bg-emerald-500/15 text-emerald-300' : 'bg-emerald-50 text-emerald-700'}`}>
               {SETUP_LABEL[tag] || tag}
+            </span>
+          ))}
+          {hit.watching.map((tag) => (
+            <span key={tag} className={`text-[10px] px-1.5 py-0.5 rounded-full ${dark ? 'bg-amber-500/15 text-amber-300' : 'bg-amber-50 text-amber-700'}`}>
+              {WATCHING_LABEL[tag] || tag}
             </span>
           ))}
         </div>
@@ -65,6 +86,10 @@ export function ExploreTradeScannerPage() {
   const [data, setData] = useState<TradeScannerResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [aiSummary, setAiSummary] = useState<string | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [aiGated, setAiGated] = useState(false);
 
   const mutedCls = dark ? 'text-white/50' : 'text-gray-500';
   const inputCls = `px-3 py-2 rounded-lg text-sm border ${dark ? 'bg-white/5 text-white border-white/10' : 'bg-white text-gray-800 border-gray-200'}`;
@@ -78,10 +103,29 @@ export function ExploreTradeScannerPage() {
     }
     setLoading(true);
     setError(null);
+    setAiSummary(null);
+    setAiError(null);
     tradeScannerApi.scan({ exchange, symbols, timeframe })
       .then(setData)
       .catch((err) => setError(err?.response?.data?.detail || 'Could not run the scan right now.'))
       .finally(() => setLoading(false));
+  }
+
+  // Admin/invite-gated -- same real per-call cost and same gate as Day
+  // Trader Skill Chat (require_feature_access("day_trader_skill_chat")
+  // on the backend). A 403 here means "not invited," not a bug.
+  function aiRead() {
+    if (!data || data.hits.length === 0) return;
+    setAiLoading(true);
+    setAiError(null);
+    setAiSummary(null);
+    tradeScannerApi.aiRead(data.exchange, data.timeframe, data.hits)
+      .then((res) => setAiSummary(res.summary))
+      .catch((err) => {
+        if (err?.response?.status === 403) setAiGated(true);
+        setAiError(err?.response?.data?.detail || 'Could not get an AI read right now.');
+      })
+      .finally(() => setAiLoading(false));
   }
 
   return (
@@ -129,14 +173,48 @@ export function ExploreTradeScannerPage() {
 
       {!loading && !error && data && (
         <div className="space-y-3">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <Radar size={16} className={dark ? 'text-white/60' : 'text-corporate-hero'} />
             <span className="text-sm font-semibold">{data.counts.hits} setup{data.counts.hits === 1 ? '' : 's'} active</span>
             <span className={`text-xs ${mutedCls}`}>
               {data.counts.scanned} scanned · {data.counts.skipped_short} too short · {data.counts.skipped_illiquid} illiquid
               {data.counts.errored > 0 ? ` · ${data.counts.errored} errored` : ''}
             </span>
+            {data.hits.length > 0 && !aiGated && (
+              <button
+                onClick={aiRead} disabled={aiLoading}
+                className={`ml-auto flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-lg disabled:opacity-50 ${
+                  dark ? 'bg-corporate-hero/20 text-corporate-hero' : 'bg-corporate-hero/10 text-corporate-hero'
+                }`}
+              >
+                <Sparkles size={12} /> {aiLoading ? 'Reading…' : 'AI Read'}
+              </button>
+            )}
           </div>
+
+          {aiGated && (
+            <div className={`flex items-start gap-2 rounded-lg px-3 py-2 text-xs ${dark ? 'bg-amber-500/10 text-amber-300' : 'bg-amber-50 text-amber-700'}`}>
+              <Lock size={13} className="mt-0.5 shrink-0" />
+              <span>AI Read is admin/invite-only (a real, paid Claude call) -- ask an admin to grant you access from the Admin Console's Feature Access panel.</span>
+            </div>
+          )}
+
+          {aiError && !aiGated && (
+            <div className={`flex items-start gap-2 rounded-lg px-3 py-2 text-xs ${dark ? 'bg-amber-500/10 text-amber-300' : 'bg-amber-50 text-amber-700'}`}>
+              <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+              <span>{aiError}</span>
+            </div>
+          )}
+
+          {aiSummary && (
+            <div className={`rounded-xl px-3 py-2.5 border ${dark ? 'bg-white/5 border-white/10' : 'bg-gray-50 border-gray-100'}`}>
+              <div className="flex items-center gap-1.5 mb-1.5">
+                <Sparkles size={13} className="text-corporate-hero" />
+                <span className="text-xs font-semibold">Claude's read</span>
+              </div>
+              <p className={`text-sm whitespace-pre-wrap ${dark ? 'text-white/90' : 'text-corporate-text-on-bg'}`}>{aiSummary}</p>
+            </div>
+          )}
 
           {data.errors.length > 0 && (
             <div className={`flex items-start gap-2 rounded-lg px-3 py-2 text-xs ${dark ? 'bg-amber-500/10 text-amber-300' : 'bg-amber-50 text-amber-700'}`}>

@@ -1,6 +1,6 @@
 
 import axios from 'axios';
-import { Trade, BotConfig, BotPerformance, BotMetricsUpdate, DashboardStats, SignalPreview, PerformanceSummary, TradeBreakdown, TradeBreakdownPeriod, TodayTradeBreakdown, ExchangeMetaResponse, TraderBrokerConnection, AvailableBot, TraderBotSubscription, OutboundIpsResponse, FeeSettings, FeeLedgerEntry, MyFeesResponse, FeeGateStatus, FeeCheckoutSession, FeeCheckoutProvider, FeeVerifyResult, DeployStateResponse, TradeSnapshot, EncroachmentResponse, SnapshotTimeframe, ExchangeBalancesResponse, MasterExchangeBalancesResponse, SystemHealthResponse, SystemHealthSummaryResponse, BacktestRun, IsolatedBacktestRun, PortfolioBacktestRun, TradeForensics, BotSimulationResponse, CongressTradesResponse, NewsMonitorResponse, TimeMachineRequest, TimeMachineResponse, TradeScannerRequest, TradeScannerResponse, DayTraderSkillChatResponse, FeatureAccessGrantItem } from '../types';
+import { Trade, BotConfig, BotPerformance, BotMetricsUpdate, DashboardStats, SignalPreview, PerformanceSummary, TradeBreakdown, TradeBreakdownPeriod, TodayTradeBreakdown, ExchangeMetaResponse, TraderBrokerConnection, AvailableBot, TraderBotSubscription, OutboundIpsResponse, FeeSettings, FeeLedgerEntry, MyFeesResponse, FeeGateStatus, FeeCheckoutSession, FeeCheckoutProvider, FeeVerifyResult, DeployStateResponse, TradeSnapshot, EncroachmentResponse, SnapshotTimeframe, ExchangeBalancesResponse, MasterExchangeBalancesResponse, SystemHealthResponse, SystemHealthSummaryResponse, BacktestRun, IsolatedBacktestRun, PortfolioBacktestRun, TradeForensics, BotSimulationResponse, CongressTradesResponse, NewsMonitorResponse, TimeMachineRequest, TimeMachineResponse, TradeScannerRequest, TradeScannerResponse, TradeScannerHit, TradeScannerAiReadResponse, DayTraderSkillChatResponse, FeatureAccessGrantItem } from '../types';
 import { useAuthStore } from '../hooks/useAuth';
 import { triggerAccessExpired } from '../components/AccessExpiredGate';
 import { triggerFeesOwed } from '../components/TradingFeeGate';
@@ -590,9 +590,13 @@ export const timeMachineApi = {
 };
 
 // Explore: Trade Scanner -- see backend/app/routers/trade_scanner.py.
+// aiRead is admin/invite-gated (same gate as Day Trader Skill Chat) --
+// a real Claude synthesis over an already-completed scan's results.
 export const tradeScannerApi = {
   scan: (req: TradeScannerRequest) =>
     api.post<TradeScannerResponse>('/trade-scanner/scan', req).then(r => r.data),
+  aiRead: (exchange: string, timeframe: string, items: TradeScannerHit[]) =>
+    api.post<TradeScannerAiReadResponse>('/trade-scanner/ai-read', { exchange, timeframe, items }).then(r => r.data),
 };
 
 // Explore: Day Trader Skill Chat (admin/invite-gated) -- see

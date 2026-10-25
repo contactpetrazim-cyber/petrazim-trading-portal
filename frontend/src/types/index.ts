@@ -925,6 +925,7 @@ export interface TradeScannerRequest {
 export interface TradeScannerHit {
   symbol: string;
   setups: string[];
+  watching: string[];
   price: number;
   volume: number;
   rsi: number | null;
@@ -956,4 +957,8 @@ export interface FeatureAccessGrantItem {
   email: string;
   feature_key: string;
   granted_at: string;
+}
+
+export interface TradeScannerAiReadResponse {
+  summary: string;
 }

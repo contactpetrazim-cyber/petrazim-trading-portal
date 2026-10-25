@@ -50,10 +50,21 @@ def _rsi(closes: List[float], n: int = 14) -> Optional[float]:
     return 100 - 100 / (1 + avg_gain / avg_loss) if avg_loss else 100.0
 
 
-def find_setups(closes: List[float]) -> tuple[List[str], Dict[str, Optional[float]]]:
-    """closes (oldest first, >= MIN_BARS) -> (setup tags, numbers). Same five
-    rules and thresholds as the source skill's find_setups(); only the
-    "daily bar" framing is generalized to "the caller's chosen timeframe"."""
+def find_setups(closes: List[float]) -> tuple[List[str], List[str], Dict[str, Optional[float]]]:
+    """closes (oldest first, >= MIN_BARS) -> (setup tags, watching tags,
+    numbers). The five setup rules/thresholds are unchanged from the
+    source skill's find_setups(); only the "daily bar" framing is
+    generalized to "the caller's chosen timeframe".
+
+    `watching` is new, by direct request ("be proactive ... we may miss
+    some") -- a free, deterministic widening of each of the five rules
+    to flag a symbol that's CLOSE to firing but hasn't yet (RSI 31 does
+    not miss "oversold" any less than RSI 29 hits it; a rigid cutoff
+    with zero visibility into near-misses is exactly the kind of thing
+    worth surfacing rather than silently dropping). Each watching tag
+    mirrors its real setup's own condition at a loosened threshold --
+    never invented, always a visible loosening of the exact same math.
+    """
     c = closes
     last = c[-1]
     high20 = max(c[-21:-1])
@@ -63,6 +74,8 @@ def find_setups(closes: List[float]) -> tuple[List[str], Dict[str, Optional[floa
     range5 = (max(c[-5:]) - min(c[-5:])) / last
     r = _rsi(c)
     r_prev = _rsi(c[:-1])
+    dist_to_high20 = (high20 - last) / last if last else 0.0
+    dist_to_ma20 = (ma20 - last) / last if last else 0.0
 
     tags: List[str] = []
     if last > high20:
@@ -76,7 +89,19 @@ def find_setups(closes: List[float]) -> tuple[List[str], Dict[str, Optional[floa
     if r_prev is not None and r_prev < 30 and last > c[-2]:
         tags.append("oversold_bounce")
 
-    return tags, {
+    watching: List[str] = []
+    if "breakout_20" not in tags and 0 < dist_to_high20 <= 0.01:
+        watching.append("approaching_breakout_20")
+    if "bull_flag" not in tags and run > 0.07 and range5 < 0.07:
+        watching.append("approaching_bull_flag")
+    if "reclaim_ma20" not in tags and last < ma20 and 0 < dist_to_ma20 <= 0.005:
+        watching.append("approaching_reclaim_ma20")
+    if "oversold" not in tags and r is not None and 30 <= r < 35:
+        watching.append("approaching_oversold")
+    if "oversold_bounce" not in tags and r_prev is not None and 30 <= r_prev < 35 and last > c[-2]:
+        watching.append("approaching_oversold_bounce")
+
+    return tags, watching, {
         "rsi": r, "rsi_prev": r_prev, "high20": high20, "ma20": ma20,
         "run_pct": round(run * 100, 2), "range5_pct": round(range5 * 100, 2),
     }
@@ -128,16 +153,17 @@ async def scan_symbols(
             counts["skipped_short"] += 1
             continue
         counts["scanned"] += 1
-        tags, nums = find_setups(closes)
+        tags, watching, nums = find_setups(closes)
         scanned.append({
-            "symbol": symbol, "setups": tags, "price": round(price, 8),
+            "symbol": symbol, "setups": tags, "watching": watching, "price": round(price, 8),
             "volume": round(volume, 4), "rsi": round(nums["rsi"], 1) if nums["rsi"] is not None else None,
             "run_pct": nums["run_pct"], "range5_pct": nums["range5_pct"],
         })
 
-    # Hits (a real setup fired) first, most dollars traded first within
-    # each group -- a trader scanning a long watchlist wants the active
-    # setups at the top, not buried alphabetically among the misses.
-    scanned.sort(key=lambda h: (not h["setups"], -(h["price"] * (h["volume"] or 0)), h["symbol"]))
+    # Hits first, then watching (a real near-miss beats a flat nothing),
+    # most dollars traded first within each group -- a trader scanning a
+    # long watchlist wants the active/approaching setups at the top, not
+    # buried alphabetically among the flat misses.
+    scanned.sort(key=lambda h: (not h["setups"], not h["watching"], -(h["price"] * (h["volume"] or 0)), h["symbol"]))
     counts["hits"] = sum(1 for h in scanned if h["setups"])
     return {"exchange": exchange, "timeframe": timeframe, "hits": scanned, "counts": counts, "errors": errors}
