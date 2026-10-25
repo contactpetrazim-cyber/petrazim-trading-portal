@@ -946,3 +946,14 @@ export interface TradeScannerResponse {
   };
   errors: string[];
 }
+
+export interface DayTraderSkillChatResponse {
+  reply: string;
+}
+
+export interface FeatureAccessGrantItem {
+  id: string;
+  email: string;
+  feature_key: string;
+  granted_at: string;
+}

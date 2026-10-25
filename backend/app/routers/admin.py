@@ -26,6 +26,7 @@ from app.core.auth import require_role, require_super_admin
 from app.core.idempotency import idempotency_guard
 from app.database import get_db
 from app.models.access import AccessCode, CodeType, UserAccess
+from app.models.feature_access import FeatureAccessGrant
 from app.models.broadcast_log import BroadcastLog
 from app.models.facilitator import BookingStatus, MeetingBooking
 from app.services.proxy_health import get_status as get_proxy_health_status
@@ -299,3 +300,77 @@ async def remove_user(
         response = {"status": "removed", "user_id": user_id}
         await guard.finalize(response)
         return response
+
+
+# Feature Access Grants — "Admin or invitee" gate for one-off gated
+# features (e.g. the Day Trader Skill live-Claude page). Mutations are
+# require_super_admin, same reasoning as the rest of this file's own
+# docstring: granting privilege (here, access to a feature that spends
+# the backend's own AI-provider budget) is deliberately not given to a
+# plain Admin by default.
+class FeatureAccessGrantItem(BaseModel):
+    id: str
+    email: str
+    feature_key: str
+    granted_at: str
+
+
+class GrantFeatureAccessRequest(BaseModel):
+    email: str
+    feature_key: str
+
+
+@router.get("/feature-access/{feature_key}", response_model=list[FeatureAccessGrantItem])
+async def list_feature_access(
+    feature_key: str,
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(require_role(UserRole.ADMIN, UserRole.SUPER_ADMIN)),
+):
+    rows = (await db.execute(
+        select(FeatureAccessGrant, User.email)
+        .join(User, User.id == FeatureAccessGrant.user_id)
+        .where(FeatureAccessGrant.feature_key == feature_key)
+    )).all()
+    return [
+        FeatureAccessGrantItem(id=str(g.id), email=email, feature_key=g.feature_key, granted_at=g.created_at.isoformat())
+        for g, email in rows
+    ]
+
+
+@router.post("/feature-access", response_model=FeatureAccessGrantItem)
+async def grant_feature_access(
+    req: GrantFeatureAccessRequest,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_super_admin),
+):
+    target = (await db.execute(select(User).where(User.email == req.email))).scalar_one_or_none()
+    if target is None:
+        raise HTTPException(status_code=404, detail="No account with this email")
+
+    existing = (await db.execute(
+        select(FeatureAccessGrant).where(
+            FeatureAccessGrant.user_id == target.id, FeatureAccessGrant.feature_key == req.feature_key,
+        )
+    )).scalar_one_or_none()
+    if existing is not None:
+        return FeatureAccessGrantItem(id=str(existing.id), email=target.email, feature_key=existing.feature_key, granted_at=existing.created_at.isoformat())
+
+    grant = FeatureAccessGrant(user_id=target.id, feature_key=req.feature_key, granted_by_user_id=admin.id)
+    db.add(grant)
+    await db.commit()
+    await db.refresh(grant)
+    return FeatureAccessGrantItem(id=str(grant.id), email=target.email, feature_key=grant.feature_key, granted_at=grant.created_at.isoformat())
+
+
+@router.delete("/feature-access/{grant_id}")
+async def revoke_feature_access(
+    grant_id: str,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_super_admin),
+):
+    grant = (await db.execute(select(FeatureAccessGrant).where(FeatureAccessGrant.id == grant_id))).scalar_one_or_none()
+    if grant is None:
+        raise HTTPException(status_code=404, detail="Grant not found")
+    await db.delete(grant)
+    await db.commit()
+    return {"status": "revoked", "grant_id": grant_id}

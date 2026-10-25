@@ -1,6 +1,6 @@
 
 import axios from 'axios';
-import { Trade, BotConfig, BotPerformance, BotMetricsUpdate, DashboardStats, SignalPreview, PerformanceSummary, TradeBreakdown, TradeBreakdownPeriod, TodayTradeBreakdown, ExchangeMetaResponse, TraderBrokerConnection, AvailableBot, TraderBotSubscription, OutboundIpsResponse, FeeSettings, FeeLedgerEntry, MyFeesResponse, FeeGateStatus, FeeCheckoutSession, FeeCheckoutProvider, FeeVerifyResult, DeployStateResponse, TradeSnapshot, EncroachmentResponse, SnapshotTimeframe, ExchangeBalancesResponse, MasterExchangeBalancesResponse, SystemHealthResponse, SystemHealthSummaryResponse, BacktestRun, IsolatedBacktestRun, PortfolioBacktestRun, TradeForensics, BotSimulationResponse, CongressTradesResponse, NewsMonitorResponse, TimeMachineRequest, TimeMachineResponse, TradeScannerRequest, TradeScannerResponse } from '../types';
+import { Trade, BotConfig, BotPerformance, BotMetricsUpdate, DashboardStats, SignalPreview, PerformanceSummary, TradeBreakdown, TradeBreakdownPeriod, TodayTradeBreakdown, ExchangeMetaResponse, TraderBrokerConnection, AvailableBot, TraderBotSubscription, OutboundIpsResponse, FeeSettings, FeeLedgerEntry, MyFeesResponse, FeeGateStatus, FeeCheckoutSession, FeeCheckoutProvider, FeeVerifyResult, DeployStateResponse, TradeSnapshot, EncroachmentResponse, SnapshotTimeframe, ExchangeBalancesResponse, MasterExchangeBalancesResponse, SystemHealthResponse, SystemHealthSummaryResponse, BacktestRun, IsolatedBacktestRun, PortfolioBacktestRun, TradeForensics, BotSimulationResponse, CongressTradesResponse, NewsMonitorResponse, TimeMachineRequest, TimeMachineResponse, TradeScannerRequest, TradeScannerResponse, DayTraderSkillChatResponse, FeatureAccessGrantItem } from '../types';
 import { useAuthStore } from '../hooks/useAuth';
 import { triggerAccessExpired } from '../components/AccessExpiredGate';
 import { triggerFeesOwed } from '../components/TradingFeeGate';
@@ -593,6 +593,24 @@ export const timeMachineApi = {
 export const tradeScannerApi = {
   scan: (req: TradeScannerRequest) =>
     api.post<TradeScannerResponse>('/trade-scanner/scan', req).then(r => r.data),
+};
+
+// Explore: Day Trader Skill Chat (admin/invite-gated) -- see
+// backend/app/routers/day_trader_skill_chat.py.
+export const dayTraderSkillChatApi = {
+  ask: (question: string) =>
+    api.post<DayTraderSkillChatResponse>('/day-trader-skill-chat/ask', { question }).then(r => r.data),
+};
+
+// Admin Console: Feature Access Grants -- see the feature-access
+// endpoints in backend/app/routers/admin.py.
+export const adminFeatureAccessApi = {
+  list: (featureKey: string) =>
+    api.get<FeatureAccessGrantItem[]>(`/admin/feature-access/${encodeURIComponent(featureKey)}`).then(r => r.data),
+  grant: (email: string, featureKey: string) =>
+    api.post<FeatureAccessGrantItem>('/admin/feature-access', { email, feature_key: featureKey }).then(r => r.data),
+  revoke: (grantId: string) =>
+    api.delete(`/admin/feature-access/${grantId}`).then(r => r.data),
 };
 
 export default api;

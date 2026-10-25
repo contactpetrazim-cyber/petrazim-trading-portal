@@ -172,6 +172,9 @@ export const FEATURE_REGISTRY: FeatureEntry[] = [
   { id: 'explore-trade-scanner', label: 'Trade Scanner', area: 'explore', route: '/explore/trade-scanner',
     description: 'Scan a symbol watchlist for breakout/bull-flag/oversold momentum setups right now.',
     keywords: ['scanner', 'rsi', 'breakout', 'momentum', 'watchlist'] },
+  { id: 'explore-day-trader-skill-chat', label: 'Day Trader Skill Chat', area: 'explore', route: '/explore/day-trader-skill-chat',
+    description: 'Ask Claude about the Day Trader Skill Pack\'s own logic -- admin/invite-only, a real Claude call.',
+    keywords: ['claude', 'chat', 'skill', 'ask', 'day trader'] },
 ];
 
 export function searchFeatures(query: string): FeatureEntry[] {

@@ -41,6 +41,7 @@ const BotSimulationsPage = lazy(() => import('./pages/BotSimulationsPage').then(
 const ExploreCongressTradesPage = lazy(() => import('./pages/ExploreCongressTradesPage').then((module) => ({ default: module.ExploreCongressTradesPage })));
 const ExploreNewsMonitorPage = lazy(() => import('./pages/ExploreNewsMonitorPage').then((module) => ({ default: module.ExploreNewsMonitorPage })));
 const ExploreDayTraderSkillPage = lazy(() => import('./pages/ExploreDayTraderSkillPage').then((module) => ({ default: module.ExploreDayTraderSkillPage })));
+const ExploreDayTraderSkillChatPage = lazy(() => import('./pages/ExploreDayTraderSkillChatPage').then((module) => ({ default: module.ExploreDayTraderSkillChatPage })));
 const ExploreTimeMachinePage = lazy(() => import('./pages/ExploreTimeMachinePage').then((module) => ({ default: module.ExploreTimeMachinePage })));
 const ExploreTradeScannerPage = lazy(() => import('./pages/ExploreTradeScannerPage').then((module) => ({ default: module.ExploreTradeScannerPage })));
 const LearnTrackPage = lazy(() => import('./pages/LearnTrackPage').then((module) => ({ default: module.LearnTrackPage })));
@@ -345,6 +346,7 @@ function App() {
         <Route path="/explore/congress-trades" element={<CorporateLayout><ExploreCongressTradesPage /></CorporateLayout>} />
         <Route path="/explore/news-monitor" element={<CorporateLayout><ExploreNewsMonitorPage /></CorporateLayout>} />
         <Route path="/explore/day-trader-skill" element={<CorporateLayout><ExploreDayTraderSkillPage /></CorporateLayout>} />
+        <Route path="/explore/day-trader-skill-chat" element={<CorporateLayout><ExploreDayTraderSkillChatPage /></CorporateLayout>} />
         <Route path="/explore/time-machine" element={<CorporateLayout><ExploreTimeMachinePage /></CorporateLayout>} />
         <Route path="/explore/trade-scanner" element={<CorporateLayout><ExploreTradeScannerPage /></CorporateLayout>} />
         <Route path="/tools" element={<CorporateLayout><ToolsPage /></CorporateLayout>} />

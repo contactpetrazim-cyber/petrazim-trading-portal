@@ -381,6 +381,14 @@ class Settings(BaseSettings):
     OPENROUTER_API_KEY: str = ""
     GEMINI_API_KEY: str = ""
 
+    # Day Trader Skill Chat (Explore area, admin/invite-gated) --
+    # deliberately NOT part of ai_coach.py's free-tier-only rotation
+    # above: this is a paid Anthropic call by design ("so it's really
+    # my Claude code"), gated specifically so cost is bounded to
+    # admin/invited users rather than every subscriber.
+    ANTHROPIC_API_KEY: str = ""
+    DAY_TRADER_SKILL_MODEL: str = "claude-sonnet-5-5"
+
     # Where the Test-mode simulated checkout page (routers/payments.py)
     # sends a user back to after Simulate Success/Failure — the real
     # frontend origin, so this works the same way a real gateway's
