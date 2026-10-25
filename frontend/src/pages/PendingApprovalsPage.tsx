@@ -10,6 +10,7 @@ import { useEffectiveChartColors } from '../hooks/useCandleColors';
 import { useQuickPairsStore, DEFAULT_QUICK_PAIRS } from '../hooks/useQuickPairs';
 import { tradesApi } from '../services/api';
 import { Trade } from '../types';
+import { formatTradeDuration } from '../lib/tradeDuration';
 import { useThemeStore } from '../hooks/useTheme';
 import { formatApiError } from '../lib/apiError';
 
@@ -322,6 +323,15 @@ export function PendingApprovalsPage() {
                       {t.take_profit_2 && <div><span className="text-gray-500">TP2:</span> <span className="ml-1 font-mono text-emerald-400">{t.take_profit_2.toFixed(4)}</span></div>}
                       {t.take_profit_3 && <div><span className="text-gray-500">TP3:</span> <span className="ml-1 font-mono text-emerald-400">{t.take_profit_3.toFixed(4)}</span></div>}
                     </>
+                  )}
+                  {/* Duration — entry to exit (or entry to now while
+                      still open), by direct request. Null for the
+                      normal case here (still awaiting approval, never
+                      filled yet, so no entry_timestamp) — only shows
+                      once a Re-Analyse or status change has actually
+                      given this trade a real entry. */}
+                  {formatTradeDuration(t.entry_timestamp, t.exit_timestamp) != null && (
+                    <div><span className="text-gray-500">Duration:</span> <span className="ml-1 font-mono">{formatTradeDuration(t.entry_timestamp, t.exit_timestamp)}</span></div>
                   )}
                 </div>
 

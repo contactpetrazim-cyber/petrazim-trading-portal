@@ -9,6 +9,7 @@ import { PositionManager } from './PositionManager';
 import { TradeSnapshotModal } from './TradeSnapshotModal';
 import { TradeForensicsModal } from './TradeForensicsModal';
 import { pairFromTradeSymbol } from '../hooks/useQuickPairs';
+import { formatTradeDuration } from '../lib/tradeDuration';
 
 interface TradeRowProps {
   trade: Trade;
@@ -205,6 +206,21 @@ export function TradeRow({ trade, onApprove, onReject, onCancel, onChanged, onAr
                 <div>
                   <span className="text-gray-500">R:R (TP1 plan):</span>
                   <span className="ml-1 font-mono">1:{rr.toFixed(2)}</span>
+                </div>
+              ) : null;
+            })()}
+            {/* Duration — by direct request ("add the duration of each
+                trade from entry to exit as an info on the trade
+                card"). For a still-open trade this is entry-to-now
+                (updates on the row's own normal re-render/poll cycle,
+                same as everything else here — no separate ticking
+                clock needed for a running-trades list). */}
+            {trade.status === 'active' && (() => {
+              const duration = formatTradeDuration(trade.entry_timestamp);
+              return duration != null ? (
+                <div>
+                  <span className="text-gray-500">Duration:</span>
+                  <span className="ml-1 font-mono">{duration}</span>
                 </div>
               ) : null;
             })()}
@@ -433,7 +449,7 @@ export function TradeRow({ trade, onApprove, onReject, onCancel, onChanged, onAr
       )}
 
       {trade.status === 'closed' && (
-        <div className={`mt-3 pt-3 border-t grid grid-cols-2 sm:grid-cols-7 gap-x-3 gap-y-2 text-xs ${dark ? 'border-smc-border' : 'border-corporate-bg'}`}>
+        <div className={`mt-3 pt-3 border-t grid grid-cols-2 sm:grid-cols-8 gap-x-3 gap-y-2 text-xs ${dark ? 'border-smc-border' : 'border-corporate-bg'}`}>
           {/* Label on its own line, price on the line below — by
               direct request ("the corresponding prices should be
               under each of the following Entry, SL, TP, Close etc -
@@ -470,6 +486,14 @@ export function TradeRow({ trade, onApprove, onReject, onCancel, onChanged, onAr
             <span className="text-gray-500">Closed:</span>
             <span className="font-mono">{trade.exit_price?.toFixed(4) ?? '—'}</span>
           </div>
+          {/* Duration — entry to exit, by direct request. Null (shown
+              as '—') only for a trade with no entry_timestamp — a
+              pre-migration row, or one that errored/was cancelled
+              before ever actually filling. */}
+          <div className="flex flex-col gap-0.5">
+            <span className="text-gray-500">Duration:</span>
+            <span className="font-mono">{formatTradeDuration(trade.entry_timestamp, trade.exit_timestamp) ?? '—'}</span>
+          </div>
           {/* The ratio above is the fixed TP1 plan, not what this trade
               actually earned — on a multi-target trade, partial exits
               at TP1/TP2 bank profit at THEIR OWN ratios before the
@@ -488,7 +512,7 @@ export function TradeRow({ trade, onApprove, onReject, onCancel, onChanged, onAr
             <span className="text-gray-500">Result:</span>
             <span className={`font-semibold ${outcomeColorCls}`}>{outcomeLabel}</span>
           </div>
-          <div className="flex flex-col gap-0.5 col-span-2 sm:col-span-7">
+          <div className="flex flex-col gap-0.5 col-span-2 sm:col-span-8">
             <button
               onClick={() => setSnapshotOpen(true)}
               className={`self-start flex items-center gap-1.5 text-xs font-medium mt-1 ${dark ? 'text-smc-accent hover:text-white' : 'text-corporate-hero hover:text-corporate-text-on-bg'}`}

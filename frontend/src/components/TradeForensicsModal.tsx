@@ -5,6 +5,7 @@ import type { TradeForensics, SnapshotTimeframe } from '../types';
 import { CandleChart, computeChartRange, type Candle, type ChartZone, type ChartMarker, type ChartLine } from './CandleChart';
 import { nearestCandleIndex } from '../lib/positionChartOverlay';
 import { useYAxisZoom, applyYZoom } from '../hooks/useYAxisZoom';
+import { formatTradeDuration } from '../lib/tradeDuration';
 
 const GREEN = '#10b981';
 const RED = '#ef4444';
@@ -312,6 +313,11 @@ function ForensicsBody({ forensics, timeframe, tradeId, dark }: { forensics: Tra
         <span className={mutedCls}>
           HTF bias ({forensics.htf_timeframe}): <strong className={dark ? 'text-white' : 'text-gray-800'}>{forensics.htf_bias}</strong>
         </span>
+        {formatTradeDuration(forensics.entry_timestamp, forensics.exit_timestamp) != null && (
+          <span className={mutedCls}>
+            Duration: <strong className={dark ? 'text-white' : 'text-gray-800'}>{formatTradeDuration(forensics.entry_timestamp, forensics.exit_timestamp)}</strong>
+          </span>
+        )}
       </div>
 
       {!candlesLoading && !candlesError && candles.length > 0 && (
