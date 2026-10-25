@@ -169,6 +169,9 @@ export const FEATURE_REGISTRY: FeatureEntry[] = [
   { id: 'explore-time-machine', label: 'Time Machine', area: 'explore', route: '/explore/time-machine',
     description: 'Replay a proposed entry/stop/target thousands of times against real price history for the symbol.',
     keywords: ['time machine', 'monte carlo', 'replay', 'odds', 'backtest'] },
+  { id: 'explore-trade-scanner', label: 'Trade Scanner', area: 'explore', route: '/explore/trade-scanner',
+    description: 'Scan a symbol watchlist for breakout/bull-flag/oversold momentum setups right now.',
+    keywords: ['scanner', 'rsi', 'breakout', 'momentum', 'watchlist'] },
 ];
 
 export function searchFeatures(query: string): FeatureEntry[] {

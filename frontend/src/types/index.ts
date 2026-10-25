@@ -912,3 +912,37 @@ export interface TimeMachineResponse {
   target: number;
   direction: 'long' | 'short';
 }
+
+export interface TradeScannerRequest {
+  exchange?: string;
+  symbols: string[];
+  timeframe?: string;
+  limit?: number;
+  min_price?: number;
+  min_volume?: number;
+}
+
+export interface TradeScannerHit {
+  symbol: string;
+  setups: string[];
+  price: number;
+  volume: number;
+  rsi: number | null;
+  run_pct: number;
+  range5_pct: number;
+}
+
+export interface TradeScannerResponse {
+  exchange: string;
+  timeframe: string;
+  hits: TradeScannerHit[];
+  counts: {
+    requested: number;
+    scanned: number;
+    skipped_short: number;
+    skipped_illiquid: number;
+    errored: number;
+    hits: number;
+  };
+  errors: string[];
+}
