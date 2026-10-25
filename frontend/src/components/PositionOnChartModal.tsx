@@ -12,6 +12,7 @@ import { useYAxisZoom, applyYZoom } from '../hooks/useYAxisZoom';
 import { orderFlowApi, oandaApi, tradesApi } from '../services/api';
 import { formatApiError } from '../lib/apiError';
 import { useQuickPrice } from '../hooks/useQuickPrice';
+import { formatTradeDuration } from '../lib/tradeDuration';
 import type { Trade } from '../types';
 
 const LIVE_PRICE_REFRESH_MS = 15_000;
@@ -1618,7 +1619,9 @@ export function PositionOnChartModal({
               <FoldedCard
                 key={t.trade_id}
                 title={`#${i + 1} ${t.direction === 'long' ? 'Long' : 'Short'} — ${t.status === 'pending' ? 'Pending' : 'Active'}`}
-                summary={t.entry_price != null ? `Entry ${t.entry_price.toFixed(4)}` : 'No entry price yet'}
+                summary={t.entry_price != null
+                  ? `Entry ${t.entry_price.toFixed(4)}${formatTradeDuration(t.entry_timestamp) != null ? ` · ${formatTradeDuration(t.entry_timestamp)}` : ''}`
+                  : 'No entry price yet'}
                 dark={localDark}
               >
                 <PositionManager trade={t} dark={localDark} onChanged={onChanged} />

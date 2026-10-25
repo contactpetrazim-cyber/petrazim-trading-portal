@@ -4,6 +4,7 @@ import { tradesApi } from '../services/api';
 import type { TradeSnapshot, SnapshotTimeframe } from '../types';
 import { useYAxisZoom, applyYZoom } from '../hooks/useYAxisZoom';
 import { ReasoningAnnotations } from './ReasoningAnnotations';
+import { formatTradeDuration } from '../lib/tradeDuration';
 
 const GREEN = '#10b981';
 const RED = '#ef4444';
@@ -366,6 +367,7 @@ function SnapshotChart({ snapshot, dark }: { snapshot: TradeSnapshot; dark: bool
         ))}
         <span className={`ml-auto ${dark ? 'text-white/40' : 'text-gray-400'}`}>
           {direction.toUpperCase()} · {candles.length} candles
+          {formatTradeDuration(entry_timestamp, exit_timestamp) != null && ` · Duration: ${formatTradeDuration(entry_timestamp, exit_timestamp)}`}
         </span>
       </div>
     </div>
