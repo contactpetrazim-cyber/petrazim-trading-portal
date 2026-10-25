@@ -13,21 +13,35 @@ const SETUP_LABEL: Record<string, string> = {
   oversold_bounce: 'Oversold bounce',
 };
 
+// Shows every scanned symbol's real numbers, hit or not -- a symbol
+// with no setup tags is an honest "nothing active right now" result,
+// not a failure, and hiding it left the UI with nothing to show on a
+// correct zero-hit scan (direct bug report: read as broken). Border
+// accent distinguishes an active setup from a checked-and-clear one.
 function HitRow({ hit, dark }: { hit: TradeScannerHit; dark: boolean }) {
   const mutedCls = dark ? 'text-white/50' : 'text-gray-500';
+  const hasSetup = hit.setups.length > 0;
   return (
-    <div className={`rounded-xl px-3 py-2.5 border ${dark ? 'bg-white/5 border-white/10' : 'bg-gray-50 border-gray-100'}`}>
+    <div className={`rounded-xl px-3 py-2.5 border ${
+      hasSetup
+        ? dark ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-emerald-50/50 border-emerald-100'
+        : dark ? 'bg-white/5 border-white/10' : 'bg-gray-50 border-gray-100'
+    }`}>
       <div className="flex items-center justify-between gap-2 mb-1">
         <span className="text-sm font-semibold">{hit.symbol}</span>
-        <span className={`text-xs ${mutedCls}`}>{hit.price} · RSI {hit.rsi ?? '—'}</span>
+        <span className={`text-xs ${mutedCls}`}>{hit.price} · RSI {hit.rsi ?? '—'} · run {hit.run_pct > 0 ? '+' : ''}{hit.run_pct}%</span>
       </div>
-      <div className="flex flex-wrap gap-1.5">
-        {hit.setups.map((tag) => (
-          <span key={tag} className={`text-[10px] px-1.5 py-0.5 rounded-full ${dark ? 'bg-emerald-500/15 text-emerald-300' : 'bg-emerald-50 text-emerald-700'}`}>
-            {SETUP_LABEL[tag] || tag}
-          </span>
-        ))}
-      </div>
+      {hasSetup ? (
+        <div className="flex flex-wrap gap-1.5">
+          {hit.setups.map((tag) => (
+            <span key={tag} className={`text-[10px] px-1.5 py-0.5 rounded-full ${dark ? 'bg-emerald-500/15 text-emerald-300' : 'bg-emerald-50 text-emerald-700'}`}>
+              {SETUP_LABEL[tag] || tag}
+            </span>
+          ))}
+        </div>
+      ) : (
+        <span className={`text-[11px] ${mutedCls}`}>No setup active right now.</span>
+      )}
     </div>
   );
 }
@@ -87,6 +101,8 @@ export function ExploreTradeScannerPage() {
             <option value="okx">OKX</option>
             <option value="binance">Binance</option>
             <option value="bybit">Bybit</option>
+            <option value="bingx">BingX</option>
+            <option value="mexc">MEXC</option>
           </select>
           <select value={timeframe} onChange={(e) => setTimeframe(e.target.value)} className={inputCls}>
             <option value="15m">15m</option>
@@ -115,7 +131,7 @@ export function ExploreTradeScannerPage() {
         <div className="space-y-3">
           <div className="flex items-center gap-2">
             <Radar size={16} className={dark ? 'text-white/60' : 'text-corporate-hero'} />
-            <span className="text-sm font-semibold">{data.counts.hits} hit{data.counts.hits === 1 ? '' : 's'}</span>
+            <span className="text-sm font-semibold">{data.counts.hits} setup{data.counts.hits === 1 ? '' : 's'} active</span>
             <span className={`text-xs ${mutedCls}`}>
               {data.counts.scanned} scanned · {data.counts.skipped_short} too short · {data.counts.skipped_illiquid} illiquid
               {data.counts.errored > 0 ? ` · ${data.counts.errored} errored` : ''}
@@ -131,7 +147,11 @@ export function ExploreTradeScannerPage() {
 
           <div className="space-y-2">
             {data.hits.map((hit) => <HitRow key={hit.symbol} hit={hit} dark={dark} />)}
-            {data.hits.length === 0 && <p className={`text-sm ${mutedCls}`}>No setups fired for this watchlist right now.</p>}
+            {data.hits.length === 0 && (
+              <p className={`text-sm ${mutedCls}`}>
+                {data.counts.scanned === 0 ? 'Nothing could be scanned -- check the symbols/exchange above.' : 'No setups fired for this watchlist right now.'}
+              </p>
+            )}
           </div>
         </div>
       )}
