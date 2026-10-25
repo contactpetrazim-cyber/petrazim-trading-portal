@@ -101,7 +101,15 @@ async def scan_symbols(
 
     results = await asyncio.gather(*(_fetch_one(exchange, s, timeframe, limit) for s in symbols))
 
-    hits: List[Dict[str, Any]] = []
+    # Every symbol that actually got scanned, setup tags or not -- a
+    # symbol with zero tags is a real, honest result (the five
+    # conditions just aren't met right now), not a failure, and
+    # throwing its computed numbers away left the UI with nothing to
+    # show but "no setups fired," indistinguishable from the tool not
+    # actually having analyzed anything (direct bug report: a correct
+    # zero-hit result read as broken). Every scanned symbol now carries
+    # its real numbers; `setups` is simply empty when nothing fired.
+    scanned: List[Dict[str, Any]] = []
     errors: List[str] = []
     counts = {"requested": len(symbols), "scanned": 0, "skipped_short": 0, "skipped_illiquid": 0, "errored": 0}
 
@@ -121,13 +129,15 @@ async def scan_symbols(
             continue
         counts["scanned"] += 1
         tags, nums = find_setups(closes)
-        if tags:
-            hits.append({
-                "symbol": symbol, "setups": tags, "price": round(price, 8),
-                "volume": round(volume, 4), "rsi": round(nums["rsi"], 1) if nums["rsi"] is not None else None,
-                "run_pct": nums["run_pct"], "range5_pct": nums["range5_pct"],
-            })
+        scanned.append({
+            "symbol": symbol, "setups": tags, "price": round(price, 8),
+            "volume": round(volume, 4), "rsi": round(nums["rsi"], 1) if nums["rsi"] is not None else None,
+            "run_pct": nums["run_pct"], "range5_pct": nums["range5_pct"],
+        })
 
-    hits.sort(key=lambda h: (-(h["price"] * (h["volume"] or 0)), h["symbol"]))
-    counts["hits"] = len(hits)
-    return {"exchange": exchange, "timeframe": timeframe, "hits": hits, "counts": counts, "errors": errors}
+    # Hits (a real setup fired) first, most dollars traded first within
+    # each group -- a trader scanning a long watchlist wants the active
+    # setups at the top, not buried alphabetically among the misses.
+    scanned.sort(key=lambda h: (not h["setups"], -(h["price"] * (h["volume"] or 0)), h["symbol"]))
+    counts["hits"] = sum(1 for h in scanned if h["setups"])
+    return {"exchange": exchange, "timeframe": timeframe, "hits": scanned, "counts": counts, "errors": errors}

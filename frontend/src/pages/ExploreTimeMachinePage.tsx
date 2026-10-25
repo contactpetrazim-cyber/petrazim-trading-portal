@@ -74,6 +74,8 @@ export function ExploreTimeMachinePage() {
           <option value="okx">OKX</option>
           <option value="binance">Binance</option>
           <option value="bybit">Bybit</option>
+          <option value="bingx">BingX</option>
+          <option value="mexc">MEXC</option>
         </select>
         <select value={form.timeframe} onChange={(e) => setForm((f) => ({ ...f, timeframe: e.target.value }))} className={inputCls}>
           <option value="1m">1m</option>
