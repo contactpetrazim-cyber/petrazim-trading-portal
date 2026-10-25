@@ -454,6 +454,7 @@ export function CandleChart({
           </div>
         ))}
         {markers.map((m, i) => {
+          if (!m.label) return null;
           const above = m.side !== 'below';
           return (
             <div
