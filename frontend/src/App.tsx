@@ -37,6 +37,7 @@ const MeetingsPage = lazy(() => import('./pages/MeetingsPage').then((module) => 
 const CorporateHomePage = lazy(() => import('./pages/CorporateHomePage').then((module) => ({ default: module.CorporateHomePage })));
 const AreaPage = lazy(() => import('./pages/AreaPage').then((module) => ({ default: module.AreaPage })));
 const LearnPage = lazy(() => import('./pages/LearnPage').then((module) => ({ default: module.LearnPage })));
+const BotSimulationsPage = lazy(() => import('./pages/BotSimulationsPage').then((module) => ({ default: module.BotSimulationsPage })));
 const LearnTrackPage = lazy(() => import('./pages/LearnTrackPage').then((module) => ({ default: module.LearnTrackPage })));
 const LessonPage = lazy(() => import('./pages/LessonPage').then((module) => ({ default: module.LessonPage })));
 const MasteryOverviewPage = lazy(() => import('./pages/MasteryOverviewPage').then((module) => ({ default: module.MasteryOverviewPage })));
@@ -335,6 +336,7 @@ function App() {
         <Route path="/learn/reflections" element={<CorporateLayout><MyReflectionsPage /></CorporateLayout>} />
         <Route path="/learn/notes" element={<CorporateLayout><MyNotesPage /></CorporateLayout>} />
         <Route path="/learn/revision" element={<CorporateLayout><RevisionPlannerPage /></CorporateLayout>} />
+        <Route path="/learn/simulations" element={<CorporateLayout><BotSimulationsPage /></CorporateLayout>} />
         <Route path="/tools" element={<CorporateLayout><ToolsPage /></CorporateLayout>} />
         <Route path="/tools/order-flow" element={
           <CorporateLayout><EntitlementGate feature="The Order Flow tool"><OrderFlowFullPage /></EntitlementGate></CorporateLayout>

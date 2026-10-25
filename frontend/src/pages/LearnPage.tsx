@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Lock, Timer as TimerIcon, Trophy, BarChart3, Dumbbell, RotateCcw, Gamepad2, ArrowRight } from 'lucide-react';
+import { Lock, Timer as TimerIcon, Trophy, BarChart3, Dumbbell, RotateCcw, Gamepad2, Activity, ArrowRight } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
 import { LoadingIndicator } from '../components/LoadingIndicator';
 import { FocusTimer } from '../components/FocusTimer';
@@ -42,6 +42,11 @@ interface Awards { badges: Badge[] }
 const QUICK_LINKS = [
   { to: '/learn/mastery', label: 'Mastery Overview', icon: BarChart3 },
   { to: '/learn/awards', label: 'Awards & Certificates', icon: Trophy },
+  // Bot Simulations — the animated bar-by-bar "watch it happen"
+  // walkthrough per bot, by direct request ("make the link easily
+  // accessible"): it previously only existed buried inside each bot's
+  // own full Decision Lab page. See BotSimulationsPage's own docstring.
+  { to: '/learn/simulations', label: 'Bot Simulations', icon: Activity },
   { to: '/practise/drills', label: 'Practice Drills', icon: Dumbbell },
   { to: '/practise/review', label: 'Retention Review', icon: RotateCcw },
   { to: '/practise/game', label: 'Trading Simulator Game', icon: Gamepad2 },
