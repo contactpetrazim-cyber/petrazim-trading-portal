@@ -853,3 +853,62 @@ export interface NewsMonitorResponse {
   items: NewsMonitorItem[];
   errors: string[];
 }
+
+export interface TimeMachineRequest {
+  exchange?: string;
+  symbol: string;
+  timeframe?: string;
+  entry: number;
+  stop: number;
+  target: number;
+  direction?: 'long' | 'short';
+  horizon_bars?: number;
+  replays?: number;
+  lookback_days?: number;
+}
+
+export interface TimeMachineFanChartPoint {
+  step: number;
+  p5: number;
+  p25: number;
+  p50: number;
+  p75: number;
+  p95: number;
+}
+
+export interface TimeMachineResponse {
+  sessions_used: number;
+  horizon_bars: number;
+  replays: number;
+  target_r: number;
+  odds: {
+    target_first_pct: number;
+    stop_first_pct: number;
+    neither_pct: number;
+    green_pct: number;
+  };
+  r_multiple: {
+    mean: number;
+    p5: number;
+    p25: number;
+    p50: number;
+    p75: number;
+    p95: number;
+  };
+  verdict: string;
+  fan_chart: TimeMachineFanChartPoint[];
+  history: {
+    sessions: number;
+    target_first: number;
+    stop_first: number;
+    neither: number;
+    mean_r: number;
+  };
+  exchange: string;
+  symbol: string;
+  timeframe: string;
+  entry: number;
+  stop: number;
+  target: number;
+  direction: 'long' | 'short';
+}
