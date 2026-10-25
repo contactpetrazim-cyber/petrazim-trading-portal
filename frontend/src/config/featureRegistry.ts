@@ -166,6 +166,9 @@ export const FEATURE_REGISTRY: FeatureEntry[] = [
   { id: 'explore-day-trader-skill', label: 'Day Trader Skill Pack', area: 'explore', route: '/explore/day-trader-skill',
     description: 'An 11-skill Claude Code plugin for day trading -- install instructions and what’s in it.',
     keywords: ['claude', 'plugin', 'skill', 'day trader'] },
+  { id: 'explore-time-machine', label: 'Time Machine', area: 'explore', route: '/explore/time-machine',
+    description: 'Replay a proposed entry/stop/target thousands of times against real price history for the symbol.',
+    keywords: ['time machine', 'monte carlo', 'replay', 'odds', 'backtest'] },
 ];
 
 export function searchFeatures(query: string): FeatureEntry[] {

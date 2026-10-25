@@ -1,6 +1,6 @@
 
 import axios from 'axios';
-import { Trade, BotConfig, BotPerformance, BotMetricsUpdate, DashboardStats, SignalPreview, PerformanceSummary, TradeBreakdown, TradeBreakdownPeriod, TodayTradeBreakdown, ExchangeMetaResponse, TraderBrokerConnection, AvailableBot, TraderBotSubscription, OutboundIpsResponse, FeeSettings, FeeLedgerEntry, MyFeesResponse, FeeGateStatus, FeeCheckoutSession, FeeCheckoutProvider, FeeVerifyResult, DeployStateResponse, TradeSnapshot, EncroachmentResponse, SnapshotTimeframe, ExchangeBalancesResponse, MasterExchangeBalancesResponse, SystemHealthResponse, SystemHealthSummaryResponse, BacktestRun, IsolatedBacktestRun, PortfolioBacktestRun, TradeForensics, BotSimulationResponse, CongressTradesResponse, NewsMonitorResponse } from '../types';
+import { Trade, BotConfig, BotPerformance, BotMetricsUpdate, DashboardStats, SignalPreview, PerformanceSummary, TradeBreakdown, TradeBreakdownPeriod, TodayTradeBreakdown, ExchangeMetaResponse, TraderBrokerConnection, AvailableBot, TraderBotSubscription, OutboundIpsResponse, FeeSettings, FeeLedgerEntry, MyFeesResponse, FeeGateStatus, FeeCheckoutSession, FeeCheckoutProvider, FeeVerifyResult, DeployStateResponse, TradeSnapshot, EncroachmentResponse, SnapshotTimeframe, ExchangeBalancesResponse, MasterExchangeBalancesResponse, SystemHealthResponse, SystemHealthSummaryResponse, BacktestRun, IsolatedBacktestRun, PortfolioBacktestRun, TradeForensics, BotSimulationResponse, CongressTradesResponse, NewsMonitorResponse, TimeMachineRequest, TimeMachineResponse } from '../types';
 import { useAuthStore } from '../hooks/useAuth';
 import { triggerAccessExpired } from '../components/AccessExpiredGate';
 import { triggerFeesOwed } from '../components/TradingFeeGate';
@@ -581,6 +581,12 @@ export const congressTradesApi = {
 export const newsMonitorApi = {
   forSymbol: (symbol: string, includeSec = true) =>
     api.get<NewsMonitorResponse>(`/news-monitor/${encodeURIComponent(symbol)}`, { params: { include_sec: includeSec } }).then(r => r.data),
+};
+
+// Explore: Time Machine -- see backend/app/routers/time_machine.py.
+export const timeMachineApi = {
+  run: (req: TimeMachineRequest) =>
+    api.post<TimeMachineResponse>('/time-machine/run', req).then(r => r.data),
 };
 
 export default api;
