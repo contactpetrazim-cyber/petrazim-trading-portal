@@ -153,7 +153,15 @@ export function SettingsPanel({
     { icon: Map, label: 'Site Map', detail: 'Every page in the app, one list', to: '/sitemap' },
     { icon: ScrollText, label: 'Policies', detail: 'Risk disclosure, terms, privacy, and refund policy', to: '/policies' },
     { icon: HardDriveDownload, label: 'Backup and Offline', detail: 'Manage local data and sync', onClick: () => setBackupOfflineOpen(true) },
-    { icon: Link2, label: 'Quick Links', detail: 'Shortcuts to frequent pages' },
+    // Was a dead informational row with no destination -- by direct
+    // request ("where are quick links for these new features"), points
+    // at /explore: the real hub (AreaPage.tsx) that already lists every
+    // FEATURE_REGISTRY entry tagged area:'explore' (Time Machine, Trade
+    // Scanner, Day Trader Skill Chat, Congress Trades, News Monitor,
+    // ...) as a card. One link here, not a duplicated per-feature list
+    // -- same "one link per area" convention every other row above
+    // already follows (e.g. "Add Exchange", not a link per exchange).
+    { icon: Link2, label: 'Quick Links', detail: 'Explore: Time Machine, Trade Scanner, Day Trader Skill Chat, and more', to: '/explore' },
   ];
 
   return (
