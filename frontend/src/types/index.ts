@@ -769,3 +769,87 @@ export interface PortfolioBacktestRun extends BacktestRunBase {
 }
 
 export type BacktestRun = IsolatedBacktestRun | PortfolioBacktestRun;
+
+// --- Explore: Congressional Trades + News Monitor ---
+// Backed by backend/app/services/congress_trades.py and
+// backend/app/services/news_monitor.py.
+
+export interface CongressTradeOption {
+  contracts: number;
+  kind: 'call' | 'put';
+  strike: number;
+  expires: string | null;
+  exercised: boolean;
+}
+
+export interface CongressTradeRow {
+  owner: string;
+  owner_name: string;
+  asset: string;
+  ticker: string | null;
+  type: string;
+  type_name: string;
+  date: string | null;
+  notified: string | null;
+  amount: string;
+  amount_low: number | null;
+  amount_high: number | null;
+  status: string | null;
+  account: string | null;
+  description: string | null;
+  option?: CongressTradeOption;
+  shares?: number;
+  days_to_disclose?: number;
+  late?: boolean;
+}
+
+export interface CongressTradeReport {
+  name: string | null;
+  status: string | null;
+  district: string | null;
+  doc_id: string | null;
+  filed: string | null;
+  rows: CongressTradeRow[];
+}
+
+export interface CongressTradeFiling {
+  doc_id: string;
+  type: string;
+  type_name: string;
+  last: string;
+  first: string;
+  name: string;
+  district: string;
+  year: number;
+  filed: string | null;
+  url: string | null;
+  report: CongressTradeReport | null;
+}
+
+export interface CongressTradesResponse {
+  source: string;
+  note: string;
+  year: number;
+  filings: CongressTradeFiling[];
+}
+
+export interface NewsMonitorItem {
+  id: string;
+  source: 'Yahoo Finance' | 'SEC EDGAR';
+  kind: 'headline' | 'filing';
+  ticker: string;
+  title: string;
+  summary: string;
+  link: string;
+  time: string | null;
+  important: boolean;
+  topics: string[];
+  form?: string;
+  items?: string[];
+}
+
+export interface NewsMonitorResponse {
+  symbol: string;
+  items: NewsMonitorItem[];
+  errors: string[];
+}

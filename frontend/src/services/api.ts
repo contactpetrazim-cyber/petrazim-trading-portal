@@ -1,6 +1,6 @@
 
 import axios from 'axios';
-import { Trade, BotConfig, BotPerformance, BotMetricsUpdate, DashboardStats, SignalPreview, PerformanceSummary, TradeBreakdown, TradeBreakdownPeriod, TodayTradeBreakdown, ExchangeMetaResponse, TraderBrokerConnection, AvailableBot, TraderBotSubscription, OutboundIpsResponse, FeeSettings, FeeLedgerEntry, MyFeesResponse, FeeGateStatus, FeeCheckoutSession, FeeCheckoutProvider, FeeVerifyResult, DeployStateResponse, TradeSnapshot, EncroachmentResponse, SnapshotTimeframe, ExchangeBalancesResponse, MasterExchangeBalancesResponse, SystemHealthResponse, SystemHealthSummaryResponse, BacktestRun, IsolatedBacktestRun, PortfolioBacktestRun, TradeForensics, BotSimulationResponse } from '../types';
+import { Trade, BotConfig, BotPerformance, BotMetricsUpdate, DashboardStats, SignalPreview, PerformanceSummary, TradeBreakdown, TradeBreakdownPeriod, TodayTradeBreakdown, ExchangeMetaResponse, TraderBrokerConnection, AvailableBot, TraderBotSubscription, OutboundIpsResponse, FeeSettings, FeeLedgerEntry, MyFeesResponse, FeeGateStatus, FeeCheckoutSession, FeeCheckoutProvider, FeeVerifyResult, DeployStateResponse, TradeSnapshot, EncroachmentResponse, SnapshotTimeframe, ExchangeBalancesResponse, MasterExchangeBalancesResponse, SystemHealthResponse, SystemHealthSummaryResponse, BacktestRun, IsolatedBacktestRun, PortfolioBacktestRun, TradeForensics, BotSimulationResponse, CongressTradesResponse, NewsMonitorResponse } from '../types';
 import { useAuthStore } from '../hooks/useAuth';
 import { triggerAccessExpired } from '../components/AccessExpiredGate';
 import { triggerFeesOwed } from '../components/TradingFeeGate';
@@ -569,6 +569,18 @@ export const webhookApi = {
     trade_id?: string;
     status?: string;
   }>('/webhook/tradingview', payload).then(r => r.data),
+};
+
+// Explore: Congressional Trades + News Monitor -- see
+// backend/app/routers/congress_trades.py / news_monitor.py.
+export const congressTradesApi = {
+  recent: (params: { ticker?: string; member?: string; limit?: number } = {}) =>
+    api.get<CongressTradesResponse>('/congress-trades', { params }).then(r => r.data),
+};
+
+export const newsMonitorApi = {
+  forSymbol: (symbol: string, includeSec = true) =>
+    api.get<NewsMonitorResponse>(`/news-monitor/${encodeURIComponent(symbol)}`, { params: { include_sec: includeSec } }).then(r => r.data),
 };
 
 export default api;
