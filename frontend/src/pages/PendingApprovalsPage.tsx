@@ -1,7 +1,8 @@
 
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
-import { ArrowUpRight, ArrowDownRight, Check, Ban, Clock3, RefreshCw, Bot, ChevronDown, ChevronUp, AlertTriangle, X, LineChart } from 'lucide-react';
+import { ArrowUpRight, ArrowDownRight, Check, Ban, Clock3, RefreshCw, Bot, ChevronDown, ChevronUp, AlertTriangle, X, LineChart, History } from 'lucide-react';
 import { LoadingIndicator } from '../components/LoadingIndicator';
 import { PositionOnChartModal } from '../components/PositionOnChartModal';
 import { ReasoningAnnotations } from '../components/ReasoningAnnotations';
@@ -40,6 +41,7 @@ export function PendingApprovalsPage() {
   const theme = portalThemes.trader;
   const dark = theme === 'dark';
   const { colors } = useEffectiveChartColors();
+  const navigate = useNavigate();
 
   const [trades, setTrades] = useState<Trade[]>([]);
   // Today/Week/Month quick filter — by direct request ("make it
@@ -349,6 +351,20 @@ export function PendingApprovalsPage() {
                     title="Re-run this bot's strategy against current market data"
                   >
                     <RefreshCw size={12} className={reanalyzing ? 'animate-spin' : ''} /> {reanalyzing ? 'Re-Analysing…' : 'Re-Analyse'}
+                  </button>
+                  {/* Check this recommendation's real historical odds
+                      BEFORE deciding, not after -- by direct request
+                      ("add the pending approval trades to the time
+                      machine"). Hands the trade to Time Machine via
+                      router state (same navigate(path, { state })
+                      pattern LoginPage already uses), which auto-runs
+                      the replay the instant that page opens. */}
+                  <button
+                    onClick={() => navigate('/explore/time-machine', { state: { prefillTrade: t } })}
+                    className="flex items-center gap-1 text-xs font-medium text-gray-400 hover:text-gray-300"
+                    title="Check this recommendation's real historical odds in Time Machine"
+                  >
+                    <History size={12} /> Check odds
                   </button>
                   {t.reasoning_log && (
                     <button
