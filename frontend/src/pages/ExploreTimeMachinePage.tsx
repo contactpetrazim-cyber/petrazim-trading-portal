@@ -1,4 +1,5 @@
 import { useState, useEffect, FormEvent } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Clock, AlertTriangle, Import, Bot, User } from 'lucide-react';
 import { AreaChart, Area, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ComposedChart } from 'recharts';
 import { PageHeader } from '../components/PageHeader';
@@ -127,7 +128,13 @@ function AddFromTradePicker({ dark, onPick }: { dark: boolean; onPick: (trade: T
                     <span className={t.direction === 'long' ? 'text-smc-long' : 'text-smc-short'}>{t.direction === 'long' ? '▲' : '▼'}</span>
                     <span className={`font-semibold truncate ${dark ? 'text-white' : 'text-gray-900'}`}>{t.symbol}</span>
                     <span className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-semibold capitalize ${dark ? 'bg-white/10 text-white/60' : 'bg-gray-100 text-gray-500'}`}>
-                      {t.status}
+                      {/* A PENDING trade that still needs a human decision
+                          reads as "Pending Approval" here, not the bare
+                          "pending" every other status shows -- same
+                          requires_approval check PendingApprovalsPage/
+                          TradeRow already use to distinguish it from a
+                          resting order nobody needs to act on. */}
+                      {t.status === 'pending' && t.requires_approval ? 'Pending Approval' : t.status}
                     </span>
                   </span>
                   <span className={`shrink-0 font-mono ${dark ? 'text-white/50' : 'text-gray-500'}`}>
@@ -170,6 +177,8 @@ function Stat({ dark, label, value, tone = 'neutral' }: { dark: boolean; label: 
 export function ExploreTimeMachinePage() {
   const { theme } = useThemeStore();
   const dark = theme === 'dark';
+  const location = useLocation();
+  const navigate = useNavigate();
   const [form, setForm] = useState({
     exchange: 'okx', symbol: 'BTC/USDT', timeframe: '5m',
     entry: '', stop: '', target: '', direction: 'long' as 'long' | 'short',
@@ -196,6 +205,49 @@ export function ExploreTimeMachinePage() {
       target: String(target),
     }));
   }
+
+  // Arrived here from the Pending Approvals page's "Check odds →" link
+  // (direct request: "add the pending approval trades to the time
+  // machine") -- check a recommendation's real historical odds BEFORE
+  // approving/rejecting it, not after. Builds the request straight off
+  // the trade rather than going through `run()`/`form` (whose state
+  // update from applyTradePick above wouldn't have landed yet on this
+  // same tick), and runs it immediately so the odds are there the
+  // instant the page opens instead of one more manual "Run Time
+  // Machine" click.
+  function applyAndRun(t: Trade) {
+    applyTradePick(t);
+    const { stop, target } = originalPlan(t);
+    if (t.entry_price == null || target == null) return;
+    setLoading(true);
+    setError(null);
+    setData(null);
+    const req: TimeMachineRequest = {
+      exchange: (t.broker_name || form.exchange).toLowerCase(),
+      symbol: t.symbol, timeframe: form.timeframe,
+      entry: t.entry_price, stop, target, direction: t.direction,
+      horizon_bars: form.horizon_bars, replays: form.replays, lookback_days: form.lookback_days,
+    };
+    timeMachineApi.run(req)
+      .then(setData)
+      .catch((err) => setError(err?.response?.data?.detail || 'Could not run the replay for this plan right now.'))
+      .finally(() => setLoading(false));
+  }
+
+  // Runs once per navigation-in: PendingApprovalsPage's link passes the
+  // trade via router state (same `navigate(path, { state })` pattern
+  // LoginPage/OnboardingPage already use), not a URL param, since a
+  // full Trade object doesn't belong in the address bar. Cleared
+  // immediately via a replace-navigate so reloading or going Back to
+  // this page doesn't silently re-run the same trade again.
+  useEffect(() => {
+    const incoming = (location.state as { prefillTrade?: Trade } | null)?.prefillTrade;
+    if (incoming) {
+      applyAndRun(incoming);
+      navigate(location.pathname, { replace: true, state: null });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function run(e?: FormEvent) {
     e?.preventDefault();
