@@ -188,7 +188,17 @@ def _resize_risk_for_real_fill(row, trade_id: str) -> None:
     if row.take_profit_1 is not None:
         d = abs(row.take_profit_1 - row.stop_loss) / 2
         if d > 0:
-            is_long = row.take_profit_1 > row.stop_loss
+            # Direction read straight from the row's own authoritative
+            # field, not inferred from comparing two independently-
+            # stale/live price values against each other — a related
+            # fragility to the wrong-sided-stop bug apply_min_stop_
+            # distance_floor's own comment now documents: inferring
+            # "long" from take_profit_1 > stop_loss only happened to
+            # work because the stop was usually on the correct side;
+            # now that the floor call above guarantees that itself,
+            # this is redundant with it rather than silently depending
+            # on it staying true.
+            is_long = row.direction.value == "long"
             rr = 1.0
             if row.take_profit_3 is not None:
                 rr = abs(row.take_profit_3 - row.take_profit_1) / d + 1.0
