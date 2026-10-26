@@ -258,7 +258,18 @@ async def run_time_machine(
     if direction == "short" and not (target < entry < stop):
         raise TimeMachineError("For a short: target < entry < stop.")
 
-    end = _dt.datetime.now(_dt.timezone.utc)
+    # Naive UTC -- matching every Candle.timestamp in this codebase
+    # (see data_ingestion.py's own comment on why; also what
+    # fetch_historical_range's own `end` default already assumes).
+    # This used to be `_dt.datetime.now(_dt.timezone.utc)` (tz-AWARE);
+    # fetch_historical_range's pagination loop compares its `cursor`
+    # (seeded from this `start`) against each page's last candle
+    # timestamp (always naive), which raised "can't compare
+    # offset-naive and offset-aware datetimes" on literally every
+    # real run once a second page was ever needed -- found via direct
+    # report ("Could not run the replay for this plan right now" on
+    # every symbol, confirmed from the VM's own container logs).
+    end = _dt.datetime.utcnow()
     start = end - _dt.timedelta(days=lookback_days)
     candles = await shared_ingestion.fetch_historical_range(exchange, symbol, timeframe, start, end)
     if len(candles) < (horizon_bars * MIN_SESSIONS):
