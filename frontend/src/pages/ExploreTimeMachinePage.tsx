@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { Clock, AlertTriangle, Import, Bot, User } from 'lucide-react';
 import { AreaChart, Area, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ComposedChart } from 'recharts';
 import { PageHeader } from '../components/PageHeader';
+import { FoldedCard } from '../components/FoldedCard';
 import { timeMachineApi, tradesApi } from '../services/api';
 import type { TimeMachineResponse, TimeMachineRequest, Trade } from '../types';
 import { useThemeStore } from '../hooks/useTheme';
@@ -256,6 +257,42 @@ export function ExploreTimeMachinePage() {
         title="Time Machine"
         subtitle="Replay a proposed trade thousands of times against real price history for the symbol."
       />
+
+      {/* "How to read this" -- by direct request, as real on-page help
+          text (not just a chat explanation). Folded by default, same
+          convention every other explanatory card in the portal uses. */}
+      <div className="mb-3">
+        <FoldedCard
+          title="How to read this" icon={<Clock size={18} />} dark={dark}
+          summary="What the timeframe does and how to read the fan chart below"
+        >
+          <div className={`space-y-3 text-xs leading-relaxed ${dark ? 'text-white/70' : 'text-gray-600'}`}>
+            <div>
+              <p className={`font-semibold mb-1 ${dark ? 'text-white' : 'text-gray-800'}`}>Why the timeframe matters</p>
+              <p>
+                The timeframe controls how big each "step" of the replay is, which changes what the odds actually mean:
+              </p>
+              <ul className="list-disc pl-4 mt-1 space-y-0.5">
+                <li><span className="font-semibold">Bigger timeframe (1h, 4h)</span> — smoother, more decisive moves; each candle already absorbs a lot of back-and-forth noise.</li>
+                <li><span className="font-semibold">Smaller timeframe (1m, 5m)</span> — more noise and whipsaw; price can clip a stop on a short-lived wick a 1h chart would never register.</li>
+                <li><span className="font-semibold">The golden rule:</span> match the timeframe to how the trade was actually set up. A bot that enters on 15M should be checked on 15M, not 1h — otherwise you're asking a question about a completely different trade. "Check odds" links elsewhere in the portal already do this automatically for bot trades.</li>
+              </ul>
+            </div>
+            <div>
+              <p className={`font-semibold mb-1 ${dark ? 'text-white' : 'text-gray-800'}`}>How to read the chart below</p>
+              <p>
+                It's not a candlestick chart — it's a <span className="font-semibold">fan chart</span> of simulated future price, built from thousands of real-history replays.
+              </p>
+              <ul className="list-disc pl-4 mt-1 space-y-0.5">
+                <li><span className="font-semibold">X-axis</span> — how many bars forward from entry (step 0), out to the chosen horizon.</li>
+                <li><span className="font-semibold">Y-axis</span> — the actual simulated price level, starting at the entry price.</li>
+                <li><span className="font-semibold">Shaded band</span> — the 5th-95th percentile range price landed in across all replays at that step; narrow right after entry, widening further out as uncertainty compounds.</li>
+                <li><span className="font-semibold">Solid line</span> — the median (50th percentile) path, the single most "typical" outcome, not a prediction.</li>
+              </ul>
+            </div>
+          </div>
+        </FoldedCard>
+      </div>
 
       <AddFromTradePicker dark={dark} onPick={applyTradePick} />
 
