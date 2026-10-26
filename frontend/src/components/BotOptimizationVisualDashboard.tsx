@@ -121,12 +121,26 @@ export function BotOptimizationVisualDashboard({
             <ResponsiveContainer width="100%" height={230}>
               <PieChart>
                 <Tooltip contentStyle={tooltipStyle} />
-                <Legend wrapperStyle={{ fontSize: 10 }} />
                 <Pie data={volumeData} dataKey="value" nameKey="name" innerRadius={45} outerRadius={80} paddingAngle={2}>
                   {volumeData.map((d, i) => <Cell key={i} fill={d.fill} />)}
                 </Pie>
               </PieChart>
             </ResponsiveContainer>
+            {/* Recharts' own <Legend> was rendered as an unbounded
+                wrapping block that, with 30+ instances, grew tall
+                enough to sit on top of the donut itself. Folded by
+                default so the chart is never obscured; the instance
+                names are still a click away. */}
+            <FoldedCard title="Legend" summary={`${volumeData.length} instances`} dark={dark}>
+              <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+                {volumeData.map((d) => (
+                  <div key={d.name} className="flex items-center gap-1.5 text-[11px]">
+                    <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: d.fill }} />
+                    <span className={dark ? 'text-white/70' : 'text-corporate-text-on-bg'}>{d.name}</span>
+                  </div>
+                ))}
+              </div>
+            </FoldedCard>
           </div>
         )}
 
