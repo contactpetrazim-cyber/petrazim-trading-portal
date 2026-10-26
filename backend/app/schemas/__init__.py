@@ -45,6 +45,17 @@ class TradeResponse(BaseModel):
     take_profit: Optional[float]
     take_profit_2: Optional[float] = None
     take_profit_3: Optional[float] = None
+    # Immutable snapshots of stop_loss/take_profit_1 AT CREATION, before
+    # any live ratchet/breakeven move -- see Trade.initial_stop_loss's
+    # own comment. Never surfaced here before; needed so a client can
+    # tell "was this trade's plan originally valid" independent of
+    # where its live stop has since moved to lock in profit (the live
+    # stop_loss/take_profit above can end up equal to or past the
+    # entry_price for a trade that's already run past TP1, which looks
+    # like "broken" entry/stop/target data if you only look at the live
+    # columns -- it isn't, the original plan here is always consistent).
+    initial_stop_loss: Optional[float] = None
+    initial_take_profit_1: Optional[float] = None
     lot_size: float
     # The ORIGINAL position size at open — distinct from lot_size
     # above, which is live-mutated down to 0 as partial TP legs close

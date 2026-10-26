@@ -10,6 +10,15 @@ export interface Trade {
   take_profit: number | null;
   take_profit_2?: number | null;
   take_profit_3?: number | null;
+  /** Immutable snapshots of stop_loss/take_profit at creation, before
+   * any live ratchet/breakeven move -- see stop_loss/take_profit's own
+   * comments on why those live values can end up inconsistent with
+   * entry_price once a trade has run past TP1. Exposed for "Add from
+   * Manual trade / Bot trade" (Time Machine), which needs the
+   * trade's ORIGINAL plan, not wherever its stop has since moved to.
+   * Null for a trade predating this snapshot. */
+  initial_stop_loss?: number | null;
+  initial_take_profit_1?: number | null;
   lot_size: number;
   /** The ORIGINAL position size at open — by direct report ("the
    * quantity on the card shows 0.000"): lot_size above is live-
