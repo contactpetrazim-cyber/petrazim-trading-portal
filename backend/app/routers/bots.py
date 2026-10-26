@@ -648,7 +648,16 @@ async def revert_last_adjustment(
     were immediately before the most recent APPLIED StrategyAdjustment
     for this bot. Does not change bot_mode; a trader who wants to stop
     further auto-tuning should also switch back to Basic mode
-    separately (PATCH .../strategy-mode)."""
+    separately (PATCH .../strategy-mode).
+
+    Branches on `adjustment_type` — a `"zone_type_symbol_move"` row
+    (intelligent_tuning_worker.py's own zone-type adaptivity pass)
+    doesn't touch strategy_params at all; it moved a SYMBOL from this
+    bot's own `symbols` list onto a sibling bot's. Reverting that kind
+    of row has to move the symbol back on BOTH affected bot_ids, or
+    this would silently no-op for it while still reporting success —
+    see previous_config/new_config's own {"bot_id", "symbol"} shape,
+    written by _apply_zone_variant_move."""
     bot = await _get_owned_bot(bot_id, user, db)
     from app.models.analytics import StrategyAdjustment
     last = (await db.execute(
@@ -658,6 +667,19 @@ async def revert_last_adjustment(
     )).scalar_one_or_none()
     if last is None:
         raise HTTPException(status_code=404, detail="No applied strategy adjustment found for this bot to revert.")
+
+    if last.adjustment_type == "zone_type_symbol_move":
+        symbol = last.new_config.get("symbol")
+        to_bot_id = last.new_config.get("bot_id")  # where the symbol currently lives
+        if not symbol or not to_bot_id:
+            raise HTTPException(status_code=500, detail="This zone-type adjustment row is missing its symbol/bot_id — cannot revert safely.")
+        to_bot = await _get_owned_bot(to_bot_id, user, db)
+        if symbol not in (to_bot.symbols or []):
+            raise HTTPException(status_code=409, detail=f"{symbol} is no longer on {to_bot_id} (moved again since this adjustment) — nothing to revert.")
+        to_bot.symbols = [s for s in to_bot.symbols if s != symbol]
+        bot.symbols = list(bot.symbols or []) + [symbol]
+        await db.commit()
+        return {"success": True, "bot_id": bot_id, "reverted_symbol": symbol, "moved_back_from": to_bot_id}
 
     bot.strategy_params = last.previous_config
     await db.commit()
