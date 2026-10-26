@@ -1,29 +1,35 @@
 """
-Seed Bot 17 / Bot 18 — Zone-Type Adaptivity Data-Gathering Rows
+Seed Bot 17 / Bot 18 / Bot 19 — Zone-Type & Timeframe Adaptivity
+Data-Gathering Rows
 ================================================================
 
 Plan step 5 of /root/.claude/plans/buzzing-mixing-micali.md ("Per-pair
 zone-type adaptivity (Order Block vs FVG) for bot entry-zone
-selection") — activating the two dormant OB-POI sibling bots as real
-TEST-mode BotConfig rows so genuine comparative data accumulates
-against their parents (Bot 3 and Bot 6), ahead of the Intelligent-mode
-zone-type re-evaluation pass (intelligent_tuning_worker.py's own
-_tune_zone_variant_for_bot) ever acting on it.
+selection") — activating dormant sibling bots as real TEST-mode
+BotConfig rows so genuine comparative data accumulates against their
+parents, ahead of the Intelligent-mode zone-type re-evaluation pass
+(intelligent_tuning_worker.py's own _tune_zone_variant_for_bot) ever
+acting on it. Extended, same reasoning, to the timeframe-swap siblings
+(Bot 19) once that hypothesis was built and tested.
 
 bot_17_fvg_expansion_ob_poi (BTCUSDT.P, mirroring the real live
 bot_3_fvg_expansion row's own exact settings) already existed in
 production as of 2026-10-21 — NOT dormant, contrary to an earlier,
 incorrect verification pass this session that found zero BotConfig
 rows for it. This script is idempotent and will skip it; it's
-documented here for completeness, since Bot 18 below is built the
+documented here for completeness, since Bot 18/19 below are built the
 exact same way.
 
-bot_18_smc_v2_ob_poi (NAS100USDT.P, mirroring the real live
-bot_6_smc_v2_4 row's own exact settings — the specific row the trade
-that originally triggered this whole investigation came from) is
-created by this script. TEST mode (never reaches a real broker),
-bot_mode=BASIC (not INTELLIGENT — flipping that on is a further,
-separate decision the trader makes deliberately via the Bots page).
+bot_18_smc_v2_ob_poi and bot_19_smc_v2_1h_entry (both NAS100USDT.P,
+mirroring the real live bot_6_smc_v2_4 row's own exact settings — the
+specific row the trade that originally triggered this whole
+investigation came from) are created by this script, giving that one
+baseline two independent, directly comparable siblings: bot_18 tests
+the zone-type hypothesis (OB vs FVG), bot_19 tests the timeframe
+hypothesis (1H vs 5M), each isolating its own single variable. TEST
+mode (never reaches a real broker), bot_mode=BASIC (not INTELLIGENT —
+flipping that on is a further, separate decision the trader makes
+deliberately via the Bots page).
 
 Idempotent — skips any bot_id that already exists. Run once:
     python -m app.scripts.seed_zone_variant_bots
@@ -49,6 +55,10 @@ INSTANCES = [
     ),
     (
         "bot_18_smc_v2_ob_poi", "SMC v2, OB-POI", "bot_18", "mexc", ["NAS100USDT.P"],
+        "4d703396-b4e0-4561-a098-a8f6eb97f5b7", ExecutionMode.HUMAN_IN_LOOP, 5.0, 1.0,
+    ),
+    (
+        "bot_19_smc_v2_1h_entry", "SMC v2, 1H Entry", "bot_19", "mexc", ["NAS100USDT.P"],
         "4d703396-b4e0-4561-a098-a8f6eb97f5b7", ExecutionMode.HUMAN_IN_LOOP, 5.0, 1.0,
     ),
 ]
