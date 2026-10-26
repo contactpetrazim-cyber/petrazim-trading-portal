@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { X, Clock3, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
 import { tradesApi } from '../services/api';
-import type { TradeSnapshot, SnapshotTimeframe } from '../types';
+import type { TradeSnapshot, SnapshotTimeframe, Trade } from '../types';
 import { useYAxisZoom, applyYZoom } from '../hooks/useYAxisZoom';
 import { ReasoningAnnotations } from './ReasoningAnnotations';
 import { formatTradeDuration } from '../lib/tradeDuration';
+import { CheckOddsLink } from './CheckOddsLink';
 
 const GREEN = '#10b981';
 const RED = '#ef4444';
@@ -24,7 +25,7 @@ const TIMEFRAMES: SnapshotTimeframe[] = ['5m', '15m', '1h', '4h', '1d'];
  * own comment for why this counts as a real "snapshot" without
  * storing an image: a past candle's OHLCV never changes.
  */
-export function TradeSnapshotModal({ tradeId, dark, onClose }: { tradeId: string; dark: boolean; onClose: () => void }) {
+export function TradeSnapshotModal({ tradeId, trade, dark, onClose }: { tradeId: string; trade?: Trade | null; dark: boolean; onClose: () => void }) {
   const [timeframe, setTimeframe] = useState<SnapshotTimeframe>('1h');
   const [snapshot, setSnapshot] = useState<TradeSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -66,6 +67,7 @@ export function TradeSnapshotModal({ tradeId, dark, onClose }: { tradeId: string
                 </button>
               ))}
             </div>
+            <CheckOddsLink trade={trade} dark={dark} />
             <button onClick={onClose} className={dark ? 'text-white/50 hover:text-white' : 'text-gray-400 hover:text-gray-700'}>
               <X size={18} />
             </button>

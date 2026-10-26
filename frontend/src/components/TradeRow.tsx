@@ -8,6 +8,7 @@ import { useThemeStore } from '../hooks/useTheme';
 import { PositionManager } from './PositionManager';
 import { TradeSnapshotModal } from './TradeSnapshotModal';
 import { TradeForensicsModal } from './TradeForensicsModal';
+import { CheckOddsLink } from './CheckOddsLink';
 import { pairFromTradeSymbol } from '../hooks/useQuickPairs';
 import { formatTradeDuration } from '../lib/tradeDuration';
 
@@ -527,6 +528,13 @@ export function TradeRow({ trade, onApprove, onReject, onCancel, onChanged, onAr
                 <Microscope size={13} /> Forensics
               </button>
             )}
+            {/* Check this trade's real historical odds in Time Machine
+                -- by direct request ("ADD check Odds link to each card
+                into the trades cards section on the trader dashboard").
+                Renders nothing for a trade Time Machine genuinely
+                couldn't replay -- see CheckOddsLink's own eligibility
+                check. */}
+            <CheckOddsLink trade={trade} className={`self-start flex items-center gap-1.5 text-xs font-medium mt-1 ${dark ? 'text-smc-accent hover:text-white' : 'text-corporate-hero hover:text-corporate-text-on-bg'}`} />
           </div>
         </div>
       )}
@@ -537,8 +545,8 @@ export function TradeRow({ trade, onApprove, onReject, onCancel, onChanged, onAr
         </div>
       )}
 
-      {snapshotOpen && <TradeSnapshotModal tradeId={trade.trade_id} dark={dark} onClose={() => setSnapshotOpen(false)} />}
-      {forensicsOpen && <TradeForensicsModal tradeId={trade.trade_id} dark={dark} onClose={() => setForensicsOpen(false)} />}
+      {snapshotOpen && <TradeSnapshotModal tradeId={trade.trade_id} trade={trade} dark={dark} onClose={() => setSnapshotOpen(false)} />}
+      {forensicsOpen && <TradeForensicsModal tradeId={trade.trade_id} trade={trade} dark={dark} onClose={() => setForensicsOpen(false)} />}
     </div>
   );
 }

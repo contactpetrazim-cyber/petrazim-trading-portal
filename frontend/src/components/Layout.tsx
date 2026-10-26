@@ -16,6 +16,7 @@ import {
   Landmark,
   LucideIcon,
   BookOpen,
+  Compass,
 } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { BackendStatusBadge } from './BackendStatusBadge';
@@ -43,6 +44,15 @@ const TRADER_NAV_ITEMS: NavItem[] = [
   { path: '/bots', label: 'Bots', icon: Bot },
   { path: '/analytics', label: 'Analytics', icon: Activity },
   { path: '/risk', label: 'Risk Management', icon: Shield },
+  // "Explore" — by direct request ("ADD THE Following to a new
+  // 'Explore' page in the Trader Dashboard"). The same 6 real, already-
+  // built Explore-area tools (Congressional Trades/News Monitor/Day
+  // Trader Skill Pack/Time Machine/Trade Scanner/Day Trader Skill
+  // Chat) that already live at /explore outside this console, now
+  // also reachable from inside it — see TraderExplorePage.tsx's own
+  // docstring for why this is a separate page rather than just
+  // reusing AreaPage here.
+  { path: '/explore-hub', label: 'Explore', icon: Compass },
   // "Connect Your Exchange" — by direct request ("create an onboarding
   // page or system ... trade manually and using our bots on their
   // accounts"). Own top-level nav entry, not folded into Settings,
