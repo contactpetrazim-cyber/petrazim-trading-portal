@@ -15,6 +15,7 @@ const TradesPage = lazy(() => import('./pages/Trades').then((module) => ({ defau
 const PendingApprovalsPage = lazy(() => import('./pages/PendingApprovalsPage').then((module) => ({ default: module.PendingApprovalsPage })));
 const BotsPage = lazy(() => import('./pages/Bots').then((module) => ({ default: module.BotsPage })));
 const RiskPage = lazy(() => import('./pages/RiskPage').then((module) => ({ default: module.RiskPage })));
+const TraderExplorePage = lazy(() => import('./pages/TraderExplorePage').then((module) => ({ default: module.TraderExplorePage })));
 const LoginPage = lazy(() => import('./pages/LoginPage').then((module) => ({ default: module.LoginPage })));
 const ManagerConsolePage = lazy(() => import('./pages/ManagerConsolePage').then((module) => ({ default: module.ManagerConsolePage })));
 const PartnerConsolePage = lazy(() => import('./pages/PartnerConsolePage').then((module) => ({ default: module.PartnerConsolePage })));
@@ -238,6 +239,11 @@ function App() {
         <Route path="/risk" element={
           <ProtectedRoute allowedRoles={TRADER_CONSOLE_ROLES}>
             <Layout><RiskPage /></Layout>
+          </ProtectedRoute>
+        } />
+        <Route path="/explore-hub" element={
+          <ProtectedRoute allowedRoles={TRADER_CONSOLE_ROLES}>
+            <Layout><TraderExplorePage /></Layout>
           </ProtectedRoute>
         } />
         <Route path="/settings" element={

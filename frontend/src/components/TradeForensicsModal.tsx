@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { X, Microscope, ZoomIn, ZoomOut, Maximize2, Eye, EyeOff } from 'lucide-react';
 import { tradesApi } from '../services/api';
-import type { TradeForensics, SnapshotTimeframe } from '../types';
+import type { TradeForensics, SnapshotTimeframe, Trade } from '../types';
 import { CandleChart, computeChartRange, type Candle, type ChartZone, type ChartMarker, type ChartLine } from './CandleChart';
 import { nearestCandleIndex } from '../lib/positionChartOverlay';
 import { useYAxisZoom, applyYZoom } from '../hooks/useYAxisZoom';
 import { formatTradeDuration } from '../lib/tradeDuration';
+import { CheckOddsLink } from './CheckOddsLink';
 
 const GREEN = '#10b981';
 const RED = '#ef4444';
@@ -45,7 +46,7 @@ const OB_COLOR: Record<string, string> = { premium: RED, discount: GREEN, equili
  * candle, via the SAME floor-match nearestCandleIndex every other
  * chart in the portal already uses.
  */
-export function TradeForensicsModal({ tradeId, dark, onClose }: { tradeId: string; dark: boolean; onClose: () => void }) {
+export function TradeForensicsModal({ tradeId, trade, dark, onClose }: { tradeId: string; trade?: Trade | null; dark: boolean; onClose: () => void }) {
   const [forensics, setForensics] = useState<TradeForensics | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -101,6 +102,7 @@ export function TradeForensicsModal({ tradeId, dark, onClose }: { tradeId: strin
                 ))}
               </div>
             )}
+            <CheckOddsLink trade={trade} dark={dark} />
             <button onClick={onClose} className={dark ? 'text-white/50 hover:text-white' : 'text-gray-400 hover:text-gray-700'}>
               <X size={18} />
             </button>

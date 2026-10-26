@@ -55,7 +55,7 @@ export function ReplayRealSetup({ botId, dark = false }: { botId: string; dark?:
       >
         <PlayCircle size={16} /> Replay a real {trade.symbol} setup ({trade.direction})
       </button>
-      {open && <TradeSnapshotModal tradeId={trade.id} dark={dark} onClose={() => setOpen(false)} />}
+      {open && <TradeSnapshotModal tradeId={trade.id} trade={trade} dark={dark} onClose={() => setOpen(false)} />}
     </>
   );
 }

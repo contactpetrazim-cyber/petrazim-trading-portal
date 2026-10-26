@@ -6,33 +6,7 @@ import { PageHeader } from '../components/PageHeader';
 import { timeMachineApi, tradesApi } from '../services/api';
 import type { TimeMachineResponse, TimeMachineRequest, Trade } from '../types';
 import { useThemeStore } from '../hooks/useTheme';
-
-// The same five exchanges Time Machine's own dropdown offers -- a
-// trade filled on anything else (forex/MT broker_name values like
-// "metatrader"/"tradelocker") has no real candle history this feature
-// could replay against.
-const TIME_MACHINE_EXCHANGES = ['okx', 'binance', 'bybit', 'bingx', 'mexc'];
-
-// The trade's ORIGINAL plan, not its live/mutated columns -- a bot
-// trade that's already run past TP1 gets its stop_loss ratcheted
-// toward (or past) entry_price to lock in profit (position_monitor.py's
-// breakeven/trailing mechanic), which can leave the LIVE stop_loss
-// equal to or on the wrong side of entry_price. That's correct, real
-// data, not a broken trade -- but it fails the plain entry/stop/target
-// ordering check and got misreported as "missing a full entry/stop/
-// target" (direct report: "all bot trades have entry, stop and
-// target"). initial_stop_loss/initial_take_profit_1 are immutable
-// snapshots taken at order creation (see Trade.initial_stop_loss's own
-// backend comment) -- always consistent with entry_price by
-// construction, so preferring them here recovers every one of those
-// trades. Falls back to the live columns only for a trade that predates
-// the snapshot (initial_* still null).
-function originalPlan(t: Trade): { stop: number; target: number | null } {
-  return {
-    stop: t.initial_stop_loss ?? t.stop_loss,
-    target: t.initial_take_profit_1 ?? t.take_profit,
-  };
-}
+import { originalPlan, isTimeMachineEligible } from '../lib/timeMachineEligibility';
 
 /**
  * AddFromTradePicker -- "Add from Manual trade / Bot trade" (direct
@@ -62,15 +36,8 @@ function AddFromTradePicker({ dark, onPick }: { dark: boolean; onPick: (trade: T
       tradesApi.getTrades({ source, status: 'closed', limit: 10 }),
     ]).then((lists) => {
       const merged = lists.flat();
-      const usable = merged.filter((t) => {
-        const exch = (t.broker_name || '').toLowerCase();
-        if (!TIME_MACHINE_EXCHANGES.includes(exch)) return false;
-        if (t.entry_price == null) return false;
-        const { stop, target } = originalPlan(t);
-        if (target == null) return false;
-        if (t.direction === 'long') return stop < t.entry_price && t.entry_price < target;
-        return target < t.entry_price && t.entry_price < stop;
-      }).sort((a, b) => (b.created_at || '').localeCompare(a.created_at || '')).slice(0, 15);
+      const usable = merged.filter(isTimeMachineEligible)
+        .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || '')).slice(0, 15);
       setSkipped(merged.length - usable.length);
       setTrades(usable);
     }).catch(() => setTrades([])).finally(() => setLoading(false));
