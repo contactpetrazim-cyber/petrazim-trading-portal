@@ -7,6 +7,7 @@ import { tradesApi } from '../services/api';
 import { useQuickPrice } from '../hooks/useQuickPrice';
 import { formatApiError } from '../lib/apiError';
 import { pairFromTradeSymbol } from '../hooks/useQuickPairs';
+import { EntryTimeframeBadge } from './EntryTimeframeBadge';
 
 /**
  * PositionManager — "view and edit the statistics of this trade ...
@@ -317,6 +318,15 @@ export function PositionManager({ trade, dark = false, onChanged }: { trade: Tra
 
   return (
     <div className={cardCls}>
+      {/* "Which timeframe the setup was picked from" -- by direct
+          request, portal-wide, including the Position card/Position
+          Chart (this component, used both inline on TradeRow and
+          standalone from every On Chart-style page). */}
+      {!isManual && (
+        <div className="mb-2">
+          <EntryTimeframeBadge botId={trade.bot_id} dark={dark} />
+        </div>
+      )}
       {/* Stats row — the "dashboard" half of the request. A pending
           order has no P&L/R-multiple yet (it hasn't filled), so those
           swap for a plain "Pending" status instead of showing

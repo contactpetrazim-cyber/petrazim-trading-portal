@@ -6,6 +6,7 @@ import { useYAxisZoom, applyYZoom } from '../hooks/useYAxisZoom';
 import { ReasoningAnnotations } from './ReasoningAnnotations';
 import { formatTradeDuration } from '../lib/tradeDuration';
 import { CheckOddsLink } from './CheckOddsLink';
+import { EntryTimeframeBadge } from './EntryTimeframeBadge';
 
 const GREEN = '#10b981';
 const RED = '#ef4444';
@@ -52,6 +53,7 @@ export function TradeSnapshotModal({ tradeId, trade, dark, onClose }: { tradeId:
             <span className={`font-semibold text-sm ${dark ? 'text-white' : 'text-gray-900'}`}>
               {snapshot?.symbol || '…'} — Trade Snapshot
             </span>
+            <EntryTimeframeBadge botId={trade?.bot_id} dark={dark} />
           </div>
           <div className="flex items-center gap-2">
             <div className={`inline-flex items-center gap-0.5 rounded-md p-0.5 ${dark ? 'bg-white/5' : 'bg-gray-100'}`}>

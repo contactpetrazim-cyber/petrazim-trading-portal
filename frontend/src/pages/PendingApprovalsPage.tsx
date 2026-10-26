@@ -5,6 +5,7 @@ import { ArrowUpRight, ArrowDownRight, Check, Ban, Clock3, RefreshCw, Bot, Chevr
 import { LoadingIndicator } from '../components/LoadingIndicator';
 import { PositionOnChartModal } from '../components/PositionOnChartModal';
 import { CheckOddsLink } from '../components/CheckOddsLink';
+import { EntryTimeframeBadge } from '../components/EntryTimeframeBadge';
 import { ReasoningAnnotations } from '../components/ReasoningAnnotations';
 import { tradeToChartPosition } from '../components/ChartPanel';
 import { useEffectiveChartColors } from '../hooks/useCandleColors';
@@ -279,8 +280,9 @@ export function PendingApprovalsPage() {
                       <button onClick={() => setChartTradeId(t.trade_id)} className={`font-bold hover:underline ${dark ? 'text-white' : 'text-corporate-text-on-bg'}`}>
                         {t.symbol}
                       </button>
-                      <div className="text-xs text-gray-400 flex items-center gap-1">
-                        <Bot size={11} /> {t.bot_name || t.bot_id} · {formatDistanceToNow(new Date(t.created_at), { addSuffix: true })}
+                      <div className="text-xs text-gray-400 flex items-center gap-1.5">
+                        <span className="flex items-center gap-1"><Bot size={11} /> {t.bot_name || t.bot_id} · {formatDistanceToNow(new Date(t.created_at), { addSuffix: true })}</span>
+                        <EntryTimeframeBadge botId={t.bot_id} dark={dark} />
                       </div>
                     </div>
                   </div>

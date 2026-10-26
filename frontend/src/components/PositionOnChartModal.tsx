@@ -14,6 +14,7 @@ import { formatApiError } from '../lib/apiError';
 import { useQuickPrice } from '../hooks/useQuickPrice';
 import { formatTradeDuration } from '../lib/tradeDuration';
 import { CheckOddsLink } from './CheckOddsLink';
+import { EntryTimeframeBadge } from './EntryTimeframeBadge';
 import type { Trade } from '../types';
 
 const LIVE_PRICE_REFRESH_MS = 15_000;
@@ -1507,6 +1508,10 @@ export function PositionOnChartModal({
               Machine could actually replay it (CheckOddsLink's own
               eligibility check). */}
           <CheckOddsLink trade={trade} className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium ${chromeMutedCls} ${toggleWrapCls}`} />
+          {/* "Which timeframe the setup was picked from" -- by direct
+              request, portal-wide, including On Chart/Approval Chart
+              since this one component backs both. */}
+          <EntryTimeframeBadge botId={trade?.bot_id} dark={localDark} className={`flex items-center px-2.5 py-1.5 rounded-lg text-xs font-medium ${chromeMutedCls} ${toggleWrapCls}`} />
           {/* Approve/Not Approve/Defer/Re-Analyse — the "Approval
               Chart" toolset, by direct request ("copy the On Chart
               with all its tools etc ... that way I can easily analyse

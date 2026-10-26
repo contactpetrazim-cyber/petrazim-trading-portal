@@ -7,6 +7,7 @@ import { timeMachineApi, tradesApi } from '../services/api';
 import type { TimeMachineResponse, TimeMachineRequest, Trade } from '../types';
 import { useThemeStore } from '../hooks/useTheme';
 import { originalPlan, isTimeMachineEligible } from '../lib/timeMachineEligibility';
+import { getBotEntryTimeMachineTimeframe } from '../lib/botEntryTimeframe';
 
 /**
  * AddFromTradePicker -- "Add from Manual trade / Bot trade" (direct
@@ -162,10 +163,19 @@ export function ExploreTimeMachinePage() {
     setError(null);
     setData(null);
     const { stop, target } = originalPlan(t);
+    // The golden rule (direct request): "match the timeframe to how
+    // the trade was actually set up ... otherwise you're asking Time
+    // Machine a question about a completely different trade." Defaults
+    // to this bot's own REAL entry-POI timeframe (verified per bot in
+    // botEntryTimeframe.ts) instead of leaving whatever the form last
+    // had selected -- falls back to the current form value for a
+    // manual trade (no bot_id to look up).
+    const botTf = getBotEntryTimeMachineTimeframe(t.bot_id);
     setForm((f) => ({
       ...f,
       exchange: (t.broker_name || f.exchange).toLowerCase(),
       symbol: t.symbol,
+      timeframe: botTf ?? f.timeframe,
       direction: t.direction,
       entry: String(t.entry_price),
       stop: String(stop),
@@ -189,9 +199,13 @@ export function ExploreTimeMachinePage() {
     setLoading(true);
     setError(null);
     setData(null);
+    // Same stale-`form`-state race applyTradePick's own setForm call is
+    // already subject to (the state update hasn't landed on this same
+    // tick) -- compute the golden-rule timeframe independently here
+    // too, rather than reading the not-yet-updated form.timeframe.
     const req: TimeMachineRequest = {
       exchange: (t.broker_name || form.exchange).toLowerCase(),
-      symbol: t.symbol, timeframe: form.timeframe,
+      symbol: t.symbol, timeframe: getBotEntryTimeMachineTimeframe(t.bot_id) ?? form.timeframe,
       entry: t.entry_price, stop, target, direction: t.direction,
       horizon_bars: form.horizon_bars, replays: form.replays, lookback_days: form.lookback_days,
     };

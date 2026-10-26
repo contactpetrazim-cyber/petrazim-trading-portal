@@ -7,6 +7,7 @@ import { nearestCandleIndex } from '../lib/positionChartOverlay';
 import { useYAxisZoom, applyYZoom } from '../hooks/useYAxisZoom';
 import { formatTradeDuration } from '../lib/tradeDuration';
 import { CheckOddsLink } from './CheckOddsLink';
+import { EntryTimeframeBadge } from './EntryTimeframeBadge';
 
 const GREEN = '#10b981';
 const RED = '#ef4444';
@@ -85,6 +86,7 @@ export function TradeForensicsModal({ tradeId, trade, dark, onClose }: { tradeId
             <span className={`font-semibold text-sm ${dark ? 'text-white' : 'text-gray-900'}`}>
               {forensics?.symbol || '…'} — Trade Forensics
             </span>
+            <EntryTimeframeBadge botId={trade?.bot_id} dark={dark} />
           </div>
           <div className="flex items-center gap-2">
             {availableTfs.length > 0 && (
