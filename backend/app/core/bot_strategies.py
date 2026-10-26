@@ -115,6 +115,10 @@ TUNABLE_PARAM_BOUNDS: Dict[str, Dict[str, Tuple[float, float, float]]] = {
     # Bot 13 already uses for Bot 3's own 15M structure, since this is
     # also Bot 3's own family, just with the OB-POI entry swap.
     "bot_17": {"left_bars": (2, 10, 3), "right_bars": (2, 10, 3)},
+    # bot_18: Bot 6's own 1H left_bars/right_bars — same family, just
+    # with the OB-POI entry swap (see JeafxSMCv2OBPOIBot's own
+    # docstring).
+    "bot_18": {"left_bars": (2, 10, 3), "right_bars": (2, 10, 2)},
 }
 
 
@@ -2345,6 +2349,191 @@ class JeafxSMCv2Bot:
         )
 
 
+class JeafxSMCv2OBPOIBot:
+    """
+    Bot 18: SMC v2, OB-POI
+
+    Bot 6's own zone/purge/direction/stop logic, entry POI changed:
+    instead of entering at an FVG's own midpoint (or the confirmation
+    candle's own midpoint when no FVG forms), entry is taken from the
+    SAME aligned 1H order block Bot 6 already anchors its stop in — at
+    that zone's own extreme edge (bottom for a long, top for a short).
+    Mirrors exactly how Bot 17 (FVGExpansionOBPOIBot) was built as Bot
+    3's own OB-POI sibling: one variable changed, everything else
+    (1H zone/BOS bias, Bot2-CHoCH/Bot3-FVG+BOS agreement check, 15M
+    purge timing gate, 5M confirmation candle, premium/discount check,
+    purge-extreme stop with zone embed, 5R target) is byte-for-byte
+    identical to Bot 6.
+
+    Built from a direct finding ("critically review ... whether price
+    bounces from FVG or the Order block ... integrate the learning
+    into all the bots"): real trade history shows Bot 6 and Bot 8
+    (both FVG-entry/OB-stop hybrids) were the WORST-performing bot
+    family on NAS100USDT.P (-0.334R / -0.413R mean R, 40% win rate
+    each, n=10 each as of 2026-10-26) — worse than either the pure-OB
+    or pure-FVG bots trading the same symbol — while Bot 17's own
+    identical OB-POI swap already proved out as a real, large-sample
+    win for Bot 3's family. Shipped exactly as cautiously as Bot 17
+    was: a brand-new, isolated bot with no BotConfig row of its own
+    yet (see BOT_REGISTRY's own comment — being listed here makes the
+    STRATEGY runnable, not automatically ACTIVE; market_scanner.py's
+    scan loop only ever dispatches to a real BotConfig row with
+    status=ACTIVE, so this bot trades nothing until one is deliberately
+    created for it on the Bots page) — Bot 6 itself stays byte-for-byte
+    untouched, its real live track record never put at risk on this
+    hypothesis. If this proves out the same way Bot 17 did, the same
+    swap is a candidate for Bot 8 (bot_8_smc_v2_single_anchor) and Bot
+    5/14 (the wider Jeafx family) next.
+    """
+
+    def __init__(self, config: Dict):
+        self.bot_id = "bot_18_smc_v2_ob_poi"
+        self.bot_name = "SMC v2, OB-POI"
+        self.config = config
+        self.structure_detector = MarketStructureDetector(
+            left_bars=int(resolve_tunable_param("bot_18", "left_bars", config)),
+            right_bars=int(resolve_tunable_param("bot_18", "right_bars", config)),
+        )
+        self.entry_engine = EntryExitEngine(default_rr=4.0)
+        self.risk_manager = RiskManager(base_risk_percent=1.0)
+
+    def analyze(self,
+                candles_1h: List[Candle],
+                candles_15m: List[Candle],
+                candles_5m: List[Candle],
+                account_balance: float,
+                symbol: str,
+                risk_per_trade: Optional[float] = None,
+                min_rr_ratio: Optional[float] = None,
+                bot_id: Optional[str] = None) -> Optional[BotSignal]:
+
+        # Steps 1-5: identical to Bot 6 — 1H zone, 15M purge gate, zone
+        # alignment, 5M confirmation candle, 1H BOS bias confirmed by
+        # at least one of Bot2's CHoCH / Bot3's FVG+BOS, premium/
+        # discount check.
+        zone_detector = ZoneDetector()
+        swings_1h = self.structure_detector.detect_swing_highs(candles_1h) + \
+                    self.structure_detector.detect_swing_lows(candles_1h)
+
+        zones = zone_detector.detect_order_blocks(candles_1h, swings_1h)
+        fresh_zones = [z for z in zones
+                      if z.status.name == "ACTIVE" and z.test_count <= 1]
+
+        if not fresh_zones:
+            return None
+
+        liq_detector = LiquidityDetector(tolerance_pips=1.0)
+        pools = liq_detector.detect_equal_highs_lows(candles_15m, lookback=30)
+        sweeps = liq_detector.detect_liquidity_sweeps(pools, candles_15m[-5:])
+
+        if not sweeps:
+            return None
+
+        last_sweep = sweeps[-1]
+
+        sweep_price = last_sweep["sweep_price"]
+        aligned_zone = None
+        for z in fresh_zones:
+            if z.bottom <= sweep_price <= z.top:
+                aligned_zone = z
+                break
+
+        if not aligned_zone:
+            return None
+
+        recent_5m = candles_5m[-5:]
+        confirmation_candle = None
+        for c in recent_5m:
+            body_size = abs(c.close - c.open)
+            avg_body = sum(abs(x.close - x.open) for x in candles_5m[-20:]) / 20
+            if body_size > avg_body * 1.5:
+                if aligned_zone.bottom <= c.close <= aligned_zone.top:
+                    confirmation_candle = c
+                    break
+
+        if not confirmation_candle:
+            return None
+
+        bos_1h = self.structure_detector.detect_bos(
+            candles_1h, self.structure_detector.filter_significant_swings(swings_1h)
+        )
+        if not bos_1h:
+            return None
+        last_bos_1h = bos_1h[-1]
+        if last_bos_1h["type"] == "bullish_bos":
+            direction = "long"
+        elif last_bos_1h["type"] == "bearish_bos":
+            direction = "short"
+        else:
+            return None
+
+        choch_dir = _choch_direction_15m(self.structure_detector, candles_15m)
+        fvg_bos_dir = _fvg_bos_direction_1h_15m(candles_1h, candles_15m)
+        if choch_dir != direction and fvg_bos_dir != direction:
+            return None
+
+        swing_high_1h = max((s.price for s in swings_1h), default=None)
+        swing_low_1h = min((s.price for s in swings_1h), default=None)
+        if swing_high_1h is not None and swing_low_1h is not None:
+            zone_detector.classify_premium_discount([aligned_zone], swing_high_1h, swing_low_1h)
+            if (direction == "long" and aligned_zone.classification == "premium") or \
+               (direction == "short" and aligned_zone.classification == "discount"):
+                return None
+
+        # Step 6 (CHANGED from Bot 6): entry at the aligned order
+        # block's own extreme edge, not an FVG's own midpoint — the
+        # new POI this sibling tests. No FVG detection at all here.
+        entry_price = aligned_zone.bottom if direction == "long" else aligned_zone.top
+
+        # Step 7: sweep-direction validation — identical to Bot 6.
+        expected_sweep_type = "buy_side_sweep" if direction == "long" else "sell_side_sweep"
+        if last_sweep["type"] != expected_sweep_type:
+            return None
+
+        # Step 8: Strict SL beyond purge extreme, extended to embed the
+        # aligned zone — identical to Bot 6. Deliberately unchanged:
+        # this A/B test isolates the ENTRY POI, not the stop mechanism.
+        purge_extreme = last_sweep["sweep_price"]
+        buffer = abs(confirmation_candle.high - confirmation_candle.low) * 0.2
+
+        if direction == "long":
+            sl_price = purge_extreme - buffer
+        else:
+            sl_price = purge_extreme + buffer
+
+        sl_price = extend_stop_beyond_zone(sl_price, aligned_zone, direction)
+        sl_price = apply_min_stop_distance_floor(entry_price, sl_price, direction, min_pct=resolve_min_stop_pct(symbol))
+        sl_distance = abs(entry_price - sl_price)
+        sl = {"stop_loss": sl_price, "sl_distance": sl_distance, "method": "jeafx_purge_extreme"}
+
+        # Step 9: High R:R target (4-6R) — identical to Bot 6.
+        entry = {"entry_price": entry_price, "direction": direction}
+        targets = self.entry_engine.calculate_targets(entry, sl, rr_ratio=min_rr_ratio if min_rr_ratio is not None else 5.0)
+
+        risk = self.risk_manager.calculate_position_risk(setup_quality=1.3, base_risk_override=risk_per_trade)
+        lots = self.entry_engine.calculate_lot_size(account_balance, risk, sl_distance)
+
+        return BotSignal(
+            bot_id=bot_id or self.bot_id,
+            bot_name=self.bot_name,
+            symbol=symbol,
+            direction=direction,
+            confidence=0.88,
+            entry_price=round(entry_price, 5),
+            stop_loss=round(sl_price, 5),
+            take_profit=targets["tp1"],
+            take_profit_2=targets["tp2"],
+            take_profit_3=targets["tp3"],
+            lot_size=lots["lot_size"],
+            risk_percent=risk,
+            reasoning=f"SMC v2 OB-POI {direction}. 1H BOS bias confirmed by: Bot2 CHoCH={choch_dir or '—'}, "
+                     f"Bot3 FVG/BOS={fvg_bos_dir or '—'} (at least one agrees). 1H fresh zone, discount/premium checked. "
+                     f"15M purge (timing/zone gate). 5M confirmation candle. "
+                     f"Entry at aligned order block's own extreme edge (not FVG midpoint). Strict SL beyond purge, embedded zone. 5R target.",
+            timestamp=datetime.utcnow()
+        )
+
+
 class JeafxSMCv2SingleAnchorBot:
     """
     Bot 8: SMC v2 — Single-Anchor A/B Variant
@@ -3348,15 +3537,16 @@ BOT_REGISTRY: Dict[str, tuple] = {
     "bot_13": (FVGExpansionHTFGatedBot, [("candles_1d", "1D"), ("candles_1h", "1H"), ("candles_15m", "15M")]),
     "bot_14": (JeafxSMCHTFGatedBot, [("candles_1d", "1D"), ("candles_4h", "4H"), ("candles_1h", "1H"), ("candles_15m", "15M"), ("candles_5m", "5M")]),
     "bot_17": (FVGExpansionOBPOIBot, [("candles_1h", "1H"), ("candles_15m", "15M")]),
+    "bot_18": (JeafxSMCv2OBPOIBot, [("candles_1h", "1H"), ("candles_15m", "15M"), ("candles_5m", "5M")]),
 }
 
 
 class BotOrchestrator:
-    """Manages all 13 dispatched bots (7 original + 6 A/B test variants
+    """Manages all 14 dispatched bots (7 original + 7 A/B test variants
     with their own strategy class: Bot 8 vs Bot 6, Bot 9 and Bot 10 vs
     Bot 4, Bot 11 vs Bot 2, Bot 13 vs Bot 3, Bot 14 vs Bot 5, Bot 17 vs
-    Bot 3) and routes signals to execution. Bot roster and candle
-    requirements come from BOT_REGISTRY above — the single place a new
+    Bot 3, Bot 18 vs Bot 6) and routes signals to execution. Bot roster
+    and candle requirements come from BOT_REGISTRY above — the single place a new
     bot needs to be added. Bot 12/15/16 are real, live bots but
     deliberately NOT in this registry — each reuses an existing bot's
     own strategy class/dispatch entirely (Bot 12 -> Bot 2, Bot 15 ->
