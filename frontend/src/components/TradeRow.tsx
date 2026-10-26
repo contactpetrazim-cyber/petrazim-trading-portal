@@ -9,6 +9,7 @@ import { PositionManager } from './PositionManager';
 import { TradeSnapshotModal } from './TradeSnapshotModal';
 import { TradeForensicsModal } from './TradeForensicsModal';
 import { CheckOddsLink } from './CheckOddsLink';
+import { EntryTimeframeBadge } from './EntryTimeframeBadge';
 import { pairFromTradeSymbol } from '../hooks/useQuickPairs';
 import { formatTradeDuration } from '../lib/tradeDuration';
 
@@ -155,6 +156,7 @@ export function TradeRow({ trade, onApprove, onReject, onCancel, onChanged, onAr
                 {isManual ? <User size={10} /> : <Bot size={10} />}
                 {isManual ? 'Manual' : 'Bot'}
               </span>
+              <EntryTimeframeBadge botId={trade.bot_id} dark={dark} />
               {/* Trailing Exit — "let winners run" badge, by direct
                   request. Only shown once actually engaged (not for
                   every configured-but-not-yet-active trade) — the
