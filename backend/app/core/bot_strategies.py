@@ -223,13 +223,46 @@ def apply_min_stop_distance_floor(entry_price: float, sl_price: float, direction
     """Widens sl_price away from entry_price, if needed, so the
     resulting distance is at least min_pct (default: the platform-wide
     MIN_STOP_DISTANCE_PCT) of entry_price. A no-op for any stop that's
-    already wide enough. `min_pct` is overridable per call site —
-    see bot_11's own use for a deliberately larger value, or pass
-    `resolve_min_stop_pct(symbol)` for the per-symbol override below."""
+    already wide enough on the correct side. `min_pct` is overridable
+    per call site — see bot_11's own use for a deliberately larger
+    value, or pass `resolve_min_stop_pct(symbol)` for the per-symbol
+    override below.
+
+    Real, severe bug fixed here, found live against real trades
+    ("Observed that recent trades are around a RR of 1 - critically
+    investigate why we are not having higher RR"): this used to check
+    DISTANCE only, never SIDE — a stop already on the WRONG side of
+    entry_price (above entry for a long, below for a short) but
+    "far enough" away numerically passed straight through unchanged.
+    That exact case happens for real at
+    execution_engine.py's own _resize_risk_for_real_fill, whose own
+    docstring already documents a real fill landing far enough past
+    the signal's own theoretical entry that the STALE, pre-fill
+    stop_loss it re-floors here can end up on the wrong side of the
+    REAL entry_price. Confirmed directly against real trades
+    (TRD_bot_17_fvg_expansion_ob_poi_20261024_* and others, all bots
+    that route through that resize): with the old distance-only check,
+    the wrong-sided stop passed through untouched, and
+    _resize_risk_for_real_fill's own downstream take_profit_1 formula
+    (`entry + |entry - stop|` for a long) then algebraically
+    reconstructed take_profit_1 to be mathematically IDENTICAL to that
+    same wrong-sided stop_loss (entry + (stop - entry) == stop,
+    whenever stop > entry) — every affected trade got a forced, exact
+    1:1 R:R and exited instantly via exit_type=STOP_LOSS at a
+    technically-profitable price, regardless of the bot's own
+    configured RR, and regardless of which bot. Now: ANY wrong-sided
+    stop (whatever its distance) is snapped to the floor on the
+    correct side, not just a too-close one widened — this is the one
+    place either case can be caught before it ever reaches a
+    downstream target/lot-size calculation, for every bot, both at
+    signal time (where it was already correctly-sided by construction,
+    so this is a no-op there) and at this fill-resize call site (where
+    it's the real, necessary fix)."""
     min_distance = entry_price * min_pct
-    if abs(entry_price - sl_price) >= min_distance:
-        return sl_price
-    return entry_price - min_distance if direction == "long" else entry_price + min_distance
+    wrong_side = (sl_price >= entry_price) if direction == "long" else (sl_price <= entry_price)
+    if wrong_side or abs(entry_price - sl_price) < min_distance:
+        return entry_price - min_distance if direction == "long" else entry_price + min_distance
+    return sl_price
 
 
 # Per-symbol floor override — by direct request ("widen the stop floor
