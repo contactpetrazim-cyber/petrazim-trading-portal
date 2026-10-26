@@ -80,7 +80,19 @@ def _build_pool(candles: List[Candle], horizon_bars: int) -> _Pool:
     prev_close[0] = closes[0]  # first bar has no predecessor -- ratio ~1, discarded below anyway
 
     n_bars = len(candles)
-    n_sessions = n_bars // horizon_bars
+    # Bar 0 is dropped below (no real prev_close), so only n_bars-1 bars
+    # are actually available to build sessions from -- sizing off the
+    # raw n_bars could round UP by one full session versus what the
+    # slice below can actually supply (e.g. n_bars=1440, horizon_bars=48
+    # -> floor(1440/48)=30 sessions needs opens[1:1441], but the arrays
+    # only have 1440 elements, i.e. index 1..1439 = 1439 of them), which
+    # made numpy's reshape raise "cannot reshape array of size 1439 into
+    # shape (30,48)" instead of this function's own, honest
+    # "not enough candles" TimeMachineError below. Found live
+    # (XAUTUSDT.P/mexc landed on an exact multiple of horizon_bars)
+    # right after fixing the separate tz-aware/naive datetime bug that
+    # had been crashing before this code ever ran.
+    n_sessions = (n_bars - 1) // horizon_bars
     if n_sessions < MIN_SESSIONS:
         raise TimeMachineError(
             f"Only {n_sessions} full {horizon_bars}-bar sessions in {n_bars} candles -- "
