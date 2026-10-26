@@ -1,10 +1,129 @@
-import { useState, FormEvent } from 'react';
-import { Clock, AlertTriangle } from 'lucide-react';
+import { useState, useEffect, FormEvent } from 'react';
+import { Clock, AlertTriangle, Import, Bot, User } from 'lucide-react';
 import { AreaChart, Area, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ComposedChart } from 'recharts';
 import { PageHeader } from '../components/PageHeader';
-import { timeMachineApi } from '../services/api';
-import type { TimeMachineResponse, TimeMachineRequest } from '../types';
+import { timeMachineApi, tradesApi } from '../services/api';
+import type { TimeMachineResponse, TimeMachineRequest, Trade } from '../types';
 import { useThemeStore } from '../hooks/useTheme';
+
+// The same five exchanges Time Machine's own dropdown offers -- a
+// trade filled on anything else (forex/MT broker_name values like
+// "metatrader"/"tradelocker") has no real candle history this feature
+// could replay against.
+const TIME_MACHINE_EXCHANGES = ['okx', 'binance', 'bybit', 'bingx', 'mexc'];
+
+/**
+ * AddFromTradePicker -- "Add from Manual trade / Bot trade" (direct
+ * request). Time Machine's own single-pick counterpart to ToolsPage's
+ * multi-select "Add from Recent Trades": lists the caller's own
+ * PENDING/ACTIVE/CLOSED trades (check a recommendation before
+ * approving it, sanity-check a position already open, or see what the
+ * real odds actually were on one already closed), split by source
+ * since this only ever needs ONE entry/stop/target, not a batch. Only
+ * trades with a full entry/stop/target, a valid long/short price
+ * ordering, and a ccxt exchange Time Machine can actually fetch real
+ * candles for are offered -- anything else would just fail the run.
+ */
+function AddFromTradePicker({ dark, onPick }: { dark: boolean; onPick: (trade: Trade) => void }) {
+  const [source, setSource] = useState<'manual' | 'bots' | null>(null);
+  const [trades, setTrades] = useState<Trade[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [skipped, setSkipped] = useState(0);
+
+  useEffect(() => {
+    if (!source) return;
+    setLoading(true);
+    setTrades(null);
+    Promise.all([
+      tradesApi.getTrades({ source, status: 'pending', limit: 10 }),
+      tradesApi.getTrades({ source, status: 'active', limit: 10 }),
+      tradesApi.getTrades({ source, status: 'closed', limit: 10 }),
+    ]).then((lists) => {
+      const merged = lists.flat();
+      const usable = merged.filter((t) => {
+        const exch = (t.broker_name || '').toLowerCase();
+        if (!TIME_MACHINE_EXCHANGES.includes(exch)) return false;
+        if (t.entry_price == null || t.take_profit == null) return false;
+        if (t.direction === 'long') return t.stop_loss < t.entry_price && t.entry_price < t.take_profit;
+        return t.take_profit < t.entry_price && t.entry_price < t.stop_loss;
+      }).sort((a, b) => (b.created_at || '').localeCompare(a.created_at || '')).slice(0, 15);
+      setSkipped(merged.length - usable.length);
+      setTrades(usable);
+    }).catch(() => setTrades([])).finally(() => setLoading(false));
+  }, [source]);
+
+  function pick(t: Trade) {
+    onPick(t);
+    setSource(null);
+    setTrades(null);
+  }
+
+  return (
+    <div className="mb-3">
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <span className={`flex items-center gap-1.5 text-xs font-semibold ${dark ? 'text-white/70' : 'text-gray-600'}`}>
+          <Import size={13} /> Add from
+        </span>
+        <button
+          type="button"
+          onClick={() => setSource((s) => (s === 'manual' ? null : 'manual'))}
+          className={`flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-lg ${
+            source === 'manual' ? 'text-white bg-corporate-hero' : dark ? 'bg-white/10 text-white' : 'bg-gray-100 text-gray-700'
+          }`}
+        >
+          <User size={12} /> Manual trade
+        </button>
+        <button
+          type="button"
+          onClick={() => setSource((s) => (s === 'bots' ? null : 'bots'))}
+          className={`flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-lg ${
+            source === 'bots' ? 'text-white bg-corporate-hero' : dark ? 'bg-white/10 text-white' : 'bg-gray-100 text-gray-700'
+          }`}
+        >
+          <Bot size={12} /> Bot trade
+        </button>
+      </div>
+      {source && (
+        <div className={`mt-2 rounded-lg border p-2.5 ${dark ? 'bg-white/5 border-white/10' : 'bg-gray-50 border-gray-200'}`}>
+          {loading && <div className={`text-xs ${dark ? 'text-white/40' : 'text-gray-400'}`}>Loading…</div>}
+          {!loading && trades && trades.length === 0 && (
+            <div className={`text-xs ${dark ? 'text-white/40' : 'text-gray-400'}`}>
+              No {source === 'manual' ? 'manual' : 'bot'} trades with a full entry/stop/target on a supported exchange yet.
+            </div>
+          )}
+          {!loading && trades && trades.length > 0 && (
+            <div className="space-y-1 max-h-56 overflow-y-auto">
+              {trades.map((t) => (
+                <button
+                  type="button"
+                  key={t.trade_id}
+                  onClick={() => pick(t)}
+                  className={`w-full flex items-center justify-between gap-2 text-left px-2 py-1.5 rounded-md text-xs ${dark ? 'hover:bg-white/10' : 'hover:bg-white'}`}
+                >
+                  <span className="flex items-center gap-1.5 min-w-0">
+                    <span className={t.direction === 'long' ? 'text-smc-long' : 'text-smc-short'}>{t.direction === 'long' ? '▲' : '▼'}</span>
+                    <span className={`font-semibold truncate ${dark ? 'text-white' : 'text-gray-900'}`}>{t.symbol}</span>
+                    <span className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-semibold capitalize ${dark ? 'bg-white/10 text-white/60' : 'bg-gray-100 text-gray-500'}`}>
+                      {t.status}
+                    </span>
+                  </span>
+                  <span className={`shrink-0 font-mono ${dark ? 'text-white/50' : 'text-gray-500'}`}>
+                    {t.entry_price?.toFixed(4) ?? '—'}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+          {!loading && skipped > 0 && (
+            <div className={`mt-1.5 text-[11px] ${dark ? 'text-white/40' : 'text-gray-400'}`}>
+              {skipped} trade{skipped === 1 ? '' : 's'} left out -- missing a full entry/stop/target, an invalid price order, or on an exchange Time Machine can't replay (forex/MT).
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function Stat({ dark, label, value, tone = 'neutral' }: { dark: boolean; label: string; value: string; tone?: 'good' | 'bad' | 'warn' | 'neutral' }) {
   const toneCls = tone === 'good' ? 'text-emerald-500' : tone === 'bad' ? 'text-red-400' : tone === 'warn' ? 'text-amber-500' : dark ? 'text-white' : 'text-gray-800';
@@ -40,6 +159,20 @@ export function ExploreTimeMachinePage() {
   const mutedCls = dark ? 'text-white/50' : 'text-gray-500';
   const inputCls = `px-3 py-2 rounded-lg text-sm border ${dark ? 'bg-white/5 text-white border-white/10' : 'bg-white text-gray-800 border-gray-200'}`;
 
+  function applyTradePick(t: Trade) {
+    setError(null);
+    setData(null);
+    setForm((f) => ({
+      ...f,
+      exchange: (t.broker_name || f.exchange).toLowerCase(),
+      symbol: t.symbol,
+      direction: t.direction,
+      entry: String(t.entry_price),
+      stop: String(t.stop_loss),
+      target: String(t.take_profit),
+    }));
+  }
+
   function run(e?: FormEvent) {
     e?.preventDefault();
     const entry = parseFloat(form.entry), stop = parseFloat(form.stop), target = parseFloat(form.target);
@@ -66,6 +199,8 @@ export function ExploreTimeMachinePage() {
         title="Time Machine"
         subtitle="Replay a proposed trade thousands of times against real price history for the symbol."
       />
+
+      <AddFromTradePicker dark={dark} onPick={applyTradePick} />
 
       <form onSubmit={run} className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-2">
         <input value={form.symbol} onChange={(e) => setForm((f) => ({ ...f, symbol: e.target.value.toUpperCase() }))}
