@@ -123,6 +123,18 @@ TUNABLE_PARAM_BOUNDS: Dict[str, Dict[str, Tuple[float, float, float]]] = {
     # with the 1H-entry timeframe swap (see JeafxSMCv2OneHourEntryBot's
     # own docstring).
     "bot_19": {"left_bars": (2, 10, 3), "right_bars": (2, 10, 2)},
+    # bot_20: Bot 5's own 1H left_bars/right_bars — same family, just
+    # with the 1H-entry timeframe swap (see JeafxSMCOneHourEntryBot's
+    # own docstring).
+    "bot_20": {"left_bars": (2, 10, 3), "right_bars": (2, 10, 2)},
+    # bot_21: Bot 8's own 1H left_bars/right_bars — same family, just
+    # with the 1H-entry timeframe swap (see
+    # JeafxSMCv2SingleAnchorOneHourEntryBot's own docstring).
+    "bot_21": {"left_bars": (2, 10, 3), "right_bars": (2, 10, 2)},
+    # bot_22: Bot 14's own left_bars/right_bars/htf_left_bars/
+    # htf_right_bars — same family, just with the 1H-entry timeframe
+    # swap (see JeafxSMCHTFGatedOneHourEntryBot's own docstring).
+    "bot_22": {"left_bars": (2, 10, 3), "right_bars": (2, 10, 2), "htf_left_bars": (2, 10, 5), "htf_right_bars": (2, 10, 5)},
 }
 
 
@@ -1957,6 +1969,175 @@ class JeafxSMCBot:
         )
 
 
+class JeafxSMCOneHourEntryBot:
+    """
+    Bot 20: SMC BOT, 1H Entry
+
+    Bot 5's own zone/direction/purge/premium-discount/stop logic,
+    byte-for-byte — the ONLY change is the confirmation-candle/FVG-
+    selection step (Bot 5's Steps 5-6): 1H candles instead of 5M, same
+    "last 5 candles" / "last 20 for the average body" / "last 10 for
+    the FVG scan" conventions, no window redesign. candles_5m is no
+    longer a required timeframe for this bot at all. Same single-
+    variable-swap recipe as Bot 19 (Bot 6's own 1H-entry sibling) —
+    see that class's own docstring for the real trade-data finding
+    behind this hypothesis. Bot 5 itself is completely untouched.
+    """
+
+    def __init__(self, config: Dict):
+        self.bot_id = "bot_20_jeafx_1h_entry"
+        self.bot_name = "SMC BOT, 1H Entry"
+        self.config = config
+        self.structure_detector = MarketStructureDetector(
+            left_bars=int(resolve_tunable_param("bot_20", "left_bars", config)),
+            right_bars=int(resolve_tunable_param("bot_20", "right_bars", config)),
+        )
+        self.entry_engine = EntryExitEngine(default_rr=4.0)
+        self.risk_manager = RiskManager(base_risk_percent=1.0)
+
+    def analyze(self,
+                candles_4h: List[Candle],
+                candles_1h: List[Candle],
+                candles_15m: List[Candle],
+                account_balance: float,
+                symbol: str,
+                risk_per_trade: Optional[float] = None,
+                min_rr_ratio: Optional[float] = None,
+                bot_id: Optional[str] = None) -> Optional[BotSignal]:
+
+        # Steps 1-4: identical to Bot 5 — 1H fresh zone, 4H BOS
+        # direction, LTF-conflict check, 15M purge timing gate, zone
+        # alignment.
+        zone_detector = ZoneDetector()
+        swings_1h = self.structure_detector.detect_swing_highs(candles_1h) + \
+                    self.structure_detector.detect_swing_lows(candles_1h)
+
+        zones = zone_detector.detect_order_blocks(candles_1h, swings_1h)
+        fresh_zones = [z for z in zones
+                      if z.status.name == "ACTIVE" and z.test_count <= 1]
+        if not fresh_zones:
+            return None
+
+        swings_4h = self.structure_detector.detect_swing_highs(candles_4h) + \
+                    self.structure_detector.detect_swing_lows(candles_4h)
+        bos_4h = self.structure_detector.detect_bos(
+            candles_4h, self.structure_detector.filter_significant_swings(swings_4h)
+        )
+        if not bos_4h:
+            return None
+        last_bos_4h = bos_4h[-1]
+        if last_bos_4h["type"] == "bullish_bos":
+            direction = "long"
+        elif last_bos_4h["type"] == "bearish_bos":
+            direction = "short"
+        else:
+            return None
+
+        choch_dir = _choch_direction_15m(self.structure_detector, candles_15m)
+        fvg_bos_dir = _fvg_bos_direction_1h_15m(candles_1h, candles_15m)
+        if (choch_dir and choch_dir != direction) or (fvg_bos_dir and fvg_bos_dir != direction):
+            return None
+
+        liq_detector = LiquidityDetector(tolerance_pips=1.0)
+        pools = liq_detector.detect_equal_highs_lows(candles_15m, lookback=30)
+        sweeps = liq_detector.detect_liquidity_sweeps(pools, candles_15m[-5:])
+        if not sweeps:
+            return None
+        last_sweep = sweeps[-1]
+
+        sweep_price = last_sweep["sweep_price"]
+        aligned_zone = None
+        for z in fresh_zones:
+            if z.bottom <= sweep_price <= z.top:
+                aligned_zone = z
+                break
+        if not aligned_zone:
+            return None
+
+        swing_high_1h = max((s.price for s in swings_1h), default=None)
+        swing_low_1h = min((s.price for s in swings_1h), default=None)
+        if swing_high_1h is not None and swing_low_1h is not None:
+            zone_detector.classify_premium_discount([aligned_zone], swing_high_1h, swing_low_1h)
+            if (direction == "long" and aligned_zone.classification == "premium") or \
+               (direction == "short" and aligned_zone.classification == "discount"):
+                return None
+
+        # Step 5 (CHANGED from Bot 5): momentum confirmation candle on
+        # 1H instead of 5M — same formula.
+        recent_1h = candles_1h[-5:]
+        confirmation_candle = None
+        for c in recent_1h:
+            body_size = abs(c.close - c.open)
+            avg_body = sum(abs(x.close - x.open) for x in candles_1h[-20:]) / 20
+            if body_size > avg_body * 1.5:
+                if aligned_zone.bottom <= c.close <= aligned_zone.top:
+                    confirmation_candle = c
+                    break
+        if not confirmation_candle:
+            return None
+
+        # Step 6 (CHANGED from Bot 5): FVG scan on the last 10 1H
+        # candles instead of the last 10 5M candles — same depth-based
+        # selection formula.
+        fvg_detector = FVGDetector()
+        recent_fvgs = fvg_detector.detect_fvg(candles_1h[-10:])
+        candidate_fvgs = [
+            f for f in recent_fvgs
+            if f.candle1.timestamp >= confirmation_candle.timestamp and
+            ((f.gap_type == "bullish" and direction == "long") or (f.gap_type == "bearish" and direction == "short"))
+        ]
+        valid_fvg = select_fvg_by_depth(candidate_fvgs, direction)
+
+        # Step 7: Entry at 50% of confirmation candle or FVG — identical to Bot 5.
+        if valid_fvg:
+            entry_price = (valid_fvg.top + valid_fvg.bottom) / 2
+        else:
+            entry_price = (confirmation_candle.open + confirmation_candle.close) / 2
+
+        expected_sweep_type = "buy_side_sweep" if direction == "long" else "sell_side_sweep"
+        if last_sweep["type"] != expected_sweep_type:
+            return None
+
+        # Step 8: Strict SL beyond purge extreme, extended to embed the
+        # aligned zone — identical to Bot 5.
+        purge_extreme = last_sweep["sweep_price"]
+        buffer = abs(confirmation_candle.high - confirmation_candle.low) * 0.2
+        if direction == "long":
+            sl_price = purge_extreme - buffer
+        else:
+            sl_price = purge_extreme + buffer
+        sl_price = extend_stop_beyond_zone(sl_price, aligned_zone, direction)
+        sl_price = apply_min_stop_distance_floor(entry_price, sl_price, direction, min_pct=resolve_min_stop_pct(symbol))
+        sl_distance = abs(entry_price - sl_price)
+        sl = {"stop_loss": sl_price, "sl_distance": sl_distance, "method": "jeafx_purge_extreme"}
+
+        # Step 9: High R:R target (4-6R) — identical to Bot 5.
+        entry = {"entry_price": entry_price, "direction": direction}
+        targets = self.entry_engine.calculate_targets(entry, sl, rr_ratio=min_rr_ratio if min_rr_ratio is not None else 5.0)
+
+        risk = self.risk_manager.calculate_position_risk(setup_quality=1.3, base_risk_override=risk_per_trade)
+        lots = self.entry_engine.calculate_lot_size(account_balance, risk, sl_distance)
+
+        return BotSignal(
+            bot_id=bot_id or self.bot_id,
+            bot_name=self.bot_name,
+            symbol=symbol,
+            direction=direction,
+            confidence=0.88,
+            entry_price=round(entry_price, 5),
+            stop_loss=round(sl_price, 5),
+            take_profit=targets["tp1"],
+            take_profit_2=targets["tp2"],
+            take_profit_3=targets["tp3"],
+            lot_size=lots["lot_size"],
+            risk_percent=risk,
+            reasoning=f"SMC BOT 1H-Entry {direction}. 4H BOS confirms trend. 1H fresh zone. 15M {last_sweep['type']} (timing gate). "
+                     f"1H confirmation candle (not 5M) + depth-selected 1H FVG: {valid_fvg is not None}. "
+                     f"Entry at 50%. Strict SL beyond purge. 5R target.",
+            timestamp=datetime.utcnow()
+        )
+
+
 # =============================================================================
 # BOT 14: Jeafx SMC, HTF-Gated (Bot 5 Update) — real finding, A/B test
 # =============================================================================
@@ -2164,6 +2345,182 @@ class JeafxSMCHTFGatedBot:
             reasoning=f"SMC BOT HTF-Gated {direction}. 1D HTF bias ({htf_bias}) aligned with direction — gate passed. "
                      f"4H BOS confirms trend. 1H fresh zone. 15M {last_sweep['type']} (timing gate). "
                      f"5M confirmation candle + FVG: {valid_fvg is not None}. "
+                     f"Entry at 50%. Strict SL beyond purge. 5R target.",
+            timestamp=datetime.utcnow()
+        )
+
+
+class JeafxSMCHTFGatedOneHourEntryBot:
+    """
+    Bot 22: SMC BOT HTF-Gated, 1H Entry
+
+    Bot 14's own zone/direction/1D-HTF-gate/purge/premium-discount/
+    stop logic, byte-for-byte — the ONLY change is the confirmation-
+    candle/FVG-selection step: 1H candles instead of 5M, same
+    conventions as Bot 19/Bot 20's own identical swap. candles_5m is
+    no longer a required timeframe for this bot at all. Bot 14 itself
+    is completely untouched. See Bot 19's own docstring for the real
+    trade-data finding behind this hypothesis.
+    """
+
+    def __init__(self, config: Dict):
+        self.bot_id = "bot_22_jeafx_htf_gated_1h_entry"
+        self.bot_name = "SMC BOT HTF-Gated, 1H Entry"
+        self.config = config
+        self.structure_detector = MarketStructureDetector(
+            left_bars=int(resolve_tunable_param("bot_22", "left_bars", config)),
+            right_bars=int(resolve_tunable_param("bot_22", "right_bars", config)),
+        )
+        self.htf_left_bars = int(resolve_tunable_param("bot_22", "htf_left_bars", config))
+        self.htf_right_bars = int(resolve_tunable_param("bot_22", "htf_right_bars", config))
+        self.entry_engine = EntryExitEngine(default_rr=4.0)
+        self.risk_manager = RiskManager(base_risk_percent=1.0)
+
+    def analyze(self,
+                candles_1d: List[Candle],
+                candles_4h: List[Candle],
+                candles_1h: List[Candle],
+                candles_15m: List[Candle],
+                account_balance: float,
+                symbol: str,
+                risk_per_trade: Optional[float] = None,
+                min_rr_ratio: Optional[float] = None,
+                bot_id: Optional[str] = None) -> Optional[BotSignal]:
+
+        # Steps 1-5: identical to Bot 14 — 1H fresh zone, 4H BOS
+        # direction, 1D HTF-alignment gate, LTF-conflict check, 15M
+        # purge timing gate, zone alignment.
+        zone_detector = ZoneDetector()
+        swings_1h = self.structure_detector.detect_swing_highs(candles_1h) + \
+                    self.structure_detector.detect_swing_lows(candles_1h)
+
+        zones = zone_detector.detect_order_blocks(candles_1h, swings_1h)
+        fresh_zones = [z for z in zones
+                      if z.status.name == "ACTIVE" and z.test_count <= 1]
+        if not fresh_zones:
+            return None
+
+        swings_4h = self.structure_detector.detect_swing_highs(candles_4h) + \
+                    self.structure_detector.detect_swing_lows(candles_4h)
+        bos_4h = self.structure_detector.detect_bos(
+            candles_4h, self.structure_detector.filter_significant_swings(swings_4h)
+        )
+        if not bos_4h:
+            return None
+        last_bos_4h = bos_4h[-1]
+        if last_bos_4h["type"] == "bullish_bos":
+            direction = "long"
+        elif last_bos_4h["type"] == "bearish_bos":
+            direction = "short"
+        else:
+            return None
+
+        htf_bias = compute_htf_bias(candles_1d, self.htf_left_bars, self.htf_right_bars)
+        if htf_bias == "unclear":
+            return None
+        if direction == "long" and htf_bias != "bullish":
+            return None
+        if direction == "short" and htf_bias != "bearish":
+            return None
+
+        choch_dir = _choch_direction_15m(self.structure_detector, candles_15m)
+        fvg_bos_dir = _fvg_bos_direction_1h_15m(candles_1h, candles_15m)
+        if (choch_dir and choch_dir != direction) or (fvg_bos_dir and fvg_bos_dir != direction):
+            return None
+
+        liq_detector = LiquidityDetector(tolerance_pips=1.0)
+        pools = liq_detector.detect_equal_highs_lows(candles_15m, lookback=30)
+        sweeps = liq_detector.detect_liquidity_sweeps(pools, candles_15m[-5:])
+        if not sweeps:
+            return None
+        last_sweep = sweeps[-1]
+
+        sweep_price = last_sweep["sweep_price"]
+        aligned_zone = None
+        for z in fresh_zones:
+            if z.bottom <= sweep_price <= z.top:
+                aligned_zone = z
+                break
+        if not aligned_zone:
+            return None
+
+        swing_high_1h = max((s.price for s in swings_1h), default=None)
+        swing_low_1h = min((s.price for s in swings_1h), default=None)
+        if swing_high_1h is not None and swing_low_1h is not None:
+            zone_detector.classify_premium_discount([aligned_zone], swing_high_1h, swing_low_1h)
+            if (direction == "long" and aligned_zone.classification == "premium") or \
+               (direction == "short" and aligned_zone.classification == "discount"):
+                return None
+
+        # Step 6 (CHANGED from Bot 14): momentum confirmation candle on
+        # 1H instead of 5M — same formula.
+        recent_1h = candles_1h[-5:]
+        confirmation_candle = None
+        for c in recent_1h:
+            body_size = abs(c.close - c.open)
+            avg_body = sum(abs(x.close - x.open) for x in candles_1h[-20:]) / 20
+            if body_size > avg_body * 1.5:
+                if aligned_zone.bottom <= c.close <= aligned_zone.top:
+                    confirmation_candle = c
+                    break
+        if not confirmation_candle:
+            return None
+
+        # Step 7 (CHANGED from Bot 14): FVG scan on the last 10 1H
+        # candles instead of the last 10 5M candles — same depth-based
+        # selection formula.
+        fvg_detector = FVGDetector()
+        recent_fvgs = fvg_detector.detect_fvg(candles_1h[-10:])
+        candidate_fvgs = [
+            f for f in recent_fvgs
+            if f.candle1.timestamp >= confirmation_candle.timestamp and
+            ((f.gap_type == "bullish" and direction == "long") or (f.gap_type == "bearish" and direction == "short"))
+        ]
+        valid_fvg = select_fvg_by_depth(candidate_fvgs, direction)
+
+        # Step 8: Entry at 50% of confirmation candle or FVG — identical to Bot 14.
+        if valid_fvg:
+            entry_price = (valid_fvg.top + valid_fvg.bottom) / 2
+        else:
+            entry_price = (confirmation_candle.open + confirmation_candle.close) / 2
+
+        expected_sweep_type = "buy_side_sweep" if direction == "long" else "sell_side_sweep"
+        if last_sweep["type"] != expected_sweep_type:
+            return None
+
+        purge_extreme = last_sweep["sweep_price"]
+        buffer = abs(confirmation_candle.high - confirmation_candle.low) * 0.2
+        if direction == "long":
+            sl_price = purge_extreme - buffer
+        else:
+            sl_price = purge_extreme + buffer
+        sl_price = extend_stop_beyond_zone(sl_price, aligned_zone, direction)
+        sl_price = apply_min_stop_distance_floor(entry_price, sl_price, direction, min_pct=resolve_min_stop_pct(symbol))
+        sl_distance = abs(entry_price - sl_price)
+        sl = {"stop_loss": sl_price, "sl_distance": sl_distance, "method": "jeafx_purge_extreme"}
+
+        entry = {"entry_price": entry_price, "direction": direction}
+        targets = self.entry_engine.calculate_targets(entry, sl, rr_ratio=min_rr_ratio if min_rr_ratio is not None else 5.0)
+
+        risk = self.risk_manager.calculate_position_risk(setup_quality=1.3, base_risk_override=risk_per_trade)
+        lots = self.entry_engine.calculate_lot_size(account_balance, risk, sl_distance)
+
+        return BotSignal(
+            bot_id=bot_id or self.bot_id,
+            bot_name=self.bot_name,
+            symbol=symbol,
+            direction=direction,
+            confidence=0.88,
+            entry_price=round(entry_price, 5),
+            stop_loss=round(sl_price, 5),
+            take_profit=targets["tp1"],
+            take_profit_2=targets["tp2"],
+            take_profit_3=targets["tp3"],
+            lot_size=lots["lot_size"],
+            risk_percent=risk,
+            reasoning=f"SMC BOT HTF-Gated 1H-Entry {direction}. 1D HTF bias ({htf_bias}) aligned with direction — gate passed. "
+                     f"4H BOS confirms trend. 1H fresh zone. 15M {last_sweep['type']} (timing gate). "
+                     f"1H confirmation candle (not 5M) + depth-selected 1H FVG: {valid_fvg is not None}. "
                      f"Entry at 50%. Strict SL beyond purge. 5R target.",
             timestamp=datetime.utcnow()
         )
@@ -2961,6 +3318,164 @@ class JeafxSMCv2SingleAnchorBot:
             reasoning=f"SMC v2 single-anchor (A/B) {direction}. 1H BOS bias ONLY — no LTF agreement required "
                      f"(the one variable this variant isolates vs Bot 6). 1H fresh zone, discount/premium checked. "
                      f"15M purge (timing/zone gate). 5M confirmation candle + depth-selected FVG: {valid_fvg is not None}. "
+                     f"Entry at 50%. Strict SL beyond purge, embedded zone. 5R target.",
+            timestamp=datetime.utcnow()
+        )
+
+
+class JeafxSMCv2SingleAnchorOneHourEntryBot:
+    """
+    Bot 21: SMC v2 — Single-Anchor, 1H Entry
+
+    Bot 8's own zone/direction/purge/premium-discount/stop logic,
+    byte-for-byte — the ONLY change is the confirmation-candle/FVG-
+    selection step: 1H candles instead of 5M, same conventions as Bot
+    19/Bot 20/Bot 22's own identical swap. candles_5m is no longer a
+    required timeframe for this bot at all. Bot 8 itself is completely
+    untouched. See Bot 19's own docstring for the real trade-data
+    finding behind this hypothesis.
+    """
+
+    def __init__(self, config: Dict):
+        self.bot_id = "bot_21_smc_v2_single_anchor_1h_entry"
+        self.bot_name = "SMC v2 Single-Anchor, 1H Entry"
+        self.config = config
+        self.structure_detector = MarketStructureDetector(
+            left_bars=int(resolve_tunable_param("bot_21", "left_bars", config)),
+            right_bars=int(resolve_tunable_param("bot_21", "right_bars", config)),
+        )
+        self.entry_engine = EntryExitEngine(default_rr=4.0)
+        self.risk_manager = RiskManager(base_risk_percent=1.0)
+
+    def analyze(self,
+                candles_1h: List[Candle],
+                candles_15m: List[Candle],
+                account_balance: float,
+                symbol: str,
+                risk_per_trade: Optional[float] = None,
+                min_rr_ratio: Optional[float] = None,
+                bot_id: Optional[str] = None) -> Optional[BotSignal]:
+
+        # Steps 1-4: identical to Bot 8 (fresh 1H zone, 15M purge
+        # timing gate, zone/purge alignment).
+        zone_detector = ZoneDetector()
+        swings_1h = self.structure_detector.detect_swing_highs(candles_1h) + \
+                    self.structure_detector.detect_swing_lows(candles_1h)
+
+        zones = zone_detector.detect_order_blocks(candles_1h, swings_1h)
+        fresh_zones = [z for z in zones if z.status.name == "ACTIVE" and z.test_count <= 1]
+        if not fresh_zones:
+            return None
+
+        liq_detector = LiquidityDetector(tolerance_pips=1.0)
+        pools = liq_detector.detect_equal_highs_lows(candles_15m, lookback=30)
+        sweeps = liq_detector.detect_liquidity_sweeps(pools, candles_15m[-5:])
+        if not sweeps:
+            return None
+        last_sweep = sweeps[-1]
+
+        sweep_price = last_sweep["sweep_price"]
+        aligned_zone = None
+        for z in fresh_zones:
+            if z.bottom <= sweep_price <= z.top:
+                aligned_zone = z
+                break
+        if not aligned_zone:
+            return None
+
+        # Step 5 (CHANGED from Bot 8): momentum confirmation candle on
+        # 1H instead of 5M — same formula.
+        recent_1h = candles_1h[-5:]
+        confirmation_candle = None
+        for c in recent_1h:
+            body_size = abs(c.close - c.open)
+            avg_body = sum(abs(x.close - x.open) for x in candles_1h[-20:]) / 20
+            if body_size > avg_body * 1.5:
+                if aligned_zone.bottom <= c.close <= aligned_zone.top:
+                    confirmation_candle = c
+                    break
+        if not confirmation_candle:
+            return None
+
+        # Step 6: Direction — identical to Bot 8 (1H BOS alone, no LTF
+        # agreement required).
+        bos_1h = self.structure_detector.detect_bos(
+            candles_1h, self.structure_detector.filter_significant_swings(swings_1h)
+        )
+        if not bos_1h:
+            return None
+        last_bos_1h = bos_1h[-1]
+        if last_bos_1h["type"] == "bullish_bos":
+            direction = "long"
+        elif last_bos_1h["type"] == "bearish_bos":
+            direction = "short"
+        else:
+            return None
+
+        swing_high_1h = max((s.price for s in swings_1h), default=None)
+        swing_low_1h = min((s.price for s in swings_1h), default=None)
+        if swing_high_1h is not None and swing_low_1h is not None:
+            zone_detector.classify_premium_discount([aligned_zone], swing_high_1h, swing_low_1h)
+            if (direction == "long" and aligned_zone.classification == "premium") or \
+               (direction == "short" and aligned_zone.classification == "discount"):
+                return None
+
+        # Step 7 (CHANGED from Bot 8): FVG scan on the last 10 1H
+        # candles instead of the last 10 5M candles — same depth-based
+        # selection formula. Note: Step 5's confirmation_candle was
+        # found BEFORE direction is known here (same ordering Bot 8
+        # itself uses), so this FVG filter — like Bot 8's own — is
+        # applied after direction resolves, unchanged.
+        fvg_detector = FVGDetector()
+        recent_fvgs = fvg_detector.detect_fvg(candles_1h[-10:])
+        candidate_fvgs = [
+            f for f in recent_fvgs
+            if f.candle1.timestamp >= confirmation_candle.timestamp and
+            ((f.gap_type == "bullish" and direction == "long") or (f.gap_type == "bearish" and direction == "short"))
+        ]
+        valid_fvg = select_fvg_by_depth(candidate_fvgs, direction)
+
+        if valid_fvg:
+            entry_price = (valid_fvg.top + valid_fvg.bottom) / 2
+        else:
+            entry_price = (confirmation_candle.open + confirmation_candle.close) / 2
+
+        expected_sweep_type = "buy_side_sweep" if direction == "long" else "sell_side_sweep"
+        if last_sweep["type"] != expected_sweep_type:
+            return None
+
+        purge_extreme = last_sweep["sweep_price"]
+        buffer = abs(confirmation_candle.high - confirmation_candle.low) * 0.2
+        if direction == "long":
+            sl_price = purge_extreme - buffer
+        else:
+            sl_price = purge_extreme + buffer
+        sl_price = extend_stop_beyond_zone(sl_price, aligned_zone, direction)
+        sl_price = apply_min_stop_distance_floor(entry_price, sl_price, direction, min_pct=resolve_min_stop_pct(symbol))
+        sl_distance = abs(entry_price - sl_price)
+        sl = {"stop_loss": sl_price, "sl_distance": sl_distance, "method": "jeafx_purge_extreme"}
+
+        entry = {"entry_price": entry_price, "direction": direction}
+        targets = self.entry_engine.calculate_targets(entry, sl, rr_ratio=min_rr_ratio if min_rr_ratio is not None else 5.0)
+
+        risk = self.risk_manager.calculate_position_risk(setup_quality=1.3, base_risk_override=risk_per_trade)
+        lots = self.entry_engine.calculate_lot_size(account_balance, risk, sl_distance)
+
+        return BotSignal(
+            bot_id=bot_id or self.bot_id,
+            bot_name=self.bot_name,
+            symbol=symbol,
+            direction=direction,
+            confidence=0.88,
+            entry_price=round(entry_price, 5),
+            stop_loss=round(sl_price, 5),
+            take_profit=targets["tp1"],
+            take_profit_2=targets["tp2"],
+            take_profit_3=targets["tp3"],
+            lot_size=lots["lot_size"],
+            risk_percent=risk,
+            reasoning=f"SMC v2 single-anchor 1H-Entry (A/B) {direction}. 1H BOS bias ONLY. 1H fresh zone, discount/premium checked. "
+                     f"15M purge (timing/zone gate). 1H confirmation candle (not 5M) + depth-selected 1H FVG: {valid_fvg is not None}. "
                      f"Entry at 50%. Strict SL beyond purge, embedded zone. 5R target.",
             timestamp=datetime.utcnow()
         )
@@ -3779,15 +4294,19 @@ BOT_REGISTRY: Dict[str, tuple] = {
     "bot_17": (FVGExpansionOBPOIBot, [("candles_1h", "1H"), ("candles_15m", "15M")]),
     "bot_18": (JeafxSMCv2OBPOIBot, [("candles_1h", "1H"), ("candles_15m", "15M"), ("candles_5m", "5M")]),
     "bot_19": (JeafxSMCv2OneHourEntryBot, [("candles_1h", "1H"), ("candles_15m", "15M")]),
+    "bot_20": (JeafxSMCOneHourEntryBot, [("candles_4h", "4H"), ("candles_1h", "1H"), ("candles_15m", "15M")]),
+    "bot_21": (JeafxSMCv2SingleAnchorOneHourEntryBot, [("candles_1h", "1H"), ("candles_15m", "15M")]),
+    "bot_22": (JeafxSMCHTFGatedOneHourEntryBot, [("candles_1d", "1D"), ("candles_4h", "4H"), ("candles_1h", "1H"), ("candles_15m", "15M")]),
 }
 
 
 class BotOrchestrator:
-    """Manages all 15 dispatched bots (7 original + 8 A/B test variants
+    """Manages all 18 dispatched bots (7 original + 11 A/B test variants
     with their own strategy class: Bot 8 vs Bot 6, Bot 9 and Bot 10 vs
     Bot 4, Bot 11 vs Bot 2, Bot 13 vs Bot 3, Bot 14 vs Bot 5, Bot 17 vs
-    Bot 3, Bot 18 vs Bot 6, Bot 19 vs Bot 6) and routes signals to
-    execution. Bot roster and candle requirements come from BOT_REGISTRY above — the single place a new
+    Bot 3, Bot 18 vs Bot 6, Bot 19 vs Bot 6, Bot 20 vs Bot 5, Bot 21 vs
+    Bot 8, Bot 22 vs Bot 14) and routes signals to execution. Bot
+    roster and candle requirements come from BOT_REGISTRY above — the single place a new
     bot needs to be added. Bot 12/15/16 are real, live bots but
     deliberately NOT in this registry — each reuses an existing bot's
     own strategy class/dispatch entirely (Bot 12 -> Bot 2, Bot 15 ->
