@@ -122,6 +122,43 @@ TUNABLE_PARAM_BOUNDS: Dict[str, Dict[str, Tuple[float, float, float]]] = {
 }
 
 
+# Per-pair zone-type adaptivity, step 1 of the approved plan
+# (/root/.claude/plans/buzzing-mixing-micali.md) -- maps a bot family
+# to its registered OB-POI sibling. Deliberately NOT shaped like
+# TUNABLE_PARAM_BOUNDS above: this is a lookup of a pre-registered
+# ALTERNATIVE strategy_key (a different code path entirely — compare
+# JeafxSMCv2Bot's entry construction against JeafxSMCv2OBPOIBot's),
+# not a numeric bound a value gets clipped into.
+#
+# Real trade data (302 closed trades, 2026-10-26) found a large,
+# consistent gap between the families with a registered sibling here
+# and the ones without: bots anchored on 1H (bot_3/7/17) pool to
+# 75.4% win / +2.308R mean across n=126, vs 47.4% win / -0.050R for
+# the 5M hybrid family (bot_5/6/8) and 46.9% win / -0.021R for the
+# 4H-or-1H family (bot_2/11/12) across n=95/n=81 respectively — real
+# signal, not noise, though it conflates entry timeframe with
+# strategy complexity (the 1H family is also the structurally
+# simpler one) rather than isolating timeframe alone. This registry
+# is how a cleaner, single-variable test (the already-shipped bot_17/
+# bot_18 OB-POI swap) is distinguished from today's purely
+# correlational comparison, and how intelligent_tuning_worker.py's
+# own re-evaluation pass (plan step 4) finds which families to
+# compare.
+ZONE_VARIANT_SIBLINGS: Dict[str, str] = {
+    "bot_3": "bot_17",
+    "bot_6": "bot_18",
+}
+
+# Both directions -- a currently-promoted sibling (e.g. bot_18, once it
+# owns symbols of its own) can test reverting to its own parent too,
+# not just a parent testing its sibling. Used by
+# intelligent_tuning_worker.py's own zone-type re-evaluation pass.
+ZONE_SIBLING_LOOKUP: Dict[str, str] = {
+    **ZONE_VARIANT_SIBLINGS,
+    **{v: k for k, v in ZONE_VARIANT_SIBLINGS.items()},
+}
+
+
 def resolve_tunable_param(strategy_key: str, param: str, config: Dict) -> float:
     """Reads `param` out of `config` (BotConfig.strategy_params,
     merged over this bot's own declared default), hard-clipped to the

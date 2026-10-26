@@ -73,7 +73,7 @@ from app.config import get_settings
 from app.database import AsyncSessionLocal
 from app.db.session import AsyncSessionLocal as LegacyAsyncSessionLocal
 from app.db.repository import save_backtest_trades
-from app.models.bot import BotConfig, BotMode
+from app.models.bot import BotConfig, BotMode, BotStatus
 from app.models.analytics import StrategyAdjustment
 from app.models.trade import Trade, TradeStatus
 from app.services.data_ingestion import shared_ingestion
@@ -83,6 +83,26 @@ from app.engines.validation_gate import ValidationGate
 from app.engines.monte_carlo_engine import TradeRecord
 
 logger = structlog.get_logger()
+
+
+def _symbol_stub(bot: BotConfig, symbol: str) -> BotConfig:
+    """A throwaway, never-persisted (no db.add/commit) BotConfig
+    carrying exactly ONE symbol, for the zone-type comparison below.
+    _run_backtest only ever reads plain scalar columns off whatever
+    object it's given (.strategy_key/.symbols[0]/.exchange/.bot_id/
+    .account_balance_usd/.risk_per_trade/.min_rr_ratio/.tp1-3_percent/
+    .use_trailing_stop/.trailing_stop_activation/.trailing_stop_distance
+    — verified against that method's own body) — reusing the real
+    owning row directly would backtest every OTHER symbol on it too,
+    which isn't what a per-symbol zone-type comparison means."""
+    return BotConfig(
+        bot_id=bot.bot_id, strategy_key=bot.strategy_key, symbols=[symbol],
+        exchange=bot.exchange, account_balance_usd=bot.account_balance_usd,
+        risk_per_trade=bot.risk_per_trade, min_rr_ratio=bot.min_rr_ratio,
+        tp1_percent=bot.tp1_percent, tp2_percent=bot.tp2_percent, tp3_percent=bot.tp3_percent,
+        use_trailing_stop=bot.use_trailing_stop, trailing_stop_activation=bot.trailing_stop_activation,
+        trailing_stop_distance=bot.trailing_stop_distance,
+    )
 
 
 class IntelligentTuningWorker:
@@ -125,6 +145,13 @@ class IntelligentTuningWorker:
                 if killed:
                     continue
                 await self._tune_one_bot(bot.bot_id)
+                # Zone-type adaptivity (plan step 4) — same cycle, same
+                # INTELLIGENT-mode consent, right after the numeric
+                # tuning pass above. No-ops instantly for any bot
+                # without a registered zone-variant sibling (today:
+                # only bot_3/bot_6's own families), so this adds zero
+                # overhead for every other bot.
+                await self._tune_zone_variant_for_bot(bot.bot_id)
             except Exception as e:
                 logger.error("intelligent_tuning_bot_failed", bot_id=bot.bot_id, error=str(e))
 
@@ -362,3 +389,140 @@ class IntelligentTuningWorker:
 
     def _settings_min_improvement(self) -> float:
         return self.settings.INTELLIGENT_TUNING_MIN_IMPROVEMENT_R
+
+    # ---------------- zone-type adaptivity (plan steps 3-4) ----------------
+    #
+    # Per-pair Order-Block-vs-FVG extension of the numeric tuning above
+    # — see ZONE_VARIANT_SIBLINGS' own comment (bot_strategies.py) and
+    # /root/.claude/plans/buzzing-mixing-micali.md. Reuses every piece
+    # of the numeric pipeline above (_run_backtest, save_backtest_trades,
+    # ValidationGate) unchanged, treating {this bot's own strategy_key,
+    # its registered sibling's strategy_key} as the candidate set
+    # instead of perturbed numeric values — the gate/margin/audit-row/
+    # kill-switch guardrails are identical, just applied to a discrete
+    # choice instead of a continuous one.
+
+    async def _tune_zone_variant_for_bot(self, bot_id: str) -> None:
+        """No-ops (by design, not a bug — logged at info, not warning)
+        whenever this bot's family has no registered sibling, or the
+        sibling has no real ACTIVE BotConfig row of its own yet — there
+        is nowhere to move a symbol ONTO. Activating a dormant sibling
+        (bot_17/bot_18 today) is a separate, explicitly-gated milestone
+        (plan step 5), never something this worker does on its own."""
+        from app.core.bot_strategies import ZONE_SIBLING_LOOKUP
+
+        async with AsyncSessionLocal() as db:
+            bot = (await db.execute(select(BotConfig).where(BotConfig.bot_id == bot_id))).scalar_one_or_none()
+        if bot is None or bot.bot_mode != BotMode.INTELLIGENT or not bot.strategy_key:
+            return
+        sibling_key = ZONE_SIBLING_LOOKUP.get(bot.strategy_key)
+        if not sibling_key or sibling_key not in STRATEGY_FAMILY:
+            return
+
+        async with AsyncSessionLocal() as db:
+            sibling_bot = (await db.execute(
+                select(BotConfig).where(BotConfig.strategy_key == sibling_key, BotConfig.status == BotStatus.ACTIVE)
+            )).scalars().first()
+        if sibling_bot is None:
+            logger.info("zone_variant_sibling_dormant", bot_id=bot_id, sibling_strategy_key=sibling_key)
+            return
+
+        lookback = self.settings.INTELLIGENT_TUNING_LOOKBACK_DAYS
+        for symbol in list(bot.symbols or []):
+            try:
+                await self._tune_zone_variant_for_symbol(bot, sibling_bot, symbol, lookback)
+            except Exception as e:
+                logger.error("zone_variant_tune_symbol_failed", bot_id=bot_id, symbol=symbol, error=str(e))
+
+    async def _tune_zone_variant_for_symbol(self, bot: BotConfig, sibling_bot: BotConfig, symbol: str, lookback: int) -> None:
+        # Open-position guardrail — the one genuinely new risk surface
+        # vs. the numeric case: a zone-type move changes WHICH bot_id a
+        # symbol belongs to, which a numeric tune never does (same
+        # bot_id, just different params). Skip this cycle rather than
+        # reassign a symbol out from under a position someone else's
+        # tooling (position_monitor, dashboards, trade history) still
+        # expects to find under the old bot_id — retried next cycle.
+        async with AsyncSessionLocal() as db:
+            open_trade = (await db.execute(
+                select(Trade).where(
+                    Trade.bot_id == bot.bot_id, Trade.symbol == symbol,
+                    Trade.status != TradeStatus.CLOSED,
+                ).limit(1)
+            )).scalar_one_or_none()
+        if open_trade is not None:
+            logger.info("zone_variant_move_skipped_open_position", bot_id=bot.bot_id, symbol=symbol)
+            return
+
+        current_stub = _symbol_stub(bot, symbol)
+        sibling_stub = _symbol_stub(sibling_bot, symbol)
+        current_trades = await self._run_backtest(current_stub, bot.strategy_params or {}, lookback)
+        sibling_trades = await self._run_backtest(sibling_stub, sibling_bot.strategy_params or {}, lookback)
+        if not current_trades or not sibling_trades:
+            logger.info("zone_variant_insufficient_data", bot_id=bot.bot_id, symbol=symbol)
+            return
+
+        current_records = [t.to_trade_record() for t in current_trades]
+        sibling_records = [t.to_trade_record() for t in sibling_trades]
+        current_expectancy = sum(r.r_multiple for r in current_records) / len(current_records)
+        sibling_expectancy = sum(r.r_multiple for r in sibling_records) / len(sibling_records)
+
+        improvement = sibling_expectancy - current_expectancy
+        if improvement < self.settings.INTELLIGENT_TUNING_MIN_IMPROVEMENT_R:
+            return  # current zone type still wins, or it's too close to call -- no move
+
+        variant_group = f"{bot.bot_id}_{symbol}_zone_{uuid.uuid4().hex[:8]}"
+        async with LegacyAsyncSessionLocal() as db:
+            await save_backtest_trades(db, current_trades, source="backtest_param_variant", variant_group=variant_group)
+            await save_backtest_trades(db, sibling_trades, source="backtest_param_variant", variant_group=variant_group)
+
+        gate = ValidationGate()
+        report = gate.evaluate(trades=sibling_records, parameter_variant_trade_sets=[current_records])
+        _RELEVANT_AUTOMATED_CHECKS = {"min_trade_count", "out_of_sample_expectancy", "max_drawdown", "parameter_stability"}
+        failed = [c for c in report.checks if c.name in _RELEVANT_AUTOMATED_CHECKS and c.passed is not True]
+        if failed:
+            logger.info(
+                "zone_variant_gate_blocked", bot_id=bot.bot_id, symbol=symbol,
+                failed_checks=[c.name for c in failed], details=[c.detail for c in failed],
+            )
+            return
+
+        await self._apply_zone_variant_move(bot, sibling_bot, symbol, current_expectancy, sibling_expectancy, len(sibling_records))
+
+    async def _apply_zone_variant_move(
+        self, bot: BotConfig, sibling_bot: BotConfig, symbol: str,
+        current_expectancy: float, sibling_expectancy: float, trade_count: int,
+    ) -> None:
+        async with AsyncSessionLocal() as db:
+            from_bot = (await db.execute(select(BotConfig).where(BotConfig.id == bot.id))).scalar_one_or_none()
+            to_bot = (await db.execute(select(BotConfig).where(BotConfig.id == sibling_bot.id))).scalar_one_or_none()
+            if from_bot is None or to_bot is None or from_bot.bot_mode != BotMode.INTELLIGENT:
+                return  # changed since this cycle started
+            if symbol not in (from_bot.symbols or []):
+                return  # already moved by a concurrent cycle
+            # Reassign the whole list (not .remove()/.append() in
+            # place) so the JSON column's own change-tracking actually
+            # sees a new value to persist.
+            from_bot.symbols = [s for s in (from_bot.symbols or []) if s != symbol]
+            to_bot.symbols = list(to_bot.symbols or []) + [symbol]
+            await db.commit()
+
+        async with LegacyAsyncSessionLocal() as db:
+            db.add(StrategyAdjustment(
+                id=uuid.uuid4(), bot_id=bot.bot_id, adjustment_type="zone_type_symbol_move",
+                previous_config={"bot_id": bot.bot_id, "symbol": symbol},
+                new_config={"bot_id": sibling_bot.bot_id, "symbol": symbol},
+                trigger_metric="out_of_sample_expectancy_r", trigger_value=round(sibling_expectancy, 4),
+                threshold_value=round(current_expectancy + self._settings_min_improvement(), 4),
+                backtest_results={
+                    "from_expectancy_r": round(current_expectancy, 4),
+                    "to_expectancy_r": round(sibling_expectancy, 4),
+                    "trade_count": trade_count,
+                },
+                approved=True, created_at=datetime.utcnow(), applied_at=datetime.utcnow(),
+            ))
+            await db.commit()
+
+        logger.warning(
+            "zone_variant_move_applied", symbol=symbol, from_bot_id=bot.bot_id, to_bot_id=sibling_bot.bot_id,
+            from_expectancy=round(current_expectancy, 4), to_expectancy=round(sibling_expectancy, 4),
+        )
