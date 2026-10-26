@@ -1247,7 +1247,19 @@ class EntryExitEngine:
         # every method and every future one, not just the specific bug
         # found this time.
         min_distance = entry_price * MIN_STOP_DISTANCE_PCT
-        if sl_distance < min_distance:
+        # Side-aware, not just distance-aware -- same bug class fixed in
+        # bot_strategies.py's own apply_min_stop_distance_floor (found
+        # live: a stop on the WRONG side of entry but numerically "far
+        # enough" away passed this check unchanged). Every method branch
+        # above already produces a correctly-sided `sl` in practice (it's
+        # derived from the SAME `entry`/`zone` pair, not a stale one), so
+        # this is currently a dormant latent risk here rather than an
+        # active bug like the fill-resize one was -- fixed anyway, by
+        # direct request ("audit the entire platform for bugs like this
+        # and fix permanently"), so a future caller passing a mismatched
+        # entry/zone pair can never reintroduce the same failure mode.
+        wrong_side = (sl >= entry_price) if direction == "long" else (sl <= entry_price)
+        if wrong_side or sl_distance < min_distance:
             sl = (entry_price - min_distance) if direction == "long" else (entry_price + min_distance)
             sl_distance = min_distance
 
