@@ -607,6 +607,33 @@ def extend_stop_beyond_zone(stop_loss: float, zone: Zone, direction: Literal["lo
     return max(stop_loss, zone.top + buffer)
 
 
+def round_price(x: float, min_decimals: int = 5) -> float:
+    """Round a price-like value (entry/stop/target) to enough decimal
+    places to preserve real precision regardless of the instrument's
+    own price scale. Real bug, found live by direct report ("Why is
+    the risk amount greater than the set $10"): every price field
+    platform-wide used a flat round(x, 5) -- fine for anything priced
+    >= ~$1 (5 decimals is far more precision than any stop distance
+    needs there), but for a symbol priced well under $1 (confirmed:
+    JPYUSDT.P, ~0.0064), 5 decimal places leaves only ~2-3 significant
+    figures of the price itself. The position was correctly SIZED
+    against the TRUE, full-precision stop distance (calculate_lot_size
+    runs before this rounding ever happens) -- but the STORED, rounded
+    entry/stop values no longer matched that distance closely enough,
+    so the REAL risk (what actually triggers the stop in production)
+    diverged from the configured cap: confirmed live, every closed
+    JPYUSDT.P trade checked ran 4.5-4.8% OVER its stated $10 risk,
+    while every other (higher-priced) symbol checked in the same
+    sample stayed at or under the cap, exactly as designed. Unchanged
+    for anything priced >= 1 (every other symbol this platform trades
+    today), so this only ever widens precision, never narrows it."""
+    if x == 0:
+        return 0.0
+    magnitude = math.floor(math.log10(abs(x)))
+    decimals = min_decimals if magnitude >= 0 else min_decimals - magnitude - 1
+    return round(x, decimals)
+
+
 def compute_trailing_stop(
     entry_price: float,
     initial_stop_price: float,
@@ -1161,7 +1188,7 @@ class EntryExitEngine:
             entry_price = zone.mean_threshold
 
         return {
-            "entry_price": round(entry_price, 5),
+            "entry_price": round_price(entry_price),
             "zone_top": zone.top,
             "zone_bottom": zone.bottom,
             "entry_type": entry_type,
@@ -1264,8 +1291,8 @@ class EntryExitEngine:
             sl_distance = min_distance
 
         return {
-            "stop_loss": round(sl, 5),
-            "sl_distance": round(sl_distance, 5),
+            "stop_loss": round_price(sl),
+            "sl_distance": round_price(sl_distance),
             "sl_distance_pips": round(sl_distance / 0.0001, 1),
             "method": method
         }
@@ -1299,9 +1326,9 @@ class EntryExitEngine:
             tp3 = entry_price - sl_distance * rr
 
         result = {
-            "tp1": round(tp1, 5),
-            "tp2": round(tp2, 5),
-            "tp3": round(tp3, 5),
+            "tp1": round_price(tp1),
+            "tp2": round_price(tp2),
+            "tp3": round_price(tp3),
             "rr_ratio": rr,
             "trailing_activation": "tp1",  # Activate trailing after TP1
             "trailing_stop_distance": "structure"  # Trail by recent structure

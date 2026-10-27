@@ -9,7 +9,7 @@ import httpx
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
-from app.core.bot_strategies import BotSignal, apply_min_stop_distance_floor, resolve_min_stop_pct
+from app.core.bot_strategies import BotSignal, apply_min_stop_distance_floor, resolve_min_stop_pct, round_price
 from app.services.broker_integrations import (
     BingXBroker, TradeLockerBroker, BinanceBroker, BybitBroker, MexcBroker, MetaApiBroker,
     _FAILOVER_EXCEPTIONS,
@@ -203,14 +203,14 @@ def _resize_risk_for_real_fill(row, trade_id: str) -> None:
             if row.take_profit_3 is not None:
                 rr = abs(row.take_profit_3 - row.take_profit_1) / d + 1.0
             new_tp1 = row.entry_price + real_stop_distance if is_long else row.entry_price - real_stop_distance
-            row.take_profit_1 = round(new_tp1, 5)
+            row.take_profit_1 = round_price(new_tp1)
             row.initial_take_profit_1 = row.take_profit_1
             if row.take_profit_2 is not None:
                 new_tp2 = row.entry_price + real_stop_distance * 2.0 if is_long else row.entry_price - real_stop_distance * 2.0
-                row.take_profit_2 = round(new_tp2, 5)
+                row.take_profit_2 = round_price(new_tp2)
             if row.take_profit_3 is not None:
                 new_tp3 = row.entry_price + real_stop_distance * rr if is_long else row.entry_price - real_stop_distance * rr
-                row.take_profit_3 = round(new_tp3, 5)
+                row.take_profit_3 = round_price(new_tp3)
     if not row.risk_percent or not row.lot_size:
         return
     from app.core.smc_algorithms import EntryExitEngine
