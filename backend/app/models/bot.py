@@ -196,17 +196,35 @@ class BotConfig(Base):
     #   - use_trailing_stop: on/off (unchanged default True).
     #   - trailing_stop_activation: the R-multiple at which the FINAL
     #     configured TP level switches from a fixed-price close to a
-    #     trailing exit — 1.0 = after TP1 (bigger change, the whole
-    #     remaining 70% becomes the runner), 2.0 = after TP2 (the
-    #     default, by direct instruction "default is TP2" — TP1/TP2's
-    #     existing 30%/40% partials stay exactly as they are, only the
-    #     final 30% trails). Default changed 1.0 -> 2.0 here; safe to
-    #     backfill existing rows the same way since this field was
-    #     never actually read/acted on before now — no bot's real
-    #     behavior changes by this default flip alone.
+    #     trailing exit — 1.0 = after TP1 (the whole remaining 70%
+    #     becomes the runner), 2.0 = after TP2 (TP1/TP2's existing
+    #     30%/40% partials stay exactly as they are, only the final 30%
+    #     trails). Was previously defaulted to 2.0 ("default is TP2"),
+    #     reversed back to 1.0 by direct instruction after real data
+    #     showed the 2.0 default's real cost: with trailing_stop_distance
+    #     defaulting to "structure" (see below — a NON-functional
+    #     placeholder, full fixed-width trail), any bot activating only
+    #     at TP2 gets ZERO protection on its runner leg until TP2, so
+    #     over half of real TP1-triggering trades for 2.0-default bots
+    #     (26/50 in a direct 10-day sample) gave back their ENTIRE
+    #     runner to flat breakeven — exactly the "all trades closing
+    #     below RR of 1" pattern reported directly, with screenshots.
+    #   - trailing_stop_distance: was "structure" ("structure"/"atr" never
+    #     implemented; silently behaved as a full fixed-width trail
+    #     regardless of this value), now "step_down" (see
+    #     compute_trailing_stop's own docstring) — a real, already-live-
+    #     tested fix (Bot 12/15/16's own A/B rows), now the platform
+    #     default: full 1R width right when trailing activates, so a
+    #     normal pullback right after TP1 doesn't instantly flatten the
+    #     runner, narrowing only as the peak proves itself further.
+    #     Rolled out platform-wide (not kept scoped to the A/B bots) by
+    #     direct instruction, after the above real data. Safe to
+    #     backfill every existing row the same way this field's own
+    #     prior default flip was — a BotConfig default, not itself a
+    #     behavior change until a trade actually reads it.
     use_trailing_stop = Column(Boolean, default=True)
-    trailing_stop_activation = Column(Float, default=2.0)  # R-multiple: 1.0 or 2.0
-    trailing_stop_distance = Column(String(20), default="structure")  # structure, atr, fixed — "structure"/"atr" not yet implemented; v1 always trails by the trade's own initial 1R distance regardless of this value
+    trailing_stop_activation = Column(Float, default=1.0)  # R-multiple: 1.0 or 2.0
+    trailing_stop_distance = Column(String(20), default="step_down")  # step_down (real, implemented) or fixed — "structure"/"atr" are legacy placeholder values, never implemented, silently treated as "fixed"
 
     # Multi-target
     tp1_percent = Column(Float, default=30.0)

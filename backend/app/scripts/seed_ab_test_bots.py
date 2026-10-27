@@ -117,8 +117,12 @@ COMMON_FIELDS = dict(
     min_rr_ratio=3.0,
     account_balance_usd=1000.0,
     use_trailing_stop=True,
-    trailing_stop_activation=2.0,
-    trailing_stop_distance="structure",
+    # Platform default as of the step_down rollout (see bot.py's
+    # trailing_stop_activation/trailing_stop_distance column comments) —
+    # was 2.0/"structure" when Bot 12 below first isolated this as an
+    # A/B variant; now the baseline every bot here gets, not just Bot 12.
+    trailing_stop_activation=1.0,
+    trailing_stop_distance="step_down",
     tp1_percent=30.0,
     tp2_percent=40.0,
     tp3_percent=30.0,

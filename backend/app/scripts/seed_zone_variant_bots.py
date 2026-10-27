@@ -69,21 +69,21 @@ _F92 = "f9292abf-063d-484a-ac21-d25a7ed90105"
 INSTANCES = [
     # --- Bot 17 (zone-type) vs Bot 3's 4 real rows ---
     ("bot_17_fvg_expansion_ob_poi", "FVG Expansion, OB-POI", "bot_17", None, ["BTCUSDT.P"],
-     _F92, ExecutionMode.FULLY_AUTONOMOUS, 4.0, 2.0),
+     _F92, ExecutionMode.FULLY_AUTONOMOUS, 4.0, 1.0),
     ("bot_17_fvg_expansion_ob_poi_2", "FVG Expansion, OB-POI", "bot_17", "mexc", ["JPYUSDT.P", "EURUSDT.P", "XAUTUSDT.P"],
-     _PETRAZIM, ExecutionMode.FULLY_AUTONOMOUS, 4.0, 2.0),
+     _PETRAZIM, ExecutionMode.FULLY_AUTONOMOUS, 4.0, 1.0),
     ("bot_17_fvg_expansion_ob_poi_3", "FVG Expansion, OB-POI", "bot_17", "mexc", ["NAS100USDT.P"],
-     _PETRAZIM, ExecutionMode.FULLY_AUTONOMOUS, 4.0, 2.0),
+     _PETRAZIM, ExecutionMode.FULLY_AUTONOMOUS, 4.0, 1.0),
     ("bot_17_fvg_expansion_ob_poi_4", "FVG Expansion, OB-POI", "bot_17", "bingx", ["NCCO1OILBRENT2USDUSDT.P", "NCCO1OILWTI2USDUSDT.P"],
-     _PETRAZIM, ExecutionMode.FULLY_AUTONOMOUS, 4.0, 2.0),
+     _PETRAZIM, ExecutionMode.FULLY_AUTONOMOUS, 4.0, 1.0),
 
     # --- Bot 18 (zone-type) vs Bot 6's 5 real symbol-group rows ---
     ("bot_18_smc_v2_ob_poi", "SMC v2, OB-POI", "bot_18", "mexc", ["NAS100USDT.P"],
      _PETRAZIM, ExecutionMode.HUMAN_IN_LOOP, 5.0, 1.0),
     ("bot_18_smc_v2_ob_poi_2", "SMC v2, OB-POI", "bot_18", "bingx", ["XAUTUSDT.P"],
-     _PETRAZIM, ExecutionMode.FULLY_AUTONOMOUS, 3.0, 2.0),
+     _PETRAZIM, ExecutionMode.FULLY_AUTONOMOUS, 3.0, 1.0),
     ("bot_18_smc_v2_ob_poi_3", "SMC v2, OB-POI", "bot_18", "bingx", ["BTCUSDT.P"],
-     _PETRAZIM, ExecutionMode.FULLY_AUTONOMOUS, 3.0, 2.0),
+     _PETRAZIM, ExecutionMode.FULLY_AUTONOMOUS, 3.0, 1.0),
     ("bot_18_smc_v2_ob_poi_4", "SMC v2, OB-POI", "bot_18", "mexc", ["JPYUSDT.P", "EURUSDT.P", "XAUTUSDT.P"],
      _PETRAZIM, ExecutionMode.FULLY_AUTONOMOUS, 5.0, 1.0),
     ("bot_18_smc_v2_ob_poi_5", "SMC v2, OB-POI", "bot_18", "bingx", ["NCCO1OILBRENT2USDUSDT.P", "NCCO1OILWTI2USDUSDT.P"],
@@ -93,9 +93,9 @@ INSTANCES = [
     ("bot_19_smc_v2_1h_entry", "SMC v2, 1H Entry", "bot_19", "mexc", ["NAS100USDT.P"],
      _PETRAZIM, ExecutionMode.HUMAN_IN_LOOP, 5.0, 1.0),
     ("bot_19_smc_v2_1h_entry_2", "SMC v2, 1H Entry", "bot_19", "bingx", ["XAUTUSDT.P"],
-     _PETRAZIM, ExecutionMode.FULLY_AUTONOMOUS, 3.0, 2.0),
+     _PETRAZIM, ExecutionMode.FULLY_AUTONOMOUS, 3.0, 1.0),
     ("bot_19_smc_v2_1h_entry_3", "SMC v2, 1H Entry", "bot_19", "bingx", ["BTCUSDT.P"],
-     _PETRAZIM, ExecutionMode.FULLY_AUTONOMOUS, 3.0, 2.0),
+     _PETRAZIM, ExecutionMode.FULLY_AUTONOMOUS, 3.0, 1.0),
     ("bot_19_smc_v2_1h_entry_4", "SMC v2, 1H Entry", "bot_19", "mexc", ["JPYUSDT.P", "EURUSDT.P", "XAUTUSDT.P"],
      _PETRAZIM, ExecutionMode.FULLY_AUTONOMOUS, 5.0, 1.0),
     ("bot_19_smc_v2_1h_entry_5", "SMC v2, 1H Entry", "bot_19", "bingx", ["NCCO1OILBRENT2USDUSDT.P", "NCCO1OILWTI2USDUSDT.P"],
@@ -103,13 +103,13 @@ INSTANCES = [
 
     # --- Bot 20 (timeframe) vs Bot 5's 4 real rows (incl. a literal duplicate) ---
     ("bot_20_jeafx_1h_entry", "SMC BOT, 1H Entry", "bot_20", None, ["BTCUSDT.P"],
-     _F92, ExecutionMode.FULLY_AUTONOMOUS, 5.0, 2.0),
+     _F92, ExecutionMode.FULLY_AUTONOMOUS, 5.0, 1.0),
     ("bot_20_jeafx_1h_entry_2", "SMC BOT, 1H Entry", "bot_20", "mexc", ["NAS100USDT.P"],
-     _PETRAZIM, ExecutionMode.FULLY_AUTONOMOUS, 5.0, 2.0),
+     _PETRAZIM, ExecutionMode.FULLY_AUTONOMOUS, 5.0, 1.0),
     ("bot_20_jeafx_1h_entry_3", "SMC BOT, 1H Entry", "bot_20", "mexc", ["NCCO1OILBRENT2USDUSDT.P", "NCCO1OILWTI2USDUSDT.P"],
-     _PETRAZIM, ExecutionMode.FULLY_AUTONOMOUS, 5.0, 2.0),
+     _PETRAZIM, ExecutionMode.FULLY_AUTONOMOUS, 5.0, 1.0),
     ("bot_20_jeafx_1h_entry_3_copy", "SMC BOT, 1H Entry", "bot_20", "mexc", ["NCCO1OILBRENT2USDUSDT.P", "NCCO1OILWTI2USDUSDT.P"],
-     _PETRAZIM, ExecutionMode.FULLY_AUTONOMOUS, 5.0, 2.0),
+     _PETRAZIM, ExecutionMode.FULLY_AUTONOMOUS, 5.0, 1.0),
 
     # --- Bot 21 (timeframe) vs Bot 8's 5 real rows (user_id=None, as-is) ---
     ("bot_21_smc_v2_single_anchor_1h_entry", "SMC v2 Single-Anchor, 1H Entry", "bot_21", "bingx", ["XAUTUSDT.P"],
@@ -125,7 +125,7 @@ INSTANCES = [
 
     # --- Bot 22 (timeframe) vs Bot 14's only real row ---
     ("bot_22_jeafx_htf_gated_1h_entry", "SMC BOT HTF-Gated, 1H Entry", "bot_22", None, ["BTCUSDT.P"],
-     _F92, ExecutionMode.FULLY_AUTONOMOUS, 5.0, 2.0),
+     _F92, ExecutionMode.FULLY_AUTONOMOUS, 5.0, 1.0),
 ]
 
 COMMON_FIELDS = dict(
@@ -143,7 +143,10 @@ COMMON_FIELDS = dict(
     max_portfolio_exposure=5.0,
     account_balance_usd=1000.0,
     use_trailing_stop=True,
-    trailing_stop_distance="structure",
+    # Platform default as of the step_down rollout (see bot.py's
+    # trailing_stop_distance column comment) — all instances below also
+    # now activate at 1.0R (see INSTANCES' own trailing_activation column).
+    trailing_stop_distance="step_down",
     tp1_percent=30.0,
     tp2_percent=40.0,
     tp3_percent=30.0,
