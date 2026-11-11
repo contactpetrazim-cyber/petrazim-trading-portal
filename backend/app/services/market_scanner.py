@@ -151,6 +151,24 @@ def _is_price_still_plausible(signal: BotSignal, market_data: Dict) -> bool:
     return deviation_pct <= settings.PRICE_DEVIATION_TOLERANCE_PCT
 
 
+def required_timeframes(bots: List[BotConfig]) -> Optional[set]:
+    """Union of the candle timeframes these bots' strategies actually
+    read (BOT_REGISTRY), so a scan group fetches only what it uses —
+    e.g. no recommended bot reads 1D, and only Bot 8 reads 5M. Every
+    group used to fetch all five timeframes x 200 candles every cycle.
+    Returns None (fetch everything) if any bot's strategy can't be
+    resolved, so an unknown strategy is never starved of data."""
+    from app.core.bot_strategies import BOT_REGISTRY
+    labels: set = set()
+    for bot in bots:
+        key = bot.strategy_key or "_".join(bot.bot_id.split("_")[:2])
+        entry = BOT_REGISTRY.get(key)
+        if entry is None:
+            return None
+        labels.update(label for _, label in entry[1])
+    return labels or None
+
+
 def _effective_bot_settings(bot: BotConfig, effective_balance: float) -> Dict[str, float]:
     """What risk_per_trade/min_rr_ratio THIS bot should actually trade
     with right now — read fresh every scan cycle so a trader's edit on
@@ -395,7 +413,7 @@ class MarketScanner:
             from app.services.exchange_engine import record_result
             for (exchange, symbol), bots_here in groups.items():
                 try:
-                    market_data = await self._fetch_market_data(exchange, symbol)
+                    market_data = await self._fetch_market_data(exchange, symbol, required_timeframes(bots_here))
                 except Exception as e:
                     logger.error("market_scan_fetch_failed", exchange=exchange, symbol=symbol, error=str(e))
                     await self._record_scan_result(db, bots_here, error=str(e))
@@ -469,7 +487,11 @@ class MarketScanner:
                     balance_groups.setdefault(balance, []).append(bot)
                     strategy_key = bot.strategy_key or "_".join(bot.bot_id.split("_")[:2])
                     bot_settings_by_balance.setdefault(balance, {}).setdefault(strategy_key, []).append(
-                        {"bot_id": bot.bot_id, **_effective_bot_settings(bot, balance)}
+                        # strategy_params rides with each bot so its own
+                        # tuning applies even when a sibling of the same
+                        # family is tuned differently (BotOrchestrator.
+                        # _instance_for).
+                        {"bot_id": bot.bot_id, "strategy_params": bot.strategy_params or {}, **_effective_bot_settings(bot, balance)}
                     )
 
                 for balance, bots_at_balance in balance_groups.items():
@@ -593,9 +615,13 @@ class MarketScanner:
             bot.last_scan_error = error
         await db.commit()
 
-    async def _fetch_market_data(self, exchange: str, symbol: str) -> Dict[str, List[Candle] | str]:
+    async def _fetch_market_data(self, exchange: str, symbol: str, timeframes: Optional[set] = None) -> Dict[str, List[Candle] | str]:
+        """timeframes=None fetches all five (original behaviour); a set
+        limits the fetch to those labels — see required_timeframes()."""
         market_data: Dict = {"symbol": symbol}
         for tf_key, ccxt_tf in _TIMEFRAME_TO_CCXT.items():
+            if timeframes is not None and tf_key not in timeframes:
+                continue
             try:
                 candles = await self.ingestion.fetch_historical_ccxt(
                     exchange=exchange, symbol=symbol, timeframe=ccxt_tf, limit=200

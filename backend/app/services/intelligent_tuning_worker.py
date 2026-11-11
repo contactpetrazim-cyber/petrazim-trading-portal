@@ -161,7 +161,11 @@ class IntelligentTuningWorker:
     async def run_once(self) -> None:
         async with AsyncSessionLocal() as db:
             bots = (await db.execute(
-                select(BotConfig).where(BotConfig.bot_mode == BotMode.INTELLIGENT)
+                # ACTIVE only: a paused bot isn't trading, so tuning it
+                # is pure cost — after the Recommended Bots rollout 28
+                # paused INTELLIGENT bots were still being backtested
+                # every cycle.
+                select(BotConfig).where(BotConfig.bot_mode == BotMode.INTELLIGENT, BotConfig.status == BotStatus.ACTIVE)
             )).scalars().all()
 
         for bot in bots:
@@ -440,14 +444,24 @@ class IntelligentTuningWorker:
             bot = (await db.execute(select(BotConfig).where(BotConfig.bot_id == bot_id))).scalar_one_or_none()
         if bot is None or bot.bot_mode != BotMode.INTELLIGENT or not bot.strategy_key:
             return
+        # Recommended Bots are one-instrument-per-bot by design (migration
+        # 030): which instrument each trades is the selection itself, and
+        # instrument rotation is the Instrument Focus engine's job. A
+        # zone-variant move would leave one recommended bot with two
+        # instruments and another with none, so they never move.
+        from app.services.recommended_dashboard import is_recommended
+        if is_recommended(bot.bot_id):
+            return
         sibling_key = ZONE_SIBLING_LOOKUP.get(bot.strategy_key)
         if not sibling_key or sibling_key not in STRATEGY_FAMILY:
             return
 
         async with AsyncSessionLocal() as db:
-            sibling_bot = (await db.execute(
+            siblings = (await db.execute(
                 select(BotConfig).where(BotConfig.strategy_key == sibling_key, BotConfig.status == BotStatus.ACTIVE)
-            )).scalars().first()
+            )).scalars().all()
+            # ...and never move a symbol ONTO a recommended bot either.
+            sibling_bot = next((b for b in siblings if not is_recommended(b.bot_id)), None)
         if sibling_bot is None:
             logger.info("zone_variant_sibling_dormant", bot_id=bot_id, sibling_strategy_key=sibling_key)
             return

@@ -361,7 +361,7 @@ class Settings(BaseSettings):
     # market_scanner.py's own _current_scan_groups() docstring for why
     # distinct (exchange, symbol) groups, not raw bot count, is the
     # real scan-cost driver.
-    MARKET_SCANNER_GROUP_WARN_COUNT: int = 20
+    MARKET_SCANNER_GROUP_WARN_COUNT: int = 8
 
     # Per-bot broker credentials (models/broker_credential.py) are
     # encrypted at rest with this key rather than the JWT SECRET_KEY,
