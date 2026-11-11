@@ -22,9 +22,10 @@ on the same instrument, each with a technically different setup the
 per-bot/per-setup guard structurally cannot see.
 
 Trips on EITHER condition, whichever happens first (by direct answer):
-  - LOSS_GUARD_STREAK_COUNT consecutive losses (no win/breakeven
+  - LOSS_GUARD_STREAK_COUNT consecutive loss EVENTS (no win/breakeven
     breaking the streak), counted back from the most recent closed
-    trade, OR
+    trade, all within the last 48h; simultaneous stop-outs (within
+    15 min) are one event and -0.1R..0 scratches are neutral, OR
   - cumulative realized_pnl across trades closed within the last
     LOSS_GUARD_WINDOW_HOURS is worse than -LOSS_GUARD_CUMULATIVE_MULTIPLE
     times this bot/pair's own recent average risk_amount — scales
@@ -52,31 +53,31 @@ from app.models.trade import Trade, TradeStatus
 LOSS_GUARD_STREAK_COUNT = 3
 LOSS_GUARD_WINDOW_HOURS = 4
 LOSS_GUARD_CUMULATIVE_MULTIPLE = 3.0
-# Real bug, found live: Condition 1 (the consecutive-loss streak,
-# below) had no time bound at all, unlike Condition 2's own
-# LOSS_GUARD_WINDOW_HOURS cutoff — contradicting this module's own
-# stated design ("naturally clears the moment the real picture
-# improves... with zero separate bookkeeping to reset or expire").
-# Confirmed live: bot_5_jeafx's last 6 closed trades (Oct 4-7) were
-# all losses, nothing newer existed, so the guard stayed permanently
-# tripped for 15+ days straight — a real deadlock, not a cooldown:
-# clearing it needs a new win, but the guard blocks every new signal
-# from ever becoming a trade in the first place. A bot or pair that
-# goes quiet (any reason — paused, a data gap, this exact bug) can
-# never recover once it crosses the streak count, regardless of
-# balance, credentials, or exchange config — confirmed this was the
-# actual, sole blocker for bot_5_jeafx, not any of those other
-# things. 48 hours (by direct request — "the break or rest time or
-# idle should be 48 hours max before a reset") is long enough that a
-# genuine, fast consecutive-loss streak (the real scenario this guard
-# exists to catch) still trips it, short enough that it can never
-# become a permanent, unrecoverable block the way an unbounded streak
-# just did.
+# Every loss counted toward a streak must itself have closed within this
+# window — not just the most recent one. History: originally the streak
+# had no time bound at all, which deadlocked bot_5_jeafx for 15+ days
+# (clearing needs a win, but the guard blocked every new trade); the
+# first fix bounded only the MOST RECENT trade, so three losses spread
+# over five days still counted as a live "cold streak" — found live on
+# BTCUSDT.P right after the Recommended Bots rollout (4 losses from
+# paused bots across Nov 6-11 blocking the brand-new roster). 48h is the
+# directly-requested maximum rest before a reset.
 LOSS_GUARD_STREAK_STALENESS_HOURS = 48
-# Enough rows to detect a 3-streak and compute a stable recent-average
-# risk — not tied to LOSS_GUARD_STREAK_COUNT so the two can be tuned
-# independently without this silently running out of rows to look at.
-_LOOKBACK_TRADES = 8
+# Losses closing within this gap of each other are ONE loss event: the
+# same price move stopping out several bots at once (found live: EUR -
+# five different bots stopped out inside 3 seconds; NAS100 - four in the
+# same second) is one adverse market event, not five independent
+# losses. Counting each separately tripped the pair guard off a single
+# candle whenever several bots shared a pair.
+LOSS_GUARD_EVENT_CLUSTER_MINUTES = 15
+# A result between this and 0R is a scratch (e.g. a breakeven trail
+# exiting a few ticks under entry after fees): neutral — it neither
+# counts as a loss nor breaks a streak.
+LOSS_GUARD_SCRATCH_R = -0.1
+# Enough rows to see 3 distinct loss events even when each event is
+# several simultaneous stop-outs, and to compute a stable recent-average
+# risk for the cumulative check.
+_LOOKBACK_TRADES = 30
 
 
 @dataclass
@@ -85,36 +86,42 @@ class LossGuardResult:
     reason: Optional[str] = None
 
 
-def _evaluate(rows: list[Trade]) -> LossGuardResult:
+def _is_scratch(t: Trade) -> bool:
+    return t.r_multiple is not None and LOSS_GUARD_SCRATCH_R < t.r_multiple < 0
+
+
+def _evaluate(rows: list[Trade], now: Optional[datetime] = None) -> LossGuardResult:
+    now = now or datetime.utcnow()
     if not rows:
         return LossGuardResult(False)
 
-    # Condition 1 — consecutive losses, counted back from the most
-    # recent closed trade (rows are already ordered newest-first); a
-    # win or breakeven breaks the streak immediately. Only evaluated
-    # when that most recent trade is itself still recent — see
-    # LOSS_GUARD_STREAK_STALENESS_HOURS's own comment above for the
-    # real deadlock this staleness check prevents.
-    most_recent = rows[0]
-    streak_is_stale = (
-        most_recent.exit_timestamp is not None
-        and most_recent.exit_timestamp < datetime.utcnow() - timedelta(hours=LOSS_GUARD_STREAK_STALENESS_HOURS)
-    )
-    if not streak_is_stale:
-        streak = 0
-        for t in rows:
-            if (t.realized_pnl or 0) < 0:
-                streak += 1
-            else:
-                break
-        if streak >= LOSS_GUARD_STREAK_COUNT:
-            return LossGuardResult(True, f"{streak} consecutive losses")
+    # Condition 1 — LOSS_GUARD_STREAK_COUNT distinct loss EVENTS in a row,
+    # newest first, every one inside the staleness window. A win (or
+    # breakeven) breaks the streak; a scratch is skipped; simultaneous
+    # losses collapse into one event.
+    streak_cutoff = now - timedelta(hours=LOSS_GUARD_STREAK_STALENESS_HOURS)
+    cluster_gap = timedelta(minutes=LOSS_GUARD_EVENT_CLUSTER_MINUTES)
+    events = 0
+    last_loss_at: Optional[datetime] = None
+    for t in rows:
+        if t.exit_timestamp is None or t.exit_timestamp < streak_cutoff:
+            break
+        if (t.realized_pnl or 0) >= 0:
+            break
+        if _is_scratch(t):
+            continue
+        if last_loss_at is None or last_loss_at - t.exit_timestamp > cluster_gap:
+            events += 1
+        last_loss_at = t.exit_timestamp
+    if events >= LOSS_GUARD_STREAK_COUNT:
+        return LossGuardResult(True, f"{events} consecutive losses within {LOSS_GUARD_STREAK_STALENESS_HOURS}h")
 
     # Condition 2 — cumulative loss within the trailing window, judged
     # against this bot/pair's own recent average risk (self-scaling —
     # see this module's own docstring for why that beats one fixed
-    # dollar figure).
-    cutoff = datetime.utcnow() - timedelta(hours=LOSS_GUARD_WINDOW_HOURS)
+    # dollar figure). Unchanged: a real multi-R hit inside 4h still
+    # earns a short cooldown even when it was one simultaneous event.
+    cutoff = now - timedelta(hours=LOSS_GUARD_WINDOW_HOURS)
     recent = [t for t in rows if t.exit_timestamp and t.exit_timestamp >= cutoff]
     if recent:
         cumulative = sum(t.realized_pnl or 0 for t in recent)

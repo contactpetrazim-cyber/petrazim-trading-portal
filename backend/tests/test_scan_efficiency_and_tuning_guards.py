@@ -151,3 +151,40 @@ async def test_zone_moves_never_touch_recommended_bots(session_factory, monkeypa
         await db.commit()
     await worker._tune_zone_variant_for_bot("bot_17_plain")      # a non-recommended sibling exists -> allowed
     assert attempted == [("bot_17_plain", "bot_3_plain", "EUR")]
+
+
+# ── HTF candle cache ─────────────────────────────────────────────────
+
+from datetime import datetime, timedelta
+
+from app.services.market_scanner import MarketScanner, htf_cache_is_fresh
+
+
+def test_htf_cache_freshness_rules():
+    t = datetime(2026, 11, 11, 13, 5)
+    assert htf_cache_is_fresh("4H", t, t + timedelta(minutes=10))
+    assert not htf_cache_is_fresh("4H", t, t + timedelta(minutes=16))          # max age
+    assert not htf_cache_is_fresh("4H", datetime(2026, 11, 11, 11, 58), datetime(2026, 11, 11, 12, 1))  # new 4H bar opened
+    assert htf_cache_is_fresh("1D", t, t + timedelta(minutes=50))
+    assert not htf_cache_is_fresh("1D", datetime(2026, 11, 11, 23, 50), datetime(2026, 11, 12, 0, 5))  # new day
+
+
+class _FakeIngestion:
+    def __init__(self):
+        self.calls = []
+
+    async def fetch_historical_ccxt(self, exchange, symbol, timeframe, limit):
+        self.calls.append(timeframe)
+        return [object()]
+
+
+async def test_scanner_serves_htf_from_cache_and_fetches_fast_tfs_live():
+    scanner = MarketScanner.__new__(MarketScanner)
+    scanner.ingestion = _FakeIngestion()
+    scanner._htf_cache = {}
+    wanted = {"1H", "15M", "4H", "1D"}
+    first = await scanner._fetch_market_data("bingx", "BTCUSDT.P", wanted)
+    second = await scanner._fetch_market_data("bingx", "BTCUSDT.P", wanted)
+    assert set(first) == set(second) == {"symbol", "1H", "15M", "4H", "1D"}
+    assert sorted(scanner.ingestion.calls) == sorted(["1h", "15m", "4h", "1d", "1h", "15m"])  # 4H/1D fetched once
+    assert "5m" not in scanner.ingestion.calls
