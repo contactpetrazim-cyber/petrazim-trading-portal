@@ -1,7 +1,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Bot, Play, Pause, Settings, TrendingUp, Save, Plus, X, Pencil, Trash2, ChevronDown, Copy, Info, BarChart3, Award, Crosshair, Star } from 'lucide-react';
+import { Bot, Play, Pause, Settings, TrendingUp, Save, Plus, X, Pencil, Trash2, ChevronDown, Copy, Info, BarChart3, Award, Crosshair, Star, LayoutDashboard } from 'lucide-react';
 import { botsApi } from '../services/api';
 import { BotSleepAndSubAuto } from '../components/BotSleepAndSubAuto';
 import { ExchangeEngineControl } from '../components/ExchangeEngineControl';
@@ -16,6 +16,7 @@ import { formatApiError } from '../lib/apiError';
 import { getStrategySummary } from '../config/botStrategySummaries';
 import { FoldedCard } from '../components/FoldedCard';
 import { InstrumentFocusControl } from '../components/InstrumentFocusControl';
+import { RecommendedBotsDashboard } from '../components/RecommendedBotsDashboard';
 import { INSTANCE_GRADES, gradeInstance, isRecommendedBot, type ExpectancyRow, type InstanceGrade } from '../lib/botGrading';
 
 
@@ -495,6 +496,15 @@ export function BotsPage() {
         <div className={`text-center py-16 text-gray-400 border rounded-xl ${dark ? 'bg-smc-card border-smc-border' : 'bg-white border-corporate-bg'}`}>
           No bots yet — create one to start trading.
         </div>
+      )}
+
+      {/* Recommended Bots Dashboard — forward performance of the
+          post-testing roster against the evidence that selected it
+          (by direct request). Only shown once a roster exists. */}
+      {bots.some((b) => isRecommendedBot(b.bot_id)) && (
+        <FoldedCard title="Recommended Bots Dashboard" summary="Live results vs. the evidence behind each pick — charts, roster map, insights and recommendations" icon={<LayoutDashboard size={18} />} accent="#6366f1" defaultOpen dark={dark}>
+          <RecommendedBotsDashboard dark={dark} />
+        </FoldedCard>
       )}
 
       {/* Instrument Focus — max 3 instruments at a time unless the

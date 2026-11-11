@@ -464,6 +464,16 @@ async def clear_instrument_selection(owner: Optional[str] = None, db: AsyncSessi
     return await _instrument_focus_state(db, owner_key)
 
 
+@router.get("/recommended-dashboard")
+async def get_recommended_dashboard(db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access)):
+    """Recommended Bots dashboard — live forward results vs. the
+    evidence behind each pick (services/recommended_dashboard.py).
+    Same ownership scoping as list_bots: staff see every recommended
+    bot, a trader only their own."""
+    from app.services.recommended_dashboard import build_dashboard
+    return await build_dashboard(db, owner_ids=None if user.role in STAFF_ROLES else [user.id])
+
+
 async def _get_owned_bot(bot_id: str, user: User, db: AsyncSession) -> BotConfig:
     """Fetch a bot and enforce ownership — 404s rather than 403s on a
     bot that exists but isn't the caller's (or a roster trader's), so
