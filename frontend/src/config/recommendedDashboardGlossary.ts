@@ -28,7 +28,7 @@ export const GLOSSARY: Record<string, GlossaryEntry> = {
     what: 'The live scorecard for the recommended bot roster: the bots chosen as the top performers per instrument when the testing phase ended.',
     why: 'A bot is picked on its past results. This dashboard checks, trade by trade, whether that edge is carrying forward with real trades.',
     how: 'Recomputed from the trades table every time it loads, and refreshed every 60 seconds. Nothing on it is a stored snapshot.',
-    read: 'Read it as "live versus evidence". Blue is what the bots are doing now; orange is the record that got them picked. Judge each bot once its confidence meter is full (15 trades), not before.',
+    read: 'Read it as "live versus evidence". Blue is what the bots are doing now; orange is the record that got them picked. Judge each bot once its confidence meter is full (21 trades), not before.',
   },
   live_vs_evidence_concept: {
     title: 'Live vs evidence',
@@ -127,9 +127,9 @@ export const GLOSSARY: Record<string, GlossaryEntry> = {
   },
   confidence: {
     title: 'Confidence meters',
-    what: 'Each bot\'s progress toward 15 closed trades, plus its current verdict.',
+    what: 'Each bot\'s progress toward 21 closed trades, plus its current verdict.',
     why: 'Results on a handful of trades swing wildly. The meter stops you reacting to noise.',
-    how: 'Fill = live closed trades ÷ 15. Verdicts are withheld below 5 trades. "Review" needs 10+ trades averaging −0.3R or worse.',
+    how: 'Fill = live closed trades ÷ 21. Verdicts are withheld below 5 trades. "Review" needs 10+ trades averaging −0.3R or worse.',
     read: 'Only treat a verdict as reliable once the bar is full. Under 5 trades the label says "Too early" on purpose.',
   },
   verdicts: {
@@ -137,7 +137,7 @@ export const GLOSSARY: Record<string, GlossaryEntry> = {
     what: 'A plain-language status per bot, with an icon so it never relies on colour alone.',
     why: 'It turns the numbers into what to do next.',
     how: 'Too early: under 5 trades. Good: at or above the evidence, or keeping at least half of it. Watch: positive but under half the evidence. Behind: negative so far. Review: 10+ trades averaging −0.3R or worse.',
-    read: 'Good → leave it. Watch → keep an eye on it. Behind → check again at 15 trades. Review → pause it and re-run its backtest (it also appears in the recommendations).',
+    read: 'Good → leave it. Watch → keep an eye on it. Behind → check again at 21 trades. Review → pause it and re-run its backtest (it also appears in the recommendations).',
   },
   r_distribution: {
     title: 'R distribution',
@@ -213,10 +213,10 @@ export const GLOSSARY: Record<string, GlossaryEntry> = {
   },
   confidence_floor: {
     title: 'Confidence floor',
-    what: 'The number of live trades before a bot\'s live record is treated as reliable: 15.',
-    why: 'It\'s the same floor the monthly trading audit uses before acting on a bot\'s expectancy.',
-    how: 'Fixed at 15 closed trades. Verdicts begin at 5 trades but are labelled provisional until 15.',
-    read: 'Plan formal reviews for when each bot reaches 15. At the recent pace that is roughly 6–8 weeks.',
+    what: 'The number of live trades before a bot\'s live record is treated as reliable: 21.',
+    why: 'It is the Basic-mode baseline: every recommended bot runs on fixed settings until it has 21 trades, so the selection can be judged cleanly before Intelligent (self-tuning) mode is considered.',
+    how: 'Fixed at 21 closed trades. Verdicts begin at 5 trades but are provisional until 21.',
+    read: 'Plan formal reviews for when each bot reaches 21. Busy bots get there in about two weeks; slow ones can take two months or more.',
   },
   col_evidence_n: {
     title: 'Evidence n',
@@ -230,6 +230,6 @@ export const GLOSSARY: Record<string, GlossaryEntry> = {
     what: 'How many trades this recommended bot has closed since it went live.',
     why: 'It tells you how much weight to give its live average R.',
     how: 'Count of this bot\'s own closed trades.',
-    read: 'Under 5: ignore the live numbers. 5–14: provisional. 15+: reliable.',
+    read: 'Under 5: ignore the live numbers. 5–20: provisional. 21+: reliable.',
   },
 };

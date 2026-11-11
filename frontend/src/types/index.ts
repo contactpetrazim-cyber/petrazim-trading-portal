@@ -1062,5 +1062,6 @@ export interface RecommendedDashboard {
   baseline_totals: RecStats | null;
   insights: { level: RecVerdictLevel; title: string; detail: string }[];
   recommendations: { priority: number; action: string; why: string }[];
+  confidence_target?: number;
   selection_rule: Record<'score' | 'eligibility' | 'pick' | 'source' | 'confidence_floor', string>;
 }

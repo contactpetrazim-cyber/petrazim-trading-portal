@@ -40,7 +40,7 @@ from app.models.trade import Trade, TradeStatus
 
 REC_PATTERN = re.compile(r"^(bot_\d+)_rec_")
 MIN_TRADES_FOR_VERDICT = 5       # below this, no performance verdict at all
-TRADES_FOR_CONFIDENCE = 15       # matches the audit engine's actionable-expectancy floor
+TRADES_FOR_CONFIDENCE = 21       # by direct request ("use 21 trades"): the Basic-mode baseline each bot must reach before its record is judged or Intelligent mode is considered
 R_BINS = [(-math.inf, -0.75, "≤ -0.75R"), (-0.75, -0.25, "-0.75 to -0.25R"), (-0.25, 0.25, "≈ 0R"),
           (0.25, 1.0, "0.25 to 1R"), (1.0, 2.0, "1 to 2R"), (2.0, 3.0, "2 to 3R"), (3.0, math.inf, "≥ 3R")]
 
@@ -202,6 +202,7 @@ async def build_dashboard(db: AsyncSession, owner_ids: Optional[List] = None, no
         "insights": insights["insights"],
         "recommendations": insights["recommendations"],
         "selection_rule": _selection_rule(),
+        "confidence_target": TRADES_FOR_CONFIDENCE,
     }
 
 
@@ -279,7 +280,7 @@ def _insights(bots: List[Dict], instruments: List[Dict], totals: Dict, base_tota
     strong = sorted((i for i in instruments if (i["baseline"]["evidence_score"] or 0) > 0), key=lambda i: -i["baseline"]["evidence_score"])[:3]
     if strong:
         recs.append({"priority": 2, "action": "Focus instruments by evidence: " + ", ".join(i["symbol"] for i in strong),
-                     "why": "Highest evidence scores (avg R x sqrt(n)) going in; revisit once each has 15 live trades."})
+                     "why": f"Highest evidence scores (avg R x sqrt(n)) going in; revisit once each has {TRADES_FOR_CONFIDENCE} live trades."})
 
     shared = defaultdict(list)
     for b in bots:
