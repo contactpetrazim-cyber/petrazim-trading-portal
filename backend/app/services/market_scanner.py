@@ -30,7 +30,7 @@ import structlog
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import json
 
@@ -151,6 +151,25 @@ def _is_price_still_plausible(signal: BotSignal, market_data: Dict) -> bool:
     return deviation_pct <= settings.PRICE_DEVIATION_TOLERANCE_PCT
 
 
+# Higher-timeframe candles change slowly: a 4H bar closes 6x a day, a 1D
+# bar once, yet every scan group used to re-download 200 of each every
+# 3-minute cycle. Cached per (exchange, symbol, timeframe) and refreshed
+# when a new bar has opened since the last fetch, or after max_age so
+# the still-forming bar never goes more than that stale.
+_HTF_CACHE_MAX_AGE = {"4H": timedelta(minutes=15), "1D": timedelta(minutes=60)}
+_HTF_BAR = {"4H": timedelta(hours=4), "1D": timedelta(days=1)}
+
+
+def _bar_open(ts: datetime, bar: timedelta) -> datetime:
+    epoch = datetime(1970, 1, 1)
+    return epoch + ((ts - epoch) // bar) * bar
+
+
+def htf_cache_is_fresh(tf_key: str, fetched_at: datetime, now: datetime) -> bool:
+    bar = _HTF_BAR[tf_key]
+    return now - fetched_at < _HTF_CACHE_MAX_AGE[tf_key] and _bar_open(now, bar) == _bar_open(fetched_at, bar)
+
+
 def required_timeframes(bots: List[BotConfig]) -> Optional[set]:
     """Union of the candle timeframes these bots' strategies actually
     read (BOT_REGISTRY), so a scan group fetches only what it uses —
@@ -233,6 +252,8 @@ class MarketScanner:
         # Render free-tier backend's OOM-crash-loop).
         self.ingestion = shared_ingestion
         self.orchestrator = BotOrchestrator({})
+        # Higher-timeframe candle cache — see _cached_htf_candles.
+        self._htf_cache: Dict[tuple, tuple] = {}
         self._task: asyncio.Task | None = None
         # Set by memory_watchdog.py when host/process memory crosses
         # its CRITICAL tier — widens the effective scan interval so
@@ -413,7 +434,12 @@ class MarketScanner:
             from app.services.exchange_engine import record_result
             for (exchange, symbol), bots_here in groups.items():
                 try:
-                    market_data = await self._fetch_market_data(exchange, symbol, required_timeframes(bots_here))
+                    needed = required_timeframes(bots_here)
+                    # 1D/4H always ride along (cheap: served from the
+                    # HTF cache) so the 1D HTF-conviction note and any
+                    # 1D/4H context stay available for every group, not
+                    # only groups whose strategies happen to read them.
+                    market_data = await self._fetch_market_data(exchange, symbol, None if needed is None else needed | set(_HTF_CACHE_MAX_AGE))
                 except Exception as e:
                     logger.error("market_scan_fetch_failed", exchange=exchange, symbol=symbol, error=str(e))
                     await self._record_scan_result(db, bots_here, error=str(e))
@@ -615,12 +641,36 @@ class MarketScanner:
             bot.last_scan_error = error
         await db.commit()
 
+    async def _cached_htf_candles(self, exchange: str, symbol: str, tf_key: str, ccxt_tf: str) -> Optional[List[Candle]]:
+        key = (exchange, symbol, tf_key)
+        now = datetime.utcnow()
+        hit = self._htf_cache.get(key)
+        if hit and htf_cache_is_fresh(tf_key, hit[0], now):
+            return hit[1]
+        try:
+            candles = await self.ingestion.fetch_historical_ccxt(exchange=exchange, symbol=symbol, timeframe=ccxt_tf, limit=200)
+        except Exception as e:
+            logger.warning("market_scan_timeframe_fetch_failed", exchange=exchange, symbol=symbol, timeframe=ccxt_tf, error=str(e))
+            # Serve the last good copy for one more max-age rather than
+            # starving 4H/1D strategies over a transient fetch error.
+            if hit and now - hit[0] < 2 * _HTF_CACHE_MAX_AGE[tf_key]:
+                return hit[1]
+            return None
+        if candles:
+            self._htf_cache[key] = (now, candles)
+        return candles
+
     async def _fetch_market_data(self, exchange: str, symbol: str, timeframes: Optional[set] = None) -> Dict[str, List[Candle] | str]:
         """timeframes=None fetches all five (original behaviour); a set
         limits the fetch to those labels — see required_timeframes()."""
         market_data: Dict = {"symbol": symbol}
         for tf_key, ccxt_tf in _TIMEFRAME_TO_CCXT.items():
             if timeframes is not None and tf_key not in timeframes:
+                continue
+            if tf_key in _HTF_CACHE_MAX_AGE:
+                candles = await self._cached_htf_candles(exchange, symbol, tf_key, ccxt_tf)
+                if candles:
+                    market_data[tf_key] = candles
                 continue
             try:
                 candles = await self.ingestion.fetch_historical_ccxt(
