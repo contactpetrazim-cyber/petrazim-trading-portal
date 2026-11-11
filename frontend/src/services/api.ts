@@ -1,6 +1,6 @@
 
 import axios from 'axios';
-import { Trade, BotConfig, BotPerformance, BotMetricsUpdate, DashboardStats, SignalPreview, PerformanceSummary, TradeBreakdown, TradeBreakdownPeriod, TodayTradeBreakdown, ExchangeMetaResponse, TraderBrokerConnection, AvailableBot, TraderBotSubscription, OutboundIpsResponse, FeeSettings, FeeLedgerEntry, MyFeesResponse, FeeGateStatus, FeeCheckoutSession, FeeCheckoutProvider, FeeVerifyResult, DeployStateResponse, TradeSnapshot, EncroachmentResponse, SnapshotTimeframe, ExchangeBalancesResponse, MasterExchangeBalancesResponse, SystemHealthResponse, SystemHealthSummaryResponse, BacktestRun, IsolatedBacktestRun, PortfolioBacktestRun, TradeForensics, BotSimulationResponse, CongressTradesResponse, NewsMonitorResponse, TimeMachineRequest, TimeMachineResponse, TradeScannerRequest, TradeScannerResponse, TradeScannerHit, TradeScannerAiReadResponse, DayTraderSkillChatResponse, FeatureAccessGrantItem, InstrumentLimitMode, InstrumentFocusState, InstrumentFocusPeriod, InstrumentSuggestion } from '../types';
+import { Trade, BotConfig, BotPerformance, BotMetricsUpdate, DashboardStats, SignalPreview, PerformanceSummary, TradeBreakdown, TradeBreakdownPeriod, TodayTradeBreakdown, ExchangeMetaResponse, TraderBrokerConnection, AvailableBot, TraderBotSubscription, OutboundIpsResponse, FeeSettings, FeeLedgerEntry, MyFeesResponse, FeeGateStatus, FeeCheckoutSession, FeeCheckoutProvider, FeeVerifyResult, DeployStateResponse, TradeSnapshot, EncroachmentResponse, SnapshotTimeframe, ExchangeBalancesResponse, MasterExchangeBalancesResponse, SystemHealthResponse, SystemHealthSummaryResponse, BacktestRun, IsolatedBacktestRun, PortfolioBacktestRun, TradeForensics, BotSimulationResponse, CongressTradesResponse, NewsMonitorResponse, TimeMachineRequest, TimeMachineResponse, TradeScannerRequest, TradeScannerResponse, TradeScannerHit, TradeScannerAiReadResponse, DayTraderSkillChatResponse, FeatureAccessGrantItem, InstrumentLimitMode, InstrumentFocusState, InstrumentFocusPeriod, InstrumentSuggestion, RecommendedDashboard } from '../types';
 import type { ExpectancyRow } from '../lib/botGrading';
 import { useAuthStore } from '../hooks/useAuth';
 import { triggerAccessExpired } from '../components/AccessExpiredGate';
@@ -324,6 +324,8 @@ export const botsApi = {
     api.put<InstrumentFocusState>('/bots/instrument-selection', body).then(r => r.data),
   clearInstrumentSelection: (owner?: string) =>
     api.delete<InstrumentFocusState>('/bots/instrument-selection', { params: owner ? { owner } : {} }).then(r => r.data),
+  getRecommendedDashboard: () =>
+    api.get<RecommendedDashboard>('/bots/recommended-dashboard').then(r => r.data),
   getOptimizationMatrix: () =>
     api.get<{ bot_instance_expectancy: ExpectancyRow[]; bot_family_expectancy: ExpectancyRow[] }>('/bots/optimization-matrix').then(r => r.data),
   getMarginAutoSwitchMode: () =>

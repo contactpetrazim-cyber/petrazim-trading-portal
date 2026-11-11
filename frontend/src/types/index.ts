@@ -1016,3 +1016,51 @@ export interface InstrumentSuggestion {
   best_bots: { family: string; score: number }[];
   reason: string;
 }
+
+// Recommended Bots dashboard (backend services/recommended_dashboard.py).
+export interface RecStats {
+  n: number;
+  wins: number;
+  win_rate_pct: number | null;
+  avg_r: number | null;
+  total_r: number;
+  total_pnl: number;
+  /** "∞" when there are wins and no losses; null with no wins. */
+  profit_factor: number | string | null;
+  max_drawdown_r: number;
+  evidence_score: number;
+}
+
+export type RecVerdictLevel = 'good' | 'warning' | 'serious' | 'critical' | 'info';
+
+export interface RecBotRow {
+  bot_id: string;
+  bot_name: string;
+  family: string;
+  symbol: string;
+  status: string;
+  open_trades: number;
+  live: RecStats;
+  baseline: RecStats;
+  tp1_hit_rate_pct: number | null;
+  confidence_pct: number;
+  verdict: { key: string; label: string; level: RecVerdictLevel };
+  last_trade_at: string | null;
+}
+
+export interface RecommendedDashboard {
+  generated_at: string;
+  rollout_at: string | null;
+  days_live?: number;
+  bots: RecBotRow[];
+  instruments: { symbol: string; bots: string[]; live: RecStats; baseline: RecStats }[];
+  equity: { t: string; bot_id: string; symbol: string; r: number; cum_r: number }[];
+  r_distribution: { bin: string; count: number }[];
+  daily: { day: string; pnl: number; r: number; n: number }[];
+  exits: { exit_type: string; count: number }[];
+  totals: (RecStats & { open_trades: number; bot_count: number; active_bot_count: number }) | null;
+  baseline_totals: RecStats | null;
+  insights: { level: RecVerdictLevel; title: string; detail: string }[];
+  recommendations: { priority: number; action: string; why: string }[];
+  selection_rule: Record<'score' | 'eligibility' | 'pick' | 'source' | 'confidence_floor', string>;
+}
