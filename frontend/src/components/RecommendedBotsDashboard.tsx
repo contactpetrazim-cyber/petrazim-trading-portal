@@ -8,6 +8,8 @@ import {
 import { botsApi } from '../services/api';
 import { formatApiError } from '../lib/apiError';
 import type { RecBotRow, RecStats, RecVerdictLevel, RecommendedDashboard } from '../types';
+import { InfoTip } from './InfoTip';
+import { GLOSSARY, type GlossaryEntry } from '../config/recommendedDashboardGlossary';
 
 /**
  * RecommendedBotsDashboard — the forward-performance dashboard for the
@@ -114,14 +116,20 @@ export function RecommendedBotsDashboard({ dark = false }: { dark?: boolean }) {
     <div className="space-y-6 text-sm">
       {/* Header strip */}
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="text-xs text-gray-400">
-          Live since {rolloutDate ? rolloutDate.toUTCString().slice(5, 16) : '—'} · day {data.days_live ?? 0} ·
-          {' '}{t.active_bot_count}/{t.bot_count} bots active · refreshes every minute
+        <div className="flex flex-wrap items-center gap-1.5 text-xs text-gray-400">
+          <InfoTip entry={GLOSSARY.dashboard} dark={dark} />
+          <span>
+            Live since {rolloutDate ? rolloutDate.toUTCString().slice(5, 16) : '—'} · day {data.days_live ?? 0} ·
+            {' '}{t.active_bot_count}/{t.bot_count} bots active · refreshes every minute
+          </span>
+          <span className="inline-flex items-center gap-1">· Live vs evidence <InfoTip entry={GLOSSARY.live_vs_evidence_concept} dark={dark} /></span>
+          <span className="inline-flex items-center gap-1">· What is R? <InfoTip entry={GLOSSARY.r_unit} dark={dark} /></span>
         </div>
         <div className="flex items-center gap-2">
           <button type="button" onClick={() => setTables((v) => !v)} className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-300">
             <Table2 size={13} /> {tables ? 'Show charts' : 'Show as tables'}
           </button>
+          <InfoTip entry={GLOSSARY.view_toggle} dark={dark} />
           <button type="button" onClick={load} disabled={loading} className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-300">
             <RefreshCw size={13} className={loading ? 'animate-spin' : ''} /> Refresh
           </button>
@@ -130,17 +138,17 @@ export function RecommendedBotsDashboard({ dark = false }: { dark?: boolean }) {
 
       {/* KPI tiles: live, with the evidence alongside */}
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
-        <Kpi surface={surface} label="Closed trades" value={String(t.n)} sub={`${t.open_trades} open now`} />
-        <Kpi surface={surface} label="Win rate" value={fmtPct(t.win_rate_pct)} sub={`evidence ${fmtPct(bt.win_rate_pct)}`} />
-        <Kpi surface={surface} label="Average R" value={fmtR(t.avg_r)} sub={`evidence ${fmtR(bt.avg_r)}`}
+        <Kpi surface={surface} dark={dark} info={GLOSSARY.kpi_trades} label="Closed trades" value={String(t.n)} sub={`${t.open_trades} open now`} />
+        <Kpi surface={surface} dark={dark} info={GLOSSARY.kpi_win_rate} label="Win rate" value={fmtPct(t.win_rate_pct)} sub={`evidence ${fmtPct(bt.win_rate_pct)}`} />
+        <Kpi surface={surface} dark={dark} info={GLOSSARY.kpi_avg_r} label="Average R" value={fmtR(t.avg_r)} sub={`evidence ${fmtR(bt.avg_r)}`}
           trend={hasLive && t.avg_r !== null && bt.avg_r !== null ? (t.avg_r >= bt.avg_r * 0.5 ? 'up' : 'down') : undefined} />
-        <Kpi surface={surface} label="Net R" value={fmtR(t.total_r)} sub={`$${t.total_pnl.toFixed(2)} P&L`} />
-        <Kpi surface={surface} label="Profit factor" value={fmtPF(t.profit_factor)} sub={`evidence ${fmtPF(bt.profit_factor)}`} />
-        <Kpi surface={surface} label="Max drawdown" value={`${t.max_drawdown_r.toFixed(2)}R`} sub="peak-to-trough, cumulative R" />
+        <Kpi surface={surface} dark={dark} info={GLOSSARY.kpi_net_r} label="Net R" value={fmtR(t.total_r)} sub={`$${t.total_pnl.toFixed(2)} P&L`} />
+        <Kpi surface={surface} dark={dark} info={GLOSSARY.kpi_profit_factor} label="Profit factor" value={fmtPF(t.profit_factor)} sub={`evidence ${fmtPF(bt.profit_factor)}`} />
+        <Kpi surface={surface} dark={dark} info={GLOSSARY.kpi_drawdown} label="Max drawdown" value={`${t.max_drawdown_r.toFixed(2)}R`} sub="peak-to-trough, cumulative R" />
       </div>
 
       {/* Roster diagram: instrument -> its bots, focus + verdict */}
-      <Section title="Roster map" icon={<Target size={15} />} note="Each instrument with its recommended bots. Highlighted instruments are inside your current Instrument Focus and can open new trades.">
+      <Section dark={dark} info={GLOSSARY.roster_map} title="Roster map" icon={<Target size={15} />} note="Each instrument with its recommended bots. Highlighted instruments are inside your current Instrument Focus and can open new trades.">
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
           {data.instruments.map((inst) => {
             const inFocus = focus === null || focus.includes(inst.symbol);
@@ -151,8 +159,8 @@ export function RecommendedBotsDashboard({ dark = false }: { dark?: boolean }) {
                 : surface + ' opacity-70'}`}>
                 <div className="flex items-center justify-between">
                   <span className="font-bold">{short(inst.symbol)}</span>
-                  <span className={`text-[10px] font-semibold uppercase tracking-wide ${inFocus ? 'text-emerald-500' : 'text-gray-400'}`}>
-                    {inFocus ? '● trading' : '○ standby'}
+                  <span className={`inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide ${inFocus ? 'text-emerald-500' : 'text-gray-400'}`}>
+                    {inFocus ? '● trading' : '○ standby'}<InfoTip entry={GLOSSARY.trading_status} dark={dark} />
                   </span>
                 </div>
                 <div className="text-xs text-gray-400 mt-0.5">
@@ -168,7 +176,7 @@ export function RecommendedBotsDashboard({ dark = false }: { dark?: boolean }) {
       </Section>
 
       {/* Equity curve */}
-      <Section title="Cumulative R — the roster's equity curve" icon={<Activity size={15} />}
+      <Section dark={dark} info={GLOSSARY.equity_curve} title="Cumulative R — the roster's equity curve" icon={<Activity size={15} />}
         note="Every closed recommended-bot trade in order, summed in R (risk units), so instruments with different prices compare fairly.">
         {!hasLive ? <Empty text="The curve starts with the first closed trade." /> : tables ? (
           <SimpleTable head={['Closed', 'Bot', 'Instrument', 'R', 'Cumulative R']}
@@ -197,7 +205,7 @@ export function RecommendedBotsDashboard({ dark = false }: { dark?: boolean }) {
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
         {/* Live vs evidence */}
-        <Section title="Live vs evidence — average R per bot" icon={<TrendingUp size={15} />}
+        <Section dark={dark} info={GLOSSARY.live_vs_evidence_chart} title="Live vs evidence — average R per bot" icon={<TrendingUp size={15} />}
           note="Blue is what each bot is doing now; orange is the pre-rollout record that earned its place. Bots under 5 live trades show their live bar near zero — read the confidence meters first.">
           {tables ? (
             <SimpleTable head={['Bot', 'Live avg R', 'Live n', 'Evidence avg R', 'Evidence n']}
@@ -219,8 +227,11 @@ export function RecommendedBotsDashboard({ dark = false }: { dark?: boolean }) {
         </Section>
 
         {/* Confidence meters */}
-        <Section title="Confidence meters — progress to a reliable record" icon={<ListChecks size={15} />}
+        <Section dark={dark} info={GLOSSARY.confidence} title="Confidence meters — progress to a reliable record" icon={<ListChecks size={15} />}
           note="A bot's live numbers are treated as reliable at 15 closed trades. Until then, the verdict says so instead of guessing.">
+          <div className="flex items-center gap-1 text-xs text-gray-400 mb-2">
+            What do the verdict labels mean? <InfoTip entry={GLOSSARY.verdicts} dark={dark} />
+          </div>
           <div className="space-y-2">
             {data.bots.map((b) => {
               const meta = LEVEL_META[b.verdict.level];
@@ -242,7 +253,7 @@ export function RecommendedBotsDashboard({ dark = false }: { dark?: boolean }) {
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        <Section title="R distribution" icon={<Activity size={15} />} note="How big the wins and losses are. A healthy trend-following roster has a long right tail.">
+        <Section dark={dark} info={GLOSSARY.r_distribution} title="R distribution" icon={<Activity size={15} />} note="How big the wins and losses are. A healthy trend-following roster has a long right tail.">
           {!hasLive ? <Empty text="Fills in as trades close." /> : tables ? (
             <SimpleTable head={['Outcome', 'Trades']} rows={data.r_distribution.map((b) => [b.bin, String(b.count)])} />
           ) : (
@@ -260,7 +271,7 @@ export function RecommendedBotsDashboard({ dark = false }: { dark?: boolean }) {
           )}
         </Section>
 
-        <Section title="Daily P&L" icon={<Activity size={15} />} note="Blue days made money, red days lost it.">
+        <Section dark={dark} info={GLOSSARY.daily_pnl} title="Daily P&L" icon={<Activity size={15} />} note="Blue days made money, red days lost it.">
           {!hasLive ? <Empty text="Fills in as trades close." /> : tables ? (
             <SimpleTable head={['Day', 'Trades', 'R', 'P&L']} rows={data.daily.map((d) => [d.day, String(d.n), fmtR(d.r), `$${d.pnl.toFixed(2)}`])} />
           ) : (
@@ -279,7 +290,7 @@ export function RecommendedBotsDashboard({ dark = false }: { dark?: boolean }) {
           )}
         </Section>
 
-        <Section title="How trades end" icon={<Activity size={15} />} note="Exit mix. Many stop-outs with few trailing exits means runners are being cut short.">
+        <Section dark={dark} info={GLOSSARY.exits} title="How trades end" icon={<Activity size={15} />} note="Exit mix. Many stop-outs with few trailing exits means runners are being cut short.">
           {!data.exits.length ? <Empty text="Fills in as trades close." /> : (
             <div className="space-y-1.5">
               {data.exits.map((e) => {
@@ -300,7 +311,7 @@ export function RecommendedBotsDashboard({ dark = false }: { dark?: boolean }) {
 
       {/* Key insights + recommendations */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        <Section title="Key insights" icon={<Lightbulb size={15} />} note="Generated from the live data on every refresh, with sample-size guards so small streaks are never presented as verdicts.">
+        <Section dark={dark} info={GLOSSARY.insights} title="Key insights" icon={<Lightbulb size={15} />} note="Generated from the live data on every refresh, with sample-size guards so small streaks are never presented as verdicts.">
           <ul className="space-y-2">
             {data.insights.map((ins, i) => {
               const meta = LEVEL_META[ins.level];
@@ -317,7 +328,7 @@ export function RecommendedBotsDashboard({ dark = false }: { dark?: boolean }) {
           </ul>
         </Section>
 
-        <Section title="Recommendations summary" icon={<ListChecks size={15} />} note="Prioritised actions, highest first. They update as the live record grows.">
+        <Section dark={dark} info={GLOSSARY.recommendations} title="Recommendations summary" icon={<ListChecks size={15} />} note="Prioritised actions, highest first. They update as the live record grows.">
           <ol className="space-y-2">
             {data.recommendations.map((r, i) => (
               <li key={i} className={`rounded-lg border p-2.5 ${surface}`}>
@@ -337,17 +348,25 @@ export function RecommendedBotsDashboard({ dark = false }: { dark?: boolean }) {
       </div>
 
       {/* Basis of the recommendations */}
-      <Section title="Basis of the recommendations" icon={<Info size={15} />}
+      <Section dark={dark} info={GLOSSARY.basis} title="Basis of the recommendations" icon={<Info size={15} />}
         note="The evidence each bot was selected on: its strategy's closed trades on that instrument, from every other bot, before the roster went live. It is frozen — nothing can be added to a past date — so this is exactly what the selection saw.">
         <div className={`rounded-lg border p-3 mb-3 text-xs space-y-1 ${surface}`}>
-          <div><span className="font-semibold">Ranking:</span> {data.selection_rule.score}</div>
-          <div><span className="font-semibold">Eligible:</span> {data.selection_rule.eligibility}</div>
-          <div><span className="font-semibold">Pick:</span> {data.selection_rule.pick}</div>
-          <div><span className="font-semibold">Build:</span> {data.selection_rule.source}</div>
-          <div><span className="font-semibold">Confidence:</span> {data.selection_rule.confidence_floor}</div>
+          <div className="flex items-start gap-1"><InfoTip entry={GLOSSARY.evidence_score} dark={dark} /><span><span className="font-semibold">Ranking:</span> {data.selection_rule.score}</span></div>
+          <div className="flex items-start gap-1"><InfoTip entry={GLOSSARY.eligibility} dark={dark} /><span><span className="font-semibold">Eligible:</span> {data.selection_rule.eligibility}</span></div>
+          <div className="flex items-start gap-1"><InfoTip entry={GLOSSARY.pick_rule} dark={dark} /><span><span className="font-semibold">Pick:</span> {data.selection_rule.pick}</span></div>
+          <div className="flex items-start gap-1"><InfoTip entry={GLOSSARY.build_rule} dark={dark} /><span><span className="font-semibold">Build:</span> {data.selection_rule.source}</span></div>
+          <div className="flex items-start gap-1"><InfoTip entry={GLOSSARY.confidence_floor} dark={dark} /><span><span className="font-semibold">Confidence:</span> {data.selection_rule.confidence_floor}</span></div>
         </div>
         <SimpleTable
-          head={['Instrument', 'Bot', 'Evidence n', 'Win %', 'Avg R', 'Profit factor', 'Evidence score', 'Live n', 'Live avg R', 'Verdict']}
+          head={['Instrument', 'Bot',
+            <span key="en" className="inline-flex items-center gap-1">Evidence n<InfoTip entry={GLOSSARY.col_evidence_n} dark={dark} /></span>,
+            <span key="wr" className="inline-flex items-center gap-1">Win %<InfoTip entry={GLOSSARY.kpi_win_rate} dark={dark} /></span>,
+            <span key="ar" className="inline-flex items-center gap-1">Avg R<InfoTip entry={GLOSSARY.kpi_avg_r} dark={dark} /></span>,
+            <span key="pf" className="inline-flex items-center gap-1">Profit factor<InfoTip entry={GLOSSARY.kpi_profit_factor} dark={dark} /></span>,
+            <span key="es" className="inline-flex items-center gap-1">Evidence score<InfoTip entry={GLOSSARY.evidence_score} dark={dark} /></span>,
+            <span key="ln" className="inline-flex items-center gap-1">Live n<InfoTip entry={GLOSSARY.col_live_n} dark={dark} /></span>,
+            <span key="la" className="inline-flex items-center gap-1">Live avg R<InfoTip entry={GLOSSARY.kpi_avg_r} dark={dark} /></span>,
+            <span key="vd" className="inline-flex items-center gap-1">Verdict<InfoTip entry={GLOSSARY.verdicts} dark={dark} /></span>]}
           rows={data.bots.map((b) => [
             short(b.symbol), famLabel(b.family), String(b.baseline.n), fmtPct(b.baseline.win_rate_pct), fmtR(b.baseline.avg_r),
             fmtPF(b.baseline.profit_factor), b.baseline.evidence_score.toFixed(2), String(b.live.n), fmtR(b.live.avg_r),
@@ -361,10 +380,10 @@ export function RecommendedBotsDashboard({ dark = false }: { dark?: boolean }) {
   );
 }
 
-function Kpi({ label, value, sub, surface, trend }: { label: string; value: string; sub: string; surface: string; trend?: 'up' | 'down' }) {
+function Kpi({ label, value, sub, surface, trend, info, dark }: { label: string; value: string; sub: string; surface: string; trend?: 'up' | 'down'; info: GlossaryEntry; dark: boolean }) {
   return (
     <div className={`rounded-xl border p-3 ${surface}`}>
-      <div className="text-[10px] uppercase tracking-wide text-gray-400">{label}</div>
+      <div className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-gray-400">{label}<InfoTip entry={info} dark={dark} /></div>
       <div className="flex items-center gap-1.5 text-xl font-bold mt-0.5">
         {value}
         {trend === 'up' && <TrendingUp size={15} className="text-emerald-500" aria-label="holding its evidence edge" />}
@@ -375,10 +394,10 @@ function Kpi({ label, value, sub, surface, trend }: { label: string; value: stri
   );
 }
 
-function Section({ title, icon, note, children }: { title: string; icon: ReactNode; note?: string; children: ReactNode }) {
+function Section({ title, icon, note, children, info, dark }: { title: string; icon: ReactNode; note?: string; children: ReactNode; info: GlossaryEntry; dark: boolean }) {
   return (
     <section>
-      <h4 className="flex items-center gap-1.5 font-semibold">{icon}{title}</h4>
+      <h4 className="flex items-center gap-1.5 font-semibold">{icon}{title}<InfoTip entry={info} dark={dark} /></h4>
       {note && <p className="text-xs text-gray-400 mt-0.5 mb-2">{note}</p>}
       {children}
     </section>
@@ -407,12 +426,12 @@ function Empty({ text }: { text: string }) {
   return <p className="text-xs text-gray-400 py-6 text-center">{text}</p>;
 }
 
-function SimpleTable({ head, rows }: { head: string[]; rows: string[][] }) {
+function SimpleTable({ head, rows }: { head: ReactNode[]; rows: string[][] }) {
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-xs">
         <thead>
-          <tr className="text-left text-gray-400">{head.map((h) => <th key={h} className="py-1.5 pr-3 font-medium whitespace-nowrap">{h}</th>)}</tr>
+          <tr className="text-left text-gray-400">{head.map((h, i) => <th key={i} className="py-1.5 pr-3 font-medium whitespace-nowrap">{h}</th>)}</tr>
         </thead>
         <tbody>
           {rows.map((r, i) => (
