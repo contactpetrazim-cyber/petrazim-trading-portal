@@ -106,6 +106,34 @@ const BOT_REFERENCE: Array<{
     rel: 'A/B vs Bot 3 — direction decided first via 15M BOS (same ordering fix as Bot 7), then entry taken from the farthest fresh 1H order block instead of any FVG\'s midpoint',
     note: 'Real isolated-mode backtest, identical bars/costs/engine for both variants (only the POI changed): BTCUSDT.P 30d — baseline FVG-mid n=69, win_rate=14.5%, expectancy=-0.242R vs OB-POI n=163, win_rate=59.5%, expectancy=+0.429R; XAUTUSDT.P 30d — baseline n=55, win_rate=16.4%, expectancy=-0.268R vs OB-POI n=140, win_rate=53.6%, expectancy=+0.355R. Consistent, large-sample, same-direction result on both real symbols tested. Honest caveat: Bot 3\'s OWN baseline backtest is already known to be wildly inconsistent with its real ~82% live win rate (same unresolved backtest-engine fidelity issue as Bot 13) — these absolute numbers aren\'t a reliable real-performance estimate for either variant, but the RELATIVE improvement (same engine, same bars, one variable changed) is a real, structured signal.',
     rec: 'Shipped as a separate, isolated A/B bot specifically because of the backtest-fidelity caveat — Bot 3 itself stays untouched. Let real trades accumulate and compare against Bot 3\'s own real history directly, same approach as every other A/B variant this session.' },
+  // bot_18-22 — added after the fact (mirrors trading_audit_engine.py's
+  // BOT_OPTIMIZATION_REFERENCE rows). Live-sample figures are a dated
+  // 2026-11-11 snapshot; the live expectancy table above is the current number.
+  { fam: 'bot_18', name: 'Bot 18 — SMC v2, OB-POI', instr: 'BTC · JPY/EUR/XAUT · NAS100 · Oil',
+    entry: 'Aligned 1H order block\'s own extreme edge (not an FVG/confirmation-candle midpoint)', sl: 'Identical to Bot 6', tp: 'Identical to Bot 6',
+    rel: 'A/B vs Bot 6 — the same single-variable OB-POI swap Bot 17 is to Bot 3 (Bot 6\'s registered zone-variant sibling)',
+    note: 'Built from Bot 6/Bot 8 being the worst family on NAS100 (-0.334R / -0.413R mean, 40% win, n=10 each as of 2026-10-26) while Bot 17\'s identical swap proved out for Bot 3. Still needs 5M candles, so it shares Bot 5/6/8\'s 35-day backtest window. Live sample as of 2026-11-11: n=6 closed, 0 wins, -$60.38 — too small to judge, but the worst early start of the five 2026-10 variants.',
+    rec: 'Watch closely against Bot 6\'s own real history; now backtest-able by the tuning worker since the 5M lookback cap (PR #376).' },
+  { fam: 'bot_19', name: 'Bot 19 — SMC v2, 1H Entry', instr: 'BTC · JPY/EUR/XAUT · NAS100 · Oil',
+    entry: 'Bot 6\'s confirmation-candle/FVG steps read on 1H bars instead of 5M', sl: 'Identical to Bot 6', tp: 'Identical to Bot 6',
+    rel: 'A/B vs Bot 6 — isolates entry timeframe (5M→1H); nothing else differs',
+    note: 'Built from 302 real closed trades (2026-10-26): 1H-entry bots (bot_3/7/17) ran 75.4% win / +2.308R vs 47.4% / -0.050R for the 5M-hybrid family (bot_5/6/8) — confounded with strategy complexity, which this bot isolates. No 5M dependency (60-day backtest window). Live sample as of 2026-11-11: n=7 closed, 42.9% win, -$25.89.',
+    rec: 'Too small to judge — let trades accumulate.' },
+  { fam: 'bot_20', name: 'Bot 20 — SMC BOT, 1H Entry', instr: 'BTC · NAS100 · Oil',
+    entry: 'Bot 5\'s confirmation-candle/FVG steps read on 1H bars instead of 5M', sl: 'Identical to Bot 5', tp: 'Identical to Bot 5',
+    rel: 'A/B vs Bot 5 — same 5M→1H swap as Bot 19',
+    note: 'Same hypothesis as Bot 19. No 5M dependency. Live sample as of 2026-11-11: n=2 closed, 0 wins, -$17.05 — effectively no sample yet.',
+    rec: 'Too small to judge — let trades accumulate.' },
+  { fam: 'bot_21', name: 'Bot 21 — SMC v2 Single-Anchor, 1H Entry', instr: 'BTC · JPY/EUR/XAUT · NAS100 · Oil',
+    entry: 'Bot 8\'s confirmation-candle/FVG steps read on 1H bars instead of 5M', sl: 'Identical to Bot 8', tp: 'Identical to Bot 8',
+    rel: 'A/B vs Bot 8 — same 5M→1H swap as Bot 19',
+    note: 'Same hypothesis as Bot 19. No 5M dependency; like Bot 8, fires far more often than its siblings. Live sample as of 2026-11-11: n=26 closed, 42.3% win, -$19.08 — the largest sample of the five, roughly breakeven-to-slightly-negative, the same shape as Bot 8\'s own backtest (avg -0.069R).',
+    rec: 'The 1H swap has not yet shown an edge here; the most informative of the five to keep watching.' },
+  { fam: 'bot_22', name: 'Bot 22 — SMC BOT HTF-Gated, 1H Entry', instr: 'BTC',
+    entry: 'Bot 14\'s confirmation-candle/FVG steps read on 1H bars instead of 5M', sl: 'Identical to Bot 14', tp: 'Identical to Bot 14',
+    rel: 'A/B vs Bot 14 — same 5M→1H swap as Bot 19, on the 1D-HTF-gated setup',
+    note: 'Stacks the strictest gate set in the Jeafx family on a single BTC instance. Live as of 2026-11-11: zero trades ever — the same documented strict-gate selectivity as Bot 4/13/14, not a detected defect.',
+    rec: 'Deliberately not loosened; a product tradeoff, not a bug.' },
 ];
 
 /**
