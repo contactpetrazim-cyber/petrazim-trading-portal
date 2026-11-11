@@ -68,14 +68,24 @@ _F92 = "f9292abf-063d-484a-ac21-d25a7ed90105"
 
 INSTANCES = [
     # --- Bot 17 (zone-type) vs Bot 3's 4 real rows ---
+    # trailing_activation back to 2.0 (TP2) -- see trailing_stop_distance's
+    # own per-family override below. The FVG-expansion lineage (bot_3/
+    # bot_7/bot_17) proved a genuine big-trend edge that the platform
+    # default's early/narrow trail was capping at ~1-3R instead of
+    # letting it run 5-20R (confirmed directly: era-split real data,
+    # avg trailing-exit R falling from 5.4-5.9R to 1.1-1.3R after the
+    # platform-wide rollout) -- reverted for this lineage specifically,
+    # by direct instruction, while every other family keeps the
+    # platform default that demonstrably fixed their own TP1-giveback
+    # problem (bot_12's own A/B: -0.24R -> +0.19R).
     ("bot_17_fvg_expansion_ob_poi", "FVG Expansion, OB-POI", "bot_17", None, ["BTCUSDT.P"],
-     _F92, ExecutionMode.FULLY_AUTONOMOUS, 4.0, 1.0),
+     _F92, ExecutionMode.FULLY_AUTONOMOUS, 4.0, 2.0),
     ("bot_17_fvg_expansion_ob_poi_2", "FVG Expansion, OB-POI", "bot_17", "mexc", ["JPYUSDT.P", "EURUSDT.P", "XAUTUSDT.P"],
-     _PETRAZIM, ExecutionMode.FULLY_AUTONOMOUS, 4.0, 1.0),
+     _PETRAZIM, ExecutionMode.FULLY_AUTONOMOUS, 4.0, 2.0),
     ("bot_17_fvg_expansion_ob_poi_3", "FVG Expansion, OB-POI", "bot_17", "mexc", ["NAS100USDT.P"],
-     _PETRAZIM, ExecutionMode.FULLY_AUTONOMOUS, 4.0, 1.0),
+     _PETRAZIM, ExecutionMode.FULLY_AUTONOMOUS, 4.0, 2.0),
     ("bot_17_fvg_expansion_ob_poi_4", "FVG Expansion, OB-POI", "bot_17", "bingx", ["NCCO1OILBRENT2USDUSDT.P", "NCCO1OILWTI2USDUSDT.P"],
-     _PETRAZIM, ExecutionMode.FULLY_AUTONOMOUS, 4.0, 1.0),
+     _PETRAZIM, ExecutionMode.FULLY_AUTONOMOUS, 4.0, 2.0),
 
     # --- Bot 18 (zone-type) vs Bot 6's 5 real symbol-group rows ---
     ("bot_18_smc_v2_ob_poi", "SMC v2, OB-POI", "bot_18", "mexc", ["NAS100USDT.P"],
@@ -168,12 +178,18 @@ async def seed_zone_variant_bots():
             if bot_id in existing_ids:
                 print(f"  SKIP — {bot_id} already exists")
                 continue
+            # bot_17 inherits the FVG-expansion lineage's late/wide
+            # trailing override (see its own INSTANCES comment above);
+            # every other family keeps COMMON_FIELDS' step_down default.
+            fields = {**COMMON_FIELDS}
+            if strategy_key == "bot_17":
+                fields["trailing_stop_distance"] = "fixed"
             db.add(BotConfig(
                 bot_id=bot_id, bot_name=bot_name, strategy_key=strategy_key,
                 exchange=exchange, symbols=symbols, user_id=user_id,
                 execution_mode=execution_mode, min_rr_ratio=min_rr_ratio,
                 trailing_stop_activation=trailing_activation,
-                **COMMON_FIELDS,
+                **fields,
             ))
             created += 1
             print(f"  OK — created {bot_id} (exchange={exchange}, symbols={symbols}, strategy_key={strategy_key})")

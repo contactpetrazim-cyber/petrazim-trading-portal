@@ -84,6 +84,31 @@ from app.engines.monte_carlo_engine import TradeRecord
 
 logger = structlog.get_logger()
 
+# bingx's own real 5M candle retention (confirmed empirically this
+# session: available ~44 days back, empty at ~46+ -- the same
+# constant trading_audit_engine.py's own BACKTEST_VALIDATION_TARGETS
+# already uses for 5M-needing families). INTELLIGENT_TUNING_LOOKBACK_
+# DAYS defaults to 90 -- always wider than this -- so every bot whose
+# strategy requires 5M (bot_5/6/8/18's whole lineage) could NEVER
+# produce a successful backtest through this worker: every single
+# cycle hit intelligent_tuning_backtest_data_gap/no_baseline_trades
+# and silently gave up, both for numeric tuning AND zone-variant
+# tuning. Found live while investigating why bot_18 (a clean 100%
+# loss streak) had never had a single StrategyAdjustment or zone-type
+# move applied -- confirmed via this worker's own real log output,
+# not a code-reading guess. Capping the EFFECTIVE lookback (never the
+# configured setting itself) to this value whenever "5M" is among a
+# bot's required timeframes fixes it at the one place both numeric
+# and zone-variant tuning already share (_run_backtest), rather than
+# needing the same fix twice.
+SAFE_LOOKBACK_DAYS_WITH_5M = 35
+
+
+def _effective_lookback_days(required_tf_labels: List[str], configured_days: int) -> int:
+    if "5M" in required_tf_labels:
+        return min(configured_days, SAFE_LOOKBACK_DAYS_WITH_5M)
+    return configured_days
+
 
 def _symbol_stub(bot: BotConfig, symbol: str) -> BotConfig:
     """A throwaway, never-persisted (no db.add/commit) BotConfig
@@ -228,7 +253,7 @@ class IntelligentTuningWorker:
         exchange = bot.exchange or "bingx"
 
         end = datetime.utcnow()
-        start = end - timedelta(days=lookback_days)
+        start = end - timedelta(days=_effective_lookback_days(required_tf_labels, lookback_days))
 
         # fetch_required_timeframe_candles (strategy_adapter.py) —
         # same real per-timeframe-retention bug this module used to
