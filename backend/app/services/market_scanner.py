@@ -165,6 +165,27 @@ def _bar_open(ts: datetime, bar: timedelta) -> datetime:
     return epoch + ((ts - epoch) // bar) * bar
 
 
+HTF_TOPUP_LIMIT = 3
+HTF_FULL_RESYNC = timedelta(hours=24)
+HTF_CACHE_BARS = 200
+
+
+def merge_candles(cached: List[Candle], fresh: List[Candle]) -> Optional[List[Candle]]:
+    """Merge a small top-up into the cached history by bar timestamp.
+    Returns None when the top-up doesn't overlap the cache (a gap the
+    caller must resync fully) — never stitches across missing bars."""
+    if not fresh:
+        return list(cached)
+    if not cached:
+        return None
+    by_ts = {c.timestamp: c for c in cached}
+    if min(c.timestamp for c in fresh) > max(by_ts):
+        return None  # top-up starts after the cache ends: bars missing in between
+    for c in fresh:
+        by_ts[c.timestamp] = c
+    return [by_ts[t] for t in sorted(by_ts)][-HTF_CACHE_BARS:]
+
+
 def htf_cache_is_fresh(tf_key: str, fetched_at: datetime, now: datetime) -> bool:
     bar = _HTF_BAR[tf_key]
     return now - fetched_at < _HTF_CACHE_MAX_AGE[tf_key] and _bar_open(now, bar) == _bar_open(fetched_at, bar)
@@ -642,13 +663,35 @@ class MarketScanner:
         await db.commit()
 
     async def _cached_htf_candles(self, exchange: str, symbol: str, tf_key: str, ccxt_tf: str) -> Optional[List[Candle]]:
+        """4H/1D candles, pulled intelligently (by direct request: "can we
+        intelligently pull these"). The cache holds the full 200-bar
+        history; each refresh downloads only the last HTF_TOPUP_LIMIT
+        bars (the forming bar, the one that just closed, one spare) and
+        merges them in by bar timestamp — changed bars replaced, new bars
+        appended, oldest trimmed. A full 200-bar pull happens only on a
+        cold cache, when the top-up doesn't overlap the cache (a gap,
+        e.g. after downtime), or once per HTF_FULL_RESYNC as a safety
+        resync so the cache can never drift from the exchange."""
         key = (exchange, symbol, tf_key)
         now = datetime.utcnow()
         hit = self._htf_cache.get(key)
         if hit and htf_cache_is_fresh(tf_key, hit[0], now):
             return hit[1]
+
+        full = hit is None or now - hit[2] >= HTF_FULL_RESYNC
         try:
-            candles = await self.ingestion.fetch_historical_ccxt(exchange=exchange, symbol=symbol, timeframe=ccxt_tf, limit=200)
+            fetched = await self.ingestion.fetch_historical_ccxt(
+                exchange=exchange, symbol=symbol, timeframe=ccxt_tf, limit=200 if full else HTF_TOPUP_LIMIT,
+            )
+            if not full:
+                merged = merge_candles(hit[1], fetched or [])
+                if merged is None:  # no overlap -> gap: resync fully
+                    full = True
+                    fetched = await self.ingestion.fetch_historical_ccxt(
+                        exchange=exchange, symbol=symbol, timeframe=ccxt_tf, limit=200,
+                    )
+                else:
+                    fetched = merged
         except Exception as e:
             logger.warning("market_scan_timeframe_fetch_failed", exchange=exchange, symbol=symbol, timeframe=ccxt_tf, error=str(e))
             # Serve the last good copy for one more max-age rather than
@@ -656,9 +699,9 @@ class MarketScanner:
             if hit and now - hit[0] < 2 * _HTF_CACHE_MAX_AGE[tf_key]:
                 return hit[1]
             return None
-        if candles:
-            self._htf_cache[key] = (now, candles)
-        return candles
+        if fetched:
+            self._htf_cache[key] = (now, fetched, now if full else hit[2])
+        return fetched or (hit[1] if hit else None)
 
     async def _fetch_market_data(self, exchange: str, symbol: str, timeframes: Optional[set] = None) -> Dict[str, List[Candle] | str]:
         """timeframes=None fetches all five (original behaviour); a set
