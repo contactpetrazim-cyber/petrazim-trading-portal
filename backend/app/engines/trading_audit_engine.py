@@ -456,6 +456,31 @@ BOT_OPTIMIZATION_REFERENCE: List[Dict[str, str]] = [
              "inconsistent with its real ~82% live win rate (the same unresolved backtest-engine fidelity issue noted under Bot 13) — these absolute numbers aren't a reliable real-performance "
              "estimate for either variant, but the RELATIVE improvement (same engine, same bars, one variable changed) is a real, structured signal worth testing live. Shipped as a separate, "
              "isolated A/B bot for exactly that reason — Bot 3 itself stays byte-for-byte untouched, its real live track record never put at risk on a backtest-only result."},
+    # bot_18-22: added after the fact (they were built after this table
+    # was authored and never got rows). Descriptions come from each
+    # class's own docstring in core/bot_strategies.py; the live-sample
+    # numbers are a dated snapshot from a direct trades-table query —
+    # the run's own Bot-Family Expectancy section is the live figure.
+    {"fam": "bot_18", "name": "Bot 18 — SMC v2, OB-POI", "sl": "Identical to Bot 6 — jeafx_purge_extreme, embed aligned zone, floored 0.15%",
+     "rel": "A/B vs Bot 6 — entry taken at the aligned 1H order block's own extreme edge instead of an FVG/confirmation-candle midpoint; the same single-variable OB-POI swap Bot 17 is to Bot 3 "
+            "(registered as Bot 6's zone-variant sibling in ZONE_VARIANT_SIBLINGS)",
+     "note": "Built from Bot 6/Bot 8 being the worst family on NAS100 (-0.334R / -0.413R mean, 40% win, n=10 each as of 2026-10-26) while Bot 17's identical swap proved out for Bot 3. "
+             "Still needs 5M candles (5M confirmation step unchanged), so it shares Bot 5/6/8's shorter backtest window. " + "Live sample as of 2026-11-11 (closed trades, 5 instances, INTELLIGENT mode): n=6, 0 wins, -$60.38 — too small to judge, but the worst early start of the five 2026-10 variants; watch closely against Bot 6's own real history."},
+    {"fam": "bot_19", "name": "Bot 19 — SMC v2, 1H Entry", "sl": "Identical to Bot 6",
+     "rel": "A/B vs Bot 6 — confirmation-candle/FVG-selection steps read 1H bars instead of 5M (same 5/20/10-candle conventions); nothing else differs",
+     "note": "Built from 302 real closed trades (2026-10-26): 1H-entry bots (bot_3/7/17) ran 75.4% win / +2.308R vs 47.4% / -0.050R for the 5M-hybrid family (bot_5/6/8) — a gap confounded "
+             "with strategy complexity, which this bot isolates for Bot 6 specifically. No 5M dependency, so it backtests over the full 60-day window. " + "Live sample as of 2026-11-11 (closed trades, 5 instances, INTELLIGENT mode): n=7, 42.9% win, -$25.89 — too small to judge."},
+    {"fam": "bot_20", "name": "Bot 20 — SMC BOT, 1H Entry", "sl": "Identical to Bot 5",
+     "rel": "A/B vs Bot 5 — same 5M→1H confirmation-step swap as Bot 19, applied to Bot 5's own setup",
+     "note": "Same hypothesis as Bot 19 (see its note). No 5M dependency. " + "Live sample as of 2026-11-11 (closed trades, 4 instances, INTELLIGENT mode): n=2, 0 wins, -$17.05 — effectively no sample yet."},
+    {"fam": "bot_21", "name": "Bot 21 — SMC v2 Single-Anchor, 1H Entry", "sl": "Identical to Bot 8",
+     "rel": "A/B vs Bot 8 — same 5M→1H confirmation-step swap as Bot 19, applied to Bot 8's own setup",
+     "note": "Same hypothesis as Bot 19. No 5M dependency. Like Bot 8 vs Bot 6, it fires far more often than its siblings (no LTF-agreement gate). " + "Live sample as of 2026-11-11 (closed trades, 5 instances, INTELLIGENT mode): n=26, 42.3% win, -$19.08 — the largest sample of the five, roughly breakeven-to-slightly-negative, the same shape as Bot 8's own backtest (avg -0.069R); the 1H swap has not "
+             "yet shown an edge here."},
+    {"fam": "bot_22", "name": "Bot 22 — SMC BOT HTF-Gated, 1H Entry", "sl": "Identical to Bot 14 (and so Bot 5)",
+     "rel": "A/B vs Bot 14 — same 5M→1H confirmation-step swap as Bot 19, applied to Bot 14's 1D-HTF-gated setup",
+     "note": "Same hypothesis as Bot 19. No 5M dependency. Stacks the strictest gate set in the Jeafx family (1D HTF alignment + Bot 5's own gates) on a single BTC instance: " +
+             "Live sample as of 2026-11-11 (closed trades, 1 instance, INTELLIGENT mode): zero trades ever — the same documented strict-gate selectivity as Bot 4/Bot 13/Bot 14, not a detected defect."},
 ]
 
 # Stage 9, now wired in for real (by direct request, "continue
@@ -486,6 +511,13 @@ BACKTEST_VALIDATION_TARGETS = [
     ("bot_13", "BTCUSDT.P", "bingx", 60),
     ("bot_14", "BTCUSDT.P", "bingx", 35),
     ("bot_17", "BTCUSDT.P", "bingx", 60),
+    # bot_18 keeps Bot 6's 5M confirmation step → the 5M-safe window;
+    # bot_19-22 swapped it to 1H (no 5M in their BOT_REGISTRY entries).
+    ("bot_18", "BTCUSDT.P", "bingx", 35),
+    ("bot_19", "BTCUSDT.P", "bingx", 60),
+    ("bot_20", "BTCUSDT.P", "bingx", 60),
+    ("bot_21", "BTCUSDT.P", "bingx", 60),
+    ("bot_22", "BTCUSDT.P", "bingx", 60),
 ]
 
 
