@@ -24,6 +24,7 @@ this file ever failed to deploy.
 from typing import Dict, List, Optional, Literal, Tuple
 from dataclasses import dataclass
 from datetime import datetime
+import json
 import structlog
 from app.core.smc_algorithms import (
     MarketStructureDetector, ZoneDetector, FVGDetector,
@@ -4368,6 +4369,25 @@ class BotOrchestrator:
             for bot_key, (bot_cls, _required_tfs) in BOT_REGISTRY.items()
         }
         self.active_signals: List[BotSignal] = []
+        # Per-bot strategy instances, keyed by (family, params). A bot
+        # entry that carries its own "strategy_params" runs on an
+        # instance built from exactly those params, so two bots of the
+        # same family can hold DIFFERENT tuning at once (e.g. Bot 3 on
+        # BTC and Bot 3 on EUR, each tuned on its own instrument by
+        # Intelligent mode). Previously one shared instance per family
+        # meant any disagreement fell back to defaults for every
+        # sibling, silently discarding all of their tuning.
+        self._param_instances: Dict[tuple, object] = {}
+
+    def _instance_for(self, bot_key: str, params: Optional[Dict]):
+        if params is None:
+            return self.bots[bot_key]
+        cache_key = (bot_key, json.dumps(params, sort_keys=True, default=str))
+        inst = self._param_instances.get(cache_key)
+        if inst is None:
+            inst = BOT_REGISTRY[bot_key][0](params)
+            self._param_instances[cache_key] = inst
+        return inst
 
     def _collect(self, signals: List[BotSignal], sig: Optional[BotSignal], account_balance: float) -> None:
         """Every signal any bot produces passes through here before
@@ -4417,6 +4437,16 @@ class BotOrchestrator:
             # self.bot_id default).
             return families.get(bot_key) or [{"bot_id": None, "risk_per_trade": None, "min_rr_ratio": None}]
 
+        # Scanner path (bot_settings given): run ONLY families that have
+        # a real bot on this (exchange, symbol) group. The old behaviour
+        # also ran every other registered family's default instance and
+        # then discarded its signal (no configured bot carries that
+        # default bot_id) — measured live after the Recommended Bots
+        # rollout at 120 of 133 analyze() calls per cycle (90%) wasted.
+        # Callers that pass no bot_settings (signal preview, ingestion
+        # backfill) keep the original run-everything behaviour.
+        scanner_path = bot_settings is not None
+
         def _run_family(bot_key: str, *candle_args: List[Candle]) -> None:
             for entry in _entries(bot_key):
                 # Real bug, found live the first time the market
@@ -4441,7 +4471,7 @@ class BotOrchestrator:
                 # blast radius covering bots that have nothing to do
                 # with whatever broke.
                 try:
-                    sig = self.bots[bot_key].analyze(
+                    sig = self._instance_for(bot_key, entry.get("strategy_params")).analyze(
                         *candle_args,
                         account_balance, market_data.get("symbol", "UNKNOWN"),
                         risk_per_trade=entry.get("risk_per_trade"), min_rr_ratio=entry.get("min_rr_ratio"),
@@ -4464,6 +4494,8 @@ class BotOrchestrator:
         # Bots 8-11 here (they WERE added correctly) vs
         # strategy_adapter.py's separate copy (which wasn't).
         for bot_key, (_bot_cls, required_tfs) in BOT_REGISTRY.items():
+            if scanner_path and bot_key not in families:
+                continue
             labels = [label for _, label in required_tfs]
             if all(label in market_data for label in labels):
                 _run_family(bot_key, *[market_data[label] for label in labels])
