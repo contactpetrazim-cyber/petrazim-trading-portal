@@ -107,6 +107,7 @@ export function RecommendedBotsDashboard({ dark = false }: { dark?: boolean }) {
     return <p className="text-sm text-gray-400">No Recommended Bots yet — this dashboard appears once the recommended roster exists.</p>;
   }
 
+  const target = data.confidence_target ?? 21;
   const t = data.totals!;
   const bt = data.baseline_totals!;
   const hasLive = t.n > 0;
@@ -167,7 +168,7 @@ export function RecommendedBotsDashboard({ dark = false }: { dark?: boolean }) {
                   live {inst.live.n ? `${fmtR(inst.live.avg_r)} · n=${inst.live.n}` : 'no trades yet'} · evidence {fmtR(inst.baseline.avg_r)}
                 </div>
                 <div className="mt-2 space-y-1.5">
-                  {bots.map((b) => <BotChip key={b.bot_id} b={b} track={c.track} live={c.live} />)}
+                  {bots.map((b) => <BotChip key={b.bot_id} b={b} track={c.track} live={c.live} target={target} />)}
                 </div>
               </div>
             );
@@ -228,7 +229,7 @@ export function RecommendedBotsDashboard({ dark = false }: { dark?: boolean }) {
 
         {/* Confidence meters */}
         <Section dark={dark} info={GLOSSARY.confidence} title="Confidence meters — progress to a reliable record" icon={<ListChecks size={15} />}
-          note="A bot's live numbers are treated as reliable at 15 closed trades. Until then, the verdict says so instead of guessing.">
+          note="A bot's live numbers are treated as reliable at 21 closed trades — the Basic-mode baseline. Until then, the verdict says so instead of guessing.">
           <div className="flex items-center gap-1 text-xs text-gray-400 mb-2">
             What do the verdict labels mean? <InfoTip entry={GLOSSARY.verdicts} dark={dark} />
           </div>
@@ -244,7 +245,7 @@ export function RecommendedBotsDashboard({ dark = false }: { dark?: boolean }) {
                   <div className="h-2 rounded-full mt-1" style={{ background: c.track }}>
                     <div className="h-2 rounded-full transition-all" style={{ width: `${Math.max(2, b.confidence_pct)}%`, background: c.live }} />
                   </div>
-                  <div className="text-[10px] text-gray-400 mt-0.5">{b.live.n}/15 trades · {b.open_trades} open{b.last_trade_at ? ` · last closed ${b.last_trade_at.slice(0, 10)}` : ''}</div>
+                  <div className="text-[10px] text-gray-400 mt-0.5">{b.live.n}/{target} trades · {b.open_trades} open{b.last_trade_at ? ` · last closed ${b.last_trade_at.slice(0, 10)}` : ''}</div>
                 </div>
               );
             })}
@@ -404,7 +405,7 @@ function Section({ title, icon, note, children, info, dark }: { title: string; i
   );
 }
 
-function BotChip({ b, track, live }: { b: RecBotRow; track: string; live: string }) {
+function BotChip({ b, track, live, target }: { b: RecBotRow; track: string; live: string; target: number }) {
   const meta = LEVEL_META[b.verdict.level];
   return (
     <div className="text-xs">
@@ -416,7 +417,7 @@ function BotChip({ b, track, live }: { b: RecBotRow; track: string; live: string
         <div className="flex-1 h-1 rounded-full" style={{ background: track }}>
           <div className="h-1 rounded-full" style={{ width: `${Math.max(3, b.confidence_pct)}%`, background: live }} />
         </div>
-        <span className="text-[10px] text-gray-400 tabular-nums">{b.live.n}/15 · {fmtR(b.live.avg_r)}</span>
+        <span className="text-[10px] text-gray-400 tabular-nums">{b.live.n}/{target} · {fmtR(b.live.avg_r)}</span>
       </div>
     </div>
   );
