@@ -24,7 +24,7 @@ service instead of this loop.
 from __future__ import annotations
 
 import asyncio
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import structlog
 from sqlalchemy import select
@@ -294,11 +294,34 @@ class MarketScanner:
         # is what both the candle fetch below AND signal.preferred_broker
         # resolve to — see exchange_engine.py's own module docstring for
         # why those two can no longer disagree.
+        # Instrument Focus engine (services/instrument_selection.py): each
+        # bot owner's bots may only open NEW trades on that owner's
+        # allowed instruments (max 3 by default). Applied here, before
+        # any candle fetch, so a dropped symbol also costs zero scan
+        # load. Open positions are managed by position_monitor.py,
+        # which never reads this, so narrowing never orphans a trade.
+        # Fails open (no restriction, loudly logged) — a bug in a
+        # focus/portfolio feature must not silently halt all trading.
+        from app.services.instrument_selection import owner_key_for, resolve_allowed_symbols
+        allowed_by_owner: Dict[str, Optional[set]] = {}
+        bots_by_owner: Dict[str, List[BotConfig]] = {}
+        for bot in active_bots:
+            bots_by_owner.setdefault(owner_key_for(bot.user_id), []).append(bot)
+        for owner_key, owner_bots in bots_by_owner.items():
+            try:
+                allowed_by_owner[owner_key] = (await resolve_allowed_symbols(db, owner_key, owner_bots, now))["symbols"]
+            except Exception as e:
+                logger.error("instrument_focus_resolve_failed", owner_key=owner_key, error=str(e))
+                allowed_by_owner[owner_key] = None
+
         from app.services.exchange_engine import resolve_exchange
         groups: Dict[tuple, List[BotConfig]] = {}
         for bot in active_bots:
             default_exchange = bot.exchange or settings.MARKET_SCANNER_DEFAULT_EXCHANGE
+            allowed = allowed_by_owner.get(owner_key_for(bot.user_id))
             for symbol in (bot.symbols or []):
+                if allowed is not None and symbol not in allowed:
+                    continue
                 exchange, _reason = await resolve_exchange(db, bot, symbol, default_exchange)
                 groups.setdefault((exchange, symbol), []).append(bot)
         return groups

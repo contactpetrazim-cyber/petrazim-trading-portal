@@ -330,6 +330,140 @@ async def set_margin_auto_switch_mode(
     return MarginAutoSwitchModeResponse(enabled=req.enabled)
 
 
+# ── Instrument Focus engine ──────────────────────────────────────────
+# By direct request: bots trade at most 3 instruments at a time (master
+# switch: limited / custom / all), chosen by the trader per session,
+# daily, weekly, monthly or perpetual. See services/instrument_selection.py.
+# Registered above GET /{bot_id} on purpose — that route would
+# otherwise swallow "/instrument-selection" as a bot_id.
+
+class InstrumentLimitModeRequest(BaseModel):
+    mode: str = Field(..., pattern="^(limited|custom|all)$")
+    custom_max: int = Field(default=3, ge=1, le=50)
+
+
+class InstrumentSelectionRequest(BaseModel):
+    symbols: List[str] = Field(..., min_length=1)
+    period: str = Field(..., pattern="^(session|daily|weekly|monthly|perpetual)$")
+    session: Optional[str] = Field(default=None, pattern="^(asia|london|new_york)$")
+    owner: Optional[str] = None
+
+
+async def _resolve_focus_owner(owner: Optional[str], user: User) -> str:
+    """A trader always acts on their own bots. Staff may act on the
+    platform's ownerless bots ("platform") or on any trader's (by id);
+    staff default to "platform" since that's where most staff-run bots
+    live."""
+    from app.services.instrument_selection import PLATFORM_OWNER_KEY, owner_key_for
+    if user.role not in STAFF_ROLES:
+        if owner not in (None, str(user.id)):
+            raise HTTPException(status_code=403, detail="You can only set the instrument focus for your own bots.")
+        return owner_key_for(user.id)
+    if owner in (None, "", PLATFORM_OWNER_KEY):
+        return PLATFORM_OWNER_KEY
+    try:
+        uuid.UUID(owner)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="owner must be 'platform' or a user id")
+    return owner
+
+
+async def _instrument_focus_state(db: AsyncSession, owner_key: str) -> dict:
+    from app.services import instrument_selection as focus
+    now = datetime.utcnow()
+    mode = await focus.get_limit_mode(db)
+    candidates, owner_bots = await focus.candidate_symbols_for_owner(db, owner_key)
+    selection = await focus.get_selection(db, owner_key)
+    effective = await focus.resolve_allowed_symbols(db, owner_key, owner_bots, now)
+    return {
+        **mode,
+        "owner": owner_key,
+        "candidates": candidates,
+        "selection": selection,
+        "selection_live": focus.selection_is_live(selection, now),
+        "effective_source": effective["source"],
+        "effective_symbols": sorted(effective["symbols"]) if effective["symbols"] is not None else None,
+        "current_session": focus.current_session(now),
+        "sessions": [{"key": k, "label": focus.SESSION_LABELS[k]} for k in focus.SESSIONS],
+        "periods": list(focus.PERIODS),
+        "server_time": now.isoformat(),
+    }
+
+
+@router.get("/instrument-limit-mode")
+async def get_instrument_limit_mode(db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+    from app.services.instrument_selection import get_limit_mode
+    return await get_limit_mode(db)
+
+
+@router.patch("/instrument-limit-mode")
+async def set_instrument_limit_mode(
+    req: InstrumentLimitModeRequest, db: AsyncSession = Depends(get_db), admin: User = Depends(require_super_admin),
+):
+    """Super Admin only — the platform-wide master switch."""
+    from app.services.instrument_selection import set_limit_mode
+    result = await set_limit_mode(db, req.mode, req.custom_max)
+    logger.info("instrument_limit_mode_set", mode=req.mode, custom_max=req.custom_max, by=str(admin.id))
+    return result
+
+
+@router.get("/instrument-selection")
+async def get_instrument_selection(owner: Optional[str] = None, db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access)):
+    return await _instrument_focus_state(db, await _resolve_focus_owner(owner, user))
+
+
+@router.get("/instrument-selection/suggestions")
+async def get_instrument_suggestions(
+    period: str = "daily", session: Optional[str] = None, owner: Optional[str] = None,
+    db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access),
+):
+    from app.services import instrument_selection as focus
+    if period not in focus.PERIODS:
+        raise HTTPException(status_code=400, detail=f"period must be one of {focus.PERIODS}")
+    if session is not None and session not in focus.SESSIONS:
+        raise HTTPException(status_code=400, detail=f"session must be one of {tuple(focus.SESSIONS)}")
+    owner_key = await _resolve_focus_owner(owner, user)
+    candidates, _owner_bots = await focus.candidate_symbols_for_owner(db, owner_key)
+    bot_ids = await focus.evidence_bot_ids(db, owner_key)
+    now = datetime.utcnow()
+    resolved_session = (session or focus.current_session(now) or focus.next_session(now)) if period == "session" else None
+    return {
+        "period": period,
+        "session": resolved_session,
+        "suggestions": await focus.compute_suggestions(db, candidates, bot_ids, period, resolved_session, now),
+    }
+
+
+@router.put("/instrument-selection")
+async def save_instrument_selection(req: InstrumentSelectionRequest, db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access)):
+    from app.services import instrument_selection as focus
+    owner_key = await _resolve_focus_owner(req.owner, user)
+    mode = await focus.get_limit_mode(db)
+    cap = mode["effective_max"]
+    symbols = list(dict.fromkeys(req.symbols))
+    if cap is not None and len(symbols) > cap:
+        raise HTTPException(status_code=400, detail=f"At most {cap} instruments can be selected while the master switch is '{mode['mode']}'.")
+    candidates, _ = await focus.candidate_symbols_for_owner(db, owner_key)
+    unknown = [s for s in symbols if s not in candidates]
+    if unknown:
+        raise HTTPException(status_code=400, detail=f"Not traded by any of these bots: {', '.join(unknown)}")
+    try:
+        await focus.save_selection(db, owner_key, symbols, req.period, req.session, set_by=str(user.id))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    logger.info("instrument_selection_saved", owner=owner_key, symbols=symbols, period=req.period, by=str(user.id))
+    return await _instrument_focus_state(db, owner_key)
+
+
+@router.delete("/instrument-selection")
+async def clear_instrument_selection(owner: Optional[str] = None, db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access)):
+    """Back to the engine's auto-pick (top-N by evidence)."""
+    from app.services.instrument_selection import clear_selection
+    owner_key = await _resolve_focus_owner(owner, user)
+    await clear_selection(db, owner_key)
+    return await _instrument_focus_state(db, owner_key)
+
+
 async def _get_owned_bot(bot_id: str, user: User, db: AsyncSession) -> BotConfig:
     """Fetch a bot and enforce ownership — 404s rather than 403s on a
     bot that exists but isn't the caller's (or a roster trader's), so

@@ -1,7 +1,7 @@
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Bot, Play, Pause, Settings, TrendingUp, Save, Plus, X, Pencil, Trash2, ChevronDown, Copy, Info, BarChart3 } from 'lucide-react';
+import { Bot, Play, Pause, Settings, TrendingUp, Save, Plus, X, Pencil, Trash2, ChevronDown, Copy, Info, BarChart3, Award, Crosshair, Star } from 'lucide-react';
 import { botsApi } from '../services/api';
 import { BotSleepAndSubAuto } from '../components/BotSleepAndSubAuto';
 import { ExchangeEngineControl } from '../components/ExchangeEngineControl';
@@ -14,6 +14,9 @@ import { BotConfig, BotPerformance, BotMetricsUpdate } from '../types';
 import { useThemeStore } from '../hooks/useTheme';
 import { formatApiError } from '../lib/apiError';
 import { getStrategySummary } from '../config/botStrategySummaries';
+import { FoldedCard } from '../components/FoldedCard';
+import { InstrumentFocusControl } from '../components/InstrumentFocusControl';
+import { INSTANCE_GRADES, gradeInstance, isRecommendedBot, type ExpectancyRow, type InstanceGrade } from '../lib/botGrading';
 
 
 /**
@@ -101,6 +104,9 @@ export function BotsPage() {
   }`;
   const [bots, setBots] = useState<BotConfig[]>([]);
   const [performance, setPerformance] = useState<Record<string, BotPerformance>>({});
+  // Per-instance expectancy (same rows as the Optimization Matrix),
+  // used to sort every bot into its A-E performance group card.
+  const [instanceStats, setInstanceStats] = useState<Record<string, ExpectancyRow>>({});
   const [loading, setLoading] = useState(true);
   const [selectedBot, setSelectedBot] = useState<string | null>(null);
   const [editing, setEditing] = useState<BotMetricsUpdate | null>(null);
@@ -186,6 +192,9 @@ export function BotsPage() {
       const perfMap: Record<string, BotPerformance> = {};
       for (const [id, perf] of perfEntries) if (perf) perfMap[id] = perf;
       setPerformance(perfMap);
+      botsApi.getOptimizationMatrix()
+        .then((m) => setInstanceStats(Object.fromEntries(m.bot_instance_expectancy.filter((r) => r.bot_id).map((r) => [r.bot_id as string, r]))))
+        .catch(() => setInstanceStats({}));
     } catch {
       setLoadError('Could not load your bots.');
     } finally {
@@ -408,6 +417,23 @@ export function BotsPage() {
     }
   }
 
+  // Recommended Bots first (the post-testing live roster), then every
+  // other bot in its performance grade. Empty groups are hidden.
+  const botGroups = useMemo(() => {
+    const recommended = bots.filter((b) => isRecommendedBot(b.bot_id));
+    const byGrade: Record<InstanceGrade, BotConfig[]> = { A: [], B: [], C: [], D: [], E: [] };
+    for (const b of bots) if (!isRecommendedBot(b.bot_id)) byGrade[gradeInstance(instanceStats[b.bot_id])].push(b);
+    const groups: { key: string; title: string; summary: string; accent: string; bots: BotConfig[]; defaultOpen: boolean }[] = [];
+    if (recommended.length) {
+      const active = recommended.filter((b) => b.status === 'active').length;
+      groups.push({ key: 'recommended', title: 'Recommended Bots', summary: `${recommended.length} bots · ${active} active — the top two bots per instrument from the testing phase`, accent: '#6366f1', bots: recommended, defaultOpen: true });
+    }
+    for (const g of INSTANCE_GRADES) {
+      if (byGrade[g.grade].length) groups.push({ key: g.grade, title: `${g.title} (${byGrade[g.grade].length})`, summary: g.summary, accent: g.accent, bots: byGrade[g.grade], defaultOpen: !recommended.length && g.grade === 'A' });
+    }
+    return groups;
+  }, [bots, instanceStats]);
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -471,8 +497,17 @@ export function BotsPage() {
         </div>
       )}
 
+      {/* Instrument Focus — max 3 instruments at a time unless the
+          Admin master switch says Custom/All (by direct request). */}
+      <FoldedCard title="Instrument Focus" summary="Which instruments your bots may trade right now (max 3 unless the master switch allows more)" icon={<Crosshair size={18} />} dark={dark}>
+        <InstrumentFocusControl dark={dark} />
+      </FoldedCard>
+
+      {botGroups.map((group) => (
+      <FoldedCard key={group.key} title={group.title} summary={group.summary} accent={group.accent} defaultOpen={group.defaultOpen} dark={dark}
+        icon={group.key === 'recommended' ? <Star size={18} /> : <Award size={18} />}>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {bots.map((bot) => {
+        {group.bots.map((bot) => {
           const perf = performance[bot.bot_id];
           return (
             <div
@@ -1005,6 +1040,8 @@ export function BotsPage() {
           );
         })}
       </div>
+      </FoldedCard>
+      ))}
 
       {showCreate && (
         <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => setShowCreate(false)}>
