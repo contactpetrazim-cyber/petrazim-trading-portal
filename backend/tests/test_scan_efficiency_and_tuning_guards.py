@@ -188,3 +188,70 @@ async def test_scanner_serves_htf_from_cache_and_fetches_fast_tfs_live():
     assert set(first) == set(second) == {"symbol", "1H", "15M", "4H", "1D"}
     assert sorted(scanner.ingestion.calls) == sorted(["1h", "15m", "4h", "1d", "1h", "15m"])  # 4H/1D fetched once
     assert "5m" not in scanner.ingestion.calls
+
+
+# ── HTF intelligent top-up ───────────────────────────────────────────
+
+from app.core.smc_algorithms import Candle
+from app.services import market_scanner as ms
+from app.services.market_scanner import merge_candles
+
+H4 = timedelta(hours=4)
+T0 = datetime(2026, 11, 1)
+
+
+def _bars(start_idx, end_idx, close=1.0):
+    return [Candle(timestamp=T0 + i * H4, open=1, high=2, low=0.5, close=close) for i in range(start_idx, end_idx)]
+
+
+def test_merge_replaces_forming_bar_and_appends_new_ones():
+    cached = _bars(0, 200)                       # last bar (199) was forming when cached
+    fresh = _bars(198, 201, close=9.0)           # 198,199 updated + new bar 200
+    merged = merge_candles(cached, fresh)
+    assert len(merged) == 200                    # trimmed to the cache size
+    assert merged[-1].timestamp == T0 + 200 * H4 and merged[0].timestamp == T0 + 1 * H4
+    assert merged[-2].close == 9.0               # forming bar replaced with its final values
+
+
+def test_merge_refuses_to_stitch_across_a_gap():
+    assert merge_candles(_bars(0, 200), _bars(205, 208)) is None
+    assert merge_candles(_bars(0, 200), []) == _bars(0, 200)
+
+
+class _ExchangeSim:
+    """Serves the latest `limit` 4H bars as of a moving 'now' index."""
+    def __init__(self):
+        self.head = 200
+        self.limits = []
+
+    async def fetch_historical_ccxt(self, exchange, symbol, timeframe, limit):
+        self.limits.append(limit)
+        return _bars(self.head - limit, self.head)
+
+
+async def test_refresh_pulls_three_bars_not_two_hundred(monkeypatch):
+    scanner = MarketScanner.__new__(MarketScanner)
+    scanner.ingestion = _ExchangeSim()
+    scanner._htf_cache = {}
+    clock = {"now": datetime(2026, 11, 11, 13, 0)}
+    monkeypatch.setattr(ms, "datetime", type("D", (datetime,), {"utcnow": staticmethod(lambda: clock["now"])}))
+
+    first = await scanner._cached_htf_candles("bingx", "BTC", "4H", "4h")
+    assert scanner.ingestion.limits == [200] and len(first) == 200
+
+    clock["now"] += timedelta(hours=4)             # a new bar opened
+    scanner.ingestion.head += 1
+    second = await scanner._cached_htf_candles("bingx", "BTC", "4H", "4h")
+    assert scanner.ingestion.limits == [200, 3]    # top-up only
+    assert len(second) == 200 and second[-1].timestamp == T0 + 200 * H4
+
+    clock["now"] += timedelta(hours=16)            # downtime inside 24h: 4 bars missed -> top-up has no overlap -> full resync
+    scanner.ingestion.head += 4
+    third = await scanner._cached_htf_candles("bingx", "BTC", "4H", "4h")
+    assert scanner.ingestion.limits == [200, 3, 3, 200]
+    assert third[-1].timestamp == T0 + 204 * H4
+
+    clock["now"] += timedelta(hours=25)            # daily safety resync
+    scanner.ingestion.head += 6
+    await scanner._cached_htf_candles("bingx", "BTC", "4H", "4h")
+    assert scanner.ingestion.limits[-1] == 200
