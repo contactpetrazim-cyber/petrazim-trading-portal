@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { ShieldAlert, Users, Link2, Percent, ArrowRight, Bot, Wallet, Zap, Shuffle, Activity } from 'lucide-react';
+import { ShieldAlert, Users, Link2, Percent, ArrowRight, Bot, Wallet, Zap, Shuffle, Activity, Crosshair } from 'lucide-react';
+import { InstrumentFocusControl } from '../components/InstrumentFocusControl';
 import { FoldedCard } from '../components/FoldedCard';
 import { RoleBadge } from '../components/RoleBadge';
 import { RosterPanel } from '../components/RosterPanel';
@@ -709,6 +710,18 @@ export function AdminConsolePage() {
           <MasterExchangeBalanceCard dark={dark} />
         </FoldedCard>
       )}
+
+      {/* Instrument Focus master control — by direct request ("Include
+          a master control in the Admin"). Super Admin sets the master
+          switch (Max 3 / Custom / All) and the platform bots' focus;
+          Admins see it read-only and can still set the platform focus. */}
+      <FoldedCard
+        title="Instrument Focus — Master Control"
+        summary="Max instruments bots may trade at once, and the platform bots' current focus"
+        icon={<Crosshair size={18} />} accent="#6366f1" dark={dark}
+      >
+        <InstrumentFocusControl dark={dark} adminView />
+      </FoldedCard>
 
       {/* System Health — the memory/activity "indicator signal" by
           direct request ("give a memory audit or indicator signal ...

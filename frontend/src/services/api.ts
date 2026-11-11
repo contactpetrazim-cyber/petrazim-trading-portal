@@ -1,6 +1,7 @@
 
 import axios from 'axios';
-import { Trade, BotConfig, BotPerformance, BotMetricsUpdate, DashboardStats, SignalPreview, PerformanceSummary, TradeBreakdown, TradeBreakdownPeriod, TodayTradeBreakdown, ExchangeMetaResponse, TraderBrokerConnection, AvailableBot, TraderBotSubscription, OutboundIpsResponse, FeeSettings, FeeLedgerEntry, MyFeesResponse, FeeGateStatus, FeeCheckoutSession, FeeCheckoutProvider, FeeVerifyResult, DeployStateResponse, TradeSnapshot, EncroachmentResponse, SnapshotTimeframe, ExchangeBalancesResponse, MasterExchangeBalancesResponse, SystemHealthResponse, SystemHealthSummaryResponse, BacktestRun, IsolatedBacktestRun, PortfolioBacktestRun, TradeForensics, BotSimulationResponse, CongressTradesResponse, NewsMonitorResponse, TimeMachineRequest, TimeMachineResponse, TradeScannerRequest, TradeScannerResponse, TradeScannerHit, TradeScannerAiReadResponse, DayTraderSkillChatResponse, FeatureAccessGrantItem } from '../types';
+import { Trade, BotConfig, BotPerformance, BotMetricsUpdate, DashboardStats, SignalPreview, PerformanceSummary, TradeBreakdown, TradeBreakdownPeriod, TodayTradeBreakdown, ExchangeMetaResponse, TraderBrokerConnection, AvailableBot, TraderBotSubscription, OutboundIpsResponse, FeeSettings, FeeLedgerEntry, MyFeesResponse, FeeGateStatus, FeeCheckoutSession, FeeCheckoutProvider, FeeVerifyResult, DeployStateResponse, TradeSnapshot, EncroachmentResponse, SnapshotTimeframe, ExchangeBalancesResponse, MasterExchangeBalancesResponse, SystemHealthResponse, SystemHealthSummaryResponse, BacktestRun, IsolatedBacktestRun, PortfolioBacktestRun, TradeForensics, BotSimulationResponse, CongressTradesResponse, NewsMonitorResponse, TimeMachineRequest, TimeMachineResponse, TradeScannerRequest, TradeScannerResponse, TradeScannerHit, TradeScannerAiReadResponse, DayTraderSkillChatResponse, FeatureAccessGrantItem, InstrumentLimitMode, InstrumentFocusState, InstrumentFocusPeriod, InstrumentSuggestion } from '../types';
+import type { ExpectancyRow } from '../lib/botGrading';
 import { useAuthStore } from '../hooks/useAuth';
 import { triggerAccessExpired } from '../components/AccessExpiredGate';
 import { triggerFeesOwed } from '../components/TradingFeeGate';
@@ -306,6 +307,25 @@ export const botsApi = {
   // should be a dedicated Vs Auto margin account setting for bots and
   // manual and also a master switch in the Admin portal"). GET
   // readable by any authenticated user; PATCH is Super Admin only.
+  // Instrument Focus engine — bots trade at most N instruments (master
+  // switch: limited=3 / custom / all), picked per session/day/week/
+  // month/perpetual. See backend services/instrument_selection.py.
+  getInstrumentLimitMode: () =>
+    api.get<InstrumentLimitMode>('/bots/instrument-limit-mode').then(r => r.data),
+  setInstrumentLimitMode: (update: { mode: InstrumentLimitMode['mode']; custom_max: number }) =>
+    api.patch<InstrumentLimitMode>('/bots/instrument-limit-mode', update).then(r => r.data),
+  getInstrumentSelection: (owner?: string) =>
+    api.get<InstrumentFocusState>('/bots/instrument-selection', { params: owner ? { owner } : {} }).then(r => r.data),
+  getInstrumentSuggestions: (period: InstrumentFocusPeriod, session?: string | null, owner?: string) =>
+    api.get<{ period: InstrumentFocusPeriod; session: string | null; suggestions: InstrumentSuggestion[] }>(
+      '/bots/instrument-selection/suggestions', { params: { period, ...(session ? { session } : {}), ...(owner ? { owner } : {}) } }
+    ).then(r => r.data),
+  saveInstrumentSelection: (body: { symbols: string[]; period: InstrumentFocusPeriod; session?: string | null; owner?: string }) =>
+    api.put<InstrumentFocusState>('/bots/instrument-selection', body).then(r => r.data),
+  clearInstrumentSelection: (owner?: string) =>
+    api.delete<InstrumentFocusState>('/bots/instrument-selection', { params: owner ? { owner } : {} }).then(r => r.data),
+  getOptimizationMatrix: () =>
+    api.get<{ bot_instance_expectancy: ExpectancyRow[]; bot_family_expectancy: ExpectancyRow[] }>('/bots/optimization-matrix').then(r => r.data),
   getMarginAutoSwitchMode: () =>
     api.get<{ enabled: boolean }>('/bots/margin-auto-switch-mode').then(r => r.data),
   setMarginAutoSwitchMode: (update: { enabled: boolean }) =>

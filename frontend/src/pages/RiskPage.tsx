@@ -1,6 +1,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
-import { Shield, Save, AlertTriangle, DollarSign, Calculator, TrendingDown } from 'lucide-react';
+import { Shield, Save, AlertTriangle, DollarSign, Calculator, TrendingDown, Crosshair } from 'lucide-react';
+import { InstrumentFocusControl } from '../components/InstrumentFocusControl';
 import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, BarChart, Bar, Cell } from 'recharts';
 import { StatCard } from '../components/StatCard';
 import { FoldedCard } from '../components/FoldedCard';
@@ -231,6 +232,14 @@ export function RiskPage() {
       {/* Dynamic Position Size Calculator — by direct request ("include
           dynamic position sizing"). Purely client-side; recomputes live
           as any input changes. */}
+      {/* Instrument Focus — the same control as the Bots page (by
+          direct request: "master control ... bots and risk page").
+          Capping how many instruments bots trade at once is a
+          portfolio-concentration control, so it lives here too. */}
+      <FoldedCard title="Instrument Focus" summary="Bots trade at most 3 instruments at a time unless the master switch allows more" icon={<Crosshair size={19} />} dark={dark}>
+        <InstrumentFocusControl dark={dark} />
+      </FoldedCard>
+
       <FoldedCard title="Position Size Calculator" summary="Risk amount and position size, recomputed live" icon={<Calculator size={19} />} dark={dark}>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <label className="text-xs text-gray-400">

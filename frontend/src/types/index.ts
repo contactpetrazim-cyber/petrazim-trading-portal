@@ -971,3 +971,48 @@ export interface FeatureAccessGrantItem {
 export interface TradeScannerAiReadResponse {
   summary: string;
 }
+
+// Instrument Focus engine (backend services/instrument_selection.py).
+export type InstrumentFocusPeriod = 'session' | 'daily' | 'weekly' | 'monthly' | 'perpetual';
+
+export interface InstrumentLimitMode {
+  mode: 'limited' | 'custom' | 'all';
+  custom_max: number;
+  /** null = no cap ("all"). */
+  effective_max: number | null;
+}
+
+export interface InstrumentSelection {
+  symbols: string[];
+  period: InstrumentFocusPeriod;
+  session: string | null;
+  set_at: string;
+  expires_at: string | null;
+  set_by: string;
+}
+
+export interface InstrumentFocusState extends InstrumentLimitMode {
+  owner: string;
+  candidates: string[];
+  selection: InstrumentSelection | null;
+  selection_live: boolean;
+  effective_source: 'all' | 'selection' | 'auto';
+  effective_symbols: string[] | null;
+  current_session: string | null;
+  sessions: { key: string; label: string }[];
+  periods: InstrumentFocusPeriod[];
+  server_time: string;
+}
+
+export interface InstrumentSuggestion {
+  symbol: string;
+  rank: number | null;
+  score: number;
+  recent_score: number;
+  n: number;
+  win_rate_pct: number | null;
+  avg_r: number | null;
+  total_pnl: number;
+  best_bots: { family: string; score: number }[];
+  reason: string;
+}
