@@ -52,6 +52,7 @@ export function InstrumentFocusControl({ dark = false, adminView = false }: { da
   const [suggestions, setSuggestions] = useState<InstrumentSuggestion[] | null>(null);
   const [picked, setPicked] = useState<string[]>([]);
   const [customMax, setCustomMax] = useState(3);
+  const [maxBotsPerPair, setMaxBotsPerPair] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -79,6 +80,20 @@ export function InstrumentFocusControl({ dark = false, adminView = false }: { da
   }, [owner, applyState]);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { botsApi.getMaxBotsPerPair().then((r) => setMaxBotsPerPair(r.max_bots)).catch(() => setMaxBotsPerPair(null)); }, []);
+
+  async function changeMaxBotsPerPair(value: number) {
+    setBusy(true); setError(null); setNotice(null);
+    try {
+      const r = await botsApi.setMaxBotsPerPair(value);
+      setMaxBotsPerPair(r.max_bots);
+      setNotice(r.max_bots === 1 ? 'Back to the default: one bot per pair.' : `Up to ${r.max_bots} bots may now trade the same pair at once.`);
+    } catch (e: any) {
+      setError(formatApiError(e?.response?.data?.detail, 'That change could not be saved.'));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -177,6 +192,40 @@ export function InstrumentFocusControl({ dark = false, adminView = false }: { da
           {!isSuperAdmin && ' Only a Super Admin can change this.'}
         </p>
       </div>
+
+      {/* Bots per pair — default one bot, one pair. */}
+      {maxBotsPerPair !== null && (
+        <div className={`rounded-xl border p-3 ${maxBotsPerPair > 1 ? (dark ? 'border-amber-500/30 bg-amber-500/5' : 'border-amber-200 bg-amber-50') : card}`}>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2 font-semibold">
+              {isSuperAdmin ? <Crosshair size={15} /> : <Lock size={14} className="text-gray-400" />}
+              Bots per pair: <span>{maxBotsPerPair === 1 ? 'One bot, one pair (default)' : `Up to ${maxBotsPerPair} bots per pair`}</span>
+            </div>
+            {isSuperAdmin && (
+              <div className="flex flex-wrap items-center gap-1.5">
+                <button type="button" disabled={busy} onClick={() => changeMaxBotsPerPair(1)} className={chip(maxBotsPerPair === 1)}>One bot (default)</button>
+                <button type="button" disabled={busy} onClick={() => changeMaxBotsPerPair(Math.max(2, maxBotsPerPair))} className={chip(maxBotsPerPair > 1)}>Allow more</button>
+                {maxBotsPerPair > 1 && (
+                  <label className="flex items-center gap-1 text-xs text-gray-400">
+                    Max bots
+                    <input
+                      type="number" min={2} max={10} value={maxBotsPerPair} disabled={busy}
+                      onChange={(e) => changeMaxBotsPerPair(Math.max(2, Math.min(10, Number(e.target.value) || 2)))}
+                      className={`w-14 px-1.5 py-1 rounded border ${dark ? 'bg-smc-dark border-smc-border text-white' : 'bg-white border-gray-200'}`}
+                    />
+                  </label>
+                )}
+              </div>
+            )}
+          </div>
+          <p className="mt-1 text-xs text-gray-400">
+            {maxBotsPerPair === 1
+              ? 'A bot will not open a trade on a pair while another bot has an open or awaiting-approval trade on it.'
+              : `Warning: up to ${maxBotsPerPair} bots can hold the same pair together, which multiplies the risk on that pair.`}
+            {!isSuperAdmin && ' Only a Super Admin can change this.'}
+          </p>
+        </div>
+      )}
 
       {isStaff && (
         <div className="flex flex-wrap items-center gap-1.5">

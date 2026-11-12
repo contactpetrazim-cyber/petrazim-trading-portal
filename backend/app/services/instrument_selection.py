@@ -121,6 +121,32 @@ async def set_limit_mode(db: AsyncSession, mode: str, custom_max: int) -> Dict:
     return {"mode": mode, "custom_max": custom_max, "effective_max": effective_max(mode, custom_max)}
 
 
+# ── bots per pair ────────────────────────────────────────────────────
+# How many different bots may hold (open or awaiting approval) the same
+# instrument at once. Default 1 — "one bot, one pair" — by direct
+# request; a Super Admin can raise it. Enforced in
+# execution_engine.process_signal.
+MAX_BOTS_PER_PAIR_KEY = "bots.max_bots_per_pair"
+DEFAULT_MAX_BOTS_PER_PAIR = 1
+MAX_BOTS_PER_PAIR_CEILING = 10
+
+
+async def get_max_bots_per_pair(db: AsyncSession) -> int:
+    row = (await db.execute(select(PlatformSetting).where(PlatformSetting.key == MAX_BOTS_PER_PAIR_KEY))).scalar_one_or_none()
+    if not row:
+        return DEFAULT_MAX_BOTS_PER_PAIR
+    try:
+        return max(1, min(MAX_BOTS_PER_PAIR_CEILING, int(row.value)))
+    except (ValueError, TypeError):
+        return DEFAULT_MAX_BOTS_PER_PAIR
+
+
+async def set_max_bots_per_pair(db: AsyncSession, value: int) -> int:
+    value = max(1, min(MAX_BOTS_PER_PAIR_CEILING, int(value)))
+    await _upsert(db, MAX_BOTS_PER_PAIR_KEY, str(value))
+    return value
+
+
 # ── periods / expiry ─────────────────────────────────────────────────
 
 def current_session(now: datetime) -> Optional[str]:

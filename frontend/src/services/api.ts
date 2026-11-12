@@ -314,6 +314,10 @@ export const botsApi = {
     api.get<InstrumentLimitMode>('/bots/instrument-limit-mode').then(r => r.data),
   setInstrumentLimitMode: (update: { mode: InstrumentLimitMode['mode']; custom_max: number }) =>
     api.patch<InstrumentLimitMode>('/bots/instrument-limit-mode', update).then(r => r.data),
+  // How many different bots may hold the same pair at once (default 1).
+  getMaxBotsPerPair: () => api.get<{ max_bots: number; default: number }>('/bots/max-bots-per-pair').then(r => r.data),
+  setMaxBotsPerPair: (max_bots: number) =>
+    api.patch<{ max_bots: number; default: number }>('/bots/max-bots-per-pair', { max_bots }).then(r => r.data),
   getInstrumentSelection: (owner?: string) =>
     api.get<InstrumentFocusState>('/bots/instrument-selection', { params: owner ? { owner } : {} }).then(r => r.data),
   getInstrumentSuggestions: (period: InstrumentFocusPeriod, session?: string | null, owner?: string) =>

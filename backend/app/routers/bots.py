@@ -407,6 +407,27 @@ async def set_instrument_limit_mode(
     return result
 
 
+class MaxBotsPerPairRequest(BaseModel):
+    max_bots: int = Field(..., ge=1, le=10)
+
+
+@router.get("/max-bots-per-pair")
+async def get_max_bots_per_pair_route(db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+    from app.services.instrument_selection import get_max_bots_per_pair
+    return {"max_bots": await get_max_bots_per_pair(db), "default": 1}
+
+
+@router.patch("/max-bots-per-pair")
+async def set_max_bots_per_pair_route(
+    req: MaxBotsPerPairRequest, db: AsyncSession = Depends(get_db), admin: User = Depends(require_super_admin),
+):
+    """Super Admin only. Default is 1: one bot per pair."""
+    from app.services.instrument_selection import set_max_bots_per_pair
+    value = await set_max_bots_per_pair(db, req.max_bots)
+    logger.info("max_bots_per_pair_set", max_bots=value, by=str(admin.id))
+    return {"max_bots": value, "default": 1}
+
+
 @router.get("/instrument-selection")
 async def get_instrument_selection(owner: Optional[str] = None, db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access)):
     return await _instrument_focus_state(db, await _resolve_focus_owner(owner, user))
