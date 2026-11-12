@@ -28,6 +28,11 @@ def _trade(bot_id, symbol, status):
                  direction=TradeDirection.LONG, entry_price=1.0, stop_loss=0.9, lot_size=1.0, risk_percent=1.0, risk_amount=10.0)
 
 
+def _bot(bot_id, status=None):
+    from app.models.bot import BotConfig, BotStatus
+    return BotConfig(bot_id=bot_id, bot_name=bot_id, bot_type="smc", symbols=[], status=status or BotStatus.ACTIVE)
+
+
 def _signal(bot_id, symbol):
     return BotSignal(bot_id=bot_id, bot_name=bot_id, symbol=symbol, direction="long", confidence=0.8, entry_price=100.0,
                      stop_loss=99.0, take_profit=103.0, lot_size=1.0, risk_percent=1.0, reasoning="t", timestamp=datetime.utcnow())
@@ -35,7 +40,7 @@ def _signal(bot_id, symbol):
 
 @pytest.mark.parametrize("status", [TradeStatus.ACTIVE, TradeStatus.PENDING])
 async def test_other_bots_open_or_pending_trade_blocks_the_pair(db, status):
-    db.add(_trade("bot_7_rec_btcusdt", "BTCUSDT.P", status))
+    db.add_all([_bot("bot_7_rec_btcusdt"), _trade("bot_7_rec_btcusdt", "BTCUSDT.P", status)])
     await db.commit()
     engine = ExecutionEngine.__new__(ExecutionEngine)
     result = await engine.process_signal(_signal("bot_3_rec_btcusdt", "BTCUSDT.P"), db=db)
@@ -61,7 +66,7 @@ async def test_closed_trades_other_pairs_and_manual_trades_do_not_block(db):
 async def test_limit_is_a_setting_defaulting_to_one(db):
     from app.services import instrument_selection as focus
     assert await focus.get_max_bots_per_pair(db) == 1
-    db.add(_trade("bot_7_rec_btcusdt", "BTCUSDT.P", TradeStatus.ACTIVE))
+    db.add_all([_bot("bot_7_rec_btcusdt"), _bot("bot_2_other"), _bot("bot_3_rec_btcusdt"), _trade("bot_7_rec_btcusdt", "BTCUSDT.P", TradeStatus.ACTIVE)])
     await db.commit()
     assert await focus.set_max_bots_per_pair(db, 2) == 2
     engine = ExecutionEngine.__new__(ExecutionEngine)
@@ -75,3 +80,15 @@ async def test_limit_is_a_setting_defaulting_to_one(db):
     result = await engine.process_signal(_signal("bot_9_third", "BTCUSDT.P"), db=db)
     assert result["status"] == "pair_occupied" and "at most 2 bots" in result["message"]   # third bot blocked
     assert await focus.set_max_bots_per_pair(db, 99) == 10  # clamped
+
+
+async def test_paused_bots_open_trade_does_not_block_the_pair(db):
+    from app.models.bot import BotStatus
+    db.add_all([_bot("bot_1_macro_swing", BotStatus.PAUSED), _trade("bot_1_macro_swing", "BTCUSDT.P", TradeStatus.ACTIVE)])
+    await db.commit()
+    engine = ExecutionEngine.__new__(ExecutionEngine)
+    try:
+        status = (await engine.process_signal(_signal("bot_3_rec_btcusdt", "BTCUSDT.P"), db=db)).get("status")
+    except Exception:
+        status = "continued_past_guard"
+    assert status != "pair_occupied"
