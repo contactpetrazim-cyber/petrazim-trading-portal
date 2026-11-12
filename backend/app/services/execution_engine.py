@@ -451,6 +451,32 @@ class ExecutionEngine:
                     "message": f"Skipped — {signal.bot_id} already has a pending or active trade on {signal.symbol}.",
                 }
 
+            # One bot per pair at a time — by direct request ("I don't
+            # want more than 1 bot to trade a single pair at a time -
+            # that to me is multiplied risk"). The check above only
+            # stops a bot doubling up on ITSELF; two different bots
+            # could still hold the same instrument together. Any OTHER
+            # bot's open (ACTIVE) or awaiting-approval (PENDING) trade
+            # on this symbol blocks this signal; it clears by itself as
+            # soon as that trade closes or is rejected. Manual trades
+            # (bot_id not starting "bot_") are a trader's own decision
+            # and don't count.
+            other = (await db.execute(
+                _dedup_select(Trade.bot_id).where(
+                    Trade.symbol == signal.symbol,
+                    Trade.bot_id != signal.bot_id,
+                    Trade.bot_id.like("bot\\_%", escape="\\"),
+                    Trade.status.in_([TradeStatus.PENDING, TradeStatus.ACTIVE]),
+                    Trade.is_deleted == False,  # noqa: E712
+                ).limit(1)
+            )).first()
+            if other:
+                logger.info("market_scan_signal_pair_occupied", bot_id=signal.bot_id, symbol=signal.symbol, held_by=other[0])
+                return {
+                    "success": True, "status": "pair_occupied",
+                    "message": f"Skipped — {other[0]} already has a pending or active trade on {signal.symbol}; only one bot trades a pair at a time.",
+                }
+
             # Trailing Loss Guard — bot-wide AND pair-wide, by direct
             # request ("is there a trailing loss rule that's bot wide
             # or pair wide? Develop something that is innovative").

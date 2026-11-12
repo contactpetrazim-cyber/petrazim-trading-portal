@@ -143,7 +143,7 @@ export const GLOSSARY: Record<string, GlossaryEntry> = {
     title: 'R distribution',
     what: 'How many trades ended in each result band, from full losses (≤ −0.75R) to big wins (≥ 3R).',
     why: 'Two rosters with the same average can behave very differently. This shows the shape of the wins and losses.',
-    how: 'Each closed trade is placed in a band by its R multiple. Red bars are losses; blue bars are breakeven and wins.',
+    how: 'Each closed trade is placed in a band by its R multiple. Red bars below the zero line count losses; blue bars above it count breakeven trades and wins.',
     read: 'Healthy trend-following: a tall red bar at −1R (cut losses) and a long blue tail to the right (let winners run). Many trades near 0R mean exits are too early.',
   },
   daily_pnl: {

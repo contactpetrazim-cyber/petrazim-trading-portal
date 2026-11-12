@@ -254,17 +254,18 @@ export function RecommendedBotsDashboard({ dark = false }: { dark?: boolean }) {
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        <Section dark={dark} info={GLOSSARY.r_distribution} title="R distribution" icon={<Activity size={15} />} note="How big the wins and losses are. A healthy trend-following roster has a long right tail.">
+        <Section dark={dark} info={GLOSSARY.r_distribution} title="R distribution" icon={<Activity size={15} />} note="Wins are counted above the zero line, losses below it. A healthy trend-following roster has a long tail of wins to the right.">
           {!hasLive ? <Empty text="Fills in as trades close." /> : tables ? (
             <SimpleTable head={['Outcome', 'Trades']} rows={data.r_distribution.map((b) => [b.bin, String(b.count)])} />
           ) : (
             <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={data.r_distribution} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+              <BarChart data={data.r_distribution.map((b, i) => ({ ...b, signed: i < 2 ? -b.count : b.count }))} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
                 <CartesianGrid stroke={c.grid} vertical={false} />
                 <XAxis dataKey="bin" stroke={c.axis} fontSize={9} tickLine={false} interval={0} angle={-20} height={44} textAnchor="end" />
-                <YAxis stroke={c.axis} fontSize={10} allowDecimals={false} tickLine={false} />
-                <Tooltip contentStyle={tooltipStyle} formatter={(v: number) => [v, 'Trades']} />
-                <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+                <YAxis stroke={c.axis} fontSize={10} allowDecimals={false} tickLine={false} tickFormatter={(v: number) => String(Math.abs(v))} />
+                <ReferenceLine y={0} stroke={c.axis} />
+                <Tooltip contentStyle={tooltipStyle} formatter={(v: number) => [Math.abs(v), v < 0 ? 'Losing trades' : 'Winning / flat trades']} />
+                <Bar dataKey="signed" radius={[4, 4, 0, 0]}>
                   {data.r_distribution.map((b, i) => <Cell key={b.bin} fill={i < 2 ? c.neg : c.live} />)}
                 </Bar>
               </BarChart>
