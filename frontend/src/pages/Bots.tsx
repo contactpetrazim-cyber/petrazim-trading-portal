@@ -1,7 +1,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Bot, Play, Pause, Settings, TrendingUp, Save, Plus, X, Pencil, Trash2, ChevronDown, Copy, Info, BarChart3, Award, Crosshair, Star, LayoutDashboard } from 'lucide-react';
+import { Bot, Play, Pause, Settings, TrendingUp, Save, Plus, X, Pencil, Trash2, ChevronDown, Copy, Info, BarChart3, Award, Crosshair, Star, LayoutDashboard, Search } from 'lucide-react';
 import { botsApi } from '../services/api';
 import { BotSleepAndSubAuto } from '../components/BotSleepAndSubAuto';
 import { ExchangeEngineControl } from '../components/ExchangeEngineControl';
@@ -420,20 +420,40 @@ export function BotsPage() {
 
   // Recommended Bots first (the post-testing live roster), then every
   // other bot in its performance grade. Empty groups are hidden.
+  // Search by bot name/id or instrument pair (by direct request).
+  const [botSearch, setBotSearch] = useState('');
+  const searchTerm = botSearch.trim().toLowerCase();
+
+  // Folders, in order: Active (every bot that is switched on, whatever
+  // folder it would otherwise sit in — automatic, it follows each bot's
+  // status, so starting or pausing a bot moves it on the spot), then
+  // Recommended Bots, then the performance grades. A bot appears in
+  // exactly one folder. Empty folders are hidden.
   const botGroups = useMemo(() => {
-    const recommended = bots.filter((b) => isRecommendedBot(b.bot_id));
+    const matches = (b: BotConfig) => !searchTerm
+      || b.bot_name.toLowerCase().includes(searchTerm)
+      || b.bot_id.toLowerCase().includes(searchTerm)
+      || (b.symbols || []).some((sym) => sym.toLowerCase().includes(searchTerm));
+    const shown = bots.filter(matches);
+    const active = shown.filter((b) => b.status === 'active');
+    const rest = shown.filter((b) => b.status !== 'active');
+    const recommended = rest.filter((b) => isRecommendedBot(b.bot_id));
     const byGrade: Record<InstanceGrade, BotConfig[]> = { A: [], B: [], C: [], D: [], E: [] };
-    for (const b of bots) if (!isRecommendedBot(b.bot_id)) byGrade[gradeInstance(instanceStats[b.bot_id])].push(b);
+    for (const b of rest) if (!isRecommendedBot(b.bot_id)) byGrade[gradeInstance(instanceStats[b.bot_id])].push(b);
     const groups: { key: string; title: string; summary: string; accent: string; bots: BotConfig[]; defaultOpen: boolean }[] = [];
+    if (active.length) {
+      groups.push({ key: 'active', title: `Active (${active.length})`, summary: 'Every bot that is switched on right now, gathered from all folders', accent: '#10b981', bots: active, defaultOpen: true });
+    }
     if (recommended.length) {
-      const active = recommended.filter((b) => b.status === 'active').length;
-      groups.push({ key: 'recommended', title: 'Recommended Bots', summary: `${recommended.length} bots · ${active} active — the top two bots per instrument from the testing phase`, accent: '#6366f1', bots: recommended, defaultOpen: true });
+      groups.push({ key: 'recommended', title: `Recommended Bots (${recommended.length})`, summary: 'Paused recommended bots — the top two per instrument from the testing phase', accent: '#6366f1', bots: recommended, defaultOpen: !active.length });
     }
     for (const g of INSTANCE_GRADES) {
-      if (byGrade[g.grade].length) groups.push({ key: g.grade, title: `${g.title} (${byGrade[g.grade].length})`, summary: g.summary, accent: g.accent, bots: byGrade[g.grade], defaultOpen: !recommended.length && g.grade === 'A' });
+      if (byGrade[g.grade].length) groups.push({ key: g.grade, title: `${g.title} (${byGrade[g.grade].length})`, summary: g.summary, accent: g.accent, bots: byGrade[g.grade], defaultOpen: false });
     }
-    return groups;
-  }, [bots, instanceStats]);
+    // While searching, open every folder that has a match.
+    return searchTerm ? groups.map((g) => ({ ...g, defaultOpen: true })) : groups;
+  }, [bots, instanceStats, searchTerm]);
+  const matchCount = botGroups.reduce((n, g) => n + g.bots.length, 0);
 
   return (
     <div className="space-y-6">
@@ -513,9 +533,32 @@ export function BotsPage() {
         <InstrumentFocusControl dark={dark} />
       </FoldedCard>
 
+      {/* Bot search — by bot name or instrument pair. */}
+      {bots.length > 0 && (
+        <div>
+          <div className={`flex items-center gap-2 rounded-xl border px-3 py-2 ${dark ? 'bg-smc-card border-smc-border' : 'bg-white border-gray-200'}`}>
+            <Search size={16} className="text-gray-400 shrink-0" />
+            <input
+              type="search" value={botSearch} onChange={(e) => setBotSearch(e.target.value)}
+              placeholder="Search bots by name or instrument pair, e.g. Bot 3 or BTC"
+              aria-label="Search bots by name or instrument pair"
+              className={`flex-1 bg-transparent text-sm outline-none ${dark ? 'text-white placeholder:text-gray-500' : 'text-gray-900 placeholder:text-gray-400'}`}
+            />
+            {botSearch && (
+              <button type="button" onClick={() => setBotSearch('')} aria-label="Clear search" className="text-gray-400 hover:text-gray-300"><X size={15} /></button>
+            )}
+          </div>
+          {searchTerm && (
+            <p className="text-xs text-gray-400 mt-1.5">
+              {matchCount === 0 ? `No bots match "${botSearch.trim()}".` : `${matchCount} bot${matchCount === 1 ? '' : 's'} match "${botSearch.trim()}".`}
+            </p>
+          )}
+        </div>
+      )}
+
       {botGroups.map((group) => (
-      <FoldedCard key={group.key} title={group.title} summary={group.summary} accent={group.accent} defaultOpen={group.defaultOpen} dark={dark}
-        icon={group.key === 'recommended' ? <Star size={18} /> : <Award size={18} />}>
+      <FoldedCard key={searchTerm ? `${group.key}-search` : group.key} title={group.title} summary={group.summary} accent={group.accent} defaultOpen={group.defaultOpen} dark={dark}
+        icon={group.key === 'active' ? <Play size={18} /> : group.key === 'recommended' ? <Star size={18} /> : <Award size={18} />}>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {group.bots.map((bot) => {
           const perf = performance[bot.bot_id];
