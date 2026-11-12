@@ -464,6 +464,7 @@ class ExecutionEngine:
             # The limit is a setting (default 1; Super Admin can raise
             # it — services/instrument_selection.get_max_bots_per_pair).
             from app.services.instrument_selection import get_max_bots_per_pair
+            from app.models.bot import BotConfig as _PairBotConfig, BotStatus as _PairBotStatus
             max_bots = await get_max_bots_per_pair(db)
             holders = sorted({row[0] for row in (await db.execute(
                 _dedup_select(Trade.bot_id).where(
@@ -472,6 +473,12 @@ class ExecutionEngine:
                     Trade.bot_id.like("bot\\_%", escape="\\"),
                     Trade.status.in_([TradeStatus.PENDING, TradeStatus.ACTIVE]),
                     Trade.is_deleted == False,  # noqa: E712
+                    # Only bots that are switched on count. A paused
+                    # bot's leftover open trade (by direct request:
+                    # "exempt trades from paused bots") is just being
+                    # managed to its exit; it must not lock the pair
+                    # for the bots that are actually trading.
+                    Trade.bot_id.in_(_dedup_select(_PairBotConfig.bot_id).where(_PairBotConfig.status == _PairBotStatus.ACTIVE)),
                 )
             )).all()})
             if len(holders) >= max_bots:
