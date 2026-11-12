@@ -461,20 +461,25 @@ class ExecutionEngine:
             # soon as that trade closes or is rejected. Manual trades
             # (bot_id not starting "bot_") are a trader's own decision
             # and don't count.
-            other = (await db.execute(
+            # The limit is a setting (default 1; Super Admin can raise
+            # it — services/instrument_selection.get_max_bots_per_pair).
+            from app.services.instrument_selection import get_max_bots_per_pair
+            max_bots = await get_max_bots_per_pair(db)
+            holders = sorted({row[0] for row in (await db.execute(
                 _dedup_select(Trade.bot_id).where(
                     Trade.symbol == signal.symbol,
                     Trade.bot_id != signal.bot_id,
                     Trade.bot_id.like("bot\\_%", escape="\\"),
                     Trade.status.in_([TradeStatus.PENDING, TradeStatus.ACTIVE]),
                     Trade.is_deleted == False,  # noqa: E712
-                ).limit(1)
-            )).first()
-            if other:
-                logger.info("market_scan_signal_pair_occupied", bot_id=signal.bot_id, symbol=signal.symbol, held_by=other[0])
+                )
+            )).all()})
+            if len(holders) >= max_bots:
+                logger.info("market_scan_signal_pair_occupied", bot_id=signal.bot_id, symbol=signal.symbol, held_by=holders, max_bots=max_bots)
+                limit_text = "only one bot trades a pair at a time" if max_bots == 1 else f"at most {max_bots} bots trade a pair at a time"
                 return {
                     "success": True, "status": "pair_occupied",
-                    "message": f"Skipped — {other[0]} already has a pending or active trade on {signal.symbol}; only one bot trades a pair at a time.",
+                    "message": f"Skipped — {', '.join(holders)} already hold{'s' if len(holders) == 1 else ''} a pending or active trade on {signal.symbol}; {limit_text}.",
                 }
 
             # Trailing Loss Guard — bot-wide AND pair-wide, by direct

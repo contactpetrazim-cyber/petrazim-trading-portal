@@ -56,3 +56,22 @@ async def test_closed_trades_other_pairs_and_manual_trades_do_not_block(db):
     except Exception:
         status = "continued_past_guard"   # bare engine has no brokers; getting past the guard is the point
     assert status != "pair_occupied"
+
+
+async def test_limit_is_a_setting_defaulting_to_one(db):
+    from app.services import instrument_selection as focus
+    assert await focus.get_max_bots_per_pair(db) == 1
+    db.add(_trade("bot_7_rec_btcusdt", "BTCUSDT.P", TradeStatus.ACTIVE))
+    await db.commit()
+    assert await focus.set_max_bots_per_pair(db, 2) == 2
+    engine = ExecutionEngine.__new__(ExecutionEngine)
+    try:
+        status = (await engine.process_signal(_signal("bot_3_rec_btcusdt", "BTCUSDT.P"), db=db)).get("status")
+    except Exception:
+        status = "continued_past_guard"
+    assert status != "pair_occupied"                      # second bot allowed at max 2
+    db.add(_trade("bot_2_other", "BTCUSDT.P", TradeStatus.PENDING))
+    await db.commit()
+    result = await engine.process_signal(_signal("bot_9_third", "BTCUSDT.P"), db=db)
+    assert result["status"] == "pair_occupied" and "at most 2 bots" in result["message"]   # third bot blocked
+    assert await focus.set_max_bots_per_pair(db, 99) == 10  # clamped
