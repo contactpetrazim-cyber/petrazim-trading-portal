@@ -1054,7 +1054,7 @@ export interface RecommendedDashboard {
   days_live?: number;
   bots: RecBotRow[];
   instruments: { symbol: string; bots: string[]; live: RecStats; baseline: RecStats }[];
-  equity: { t: string; bot_id: string; symbol: string; r: number; cum_r: number }[];
+  equity: { t: string; bot_id: string; symbol: string; r: number; cum_r: number; trade_id: string; exit_type: string; pnl: number }[];
   r_distribution: { bin: string; count: number }[];
   daily: { day: string; pnl: number; r: number; n: number }[];
   exits: { exit_type: string; count: number }[];
