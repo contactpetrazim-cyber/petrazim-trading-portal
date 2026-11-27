@@ -54,6 +54,19 @@ def family_of(bot_id: str) -> str:
     return m.group(1) if m else bot_id
 
 
+async def get_rollout_at(db: AsyncSession, now: Optional[datetime] = None) -> Optional[datetime]:
+    """The single source of truth for "when did the testing phase end and
+    the recommended-bot roster go live" — the earliest `created_at` among
+    every `*_rec_*` bot (migration 030). Reused by dashboard.py's own
+    `era=post` scoping so the whole app agrees on one cutoff instead of a
+    second hardcoded date drifting from this one. Returns None only if no
+    recommended bot exists yet (nothing to scope by)."""
+    rec_bots = [b for b in (await db.execute(select(BotConfig))).scalars().all() if is_recommended(b.bot_id)]
+    if not rec_bots or not any(b.created_at for b in rec_bots):
+        return None
+    return min(b.created_at for b in rec_bots if b.created_at)
+
+
 def _stats(trades: List[Trade]) -> Dict:
     n = len(trades)
     rs = [t.r_multiple for t in trades if t.r_multiple is not None]
@@ -166,8 +179,14 @@ async def build_dashboard(db: AsyncSession, owner_ids: Optional[List] = None, no
     equity = []
     for t in ordered:
         cum += t.r_multiple or 0.0
+        # trade_id + exit_type + pnl ride along so the frontend can
+        # filter and drill down into the underlying trade directly from
+        # this one array, instead of needing a second endpoint (or a
+        # second, unfiltered P&L lookup) for every chart.
         equity.append({"t": (t.exit_timestamp or t.created_at).isoformat(), "bot_id": t.bot_id, "symbol": t.symbol,
-                       "r": round(t.r_multiple or 0.0, 2), "cum_r": round(cum, 2)})
+                       "r": round(t.r_multiple or 0.0, 2), "cum_r": round(cum, 2), "trade_id": t.trade_id,
+                       "exit_type": t.exit_type.value if t.exit_type else "unknown",
+                       "pnl": round(t.realized_pnl or 0.0, 2)})
 
     r_distribution = []
     for lo, hi, label in R_BINS:

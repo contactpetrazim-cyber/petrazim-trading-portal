@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_
 from datetime import datetime, timedelta
-from typing import Dict, List
+from typing import Dict, List, Literal, Optional
 from app.database import get_db
 from app.models.trade import Trade, TradeStatus
 from app.models.bot import BotConfig, BotStatus
@@ -11,6 +11,7 @@ from app.models.user import User, UserRole
 from app.core.access_gate import require_active_access
 from app.core.ttl_cache import ttl_cache
 from app.schemas import DashboardStats, PerformanceSummary, TodayTradeBreakdown, TradeBreakdown
+from app.services.recommended_dashboard import get_rollout_at
 import structlog
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
@@ -37,6 +38,21 @@ def _scope_bots(query, user: User):
     if user.role not in STAFF_ROLES:
         query = query.where(BotConfig.user_id == user.id)
     return query
+
+
+# The "Post vs Pre+Post" data-era scope, by direct request ("I want the
+# dashboards to view from just Nov 11 ... a post vs pre+post toggle").
+# `era="post"` (the default everywhere below) limits every query to
+# trades closed/opened since the Recommended Bots rollout — the same
+# cutoff get_rollout_at() already computes for the Bots page's own
+# dashboard, reused here so the whole app agrees on one boundary rather
+# than a second hardcoded date. `era="all"` drops the filter entirely —
+# nothing is ever archived or deleted, so pulling the testing-phase data
+# back into view is always just this one query param.
+async def _era_cutoff(era: str, db: AsyncSession) -> Optional[datetime]:
+    if era != "post":
+        return None
+    return await get_rollout_at(db)
 
 
 # "week"/"month" are rolling 7d/30d windows ending now, matching the
@@ -86,7 +102,11 @@ _STATS_CACHE_TTL_SECONDS = 8.0
 
 
 @router.get("/stats", response_model=DashboardStats)
-async def dashboard_stats(db: AsyncSession = Depends(get_db), user: User = Depends(require_active_access)):
+async def dashboard_stats(
+    era: Literal["post", "all"] = "post",
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_active_access),
+):
     """Get real-time dashboard statistics for the caller (Admin/Super Admin see the whole platform).
 
     This is the single most frequently polled endpoint in the app (the
@@ -97,11 +117,15 @@ async def dashboard_stats(db: AsyncSession = Depends(get_db), user: User = Depen
     action). Cached per-user for a short TTL via app/core/ttl_cache.py --
     see that module's own docstring for why this is a plain in-process
     cache rather than Redis."""
-    cached = ttl_cache.get("dashboard_stats", user.id)
+    cache_key = f"{user.id}:{era}"
+    cached = ttl_cache.get("dashboard_stats", cache_key)
     if cached is not None:
         return cached
 
     today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    cutoff = await _era_cutoff(era, db)
+    if cutoff is not None:
+        today_start = max(today_start, cutoff)
 
     # ALL of today's trades, every status — the breakdown below needs
     # cancelled/errored ones too (shown as their own bucket), while
@@ -169,12 +193,13 @@ async def dashboard_stats(db: AsyncSession = Depends(get_db), user: User = Depen
         active_bots=active_bots,
         today_breakdown=today_breakdown,
     )
-    ttl_cache.set("dashboard_stats", user.id, stats, ttl_seconds=_STATS_CACHE_TTL_SECONDS)
+    ttl_cache.set("dashboard_stats", cache_key, stats, ttl_seconds=_STATS_CACHE_TTL_SECONDS)
     return stats
 
 @router.get("/trade-breakdown", response_model=TradeBreakdown)
 async def trade_breakdown(
     period: str = "today",  # "today" | "week" | "month"
+    era: Literal["post", "all"] = "post",
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_active_access),
 ):
@@ -191,6 +216,9 @@ async def trade_breakdown(
     if period not in ("today", "week", "month"):
         period = "today"
     start = _period_start(period)
+    cutoff = await _era_cutoff(era, db)
+    if cutoff is not None:
+        start = max(start, cutoff)
 
     # Same "all statuses, exclude cancelled/errored only for the
     # headline total/win-rate pair, not from the breakdown itself" split
@@ -216,6 +244,7 @@ async def trade_breakdown(
 @router.get("/performance")
 async def performance_summary(
     period: str = "7d",  # 1d, 3d, 7d, 14d, 30d, 90d
+    era: Literal["post", "all"] = "post",
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_active_access),
 ) -> List[PerformanceSummary]:
@@ -236,6 +265,9 @@ async def performance_summary(
 
     delta = period_map.get(period, timedelta(days=7))
     start_date = datetime.utcnow() - delta
+    cutoff = await _era_cutoff(era, db)
+    if cutoff is not None:
+        start_date = max(start_date, cutoff)
 
     # Filter by when a trade CLOSED, not when it was opened — a trade
     # opened 40 days ago but closed yesterday belongs in "1D"/"7D", not
@@ -309,11 +341,15 @@ async def signal_preview(user: User = Depends(require_active_access)) -> List[Di
 @router.get("/equity-curve")
 async def equity_curve(
     days: int = 30,
+    era: Literal["post", "all"] = "post",
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_active_access),
 ):
     """Get equity curve data for charting."""
     start_date = datetime.utcnow() - timedelta(days=days)
+    cutoff = await _era_cutoff(era, db)
+    if cutoff is not None:
+        start_date = max(start_date, cutoff)
 
     # Same close-time fix as /performance above: a still-open trade has
     # no exit_timestamp yet, so coalesce correctly falls back to

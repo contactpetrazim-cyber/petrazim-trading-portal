@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { TodayTradeBreakdown, TradeBreakdown, TradeBreakdownPeriod } from '../types';
 import { dashboardApi } from '../services/api';
 
@@ -36,14 +36,27 @@ const PERIODS: { key: TradeBreakdownPeriod; label: string }[] = [
  * endpoint rather than duplicating this whole component a second time.
  */
 export function TodayTradeBreakdownPills({
-  breakdown, fetchPeriod = dashboardApi.getTradeBreakdown,
+  breakdown, fetchPeriod = dashboardApi.getTradeBreakdown, cacheBustKey,
 }: {
   breakdown: TodayTradeBreakdown;
   fetchPeriod?: (period: TradeBreakdownPeriod) => Promise<TradeBreakdown>;
+  // Pass the current era (or any other value fetchPeriod closes over)
+  // so the Week/Month cache below clears when it changes — otherwise a
+  // bound fetchPeriod with a new era still serves the PREVIOUS era's
+  // cached Week/Month figures until the user re-clicks the pill.
+  // Unused by the Trader Oversight usage, which never passes it.
+  cacheBustKey?: string;
 }) {
   const [period, setPeriod] = useState<TradeBreakdownPeriod>('today');
   const [wider, setWider] = useState<Partial<Record<TradeBreakdownPeriod, TradeBreakdown>>>({});
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (cacheBustKey === undefined) return;
+    setWider({});
+    setPeriod('today');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cacheBustKey]);
 
   async function selectPeriod(p: TradeBreakdownPeriod) {
     setPeriod(p);
