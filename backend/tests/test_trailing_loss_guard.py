@@ -56,3 +56,29 @@ def test_cumulative_four_hour_cutout_unchanged():
 
 def test_empty_history_never_trips():
     assert not run([]).tripped
+
+
+def test_same_bot_rapid_losses_each_count_as_their_own_event():
+    # Real live case, 2026-11-12: bot_17_rec_xautusdt on XAUTUSDT.P lost
+    # 3 times before opening what became its 4th losing trade in a row.
+    # Its 1st and 2nd losses closed only 11 minutes apart; the 2nd and
+    # 3rd, 61 minutes apart. check_pair's cross-bot clustering (the
+    # default here) correctly treats the first two as one event — but
+    # check_bot was passing its own single-bot rows through that same
+    # clustering, collapsing them too and leaving the streak one event
+    # short right when the 4th trade opened.
+    # -0.99R (not a clean -1R) so the cumulative-loss condition (-30, the
+    # 3x-average-risk threshold here) is narrowly missed too, exactly as
+    # the real near-1R-but-not-quite losses missed it on the day —
+    # isolating the streak/clustering condition this test targets.
+    t1 = _t(2, -0.99)                    # NOW - 2:00
+    t2 = _t(1, -0.99, minutes=49)        # NOW - 1:49 (11 min after t1)
+    t3 = _t(0, -0.99, minutes=48)        # NOW - 0:48 (61 min after t2)
+    rows = sorted([t1, t2, t3], key=lambda t: t.exit_timestamp, reverse=True)
+
+    # Cross-bot clustering (check_pair's default): 2 events, doesn't trip.
+    assert not _evaluate(rows, now=NOW).tripped
+    # Same-bot streak (check_bot's cluster_by_time=False): 3 distinct
+    # events, trips — this is the fix.
+    res = _evaluate(rows, now=NOW, cluster_by_time=False)
+    assert res.tripped and "3 consecutive losses" in res.reason
