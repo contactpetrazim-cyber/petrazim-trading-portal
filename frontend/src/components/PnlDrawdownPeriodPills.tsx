@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { TradeBreakdown, TradeBreakdownPeriod } from '../types';
 import { dashboardApi } from '../services/api';
 
@@ -22,17 +22,27 @@ const PERIODS: { key: TradeBreakdownPeriod; label: string }[] = [
  * "today" regardless of this toggle, exactly like Today's Trades'
  * total does — this only changes the smaller figure shown here.
  */
-export function PnlDrawdownPeriodPills({ metric, todayValue }: { metric: 'pnl' | 'drawdown'; todayValue: number }) {
+export function PnlDrawdownPeriodPills({ metric, todayValue, era = 'post' }: { metric: 'pnl' | 'drawdown'; todayValue: number; era?: 'post' | 'all' }) {
   const [period, setPeriod] = useState<TradeBreakdownPeriod>('today');
   const [wider, setWider] = useState<Partial<Record<TradeBreakdownPeriod, TradeBreakdown>>>({});
   const [loading, setLoading] = useState(false);
+
+  // The Week/Month cache is only ever for the currently selected era —
+  // clear it (and fall back to "today", which is always era-correct
+  // via the todayValue prop) whenever the era toggle flips, so a stale
+  // all-time figure never lingers after switching to post-rollout-only.
+  useEffect(() => {
+    setWider({});
+    setPeriod('today');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [era]);
 
   async function selectPeriod(p: TradeBreakdownPeriod) {
     setPeriod(p);
     if (p === 'today' || wider[p]) return;
     setLoading(true);
     try {
-      const data = await dashboardApi.getTradeBreakdown(p);
+      const data = await dashboardApi.getTradeBreakdown(p, era);
       setWider((prev) => ({ ...prev, [p]: data }));
     } catch {
       // Leave that period's cache empty — shows "—" until retried.

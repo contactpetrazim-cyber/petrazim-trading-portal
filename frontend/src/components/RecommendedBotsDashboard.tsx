@@ -3,13 +3,29 @@ import {
   Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Legend, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts';
 import {
-  Activity, AlertOctagon, AlertTriangle, CheckCircle2, Info, Lightbulb, ListChecks, RefreshCw, Table2, Target, TrendingDown, TrendingUp,
+  Activity, AlertOctagon, AlertTriangle, CheckCircle2, Filter, Info, Lightbulb, ListChecks, RefreshCw, SlidersHorizontal, Table2, Target, TrendingDown, TrendingUp, X,
 } from 'lucide-react';
 import { botsApi } from '../services/api';
 import { formatApiError } from '../lib/apiError';
 import type { RecBotRow, RecStats, RecVerdictLevel, RecommendedDashboard } from '../types';
 import { InfoTip } from './InfoTip';
 import { GLOSSARY, type GlossaryEntry } from '../config/recommendedDashboardGlossary';
+import { useDataEra } from '../hooks/useDataEra';
+import { EraToggle } from './EraToggle';
+import { TradeSnapshotModal } from './TradeSnapshotModal';
+
+type EquityPoint = RecommendedDashboard['equity'][number];
+
+const R_BINS: [number, number, string][] = [
+  [-Infinity, -0.75, '≤ -0.75R'], [-0.75, -0.25, '-0.75 to -0.25R'], [-0.25, 0.25, '≈ 0R'],
+  [0.25, 1.0, '0.25 to 1R'], [1.0, 2.0, '1 to 2R'], [2.0, 3.0, '2 to 3R'], [3.0, Infinity, '≥ 3R'],
+];
+
+interface TradeFilters {
+  dateFrom: string; dateTo: string; botIds: string[]; symbols: string[];
+  outcome: 'all' | 'win' | 'loss'; rrMin: string; rrMax: string;
+}
+const EMPTY_FILTERS: TradeFilters = { dateFrom: '', dateTo: '', botIds: [], symbols: [], outcome: 'all', rrMin: '', rrMax: '' };
 
 /**
  * RecommendedBotsDashboard — the forward-performance dashboard for the
@@ -33,9 +49,15 @@ import { GLOSSARY, type GlossaryEntry } from '../config/recommendedDashboardGlos
  * view.
  */
 
+// `win` — the dataviz skill's own fixed, never-themed status green
+// (references/palette.md), used only where blue meant "win/positive/
+// non-stop-loss" (R distribution, Daily P&L, exit mix), by direct
+// request ("change colour from blue to green"). `live` (still blue)
+// keeps its existing meaning everywhere else — the live-vs-evidence
+// comparison and the equity-curve line aren't a win/loss semantic.
 const PALETTE = {
-  light: { live: '#2a78d6', evidence: '#eb6834', neg: '#e34948', grid: '#e5e7eb', axis: '#6b7280', track: '#e5e7eb' },
-  dark: { live: '#3987e5', evidence: '#d95926', neg: '#e66767', grid: '#1f2937', axis: '#9ca3af', track: '#1f2937' },
+  light: { live: '#2a78d6', evidence: '#eb6834', neg: '#e34948', win: '#0ca30c', grid: '#e5e7eb', axis: '#6b7280', track: '#e5e7eb' },
+  dark: { live: '#3987e5', evidence: '#d95926', neg: '#e66767', win: '#0ca30c', grid: '#1f2937', axis: '#9ca3af', track: '#1f2937' },
 };
 
 const LEVEL_META: Record<RecVerdictLevel, { icon: ReactNode; cls: string; label: string }> = {
@@ -55,14 +77,21 @@ const famLabel = (f: string) => `Bot ${f.replace('bot_', '')}`;
 const fmtR = (r: number | null | undefined) => (r === null || r === undefined ? '—' : `${r > 0 ? '+' : ''}${r.toFixed(2)}R`);
 const fmtPct = (p: number | null | undefined) => (p === null || p === undefined ? '—' : `${p}%`);
 const fmtPF = (pf: RecStats['profit_factor']) => (pf === null ? '—' : typeof pf === 'string' ? pf : pf.toFixed(2));
+const sumR = (trades: EquityPoint[]) => trades.reduce((s, t) => s + t.r, 0);
+const sumPnl = (trades: EquityPoint[]) => trades.reduce((s, t) => s + t.pnl, 0);
 
 export function RecommendedBotsDashboard({ dark = false }: { dark?: boolean }) {
   const c = dark ? PALETTE.dark : PALETTE.light;
+  const { era, setEra } = useDataEra();
   const [data, setData] = useState<RecommendedDashboard | null>(null);
   const [focus, setFocus] = useState<string[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [tables, setTables] = useState(false);
+  const [filters, setFilters] = useState<TradeFilters>(EMPTY_FILTERS);
+  const [showFilters, setShowFilters] = useState(false);
+  const [drillTradeId, setDrillTradeId] = useState<string | null>(null);
+  const [drillBucket, setDrillBucket] = useState<{ label: string; trades: EquityPoint[] } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -101,6 +130,67 @@ export function RecommendedBotsDashboard({ dark = false }: { dark?: boolean }) {
     evidenceN: b.baseline.n,
   })), [data]);
 
+  // The one filterable, drillable raw dataset every chart below reads
+  // from, by direct request ("a Cumulative R chart ... filtered by
+  // bot, instrument pairs, win/loss, custom RR" + "view the trades
+  // that won or lost ... from any of the metrics"). data.equity is
+  // already one row per closed recommended-bot trade (chronological),
+  // enriched with trade_id/exit_type for exactly this. Re-derives
+  // R-distribution/daily/exits client-side instead of trusting the
+  // server's own unfiltered totals, so every chart moves together.
+  const filteredTrades = useMemo(() => {
+    const all = data?.equity ?? [];
+    return all.filter((p) => {
+      if (filters.dateFrom && p.t.slice(0, 10) < filters.dateFrom) return false;
+      if (filters.dateTo && p.t.slice(0, 10) > filters.dateTo) return false;
+      if (filters.botIds.length && !filters.botIds.includes(p.bot_id)) return false;
+      if (filters.symbols.length && !filters.symbols.includes(p.symbol)) return false;
+      if (filters.outcome === 'win' && p.r <= 0) return false;
+      if (filters.outcome === 'loss' && p.r >= 0) return false;
+      const rrMin = parseFloat(filters.rrMin);
+      const rrMax = parseFloat(filters.rrMax);
+      if (!Number.isNaN(rrMin) && p.r < rrMin) return false;
+      if (!Number.isNaN(rrMax) && p.r > rrMax) return false;
+      return true;
+    });
+  }, [data, filters]);
+
+  const filtersActive = filters.dateFrom || filters.dateTo || filters.botIds.length > 0 || filters.symbols.length > 0 || filters.outcome !== 'all' || filters.rrMin !== '' || filters.rrMax !== '';
+
+  // Cumulative R recomputed fresh over the FILTERED subset — the
+  // server's own cum_r is cumulative over every trade, which would be
+  // wrong (and non-contiguous) the moment a filter removes any rows.
+  const filteredEquity = useMemo(() => {
+    let cum = 0;
+    return filteredTrades.map((p, i) => { cum += p.r; return { ...p, idx: i + 1, cum_r: Math.round(cum * 100) / 100 }; });
+  }, [filteredTrades]);
+
+  const filteredRDistribution = useMemo(() => R_BINS.map(([lo, hi, label]) => ({
+    bin: label,
+    trades: filteredTrades.filter((t) => (hi === Infinity ? t.r > lo : t.r > lo && t.r <= hi)),
+  })), [filteredTrades]);
+
+  const filteredDaily = useMemo(() => {
+    const map = new Map<string, EquityPoint[]>();
+    for (const t of filteredTrades) {
+      const day = t.t.slice(0, 10);
+      if (!map.has(day)) map.set(day, []);
+      map.get(day)!.push(t);
+    }
+    return [...map.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([day, trades]) => ({ day, trades }));
+  }, [filteredTrades]);
+
+  const filteredExits = useMemo(() => {
+    const map = new Map<string, EquityPoint[]>();
+    for (const t of filteredTrades) {
+      const k = t.exit_type || 'unknown';
+      if (!map.has(k)) map.set(k, []);
+      map.get(k)!.push(t);
+    }
+    return [...map.entries()].sort(([, a], [, b]) => b.length - a.length).map(([exit_type, trades]) => ({ exit_type, trades }));
+  }, [filteredTrades]);
+
+
   if (error && !data) return <p className="text-sm text-smc-danger">{error}</p>;
   if (!data) return <p className="text-sm text-gray-400">Loading the Recommended Bots dashboard…</p>;
   if (!data.bots.length) {
@@ -126,7 +216,14 @@ export function RecommendedBotsDashboard({ dark = false }: { dark?: boolean }) {
           <span className="inline-flex items-center gap-1">· Live vs evidence <InfoTip entry={GLOSSARY.live_vs_evidence_concept} dark={dark} /></span>
           <span className="inline-flex items-center gap-1">· What is R? <InfoTip entry={GLOSSARY.r_unit} dark={dark} /></span>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <EraToggle era={era} setEra={setEra} dark={dark} />
+          <button type="button" onClick={() => setShowFilters((v) => !v)}
+            className={`flex items-center gap-1 text-xs px-2 py-1 rounded-full transition-colors ${
+              showFilters || filtersActive ? (dark ? 'bg-smc-accent/20 text-smc-accent' : 'bg-corporate-hero/10 text-corporate-hero') : 'text-gray-400 hover:text-gray-300'
+            }`}>
+            <Filter size={13} /> Filters{filtersActive ? ` (${filteredTrades.length})` : ''}
+          </button>
           <button type="button" onClick={() => setTables((v) => !v)} className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-300">
             <Table2 size={13} /> {tables ? 'Show charts' : 'Show as tables'}
           </button>
@@ -136,6 +233,18 @@ export function RecommendedBotsDashboard({ dark = false }: { dark?: boolean }) {
           </button>
         </div>
       </div>
+
+      {showFilters && (
+        <FilterBar
+          dark={dark}
+          surface={surface}
+          filters={filters}
+          setFilters={setFilters}
+          bots={data.bots}
+          instruments={data.instruments}
+          onClear={() => setFilters(EMPTY_FILTERS)}
+        />
+      )}
 
       {/* KPI tiles: live, with the evidence alongside */}
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
@@ -178,13 +287,14 @@ export function RecommendedBotsDashboard({ dark = false }: { dark?: boolean }) {
 
       {/* Equity curve */}
       <Section dark={dark} info={GLOSSARY.equity_curve} title="Cumulative R — the roster's equity curve" icon={<Activity size={15} />}
-        note="Every closed recommended-bot trade in order, summed in R (risk units), so instruments with different prices compare fairly.">
-        {!hasLive ? <Empty text="The curve starts with the first closed trade." /> : tables ? (
+        note="Every closed recommended-bot trade in order, summed in R (risk units), so instruments with different prices compare fairly. Click a point to open that trade.">
+        {!hasLive ? <Empty text="The curve starts with the first closed trade." /> : !filteredEquity.length ? <Empty text="No trades match the current filters." /> : tables ? (
           <SimpleTable head={['Closed', 'Bot', 'Instrument', 'R', 'Cumulative R']}
-            rows={data.equity.map((p) => [p.t.slice(0, 16).replace('T', ' '), p.bot_id, short(p.symbol), fmtR(p.r), fmtR(p.cum_r)])} />
+            rows={filteredEquity.map((p) => [p.t.slice(0, 16).replace('T', ' '), p.bot_id, short(p.symbol), fmtR(p.r), fmtR(p.cum_r)])} />
         ) : (
           <ResponsiveContainer width="100%" height={240}>
-            <AreaChart data={data.equity.map((p, i) => ({ ...p, idx: i + 1 }))} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+            <AreaChart data={filteredEquity} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}
+              onClick={(s) => { const tid = s?.activePayload?.[0]?.payload?.trade_id; if (tid) setDrillTradeId(tid); }}>
               <defs>
                 <linearGradient id="recEq" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor={c.live} stopOpacity={0.25} />
@@ -197,20 +307,24 @@ export function RecommendedBotsDashboard({ dark = false }: { dark?: boolean }) {
               <ReferenceLine y={0} stroke={c.axis} />
               <Tooltip contentStyle={tooltipStyle} cursor={{ stroke: c.axis, strokeDasharray: '3 3' }}
                 formatter={(v: number, k: string) => [fmtR(v), k === 'cum_r' ? 'Cumulative' : k]}
-                labelFormatter={(_l, p) => (p?.[0] ? `${p[0].payload.bot_id} · ${short(p[0].payload.symbol)} · this trade ${fmtR(p[0].payload.r)}` : '')} />
-              <Area type="monotone" dataKey="cum_r" stroke={c.live} strokeWidth={2} fill="url(#recEq)" dot={false} activeDot={{ r: 5 }} />
+                labelFormatter={(_l, p) => (p?.[0] ? `${p[0].payload.bot_id} · ${short(p[0].payload.symbol)} · this trade ${fmtR(p[0].payload.r)} · click to open` : '')} />
+              <Area type="monotone" dataKey="cum_r" stroke={c.live} strokeWidth={2} fill="url(#recEq)" dot={false} activeDot={{ r: 5, style: { cursor: 'pointer' } }} style={{ cursor: 'pointer' }} />
             </AreaChart>
           </ResponsiveContainer>
         )}
       </Section>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        {/* Live vs evidence */}
+        {/* Live vs evidence — the evidence/baseline (pre-rollout) series
+            only renders when era==="all" (Pre+Post); "post" hides it,
+            same toggle as the rest of the app, by direct request. */}
         <Section dark={dark} info={GLOSSARY.live_vs_evidence_chart} title="Live vs evidence — average R per bot" icon={<TrendingUp size={15} />}
-          note="Blue is what each bot is doing now; orange is the pre-rollout record that earned its place. Bots under 5 live trades show their live bar near zero — read the confidence meters first.">
+          note={era === 'all'
+            ? 'Blue is what each bot is doing now; orange is the pre-rollout record that earned its place. Bots under 5 live trades show their live bar near zero — read the confidence meters first.'
+            : 'Blue is what each bot is doing now, post-rollout only. Switch to "All-time incl. testing phase" above to compare against the pre-rollout evidence.'}>
           {tables ? (
-            <SimpleTable head={['Bot', 'Live avg R', 'Live n', 'Evidence avg R', 'Evidence n']}
-              rows={compareRows.map((r) => [r.name, fmtR(r.live), String(r.liveN), fmtR(r.evidence), String(r.evidenceN)])} />
+            <SimpleTable head={era === 'all' ? ['Bot', 'Live avg R', 'Live n', 'Evidence avg R', 'Evidence n'] : ['Bot', 'Live avg R', 'Live n']}
+              rows={compareRows.map((r) => era === 'all' ? [r.name, fmtR(r.live), String(r.liveN), fmtR(r.evidence), String(r.evidenceN)] : [r.name, fmtR(r.live), String(r.liveN)])} />
           ) : (
             <ResponsiveContainer width="100%" height={Math.max(220, compareRows.length * 30)}>
               <BarChart data={compareRows} layout="vertical" margin={{ top: 4, right: 16, left: 8, bottom: 0 }} barGap={2}>
@@ -219,9 +333,9 @@ export function RecommendedBotsDashboard({ dark = false }: { dark?: boolean }) {
                 <YAxis type="category" dataKey="name" stroke={c.axis} fontSize={10} width={110} tickLine={false} />
                 <ReferenceLine x={0} stroke={c.axis} />
                 <Tooltip contentStyle={tooltipStyle} formatter={(v: number, k: string, p: any) => [`${fmtR(v)} (n=${k === 'live' ? p.payload.liveN : p.payload.evidenceN})`, k === 'live' ? 'Live' : 'Evidence']} />
-                <Legend wrapperStyle={{ fontSize: 11 }} formatter={(v) => (v === 'live' ? 'Live' : 'Evidence')} />
+                {era === 'all' && <Legend wrapperStyle={{ fontSize: 11 }} formatter={(v) => (v === 'live' ? 'Live' : 'Evidence')} />}
                 <Bar dataKey="live" fill={c.live} radius={[0, 4, 4, 0]} barSize={9} />
-                <Bar dataKey="evidence" fill={c.evidence} radius={[0, 4, 4, 0]} barSize={9} />
+                {era === 'all' && <Bar dataKey="evidence" fill={c.evidence} radius={[0, 4, 4, 0]} barSize={9} />}
               </BarChart>
             </ResponsiveContainer>
           )}
@@ -254,56 +368,59 @@ export function RecommendedBotsDashboard({ dark = false }: { dark?: boolean }) {
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        <Section dark={dark} info={GLOSSARY.r_distribution} title="R distribution" icon={<Activity size={15} />} note="Wins are counted above the zero line, losses below it. A healthy trend-following roster has a long tail of wins to the right.">
-          {!hasLive ? <Empty text="Fills in as trades close." /> : tables ? (
-            <SimpleTable head={['Outcome', 'Trades']} rows={data.r_distribution.map((b) => [b.bin, String(b.count)])} />
+        <Section dark={dark} info={GLOSSARY.r_distribution} title="R distribution" icon={<Activity size={15} />} note="Wins are counted above the zero line, losses below it. Click a bar to see those trades.">
+          {!hasLive ? <Empty text="Fills in as trades close." /> : !filteredTrades.length ? <Empty text="No trades match the current filters." /> : tables ? (
+            <SimpleTable head={['Outcome', 'Trades']} rows={filteredRDistribution.map((b) => [b.bin, String(b.trades.length)])} />
           ) : (
             <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={data.r_distribution.map((b, i) => ({ ...b, signed: i < 2 ? -b.count : b.count }))} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+              <BarChart data={filteredRDistribution.map((b, i) => ({ ...b, count: b.trades.length, signed: i < 2 ? -b.trades.length : b.trades.length }))} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
                 <CartesianGrid stroke={c.grid} vertical={false} />
                 <XAxis dataKey="bin" stroke={c.axis} fontSize={9} tickLine={false} interval={0} angle={-20} height={44} textAnchor="end" />
                 <YAxis stroke={c.axis} fontSize={10} allowDecimals={false} tickLine={false} tickFormatter={(v: number) => String(Math.abs(v))} />
                 <ReferenceLine y={0} stroke={c.axis} />
                 <Tooltip contentStyle={tooltipStyle} formatter={(v: number) => [Math.abs(v), v < 0 ? 'Losing trades' : 'Winning / flat trades']} />
-                <Bar dataKey="signed" radius={[4, 4, 0, 0]}>
-                  {data.r_distribution.map((b, i) => <Cell key={b.bin} fill={i < 2 ? c.neg : c.live} />)}
+                <Bar dataKey="signed" radius={[4, 4, 0, 0]} style={{ cursor: 'pointer' }}
+                  onClick={(p: any) => p?.trades?.length && setDrillBucket({ label: p.bin, trades: p.trades })}>
+                  {filteredRDistribution.map((b, i) => <Cell key={b.bin} fill={i < 2 ? c.neg : c.win} />)}
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
           )}
         </Section>
 
-        <Section dark={dark} info={GLOSSARY.daily_pnl} title="Daily P&L" icon={<Activity size={15} />} note="Blue days made money, red days lost it.">
-          {!hasLive ? <Empty text="Fills in as trades close." /> : tables ? (
-            <SimpleTable head={['Day', 'Trades', 'R', 'P&L']} rows={data.daily.map((d) => [d.day, String(d.n), fmtR(d.r), `$${d.pnl.toFixed(2)}`])} />
+        <Section dark={dark} info={GLOSSARY.daily_pnl} title="Daily P&L" icon={<Activity size={15} />} note="Green days made money, red days lost it. Click a bar to see that day's trades.">
+          {!hasLive ? <Empty text="Fills in as trades close." /> : !filteredTrades.length ? <Empty text="No trades match the current filters." /> : tables ? (
+            <SimpleTable head={['Day', 'Trades', 'R', 'P&L']}
+              rows={filteredDaily.map((d) => [d.day, String(d.trades.length), fmtR(sumR(d.trades)), `$${sumPnl(d.trades).toFixed(2)}`])} />
           ) : (
             <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={data.daily} margin={{ top: 4, right: 4, left: -10, bottom: 0 }}>
+              <BarChart data={filteredDaily.map((d) => ({ day: d.day, trades: d.trades, pnl: sumPnl(d.trades), r: sumR(d.trades), n: d.trades.length }))} margin={{ top: 4, right: 4, left: -10, bottom: 0 }}>
                 <CartesianGrid stroke={c.grid} vertical={false} />
                 <XAxis dataKey="day" stroke={c.axis} fontSize={9} tickLine={false} tickFormatter={(d: string) => d.slice(5)} />
                 <YAxis stroke={c.axis} fontSize={10} tickLine={false} unit="$" />
                 <ReferenceLine y={0} stroke={c.axis} />
                 <Tooltip contentStyle={tooltipStyle} formatter={(v: number, _k, p: any) => [`$${v.toFixed(2)} · ${fmtR(p.payload.r)} · ${p.payload.n} trades`, 'P&L']} />
-                <Bar dataKey="pnl" radius={[4, 4, 0, 0]}>
-                  {data.daily.map((d) => <Cell key={d.day} fill={d.pnl >= 0 ? c.live : c.neg} />)}
+                <Bar dataKey="pnl" radius={[4, 4, 0, 0]} style={{ cursor: 'pointer' }}
+                  onClick={(p: any) => p?.trades?.length && setDrillBucket({ label: p.day, trades: p.trades })}>
+                  {filteredDaily.map((d) => <Cell key={d.day} fill={sumPnl(d.trades) >= 0 ? c.win : c.neg} />)}
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
           )}
         </Section>
 
-        <Section dark={dark} info={GLOSSARY.exits} title="How trades end" icon={<Activity size={15} />} note="Exit mix. Many stop-outs with few trailing exits means runners are being cut short.">
-          {!data.exits.length ? <Empty text="Fills in as trades close." /> : (
+        <Section dark={dark} info={GLOSSARY.exits} title="How trades end" icon={<Activity size={15} />} note="Exit mix. Many stop-outs with few trailing exits means runners are being cut short. Click a row to see those trades.">
+          {!filteredExits.length ? <Empty text="Fills in as trades close." /> : (
             <div className="space-y-1.5">
-              {data.exits.map((e) => {
-                const pct = Math.round((100 * e.count) / t.n);
+              {filteredExits.map((e) => {
+                const pct = Math.round((100 * e.trades.length) / filteredTrades.length);
                 return (
-                  <div key={e.exit_type}>
-                    <div className="flex justify-between text-xs"><span>{EXIT_LABELS[e.exit_type] ?? e.exit_type}</span><span className="tabular-nums">{e.count} · {pct}%</span></div>
+                  <button key={e.exit_type} type="button" onClick={() => setDrillBucket({ label: EXIT_LABELS[e.exit_type] ?? e.exit_type, trades: e.trades })} className="block w-full text-left">
+                    <div className="flex justify-between text-xs"><span>{EXIT_LABELS[e.exit_type] ?? e.exit_type}</span><span className="tabular-nums">{e.trades.length} · {pct}%</span></div>
                     <div className="h-1.5 rounded-full mt-0.5" style={{ background: c.track }}>
-                      <div className="h-1.5 rounded-full" style={{ width: `${pct}%`, background: e.exit_type === 'stop_loss' ? c.neg : c.live }} />
+                      <div className="h-1.5 rounded-full" style={{ width: `${pct}%`, background: e.exit_type === 'stop_loss' ? c.neg : c.win }} />
                     </div>
-                  </div>
+                  </button>
                 );
               })}
             </div>
@@ -378,6 +495,17 @@ export function RecommendedBotsDashboard({ dark = false }: { dark?: boolean }) {
       </Section>
 
       {error && <p className="text-xs text-smc-danger">{error} (showing the last good data)</p>}
+
+      {drillBucket && (
+        <TradeListModal
+          dark={dark}
+          label={drillBucket.label}
+          trades={drillBucket.trades}
+          onClose={() => setDrillBucket(null)}
+          onOpenTrade={(id) => { setDrillTradeId(id); setDrillBucket(null); }}
+        />
+      )}
+      {drillTradeId && <TradeSnapshotModal tradeId={drillTradeId} dark={dark} onClose={() => setDrillTradeId(null)} />}
     </div>
   );
 }
@@ -441,6 +569,112 @@ function SimpleTable({ head, rows }: { head: ReactNode[]; rows: string[][] }) {
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+/**
+ * FilterBar — date range, bot, instrument, win/loss and custom-RR
+ * filters shared by every chart on this dashboard, by direct request
+ * ("filtered by bot, instrument pairs, win/loss, custom RR"). Purely a
+ * controlled-state editor; RecommendedBotsDashboard's own filteredTrades
+ * useMemo does the actual filtering.
+ */
+function FilterBar({ dark, surface, filters, setFilters, bots, instruments, onClear }: {
+  dark: boolean; surface: string; filters: TradeFilters; setFilters: (f: TradeFilters) => void;
+  bots: RecBotRow[]; instruments: { symbol: string }[]; onClear: () => void;
+}) {
+  const inputCls = `text-xs rounded-md border px-2 py-1 ${dark ? 'bg-smc-dark border-smc-border text-white' : 'bg-white border-gray-300 text-gray-900'}`;
+  function toggle(list: string[], value: string): string[] {
+    return list.includes(value) ? list.filter((v) => v !== value) : [...list, value];
+  }
+  return (
+    <div className={`rounded-xl border p-3 flex flex-wrap items-end gap-3 text-xs ${surface}`}>
+      <div className="flex flex-col gap-1">
+        <label className="text-gray-400">From</label>
+        <input type="date" className={inputCls} value={filters.dateFrom} onChange={(e) => setFilters({ ...filters, dateFrom: e.target.value })} />
+      </div>
+      <div className="flex flex-col gap-1">
+        <label className="text-gray-400">To</label>
+        <input type="date" className={inputCls} value={filters.dateTo} onChange={(e) => setFilters({ ...filters, dateTo: e.target.value })} />
+      </div>
+      <div className="flex flex-col gap-1">
+        <label className="text-gray-400">Outcome</label>
+        <div className="flex gap-1">
+          {(['all', 'win', 'loss'] as const).map((o) => (
+            <button key={o} type="button" onClick={() => setFilters({ ...filters, outcome: o })}
+              className={`px-2 py-1 rounded-md font-medium capitalize ${filters.outcome === o ? (dark ? 'bg-smc-accent text-white' : 'bg-gray-900 text-white') : (dark ? 'bg-white/5 text-gray-300' : 'bg-black/5 text-gray-600')}`}>
+              {o}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="flex flex-col gap-1">
+        <label className="text-gray-400">Min R</label>
+        <input type="number" step="0.1" placeholder="any" className={`${inputCls} w-20`} value={filters.rrMin} onChange={(e) => setFilters({ ...filters, rrMin: e.target.value })} />
+      </div>
+      <div className="flex flex-col gap-1">
+        <label className="text-gray-400">Max R</label>
+        <input type="number" step="0.1" placeholder="any" className={`${inputCls} w-20`} value={filters.rrMax} onChange={(e) => setFilters({ ...filters, rrMax: e.target.value })} />
+      </div>
+      <div className="flex flex-col gap-1 max-w-xs">
+        <label className="text-gray-400">Bots</label>
+        <div className="flex flex-wrap gap-1">
+          {bots.map((b) => (
+            <button key={b.bot_id} type="button" onClick={() => setFilters({ ...filters, botIds: toggle(filters.botIds, b.bot_id) })}
+              className={`px-1.5 py-0.5 rounded-full ${filters.botIds.includes(b.bot_id) ? (dark ? 'bg-smc-accent/30 text-smc-accent' : 'bg-corporate-hero/15 text-corporate-hero') : (dark ? 'bg-white/5 text-gray-400' : 'bg-black/5 text-gray-500')}`}>
+              {famLabel(b.family)}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="flex flex-col gap-1 max-w-xs">
+        <label className="text-gray-400">Instruments</label>
+        <div className="flex flex-wrap gap-1">
+          {instruments.map((inst) => (
+            <button key={inst.symbol} type="button" onClick={() => setFilters({ ...filters, symbols: toggle(filters.symbols, inst.symbol) })}
+              className={`px-1.5 py-0.5 rounded-full ${filters.symbols.includes(inst.symbol) ? (dark ? 'bg-smc-accent/30 text-smc-accent' : 'bg-corporate-hero/15 text-corporate-hero') : (dark ? 'bg-white/5 text-gray-400' : 'bg-black/5 text-gray-500')}`}>
+              {short(inst.symbol)}
+            </button>
+          ))}
+        </div>
+      </div>
+      <button type="button" onClick={onClear} className={`flex items-center gap-1 text-gray-400 hover:text-gray-300 ml-auto`}>
+        <SlidersHorizontal size={12} /> Clear filters
+      </button>
+    </div>
+  );
+}
+
+/**
+ * TradeListModal — the multi-trade drill-down for a clicked bar
+ * (a daily P&L day, an R-distribution bin, an exit-type segment), by
+ * direct request ("view the trades that won or loss ... from any of
+ * the metrics"). Lists the exact trades the bar represents; each row
+ * opens TradeSnapshotModal — the same single-trade detail the equity
+ * curve's own click-through already uses, so there's one drill-down
+ * terminus, not two.
+ */
+function TradeListModal({ dark, label, trades, onClose, onOpenTrade }: {
+  dark: boolean; label: string; trades: EquityPoint[]; onClose: () => void; onOpenTrade: (tradeId: string) => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} className={`w-full max-w-lg max-h-[80vh] overflow-y-auto rounded-2xl border p-4 ${dark ? 'bg-smc-dark border-smc-border text-white' : 'bg-white border-gray-200 text-gray-900'}`}>
+        <div className="flex items-center justify-between mb-3">
+          <h4 className="font-semibold text-sm">{label} · {trades.length} trade{trades.length === 1 ? '' : 's'}</h4>
+          <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-300"><X size={16} /></button>
+        </div>
+        <div className="space-y-1.5">
+          {trades.map((t) => (
+            <button key={t.trade_id} type="button" onClick={() => onOpenTrade(t.trade_id)}
+              className={`w-full flex items-center justify-between text-left text-xs rounded-lg border px-2.5 py-2 ${dark ? 'border-smc-border hover:bg-white/5' : 'border-gray-200 hover:bg-gray-50'}`}>
+              <span>{t.t.slice(0, 16).replace('T', ' ')} · {t.bot_id} · {short(t.symbol)}</span>
+              <span className={`tabular-nums font-semibold ${t.r >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>{fmtR(t.r)} · ${t.pnl.toFixed(2)}</span>
+            </button>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

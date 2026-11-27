@@ -8,6 +8,8 @@ import { TradeAnalytics } from '../components/TradeAnalytics';
 import { dashboardApi } from '../services/api';
 import { PerformanceSummary } from '../types';
 import { useThemeStore } from '../hooks/useTheme';
+import { useDataEra } from '../hooks/useDataEra';
+import { EraToggle } from '../components/EraToggle';
 import { RETRY_DELAYS_MS, type FetchPhase } from '../lib/resilientFetch';
 
 // 3D/14D added alongside the original 1D/7D/30D/90D, by direct
@@ -59,6 +61,7 @@ export function AnalyticsPage() {
   const { portalThemes } = useThemeStore();
   const theme = portalThemes.trader;
   const dark = theme === 'dark';
+  const { era, setEra } = useDataEra();
   const [period, setPeriod] = useState<'1d' | '3d' | '7d' | '14d' | '30d' | '90d'>('7d');
   const [summary, setSummary] = useState<PerformanceSummary | null>(null);
   const [allPeriods, setAllPeriods] = useState<Record<string, PerformanceSummary | null>>({});
@@ -72,7 +75,7 @@ export function AnalyticsPage() {
 
     async function load(): Promise<boolean> {
       try {
-        const results = await Promise.all(PERIODS.map((p) => dashboardApi.getPerformance(p.id)));
+        const results = await Promise.all(PERIODS.map((p) => dashboardApi.getPerformance(p.id, era)));
         if (cancelled) return true;
         const map: Record<string, PerformanceSummary | null> = {};
         PERIODS.forEach((p, i) => { map[p.id] = results[i]?.[0] ?? null; });
@@ -106,7 +109,7 @@ export function AnalyticsPage() {
     loadWithRetry();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [retryTick]);
+  }, [retryTick, era]);
 
   useEffect(() => {
     setSummary(allPeriods[period] ?? null);
@@ -132,6 +135,7 @@ export function AnalyticsPage() {
           </h2>
           <p className="text-gray-400 text-sm mt-1">Real performance metrics from your own closed trades</p>
         </div>
+        <EraToggle era={era} setEra={setEra} dark={dark} />
         <div className={`flex gap-1 p-1 rounded-lg ${dark ? 'bg-white/5' : 'bg-corporate-bg'}`}>
           {PERIODS.map((p) => (
             <button

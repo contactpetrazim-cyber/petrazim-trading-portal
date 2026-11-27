@@ -13,6 +13,8 @@ import { FoldedCard } from '../components/FoldedCard';
 import { ChartWithPairs } from '../components/ChartWithPairs';
 import { useAppStore } from '../hooks/useStore';
 import { useThemeStore } from '../hooks/useTheme';
+import { useDataEra } from '../hooks/useDataEra';
+import { EraToggle } from '../components/EraToggle';
 import { HERO_GRADIENT } from '../config/theme';
 import { dashboardApi, tradesApi, botsApi } from '../services/api';
 import { Trade, BotConfig, BotPerformance } from '../types';
@@ -51,6 +53,7 @@ export function DashboardPage() {
   const { portalThemes } = useThemeStore();
   const theme = portalThemes.trader;
   const dark = theme === 'dark';
+  const { era, setEra } = useDataEra();
   const [equityData, setEquityData] = useState<EquityPoint[]>([]);
   const [pending, setPending] = useState<Trade[]>([]);
   const [recentTrades, setRecentTrades] = useState<Trade[]>([]);
@@ -69,8 +72,8 @@ export function DashboardPage() {
   async function loadData(): Promise<boolean> {
     try {
       const [statsData, curve, pendingApprovals, trades, activeList, botList] = await Promise.all([
-        dashboardApi.getStats(),
-        dashboardApi.getEquityCurve(30),
+        dashboardApi.getStats(era),
+        dashboardApi.getEquityCurve(30, era),
         tradesApi.getPendingApprovals(),
         tradesApi.getTrades({ limit: 5 }),
         tradesApi.getTrades({ status: 'active', limit: 8 }),
@@ -122,7 +125,7 @@ export function DashboardPage() {
     const interval = setInterval(loadData, 30000); // Refresh every 30s
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [era]);
 
   async function handleApprove(tradeId: string) {
     await tradesApi.approveTrade(tradeId, true);
@@ -170,6 +173,7 @@ export function DashboardPage() {
           </div>
           <div className="flex items-center gap-3">
             {error && <span className="px-3 py-1 bg-red-500/20 text-white rounded-full text-sm font-medium">{error}</span>}
+            <EraToggle era={era} setEra={setEra} dark />
             <Link to="/overview" className="rounded-lg bg-white/15 px-3 py-2 text-xs font-semibold text-white">
               Premium overview →
             </Link>
@@ -190,7 +194,13 @@ export function DashboardPage() {
           icon={<Activity size={20} />}
           color="blue" dark={dark}
         >
-          {stats?.today_breakdown && <TodayTradeBreakdownPills breakdown={stats.today_breakdown} />}
+          {stats?.today_breakdown && (
+            <TodayTradeBreakdownPills
+              breakdown={stats.today_breakdown}
+              fetchPeriod={(p) => dashboardApi.getTradeBreakdown(p, era)}
+              cacheBustKey={era}
+            />
+          )}
         </StatCard>
         <StatCard
           title="Daily P&L"
@@ -199,7 +209,7 @@ export function DashboardPage() {
           icon={<DollarSign size={20} />}
           color={stats && stats.daily_pnl >= 0 ? 'green' : 'red'} dark={dark}
         >
-          <PnlDrawdownPeriodPills metric="pnl" todayValue={stats?.daily_pnl ?? 0} />
+          <PnlDrawdownPeriodPills metric="pnl" todayValue={stats?.daily_pnl ?? 0} era={era} />
         </StatCard>
         <StatCard
           title="Daily Drawdown"
@@ -213,7 +223,7 @@ export function DashboardPage() {
           icon={<TrendingDown size={20} />}
           color={stats && stats.current_drawdown > 0 ? 'amber' : 'blue'} dark={dark}
         >
-          <PnlDrawdownPeriodPills metric="drawdown" todayValue={stats?.current_drawdown ?? 0} />
+          <PnlDrawdownPeriodPills metric="drawdown" todayValue={stats?.current_drawdown ?? 0} era={era} />
         </StatCard>
         <StatCard
           title="Active Trades"

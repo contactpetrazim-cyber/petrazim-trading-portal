@@ -20,6 +20,8 @@ import { apiFetch } from '../components/AccessExpiredGate';
 import { useAuth } from '../hooks/useAuth';
 import { useThemeStore } from '../hooks/useTheme';
 import { useEntitlement } from '../hooks/useEntitlement';
+import { useDataEra } from '../hooks/useDataEra';
+import { EraToggle } from '../components/EraToggle';
 import { HERO_GRADIENT } from '../config/theme';
 import { dashboardApi, tradesApi, botsApi } from '../services/api';
 import { RETRY_DELAYS_MS, type FetchPhase } from '../lib/resilientFetch';
@@ -57,6 +59,7 @@ export function PremiumDashboardPage() {
   const { theme } = useThemeStore();
   const dark = theme === 'dark';
   const { refresh: refreshAccess } = useEntitlement();
+  const { era, setEra } = useDataEra();
 
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [equity, setEquity] = useState<EquityPoint[]>([]);
@@ -72,8 +75,8 @@ export function PremiumDashboardPage() {
   async function loadOnce(): Promise<boolean> {
     try {
       const [statsData, curve, pendingApprovals, trades, activeList, botList] = await Promise.all([
-        dashboardApi.getStats(),
-        dashboardApi.getEquityCurve(30),
+        dashboardApi.getStats(era),
+        dashboardApi.getEquityCurve(30, era),
         tradesApi.getPendingApprovals(),
         tradesApi.getTrades({ limit: 6 }),
         tradesApi.getTrades({ status: 'active', limit: 8 }),
@@ -119,7 +122,7 @@ export function PremiumDashboardPage() {
     const interval = setInterval(() => { void loadOnce(); }, 30_000);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [era]);
 
   useEffect(() => {
     if (!token) return;
@@ -152,6 +155,7 @@ export function PremiumDashboardPage() {
           <div className="flex flex-col items-end gap-2">
             {user && <RoleBadge user={user} />}
             <div className="flex items-center gap-3">
+              <EraToggle era={era} setEra={setEra} dark />
               <LoadingIndicator phase={phase} dark showLabel={false} />
               <button
                 type="button"
@@ -176,10 +180,16 @@ export function PremiumDashboardPage() {
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
         <StatCard title="Today's Trades" value={stats?.total_trades_today ?? 0} subtitle={`${stats?.win_rate_today ?? 0}% win rate`} icon={<Activity size={20} />} color="blue">
-          {stats?.today_breakdown && <TodayTradeBreakdownPills breakdown={stats.today_breakdown} />}
+          {stats?.today_breakdown && (
+            <TodayTradeBreakdownPills
+              breakdown={stats.today_breakdown}
+              fetchPeriod={(p) => dashboardApi.getTradeBreakdown(p, era)}
+              cacheBustKey={era}
+            />
+          )}
         </StatCard>
         <StatCard title="Daily P&L" value={`$${stats?.daily_pnl?.toFixed(2) ?? '0.00'}`} subtitle="Net realized profit" icon={<DollarSign size={20} />} color={(stats?.daily_pnl ?? 0) >= 0 ? 'green' : 'red'}>
-          <PnlDrawdownPeriodPills metric="pnl" todayValue={stats?.daily_pnl ?? 0} />
+          <PnlDrawdownPeriodPills metric="pnl" todayValue={stats?.daily_pnl ?? 0} era={era} />
         </StatCard>
         {/* Shown as a negative number — by direct request ("Should this
             be a negative number - since it's a decline"). Display-side
@@ -187,7 +197,7 @@ export function PremiumDashboardPage() {
             non-negative magnitude the color logic below already keys
             off. */}
         <StatCard title="Daily Drawdown" value={`${stats?.current_drawdown ? '-' : ''}$${stats?.current_drawdown?.toFixed(2) ?? '0.00'}`} subtitle="Decline from today's high" icon={<TrendingDown size={20} />} color={(stats?.current_drawdown ?? 0) > 0 ? 'amber' : 'blue'}>
-          <PnlDrawdownPeriodPills metric="drawdown" todayValue={stats?.current_drawdown ?? 0} />
+          <PnlDrawdownPeriodPills metric="drawdown" todayValue={stats?.current_drawdown ?? 0} era={era} />
         </StatCard>
         <StatCard title="Active Trades" value={stats?.active_trades ?? 0} subtitle="Currently in market" icon={<Target size={20} />} color="purple">
           <ActivePositionsMetrics trades={activeTrades} />

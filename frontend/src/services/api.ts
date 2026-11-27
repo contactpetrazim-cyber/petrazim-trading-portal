@@ -81,11 +81,14 @@ export const authApi = {
 };
 
 export const dashboardApi = {
-  getStats: () => api.get<DashboardStats>('/dashboard/stats').then(r => r.data),
-  getTradeBreakdown: (period: TradeBreakdownPeriod = 'today') =>
-    api.get<TradeBreakdown>(`/dashboard/trade-breakdown?period=${period}`).then(r => r.data),
-  getPerformance: (period = '7d') => api.get<PerformanceSummary[]>(`/dashboard/performance?period=${period}`).then(r => r.data),
-  getEquityCurve: (days = 30) => api.get(`/dashboard/equity-curve?days=${days}`).then(r => r.data),
+  // era: 'post' (default, matches the backend's own default) scopes to
+  // since the Recommended Bots rollout; 'all' pulls the pre-rollout
+  // testing-phase trades back into view — see useDataEra.ts.
+  getStats: (era: 'post' | 'all' = 'post') => api.get<DashboardStats>(`/dashboard/stats?era=${era}`).then(r => r.data),
+  getTradeBreakdown: (period: TradeBreakdownPeriod = 'today', era: 'post' | 'all' = 'post') =>
+    api.get<TradeBreakdown>(`/dashboard/trade-breakdown?period=${period}&era=${era}`).then(r => r.data),
+  getPerformance: (period = '7d', era: 'post' | 'all' = 'post') => api.get<PerformanceSummary[]>(`/dashboard/performance?period=${period}&era=${era}`).then(r => r.data),
+  getEquityCurve: (days = 30, era: 'post' | 'all' = 'post') => api.get(`/dashboard/equity-curve?days=${days}&era=${era}`).then(r => r.data),
   getSignalPreview: () => api.get<SignalPreview[]>('/dashboard/signals/preview').then(r => r.data),
 };
 

@@ -90,7 +90,7 @@ def _is_scratch(t: Trade) -> bool:
     return t.r_multiple is not None and LOSS_GUARD_SCRATCH_R < t.r_multiple < 0
 
 
-def _evaluate(rows: list[Trade], now: Optional[datetime] = None) -> LossGuardResult:
+def _evaluate(rows: list[Trade], now: Optional[datetime] = None, cluster_by_time: bool = True) -> LossGuardResult:
     now = now or datetime.utcnow()
     if not rows:
         return LossGuardResult(False)
@@ -98,7 +98,17 @@ def _evaluate(rows: list[Trade], now: Optional[datetime] = None) -> LossGuardRes
     # Condition 1 — LOSS_GUARD_STREAK_COUNT distinct loss EVENTS in a row,
     # newest first, every one inside the staleness window. A win (or
     # breakeven) breaks the streak; a scratch is skipped; simultaneous
-    # losses collapse into one event.
+    # losses collapse into one event — but ONLY when cluster_by_time is
+    # True (check_pair's case: several DIFFERENT bots stopped out by the
+    # same price move). Real bug, found live (Nov 12, bot_17_rec_xautusdt
+    # on XAUTUSDT.P): check_bot passed its own rows through the same
+    # clustering, so that one bot's 1st and 2nd losses — 11 minutes apart,
+    # both genuinely separate trades — collapsed into a single event,
+    # leaving the streak one short of LOSS_GUARD_STREAK_COUNT right as its
+    # 4th losing trade opened. A single bot's own rapid-fire losses are
+    # never simultaneous stop-outs of the kind this clustering exists
+    # for, so check_bot now calls this with cluster_by_time=False — every
+    # closed loss for that one bot counts as its own event, full stop.
     streak_cutoff = now - timedelta(hours=LOSS_GUARD_STREAK_STALENESS_HOURS)
     cluster_gap = timedelta(minutes=LOSS_GUARD_EVENT_CLUSTER_MINUTES)
     events = 0
@@ -110,7 +120,7 @@ def _evaluate(rows: list[Trade], now: Optional[datetime] = None) -> LossGuardRes
             break
         if _is_scratch(t):
             continue
-        if last_loss_at is None or last_loss_at - t.exit_timestamp > cluster_gap:
+        if not cluster_by_time or last_loss_at is None or last_loss_at - t.exit_timestamp > cluster_gap:
             events += 1
         last_loss_at = t.exit_timestamp
     if events >= LOSS_GUARD_STREAK_COUNT:
@@ -145,7 +155,7 @@ async def check_bot(db: AsyncSession, bot_id: str) -> LossGuardResult:
         .order_by(Trade.exit_timestamp.desc())
         .limit(_LOOKBACK_TRADES)
     )).scalars().all()
-    return _evaluate(rows)
+    return _evaluate(rows, cluster_by_time=False)
 
 
 async def check_pair(db: AsyncSession, symbol: str) -> LossGuardResult:
