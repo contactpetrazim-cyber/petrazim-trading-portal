@@ -22,10 +22,10 @@ const R_BINS: [number, number, string][] = [
 ];
 
 interface TradeFilters {
-  dateFrom: string; dateTo: string; botIds: string[]; symbols: string[];
+  dateFrom: string; dateTo: string; botIds: string[]; symbols: string[]; exchanges: string[];
   outcome: 'all' | 'win' | 'loss'; rrMin: string; rrMax: string;
 }
-const EMPTY_FILTERS: TradeFilters = { dateFrom: '', dateTo: '', botIds: [], symbols: [], outcome: 'all', rrMin: '', rrMax: '' };
+const EMPTY_FILTERS: TradeFilters = { dateFrom: '', dateTo: '', botIds: [], symbols: [], exchanges: [], outcome: 'all', rrMin: '', rrMax: '' };
 
 /**
  * RecommendedBotsDashboard — the forward-performance dashboard for the
@@ -145,6 +145,7 @@ export function RecommendedBotsDashboard({ dark = false }: { dark?: boolean }) {
       if (filters.dateTo && p.t.slice(0, 10) > filters.dateTo) return false;
       if (filters.botIds.length && !filters.botIds.includes(p.bot_id)) return false;
       if (filters.symbols.length && !filters.symbols.includes(p.symbol)) return false;
+      if (filters.exchanges.length && !filters.exchanges.includes(p.exchange)) return false;
       if (filters.outcome === 'win' && p.r <= 0) return false;
       if (filters.outcome === 'loss' && p.r >= 0) return false;
       const rrMin = parseFloat(filters.rrMin);
@@ -155,7 +156,19 @@ export function RecommendedBotsDashboard({ dark = false }: { dark?: boolean }) {
     });
   }, [data, filters]);
 
-  const filtersActive = filters.dateFrom || filters.dateTo || filters.botIds.length > 0 || filters.symbols.length > 0 || filters.outcome !== 'all' || filters.rrMin !== '' || filters.rrMax !== '';
+  // Every exchange that actually appears in the trade history — by
+  // direct request ("set up an exchange filter ... so if we change
+  // exchange in future we can easily filter to the correct dataset").
+  // Sourced per-trade (Trade.broker_name, where it REALLY executed),
+  // not from BotConfig.exchange (today's setting only) — a bot moved
+  // between exchanges (e.g. XAUT -> BingX) keeps its older trades
+  // correctly tagged with whichever exchange they actually ran on.
+  const availableExchanges = useMemo(
+    () => [...new Set((data?.equity ?? []).map((p) => p.exchange))].sort(),
+    [data],
+  );
+
+  const filtersActive = filters.dateFrom || filters.dateTo || filters.botIds.length > 0 || filters.symbols.length > 0 || filters.exchanges.length > 0 || filters.outcome !== 'all' || filters.rrMin !== '' || filters.rrMax !== '';
 
   // Cumulative R recomputed fresh over the FILTERED subset — the
   // server's own cum_r is cumulative over every trade, which would be
@@ -242,6 +255,7 @@ export function RecommendedBotsDashboard({ dark = false }: { dark?: boolean }) {
           setFilters={setFilters}
           bots={data.bots}
           instruments={data.instruments}
+          exchanges={availableExchanges}
           onClear={() => setFilters(EMPTY_FILTERS)}
         />
       )}
@@ -289,8 +303,8 @@ export function RecommendedBotsDashboard({ dark = false }: { dark?: boolean }) {
       <Section dark={dark} info={GLOSSARY.equity_curve} title="Cumulative R — the roster's equity curve" icon={<Activity size={15} />}
         note="Every closed recommended-bot trade in order, summed in R (risk units), so instruments with different prices compare fairly. Click a point to open that trade.">
         {!hasLive ? <Empty text="The curve starts with the first closed trade." /> : !filteredEquity.length ? <Empty text="No trades match the current filters." /> : tables ? (
-          <SimpleTable head={['Closed', 'Bot', 'Instrument', 'R', 'Cumulative R']}
-            rows={filteredEquity.map((p) => [p.t.slice(0, 16).replace('T', ' '), p.bot_id, short(p.symbol), fmtR(p.r), fmtR(p.cum_r)])} />
+          <SimpleTable head={['Closed', 'Bot', 'Instrument', 'Exchange', 'R', 'Cumulative R']}
+            rows={filteredEquity.map((p) => [p.t.slice(0, 16).replace('T', ' '), p.bot_id, short(p.symbol), p.exchange, fmtR(p.r), fmtR(p.cum_r)])} />
         ) : (
           <ResponsiveContainer width="100%" height={240}>
             <AreaChart data={filteredEquity} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}
@@ -307,7 +321,7 @@ export function RecommendedBotsDashboard({ dark = false }: { dark?: boolean }) {
               <ReferenceLine y={0} stroke={c.axis} />
               <Tooltip contentStyle={tooltipStyle} cursor={{ stroke: c.axis, strokeDasharray: '3 3' }}
                 formatter={(v: number, k: string) => [fmtR(v), k === 'cum_r' ? 'Cumulative' : k]}
-                labelFormatter={(_l, p) => (p?.[0] ? `${p[0].payload.bot_id} · ${short(p[0].payload.symbol)} · this trade ${fmtR(p[0].payload.r)} · click to open` : '')} />
+                labelFormatter={(_l, p) => (p?.[0] ? `${p[0].payload.bot_id} · ${short(p[0].payload.symbol)} · ${p[0].payload.exchange} · this trade ${fmtR(p[0].payload.r)} · click to open` : '')} />
               <Area type="monotone" dataKey="cum_r" stroke={c.live} strokeWidth={2} fill="url(#recEq)" dot={false} activeDot={{ r: 5, style: { cursor: 'pointer' } }} style={{ cursor: 'pointer' }} />
             </AreaChart>
           </ResponsiveContainer>
@@ -580,9 +594,9 @@ function SimpleTable({ head, rows }: { head: ReactNode[]; rows: string[][] }) {
  * controlled-state editor; RecommendedBotsDashboard's own filteredTrades
  * useMemo does the actual filtering.
  */
-function FilterBar({ dark, surface, filters, setFilters, bots, instruments, onClear }: {
+function FilterBar({ dark, surface, filters, setFilters, bots, instruments, exchanges, onClear }: {
   dark: boolean; surface: string; filters: TradeFilters; setFilters: (f: TradeFilters) => void;
-  bots: RecBotRow[]; instruments: { symbol: string }[]; onClear: () => void;
+  bots: RecBotRow[]; instruments: { symbol: string }[]; exchanges: string[]; onClear: () => void;
 }) {
   const inputCls = `text-xs rounded-md border px-2 py-1 ${dark ? 'bg-smc-dark border-smc-border text-white' : 'bg-white border-gray-300 text-gray-900'}`;
   function toggle(list: string[], value: string): string[] {
@@ -639,6 +653,17 @@ function FilterBar({ dark, surface, filters, setFilters, bots, instruments, onCl
           ))}
         </div>
       </div>
+      <div className="flex flex-col gap-1 max-w-xs">
+        <label className="text-gray-400">Exchange</label>
+        <div className="flex flex-wrap gap-1">
+          {exchanges.map((ex) => (
+            <button key={ex} type="button" onClick={() => setFilters({ ...filters, exchanges: toggle(filters.exchanges, ex) })}
+              className={`px-1.5 py-0.5 rounded-full capitalize ${filters.exchanges.includes(ex) ? (dark ? 'bg-smc-accent/30 text-smc-accent' : 'bg-corporate-hero/15 text-corporate-hero') : (dark ? 'bg-white/5 text-gray-400' : 'bg-black/5 text-gray-500')}`}>
+              {ex}
+            </button>
+          ))}
+        </div>
+      </div>
       <button type="button" onClick={onClear} className={`flex items-center gap-1 text-gray-400 hover:text-gray-300 ml-auto`}>
         <SlidersHorizontal size={12} /> Clear filters
       </button>
@@ -669,7 +694,7 @@ function TradeListModal({ dark, label, trades, onClose, onOpenTrade }: {
           {trades.map((t) => (
             <button key={t.trade_id} type="button" onClick={() => onOpenTrade(t.trade_id)}
               className={`w-full flex items-center justify-between text-left text-xs rounded-lg border px-2.5 py-2 ${dark ? 'border-smc-border hover:bg-white/5' : 'border-gray-200 hover:bg-gray-50'}`}>
-              <span>{t.t.slice(0, 16).replace('T', ' ')} · {t.bot_id} · {short(t.symbol)}</span>
+              <span>{t.t.slice(0, 16).replace('T', ' ')} · {t.bot_id} · {short(t.symbol)} · <span className="capitalize">{t.exchange}</span></span>
               <span className={`tabular-nums font-semibold ${t.r >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>{fmtR(t.r)} · ${t.pnl.toFixed(2)}</span>
             </button>
           ))}
