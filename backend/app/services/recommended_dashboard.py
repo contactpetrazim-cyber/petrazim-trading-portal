@@ -179,12 +179,18 @@ async def build_dashboard(db: AsyncSession, owner_ids: Optional[List] = None, no
     equity = []
     for t in ordered:
         cum += t.r_multiple or 0.0
-        # trade_id + exit_type + pnl ride along so the frontend can
-        # filter and drill down into the underlying trade directly from
-        # this one array, instead of needing a second endpoint (or a
-        # second, unfiltered P&L lookup) for every chart.
+        # trade_id + exit_type + pnl + exchange ride along so the
+        # frontend can filter and drill down into the underlying trade
+        # directly from this one array, instead of needing a second
+        # endpoint (or a second, unfiltered P&L lookup) for every chart.
+        # exchange comes from the TRADE's own broker_name (where it
+        # actually executed), not the bot's current `exchange` setting
+        # — a bot's exchange can change later (e.g. "move XAUT to
+        # BingX"), and broker_name is the only field that still says,
+        # per trade, which one it really ran on at the time.
         equity.append({"t": (t.exit_timestamp or t.created_at).isoformat(), "bot_id": t.bot_id, "symbol": t.symbol,
                        "r": round(t.r_multiple or 0.0, 2), "cum_r": round(cum, 2), "trade_id": t.trade_id,
+                       "exchange": t.broker_name or "unknown",
                        "exit_type": t.exit_type.value if t.exit_type else "unknown",
                        "pnl": round(t.realized_pnl or 0.0, 2)})
 
